@@ -10,25 +10,26 @@ All content is:
   3. Added to the FAISS vector index + JSON docstore
 """
 
-import json
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Dict, List, Sequence
 
-import fitz          # PyMuPDF
 import requests
-from bs4 import BeautifulSoup
-from docx import Document as DocxDocument
+
+try:
+    from bs4 import BeautifulSoup
+except ModuleNotFoundError:
+    BeautifulSoup = None
 
 from config import (
     CHUNK_OVERLAP,
     CHUNK_WORDS,
     DATA_DIR,
-    DOCSTORE_PATH,
     EMBEDDING_DIM,
     FAISS_INDEX_PATH,
 )
-from rag import embed_texts, load_index, save_index
+from rag import embed_texts, load_docstore, load_index, save_index
 
 
 # ── Directory helpers ──────────────────────────────────────────────────────
@@ -71,18 +72,9 @@ def chunk_text(
     return chunks
 
 
-# ── Docstore helpers ───────────────────────────────────────────────────────
-
-def _load_docstore() -> List[Dict[str, str]]:
-    if not DOCSTORE_PATH.exists():
-        return []
-    with DOCSTORE_PATH.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
-
-
 def _source_already_ingested(source: str) -> bool:
     """Return True if *source* is already in the docstore (avoid duplicates)."""
-    docs = _load_docstore()
+    docs = load_docstore()
     return any(d.get("source") == source for d in docs)
 
 
@@ -105,7 +97,7 @@ def _append_documents(
 
     _ensure_dirs()
     index = load_index()
-    docs = _load_docstore()
+    docs = load_docstore()
 
     vectors = embed_texts(chunks)
     if vectors.size == 0:
@@ -134,6 +126,55 @@ def _append_documents(
     return len(chunks)
 
 
+class _VisibleTextExtractor(HTMLParser):
+    """Best-effort fallback HTML text extractor when BeautifulSoup is unavailable."""
+
+    _BLOCK_TAGS = {"h1", "h2", "h3", "h4", "h5", "p", "li", "td", "th", "br", "div"}
+    _SKIP_TAGS = {"script", "style", "noscript", "header", "footer", "nav"}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: List[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:  # type: ignore[override]
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+        elif tag in self._BLOCK_TAGS and self.parts and not self.parts[-1].endswith("\n"):
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:  # type: ignore[override]
+        if tag in self._SKIP_TAGS and self._skip_depth > 0:
+            self._skip_depth -= 1
+        elif tag in self._BLOCK_TAGS and self.parts and not self.parts[-1].endswith("\n"):
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:  # type: ignore[override]
+        if self._skip_depth == 0:
+            text = data.strip()
+            if text:
+                self.parts.append(text + " ")
+
+
+def _extract_visible_text(html: str) -> str:
+    if BeautifulSoup is not None:
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
+            tag.decompose()
+
+        parts: List[str] = []
+        for element in soup.find_all(["h1", "h2", "h3", "h4", "h5", "p", "li", "td", "th"]):
+            text = element.get_text(" ", strip=True)
+            if text:
+                parts.append(text)
+        return " ".join(parts)
+
+    parser = _VisibleTextExtractor()
+    parser.feed(html)
+    parser.close()
+    return clean_text("".join(parser.parts))
+
+
 # ── Public ingest functions ────────────────────────────────────────────────
 
 def ingest_pdf(file_path: str, force: bool = False) -> int:
@@ -152,6 +193,14 @@ def ingest_pdf(file_path: str, force: bool = False) -> int:
         raise FileNotFoundError(f"PDF not found: {path}")
     if path.suffix.lower() != ".pdf":
         raise ValueError(f"Expected a .pdf file, got: {path.suffix}")
+
+    try:
+        import fitz  # type: ignore
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "PyMuPDF is not installed. Install the project dependencies or add "
+            "'PyMuPDF' to your environment before ingesting PDFs."
+        ) from exc
 
     source = str(path)
     if not force and _source_already_ingested(source):
@@ -196,6 +245,14 @@ def ingest_docx(file_path: str, force: bool = False) -> int:
     if path.suffix.lower() != ".docx":
         raise ValueError(f"Expected a .docx file, got: {path.suffix}")
 
+    try:
+        from docx import Document as DocxDocument  # type: ignore
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "python-docx is not installed. Install the project dependencies or "
+            "add 'python-docx' to your environment before ingesting DOCX files."
+        ) from exc
+
     source = str(path)
     if not force and _source_already_ingested(source):
         return 0
@@ -224,17 +281,7 @@ def ingest_url(url: str, force: bool = False) -> int:
     )
     response.raise_for_status()
 
-    soup = BeautifulSoup(response.text, "html.parser")
-    for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
-        tag.decompose()
-
-    parts: List[str] = []
-    for element in soup.find_all(["h1", "h2", "h3", "h4", "h5", "p", "li", "td", "th"]):
-        text = element.get_text(" ", strip=True)
-        if text:
-            parts.append(text)
-
-    text = clean_text(" ".join(parts))
+    text = clean_text(_extract_visible_text(response.text))
     if not text:
         raise ValueError("No readable text found at the URL.")
 
@@ -251,7 +298,7 @@ def ingest_text(text: str, label: str = "manual_text") -> int:
     """
     # Make label unique if "manual_text" default is used multiple times
     if label == "manual_text":
-        docs = _load_docstore()
+        docs = load_docstore()
         existing = sum(1 for d in docs if d.get("source", "").startswith("manual_text"))
         if existing > 0:
             label = f"manual_text_{existing + 1}"
@@ -265,7 +312,7 @@ def list_sources() -> List[Dict[str, str]]:
     Return a summary of all ingested sources.
     Each entry has: source, doc_type, chunk_count.
     """
-    docs = _load_docstore()
+    docs = load_docstore()
     counts: Dict[str, Dict[str, str]] = {}
     for d in docs:
         src = d.get("source", "unknown")

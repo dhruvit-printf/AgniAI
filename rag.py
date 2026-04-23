@@ -47,6 +47,153 @@ def _new_index() -> faiss.Index:
     return faiss.IndexFlatIP(EMBEDDING_DIM)
 
 
+def _escape_control_chars_in_json_strings(raw: str) -> str:
+    """
+    Repair JSON text that contains literal control characters inside strings.
+
+    This is aimed at salvaging docstore files where chunk text was written with
+    raw newlines instead of escaped "\\n" sequences.
+    """
+    repaired: List[str] = []
+    in_string = False
+    escaped = False
+
+    for ch in raw:
+        if in_string:
+            if escaped:
+                repaired.append(ch)
+                escaped = False
+                continue
+
+            if ch == "\\":
+                repaired.append(ch)
+                escaped = True
+                continue
+
+            if ch == '"':
+                repaired.append(ch)
+                in_string = False
+                continue
+
+            if ch == "\n":
+                repaired.append("\\n")
+                continue
+            if ch == "\r":
+                repaired.append("\\r")
+                continue
+            if ch == "\t":
+                repaired.append("\\t")
+                continue
+
+            if ord(ch) < 32:
+                repaired.append(f"\\u{ord(ch):04x}")
+                continue
+
+            repaired.append(ch)
+            continue
+
+        repaired.append(ch)
+        if ch == '"':
+            in_string = True
+
+    return "".join(repaired)
+
+
+def _extract_json_scalar(line: str) -> str:
+    """Extract a simple JSON string value from a single indented key/value line."""
+    value = line.split(":", 1)[1].strip()
+    if value.endswith(","):
+        value = value[:-1].rstrip()
+    if value.startswith('"') and value.endswith('"'):
+        value = value[1:-1]
+    return value
+
+
+def _repair_docstore_from_lines(raw: str) -> List[Dict[str, str]]:
+    """
+    Best-effort salvage parser for docstore.json.
+
+    It assumes the file is an array of objects with the keys:
+    source, doc_type, chunk_id, text.
+    """
+    docs: List[Dict[str, str]] = []
+    obj: Dict[str, str] = {}
+    text_lines: List[str] = []
+    in_object = False
+    in_text = False
+
+    for line in raw.splitlines():
+        stripped = line.strip()
+
+        if stripped == "[" or not stripped:
+            continue
+        if stripped == "]":
+            break
+
+        if stripped.startswith("{"):
+            obj = {}
+            text_lines = []
+            in_object = True
+            in_text = False
+            continue
+
+        if not in_object:
+            continue
+
+        if in_text:
+            if stripped in {"}", "},"}:
+                obj["text"] = "\n".join(text_lines)
+                docs.append(obj)
+                obj = {}
+                text_lines = []
+                in_object = False
+                in_text = False
+                continue
+
+            text_lines.append(line)
+            continue
+
+        if stripped.startswith('"source":'):
+            obj["source"] = _extract_json_scalar(line)
+        elif stripped.startswith('"doc_type":'):
+            obj["doc_type"] = _extract_json_scalar(line)
+        elif stripped.startswith('"chunk_id":'):
+            obj["chunk_id"] = _extract_json_scalar(line)
+        elif stripped.startswith('"text":'):
+            fragment = line.split(":", 1)[1].lstrip()
+            if fragment.startswith('"'):
+                fragment = fragment[1:]
+
+            if fragment.endswith('",'):
+                fragment = fragment[:-2]
+                obj["text"] = fragment
+                text_lines = []
+            elif fragment.endswith('"'):
+                fragment = fragment[:-1]
+                obj["text"] = fragment
+                text_lines = []
+            else:
+                text_lines = [fragment]
+                in_text = True
+            continue
+        elif stripped in {"}", "},"}:
+            if "text" not in obj and text_lines:
+                obj["text"] = "\n".join(text_lines)
+            if obj:
+                docs.append(obj)
+            obj = {}
+            text_lines = []
+            in_object = False
+            in_text = False
+
+    if in_object and obj:
+        if "text" not in obj and text_lines:
+            obj["text"] = "\n".join(text_lines)
+        docs.append(obj)
+
+    return docs
+
+
 # ── Embedding ──────────────────────────────────────────────────────────────
 
 def load_embedding_model() -> SentenceTransformer:
@@ -81,11 +228,25 @@ def embed_query(query: str) -> np.ndarray:
 
 # ── Index persistence ──────────────────────────────────────────────────────
 
-def _load_docstore() -> List[Dict[str, str]]:
+def load_docstore() -> List[Dict[str, str]]:
     if not DOCSTORE_PATH.exists():
         return []
-    with DOCSTORE_PATH.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+
+    raw = DOCSTORE_PATH.read_text(encoding="utf-8", errors="replace")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        repaired = _escape_control_chars_in_json_strings(raw)
+        try:
+            docs = json.loads(repaired)
+        except json.JSONDecodeError:
+            docs = _repair_docstore_from_lines(raw)
+            if not docs:
+                raise
+        # Persist the repaired version so future runs do not hit the same issue.
+        _save_docstore(docs)
+        print("[WARNING] Repaired malformed docstore.json and saved the cleaned copy.")
+        return docs
 
 
 def _save_docstore(docs: List[Dict[str, str]]) -> None:
@@ -100,7 +261,7 @@ def load_index() -> faiss.Index:
     if _INDEX is not None:
         # Re-sync docs if somehow empty while index has vectors (Bug #2 fix)
         if not _DOCS:
-            _DOCS = _load_docstore()
+            _DOCS = load_docstore()
         return _INDEX
 
     _ensure_dirs()
@@ -109,7 +270,7 @@ def load_index() -> faiss.Index:
     else:
         _INDEX = _new_index()
 
-    _DOCS = _load_docstore()
+    _DOCS = load_docstore()
 
     # Guard against index/docstore being out of sync (Bug #3 fix)
     if _INDEX.ntotal > 0 and len(_DOCS) == 0:
