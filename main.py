@@ -112,10 +112,19 @@ def _ensure_dirs() -> None:
 
 
 def _should_use_rag(query: str) -> bool:
-    """Skip RAG for short greetings and pure small-talk."""
+    """Skip RAG for greetings and pure small-talk so the model responds naturally."""
     q = query.strip().lower()
-    greetings = {"hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "bye"}
-    return q not in greetings and len(q.split()) > 2
+    # Single words or common greetings — no need to hit the vector index
+    greetings = {
+        "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "bye",
+        "good morning", "good evening", "good afternoon", "greetings",
+    }
+    if q in greetings:
+        return False
+    # Very short inputs (≤ 2 words) are unlikely to be factual queries
+    if len(q.split()) <= 2:
+        return False
+    return True
 
 
 # ── Command handlers ───────────────────────────────────────────────────────
@@ -308,17 +317,24 @@ def run_chat() -> None:
         print(dim("  🤖 Generating answer…"))
 
         history  = memory.history()
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        if history:
-            messages.extend(history[-4:])   # last 2 exchanges only
 
         if use_rag:
+            # RAG path: inject system prompt + context as reference text
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            if history:
+                messages.extend(history[-4:])
             user_content = (
+                f"=== REFERENCE TEXT (answer from this) ===\n"
+                f"{context}\n"
+                f"=== END REFERENCE TEXT ===\n\n"
                 f"Question: {raw}\n\n"
-                f"Context:\n{context}\n\n"
-                "Answer concisely using ONLY the context above."
+                f"Answer the question using the reference text above."
             )
         else:
+            # Small-talk / greeting path: no context, minimal system prompt
+            messages = [{"role": "system", "content": "You are AgniAI, a helpful assistant for Agniveer recruitment. Respond naturally and concisely."}]
+            if history:
+                messages.extend(history[-4:])
             user_content = raw
 
         messages.append({"role": "user", "content": user_content})

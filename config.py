@@ -24,7 +24,7 @@ OLLAMA_URL      = "http://localhost:11434/api/chat"
 OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 
 # Prefer smallest capable models for CPU-only hardware.
-# llama3:latest (8B) is deliberately last — it is too slow on most CPUs.
+# llama3:latest (8B) is deliberately last — too slow on most CPUs.
 DEFAULT_MODEL   = "phi3:mini"
 FALLBACK_MODELS = [
     "phi3:mini",
@@ -37,33 +37,33 @@ FALLBACK_MODELS = [
 ]
 
 # ── Chunking ───────────────────────────────────────────────────────────────
-# Smaller chunks → smaller embedding batches → faster ingestion.
-CHUNK_WORDS   = 400   # was 650 — reduced to keep each chunk under ~2 KB
+CHUNK_WORDS   = 400
 CHUNK_OVERLAP = 40
 
 # ── Retrieval ──────────────────────────────────────────────────────────────
 TOP_K     = 3
-MIN_SCORE = 0.05   # low threshold — avoids silently discarding weak-but-relevant chunks
+MIN_SCORE = 0.01   # very low — never silently drop chunks; let the LLM decide relevance
 
 # ── Memory ─────────────────────────────────────────────────────────────────
 MEMORY_MAX_MESSAGES = 6   # 3 user + 3 assistant turns
 
 # ── Network ────────────────────────────────────────────────────────────────
-REQUEST_TIMEOUT = 90   # seconds — for the non-streaming rag.py call_llm path
+REQUEST_TIMEOUT = 90
 
 # ── Context budget sent to the LLM ─────────────────────────────────────────
-# Keeping this small is the #1 way to reduce time-to-first-token on CPU.
-MAX_CONTEXT_CHARS = 1800   # ~450 tokens — fits comfortably in num_ctx=1024
+MAX_CONTEXT_CHARS = 2000   # ~500 tokens — fits in num_ctx=1024
 
 # ── Prompts ────────────────────────────────────────────────────────────────
+# IMPORTANT: Keep this prompt SHORT and POSITIVE for small models (phi3, gemma2).
+# Long rule lists cause small models to trigger the refusal clause even when
+# context IS present. Tell the model what TO do, not what NOT to do.
 SYSTEM_PROMPT = """\
-You are AgniAI — a concise expert on India's Agniveer / Agnipath recruitment.
+You are AgniAI, an expert assistant for India's Agniveer / Agnipath military recruitment scheme.
 
-Rules:
-1. Answer ONLY from the retrieved context provided.
-2. If the answer is not in the context, say exactly:
-   "I don't have that information. Please ingest the relevant document first."
-3. Never invent details.
-4. Be concise and structured. Use plain-text bullets (•) or numbered steps.
-5. End with "📌 Source: <filename/url>" when a source is available.
+Instructions:
+- The user's question and relevant reference text are provided below.
+- Read the reference text carefully and answer the question from it.
+- Be concise and structured. Use bullet points (•) or numbered steps where helpful.
+- End your answer with "📌 Source:" followed by the filename or URL from the reference text.
+- If the reference text does not contain the answer, say: "The provided documents do not cover this topic. Please ingest the relevant document."
 """
