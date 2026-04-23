@@ -25,7 +25,7 @@ import textwrap
 from typing import Optional
 
 from config import DATA_DIR, INDEX_DIR, TOP_K
-from ingest import clear_index, ingest_pdf, ingest_text, ingest_txt, ingest_url, list_sources
+from ingest import clear_index, ingest_pdf, ingest_text, ingest_txt, ingest_url, ingest_docx, list_sources
 from memory import ConversationMemory
 from rag import build_context, call_llm, index_stats, search
 
@@ -84,7 +84,8 @@ def _handle_ingest(command: str) -> None:
     parts = command.split(maxsplit=2)
     if len(parts) < 3:
         print(yellow("Usage:  /ingest pdf <path>  |  /ingest url <url>  "
-                     "|  /ingest txt <path>  |  /ingest text <content>"))
+                     "|  /ingest txt <path>  |  /ingest text <content>  "
+                     "|  /ingest docx <path>"))
         return
 
     kind = parts[1].lower()
@@ -100,8 +101,10 @@ def _handle_ingest(command: str) -> None:
             count = ingest_txt(target)
         elif kind == "text":
             count = ingest_text(target)
+        elif kind == "docx":                  
+            count = ingest_docx(target)
         else:
-            print(yellow(f"  Unknown type '{kind}'. Use: pdf, url, txt, or text."))
+            print(yellow(f"  Unknown type '{kind}'. Use: pdf, url, txt, text, or docx."))
             return
 
         if count == 0:

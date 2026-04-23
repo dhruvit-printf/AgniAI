@@ -14,7 +14,7 @@ import json
 import re
 from pathlib import Path
 from typing import Dict, List, Sequence
-
+from docx import Document as DocxDocument
 import fitz          # PyMuPDF
 import requests
 from bs4 import BeautifulSoup
@@ -217,6 +217,27 @@ def ingest_text(text: str, label: str = "manual_text") -> int:
     """Ingest raw text directly (e.g. pasted content)."""
     chunks = chunk_text(text)
     return _append_documents(chunks, source=label, doc_type="text")
+
+def ingest_docx(file_path: str, force: bool = False) -> int:
+    """Ingest a Microsoft Word (.docx) file."""
+    path = Path(file_path).expanduser().resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"Word file not found: {path}")
+    if path.suffix.lower() != ".docx":
+        raise ValueError(f"Expected a .docx file, got: {path.suffix}")
+
+    source = str(path)
+    if not force and _source_already_ingested(source):
+        return 0
+
+    doc = DocxDocument(str(path))
+    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    text = clean_text("\n".join(paragraphs))
+    if not text:
+        raise ValueError("No extractable text found in the Word document.")
+
+    chunks = chunk_text(text)
+    return _append_documents(chunks, source=source, doc_type="docx")
 
 
 def list_sources() -> List[Dict[str, str]]:
