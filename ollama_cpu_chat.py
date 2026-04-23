@@ -75,7 +75,7 @@ TEMPERATURE    = float(os.getenv("OLLAMA_TEMPERATURE",   "0.1"))   # lower = fas
 TOP_K          = int(os.getenv("OLLAMA_TOP_K",           "10"))    # halved from 20
 TOP_P          = float(os.getenv("OLLAMA_TOP_P",         "0.9"))
 REPEAT_PENALTY = float(os.getenv("OLLAMA_REPEAT_PENALTY","1.1"))
-KEEP_ALIVE     = os.getenv("OLLAMA_KEEP_ALIVE",          "-1")     # ← keep model in RAM forever
+KEEP_ALIVE     = os.getenv("OLLAMA_KEEP_ALIVE",          "5m")     # ← keep model in RAM forever
 
 # ── RAG limits ───────────────────────────────────────────────────────────────
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "2"))  # 1 exchange only
