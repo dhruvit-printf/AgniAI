@@ -342,6 +342,9 @@ def run_chat() -> None:
         except RuntimeError as exc:
             print(f"\n  LLM Error: {exc}\n")
             continue
+        except KeyboardInterrupt:  # CLEANUP-FIX
+            print("\n\n  [Generation stopped]\n")  # CLEANUP-FIX
+            continue  # CLEANUP-FIX
 
         # Tokens were already printed live above — only save to memory here
         memory.add("user",      raw)

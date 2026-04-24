@@ -285,6 +285,10 @@ def _ollama_chat_once(
         if pieces:
             raise PartialResponseError("Malformed JSON mid-stream.", "".join(pieces)) from exc
         raise OllamaError(f"Malformed JSON: {exc}") from exc
+    except KeyboardInterrupt:  # CLEANUP-FIX
+        if pieces:  # CLEANUP-FIX
+            raise PartialResponseError("Interrupted by user.", "".join(pieces))  # CLEANUP-FIX
+        raise  # CLEANUP-FIX
 
     duration = time.time() - start
     return ChatResult(
