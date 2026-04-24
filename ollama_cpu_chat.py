@@ -22,7 +22,7 @@ from typing import Callable, Iterable, List, Optional
 
 import requests
 
-from config import MAX_CONTEXT_CHARS as MAX_RAG_CHARS, SYSTEM_PROMPT  # BUG-5 FIX, BUG-7 FIX
+from config import MAX_CONTEXT_CHARS as MAX_RAG_CHARS, SYSTEM_PROMPT 
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -71,16 +71,16 @@ MAX_RETRIES         = int(os.getenv("OLLAMA_MAX_RETRIES",          "2"))
 #               latency win if you ask multiple questions: zero reload cost.
 #               Uses ~2-4 GB RAM permanently. Change to "10m" if RAM is tight.
 
-MAX_TOKENS     = int(os.getenv("OLLAMA_MAX_TOKENS",      "512"))  # BUG-4 FIX
-NUM_CTX        = int(os.getenv("OLLAMA_NUM_CTX",         "2048"))  # BUG-1 FIX
-TEMPERATURE    = float(os.getenv("OLLAMA_TEMPERATURE",   "0.1"))   # lower = faster, less random
-TOP_K          = int(os.getenv("OLLAMA_TOP_K",           "10"))    # halved from 20
+MAX_TOKENS     = int(os.getenv("OLLAMA_MAX_TOKENS",      "512")) 
+NUM_CTX        = int(os.getenv("OLLAMA_NUM_CTX",         "2048"))  
+TEMPERATURE    = float(os.getenv("OLLAMA_TEMPERATURE",   "0.1"))   
+TOP_K          = int(os.getenv("OLLAMA_TOP_K",           "10"))    
 TOP_P          = float(os.getenv("OLLAMA_TOP_P",         "0.9"))
 REPEAT_PENALTY = float(os.getenv("OLLAMA_REPEAT_PENALTY","1.1"))
-KEEP_ALIVE     = os.getenv("OLLAMA_KEEP_ALIVE",          "5m")     # ← keep model in RAM forever
+KEEP_ALIVE     = os.getenv("OLLAMA_KEEP_ALIVE",          "5m")     
 
 # ── RAG limits ───────────────────────────────────────────────────────────────
-MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "5"))  # 4 exchange only
+MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "5"))  
 
 
 # =============================================================================
@@ -218,7 +218,7 @@ def _ollama_chat_once(
             "top_k":          TOP_K,
             "top_p":          TOP_P,
             "repeat_penalty": REPEAT_PENALTY,
-            "num_thread":     int(os.getenv("OLLAMA_NUM_THREAD", "0")),  # 0 = use all cores
+            "num_thread":     int(os.getenv("OLLAMA_NUM_THREAD", "0")),  
         },
     }
 
@@ -287,7 +287,7 @@ def _ollama_chat_once(
         raise OllamaError(f"Malformed JSON: {exc}") from exc
     except KeyboardInterrupt:  # CLEANUP-FIX
         if pieces:  # CLEANUP-FIX
-            raise PartialResponseError("Interrupted by user.", "".join(pieces))  # CLEANUP-FIX
+            raise PartialResponseError("Interrupted by user.", "".join(pieces))  
         raise  # CLEANUP-FIX
 
     duration = time.time() - start
