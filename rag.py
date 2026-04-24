@@ -13,6 +13,8 @@ Speed patches applied:
   3. embed_query() uses batch_size=1 to avoid unnecessary overhead
   4. build_context() strips verbose header metadata to reduce context tokens
 """
+import os
+os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
 
 import json
 import warnings

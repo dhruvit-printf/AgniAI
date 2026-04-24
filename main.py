@@ -305,13 +305,9 @@ def run_chat() -> None:
             if history:
                 messages.extend(history[-4:])
             user_content = (
-                f"=== REFERENCE TEXT ===\n"
-                f"{context}\n"
-                f"=== END REFERENCE TEXT ===\n\n"
-                f"Question: {raw}\n\n"
-                f"Answer the question using ONLY the reference text above. "
-                f"List all relevant points. End with the source."
-            )
+                f"Reference information:\n{context}\n\n"
+                f"Question: {raw}"
+)
         else:
             # Greeting / small-talk path: no RAG, minimal prompt
             messages = [{"role": "system", "content": (
