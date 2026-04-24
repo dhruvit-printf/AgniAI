@@ -26,6 +26,7 @@ from config import (
     CHUNK_OVERLAP,
     CHUNK_WORDS,
     DATA_DIR,
+    DOCSTORE_PATH,  # BUG-3 FIX
     EMBEDDING_DIM,
     FAISS_INDEX_PATH,
 )
@@ -299,7 +300,10 @@ def ingest_text(text: str, label: str = "manual_text") -> int:
     # Make label unique if "manual_text" default is used multiple times
     if label == "manual_text":
         docs = load_docstore()
-        existing = sum(1 for d in docs if d.get("source", "").startswith("manual_text"))
+        existing = len(set(  # BUG-9 FIX
+            d["source"] for d in docs
+            if d.get("source", "").startswith("manual_text")
+        ))
         if existing > 0:
             label = f"manual_text_{existing + 1}"
 

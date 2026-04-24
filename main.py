@@ -118,9 +118,7 @@ def _should_use_rag(query: str) -> bool:
         "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "bye",
         "good morning", "good evening", "good afternoon", "greetings",
     }
-    if q in greetings:
-        return False
-    if len(q.split()) <= 2:
+    if len(q.split()) == 1 and q in greetings:  # BUG-2 FIX
         return False
     return True
 

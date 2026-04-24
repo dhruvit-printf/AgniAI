@@ -22,6 +22,8 @@ from typing import Callable, Iterable, List, Optional
 
 import requests
 
+from config import MAX_CONTEXT_CHARS as MAX_RAG_CHARS, SYSTEM_PROMPT  # BUG-5 FIX, BUG-7 FIX
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
@@ -69,8 +71,8 @@ MAX_RETRIES         = int(os.getenv("OLLAMA_MAX_RETRIES",          "2"))
 #               latency win if you ask multiple questions: zero reload cost.
 #               Uses ~2-4 GB RAM permanently. Change to "10m" if RAM is tight.
 
-MAX_TOKENS     = int(os.getenv("OLLAMA_MAX_TOKENS",      "1500"))
-NUM_CTX        = int(os.getenv("OLLAMA_NUM_CTX",         "512"))   # ← halved from 1024
+MAX_TOKENS     = int(os.getenv("OLLAMA_MAX_TOKENS",      "512"))  # BUG-4 FIX
+NUM_CTX        = int(os.getenv("OLLAMA_NUM_CTX",         "2048"))  # BUG-1 FIX
 TEMPERATURE    = float(os.getenv("OLLAMA_TEMPERATURE",   "0.1"))   # lower = faster, less random
 TOP_K          = int(os.getenv("OLLAMA_TOP_K",           "10"))    # halved from 20
 TOP_P          = float(os.getenv("OLLAMA_TOP_P",         "0.9"))
@@ -79,12 +81,6 @@ KEEP_ALIVE     = os.getenv("OLLAMA_KEEP_ALIVE",          "5m")     # ← keep mo
 
 # ── RAG limits ───────────────────────────────────────────────────────────────
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "5"))  # 4 exchange only
-MAX_RAG_CHARS        = int(os.getenv("OLLAMA_MAX_RAG_CHARS",        "1400"))  # trimmed further
-
-SYSTEM_PROMPT = (
-    "You are AgniAI, a concise assistant for India's Agniveer/Agnipath recruitment. "
-    "Answer from the reference text only. Be brief and structured."
-)
 
 
 # =============================================================================
@@ -181,8 +177,7 @@ def _candidate_models(requested: str, installed: List[str]) -> List[str]:
             _add(fb)
     for m in installed:
         _add(m)
-    for fb in FALLBACK_MODELS:
-        _add(fb)
+    # BUG-6 FIX: do not append fallback models that are not installed.
     return ordered
 
 
