@@ -6,9 +6,11 @@ AgniAI — Offline CLI chatbot for Agniveer recruitment queries.
 Run:
     python main.py
 
-TIP — For fast responses on CPU-only hardware, install a small model first:
-    ollama pull phi3:mini      (~2.3 GB, very fast on CPU)
-    ollama pull llama3.2:3b    (~2.0 GB, good quality)
+Answer styles (auto-detected from your question):
+    Short    — e.g. "What is the age limit in short?"
+    Elaborate— e.g. "Elaborate on the salary structure."
+    Detail   — e.g. "Explain the selection process in detail."
+    (Default is Elaborate when no style keyword is detected.)
 
 Commands (during chat):
     /ingest pdf  <path>    — Add a PDF file to the knowledge base
@@ -27,7 +29,7 @@ Commands (during chat):
 
 import sys
 import textwrap
-from typing import Optional
+from typing import Optional, Tuple
 
 import requests
 
@@ -36,6 +38,12 @@ from config import (
     INDEX_DIR,
     MAX_CONTEXT_CHARS,
     SYSTEM_PROMPT,
+    SYSTEM_PROMPT_SHORT,
+    SYSTEM_PROMPT_ELABORATE,
+    SYSTEM_PROMPT_DETAIL,
+    STYLE_SHORT_KEYWORDS,
+    STYLE_ELABORATE_KEYWORDS,
+    STYLE_DETAIL_KEYWORDS,
     TOP_K,
 )
 from ingest import (
@@ -97,11 +105,63 @@ Available commands:
   /help                   Show this help
   /exit  or  /quit        Exit AgniAI
 
+Answer style is detected automatically from your question:
+  • "... in short"     → short  (1-3 bullets)
+  • "elaborate ..."    → elaborate (bullets + context)   ← default
+  • "... in detail"    → detail (full structured answer)
+
 Recommended small models for CPU:
   ollama pull phi3:mini      (~2.3 GB)
   ollama pull llama3.2:3b   (~2.0 GB)
   ollama pull gemma2:2b     (~1.6 GB)
 """
+
+# ── Style names for display ────────────────────────────────────────────────
+_STYLE_LABEL = {
+    "short":     "SHORT",
+    "elaborate": "ELABORATE",
+    "detail":    "DETAIL",
+}
+
+_STYLE_COLOR = {
+    "short":     yellow,
+    "elaborate": cyan,
+    "detail":    blue,
+}
+
+
+# ── Answer-style detection ─────────────────────────────────────────────────
+
+def detect_answer_style(query: str) -> Tuple[str, str]:
+    """
+    Inspect *query* for style keywords and return (style_name, system_prompt).
+
+    Priority:  short  >  detail  >  elaborate  >  elaborate (default)
+
+    Returns
+    -------
+    style_name   : one of "short", "elaborate", "detail"
+    system_prompt: the matching SYSTEM_PROMPT_* string
+    """
+    q = query.lower()
+
+    # Short takes highest priority — it's the most restrictive
+    for kw in STYLE_SHORT_KEYWORDS:
+        if kw in q:
+            return "short", SYSTEM_PROMPT_SHORT
+
+    # Detail next — comprehensive answers
+    for kw in STYLE_DETAIL_KEYWORDS:
+        if kw in q:
+            return "detail", SYSTEM_PROMPT_DETAIL
+
+    # Elaborate — structured but not exhaustive
+    for kw in STYLE_ELABORATE_KEYWORDS:
+        if kw in q:
+            return "elaborate", SYSTEM_PROMPT_ELABORATE
+
+    # Default when no keyword matches
+    return "elaborate", SYSTEM_PROMPT_ELABORATE
 
 
 # ── Directory bootstrap ────────────────────────────────────────────────────
@@ -118,7 +178,7 @@ def _should_use_rag(query: str) -> bool:
         "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "bye",
         "good morning", "good evening", "good afternoon", "greetings",
     }
-    if len(q.split()) == 1 and q in greetings:  # BUG-2 FIX
+    if len(q.split()) == 1 and q in greetings:
         return False
     return True
 
@@ -216,13 +276,17 @@ def run_chat() -> None:
 
     print(dim(f"  Active model: {active_model}  (type /model <name> to switch)\n"))
     print(dim("  Type /help for commands or just ask a question.\n"))
+    print(dim(
+        "  Tip: add 'in short', 'elaborate', or 'in detail' to your question "
+        "to control answer length.\n"
+    ))
 
     while True:
         # ── Input ──────────────────────────────────────────────────────────
         try:
-            raw = input(f"You: ").strip()
+            raw = input("You: ").strip()
         except (EOFError, KeyboardInterrupt):
-            print(f"\nGoodbye.")
+            print("\nGoodbye.")
             break
 
         if not raw:
@@ -273,12 +337,17 @@ def run_chat() -> None:
             print(yellow(f"  Unknown command: {raw}  (type /help for a list)"))
             continue
 
+        # ── Detect answer style ────────────────────────────────────────────
+        style_name, active_system_prompt = detect_answer_style(raw)
+        style_label = _STYLE_LABEL[style_name]
+        style_color = _STYLE_COLOR[style_name]
+        print(dim(f"  Answer style: ") + style_color(style_label))
+
         # ── RAG pipeline ───────────────────────────────────────────────────
         use_rag = _should_use_rag(raw)
         context = ""
         if use_rag:
             print(dim("  Searching knowledge base..."))
-            # Use full TOP_K (3) to pull all relevant chunks, not just 2
             docs    = search(raw, top_k=TOP_K)
             context = build_context(docs)
             if len(context) > MAX_CONTEXT_CHARS:
@@ -300,16 +369,16 @@ def run_chat() -> None:
         history = memory.history()
 
         if use_rag:
-            # RAG path: system prompt + clearly delimited reference text
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            # RAG path: inject style-aware system prompt + context
+            messages = [{"role": "system", "content": active_system_prompt}]
             if history:
                 messages.extend(history[-4:])
             user_content = (
                 f"Reference information:\n{context}\n\n"
                 f"Question: {raw}"
-)
+            )
         else:
-            # Greeting / small-talk path: no RAG, minimal prompt
+            # Greeting / small-talk path: no RAG, plain prompt
             messages = [{"role": "system", "content": (
                 "You are AgniAI, a helpful assistant for India's Agniveer "
                 "recruitment scheme. Respond naturally and concisely."
@@ -321,9 +390,6 @@ def run_chat() -> None:
         messages.append({"role": "user", "content": user_content})
 
         # ── LLM call ───────────────────────────────────────────────────────
-        # IMPORTANT: stream_tokens=True means every token is printed to stdout
-        # as it arrives inside chat_with_fallback. Do NOT print answer again
-        # after this block — that is what caused the duplicate output bug.
         try:
             print(f"\nAgniAI: ", end="", flush=True)
             result = chat_with_fallback(
@@ -333,7 +399,7 @@ def run_chat() -> None:
                 stream_tokens=True,
             )
             answer = result.text
-            print("\n")   # blank line after the streamed answer
+            print("\n")
         except PartialResponseError as exc:
             print(f"\n  Partial response: {exc}\n")
             answer = exc.partial_text
@@ -342,11 +408,10 @@ def run_chat() -> None:
         except RuntimeError as exc:
             print(f"\n  LLM Error: {exc}\n")
             continue
-        except KeyboardInterrupt:  # CLEANUP-FIX
-            print("\n\n  [Generation stopped]\n")  # CLEANUP-FIX
-            continue  # CLEANUP-FIX
+        except KeyboardInterrupt:
+            print("\n\n  [Generation stopped]\n")
+            continue
 
-        # Tokens were already printed live above — only save to memory here
         memory.add("user",      raw)
         memory.add("assistant", answer)
 
