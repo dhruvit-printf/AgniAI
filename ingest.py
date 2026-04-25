@@ -98,6 +98,61 @@ def chunk_text(
     return chunks
 
 
+def chunk_text_semantic(
+    text: str,
+    chunk_words: int = CHUNK_WORDS,
+    overlap: int = CHUNK_OVERLAP,
+) -> List[str]:
+    """Split text into sentence-bounded chunks with light overlap."""
+    cleaned = clean_text(text)
+    sentences = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?])\s+|\n{2,}", cleaned)
+        if part and part.strip()
+    ]
+    if not sentences:
+        return []
+
+    sentence_words = [len(sentence.split()) for sentence in sentences]
+    chunks: List[str] = []
+    start = 0
+    max_words = max(chunk_words, CHUNK_MIN_WORDS)
+
+    while start < len(sentences):
+        end = start
+        total = 0
+        window: List[str] = []
+        while end < len(sentences):
+            sentence = sentences[end]
+            count = sentence_words[end]
+            if window and total + count > max_words:
+                break
+            window.append(sentence)
+            total += count
+            end += 1
+            if total >= max_words:
+                break
+
+        chunk = " ".join(window).strip()
+        if chunk:
+            if len(chunk.split()) < CHUNK_MIN_WORDS and chunks:
+                chunks[-1] = f"{chunks[-1]} {chunk}".strip()
+            else:
+                chunks.append(chunk)
+
+        if end >= len(sentences):
+            break
+
+        overlap_words = 0
+        new_start = end
+        while new_start > start and overlap_words < overlap:
+            new_start -= 1
+            overlap_words += sentence_words[new_start]
+        start = max(new_start, start + 1)
+
+    return chunks
+
+
 def _normalise_source(source: str) -> str:
     """Normalise a source path/URL for deduplication comparisons."""
     # Convert backslashes to forward slashes for cross-platform consistency
@@ -239,7 +294,7 @@ def ingest_pdf(file_path: str, force: bool = False) -> int:
         )
 
     text   = clean_text("\n".join(pages))
-    chunks = chunk_text(text)
+    chunks = chunk_text_semantic(text)
     return _append_documents(chunks, source=source, doc_type="pdf")
 
 
@@ -254,7 +309,7 @@ def ingest_txt(file_path: str, force: bool = False) -> int:
         return 0
 
     text   = path.read_text(encoding="utf-8", errors="replace")
-    chunks = chunk_text(text)
+    chunks = chunk_text_semantic(text)
     return _append_documents(chunks, source=source, doc_type="txt")
 
 
@@ -283,7 +338,7 @@ def ingest_docx(file_path: str, force: bool = False) -> int:
     if not text:
         raise ValueError("No extractable text found in the Word document.")
 
-    chunks = chunk_text(text)
+    chunks = chunk_text_semantic(text)
     return _append_documents(chunks, source=source, doc_type="docx")
 
 
@@ -303,7 +358,7 @@ def ingest_url(url: str, force: bool = False) -> int:
     if not text:
         raise ValueError("No readable text found at the URL.")
 
-    chunks = chunk_text(text)
+    chunks = chunk_text_semantic(text)
     return _append_documents(chunks, source=url, doc_type="url")
 
 
@@ -323,7 +378,7 @@ def ingest_text(text: str, label: str = "manual_text") -> int:
         if existing_count > 0:
             label = f"manual_text_{existing_count + 1}_{int(time.time())}"
 
-    chunks = chunk_text(text)
+    chunks = chunk_text_semantic(text)
     return _append_documents(chunks, source=label, doc_type="text")
 
 

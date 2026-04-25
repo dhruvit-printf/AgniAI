@@ -1,127 +1,128 @@
-"""
-app.py
-======
-Flask REST API for AgniAI — the integration point for the .NET ChatController.
-
-Fixes in this version:
-  • detect_answer_style imported from main.py — decoupled into its own
-    helper here so app.py has no dependency on main.py's CLI code
-  • Per-style MAX_CONTEXT_CHARS and MAX_TOKENS passed through to LLM
-  • history[-6:] instead of history[-4:] — more coherent multi-turn context
-  • images field always returned in /api/chat response (frontend ready)
-  • /api/health returns 503 with explanation when Ollama is unreachable
-  • CORS locked to ALLOWED_ORIGINS from config
-
-The .NET backend calls:
-    POST http://localhost:5000/api/chat
-    Body: { "message": "What is the age limit?", "model": "mistral:7b-instruct" (opt) }
-
-    Response:
-    {
-        "success": true,
-        "answer":  "...",
-        "style":   "short|elaborate|detail",
-        "images":  []
-    }
-"""
+"""Flask REST API for AgniAI."""
 
 from __future__ import annotations
 
+import json
+import logging
 import threading
-from pathlib import Path
+import time
+from hashlib import sha1
+from queue import Empty, Queue
 
 import requests as _requests
-from flask import Flask, jsonify, request
+from flask import Flask, Response, g, jsonify, request, stream_with_context
 from flask_cors import CORS
 
-from api_models import (
-    err,
-    ok_chat,
-    ok_health,
-    ok_ingest,
-    ok_message,
-    ok_sources,
-    ok_stats,
-)
+from api_models import err, ok_chat, ok_health, ok_ingest, ok_message, ok_sources, ok_stats
 from config import (
     ALLOWED_ORIGINS,
+    FIRST_TOKEN_TIMEOUT,
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_CHARS_DEFAULT,
     MAX_TOKENS_STYLE,
     MAX_TOKENS_DEFAULT,
-    REFERENCE_FALLBACK,
-    SYSTEM_PROMPT_DETAIL,
-    SYSTEM_PROMPT_ELABORATE,
-    SYSTEM_PROMPT_SHORT,
+    MIN_RETRIEVAL_CONFIDENCE,
+    OLLAMA_TAGS_URL,
+    SESSION_HEADER,
     STYLE_DETAIL_KEYWORDS,
     STYLE_ELABORATE_KEYWORDS,
     STYLE_SHORT_KEYWORDS,
     TOP_K,
 )
-from ingest import (
-    clear_index,
-    ingest_docx,
-    ingest_pdf,
-    ingest_text,
-    ingest_txt,
-    ingest_url,
-    list_sources,
-)
+from ingest import clear_index, ingest_docx, ingest_pdf, ingest_text, ingest_txt, ingest_url, list_sources
 from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
-from rag import answer_is_grounded, build_context, build_strict_messages, index_stats, search
+from rag import (
+    answer_is_grounded,
+    build_strict_messages,
+    get_cached_response,
+    index_stats,
+    make_response_cache_key,
+    prepare_rag_bundle,
+    set_cached_response,
+)
 
-import re
+logger = logging.getLogger(__name__)
 
-# ── Flask app ──────────────────────────────────────────────────────────────
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
 CORS(app, origins=ALLOWED_ORIGINS)
 
-# ── Shared state ───────────────────────────────────────────────────────────
-_memory       = ConversationMemory()
-_session      = _requests.Session()
+_memory = ConversationMemory()
+_session = _requests.Session()
 _active_model = DEFAULT_MODEL
-_lock         = threading.Lock()
+_lock = threading.Lock()
 
 
-# ── Style detection (self-contained, no dependency on main.py) ─────────────
+@app.before_request
+def _start_timer() -> None:
+    g.request_start = time.time()
+
+
+@app.after_request
+def _log_request(response):
+    elapsed_ms = (time.time() - getattr(g, "request_start", time.time())) * 1000.0
+    response.headers["X-Request-Duration-Ms"] = f"{elapsed_ms:.1f}"
+    logger.info("%s %s -> %s in %.1fms", request.method, request.path, response.status_code, elapsed_ms)
+    return response
+
 
 def _kw_match(query_lower: str, keywords: list) -> bool:
     for kw in keywords:
         if " " in kw:
             if kw in query_lower:
                 return True
-        else:
-            if re.search(rf"\b{re.escape(kw)}\b", query_lower):
-                return True
+        elif f" {kw} " in f" {query_lower} ":
+            return True
     return False
 
 
-def detect_answer_style(query: str):
-    """Returns (style_name, system_prompt)."""
+def detect_answer_style(query: str) -> tuple[str, str]:
     q = query.lower()
     if _kw_match(q, STYLE_SHORT_KEYWORDS):
-        return "short", SYSTEM_PROMPT_SHORT
+        return "short", "short"
     if _kw_match(q, STYLE_DETAIL_KEYWORDS):
-        return "detail", SYSTEM_PROMPT_DETAIL
+        return "detail", "detail"
     if _kw_match(q, STYLE_ELABORATE_KEYWORDS):
-        return "elaborate", SYSTEM_PROMPT_ELABORATE
-    return "elaborate", SYSTEM_PROMPT_ELABORATE
+        return "elaborate", "elaborate"
+    return "elaborate", "elaborate"
 
 
 def _should_use_rag(query: str) -> bool:
     q = query.strip().lower()
-    _GREETINGS = {
-        "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "bye",
-        "good morning", "good evening", "good afternoon", "greetings",
-        "welcome", "sup", "yo",
+    tokens = [t for t in q.split() if t]
+    if not tokens:
+        return False
+
+    domain_terms = (
+        "age", "eligibility", "salary", "pay", "selection", "medical", "pft",
+        "physical", "training", "insurance", "ncc", "document", "apply",
+        "application", "seva", "nidhi", "recruitment", "joining",
+    )
+    if any(term in q for term in domain_terms):
+        return True
+
+    greeting_like = {
+        "hi", "hello", "hey", "thanks", "thank you", "good morning",
+        "good afternoon", "good evening", "bye", "greetings", "welcome",
+        "ok", "okay",
     }
-    words = q.split()
-    if len(words) <= 3 and q in _GREETINGS:
+    if q in greeting_like and len(tokens) <= 2:
+        return False
+    if len(tokens) <= 2 and not q.endswith("?"):
         return False
     return True
+
+
+def _get_session_id(data: dict) -> str:
+    session_id = (data.get("session_id") or request.headers.get(SESSION_HEADER) or "").strip()
+    return session_id or "default"
+
+
+def _history_fingerprint(history: list[dict]) -> str:
+    payload = json.dumps(history[-6:], ensure_ascii=False, sort_keys=True)
+    return sha1(payload.encode("utf-8", errors="ignore")).hexdigest()
 
 
 def _get_context_limit(style: str) -> int:
@@ -134,33 +135,71 @@ def _get_token_limit(style: str) -> int:
     return MAX_TOKENS_STYLE.get(style, MAX_TOKENS_DEFAULT)
 
 
-# =============================================================================
-# HEALTH
-# =============================================================================
+def _build_messages(
+    *,
+    query: str,
+    style: str,
+    context: str,
+    history: list[dict] | None,
+    use_rag: bool,
+) -> list[dict]:
+    if use_rag:
+        return build_strict_messages(query, context=context, style=style, history=history)
+
+    messages = [{"role": "system", "content": (
+        "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
+        "Respond naturally and concisely."
+    )}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": query})
+    return messages
+
+
+def _answer_via_llm(*, messages: list[dict], model: str, token_limit: int, stream: bool, on_token=None) -> str:
+    result = chat_with_fallback(
+        _session,
+        model,
+        messages,
+        stream_tokens=stream,
+        on_token=on_token,
+        max_tokens_override=token_limit,
+    )
+    return result.text
+
+
+def _stream_answer_response(answer_generator, status_payload: dict) -> Response:
+    def generate():
+        yield f"event: meta\ndata: {json.dumps(status_payload, ensure_ascii=False)}\n\n"
+        try:
+            for token in answer_generator():
+                if isinstance(token, str) and token.startswith("event:"):
+                    yield token
+                else:
+                    yield f"event: token\ndata: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            yield f"event: error\ndata: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
 
 @app.route("/api/health")
 def health():
-    """
-    GET /api/health
-    Returns 200 when both the service and Ollama are reachable.
-    Returns 503 when Ollama is down (so .NET can surface a useful error).
-    """
     stats_data = index_stats()
-    # Quick Ollama reachability check
     ollama_ok = True
     try:
-        _session.get("http://localhost:11434/api/tags", timeout=3)
+        _session.get(OLLAMA_TAGS_URL, timeout=3)
     except Exception:
         ollama_ok = False
 
     if not ollama_ok:
-        body = ok_health(
+        return jsonify(ok_health(
             vectors=stats_data["vectors"],
             chunks=stats_data["chunks"],
             model=_active_model,
             status="ollama_unreachable",
-        )
-        return jsonify(body), 503
+        )), 503
 
     return jsonify(ok_health(
         vectors=stats_data["vectors"],
@@ -170,33 +209,16 @@ def health():
     ))
 
 
-# =============================================================================
-# CHAT
-# =============================================================================
-
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    """
-    POST /api/chat
-    Body JSON:
-        {
-            "message": "What is the age limit?",   ← required
-            "model":   "mistral:7b-instruct"       ← optional
-        }
-
-    Response JSON:
-        {
-            "success": true,
-            "answer":  "...",
-            "style":   "short|elaborate|detail",
-            "images":  []
-        }
-    """
     global _active_model
 
-    data    = request.get_json(force=True, silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     message = (data.get("message") or "").strip()
-    model   = (data.get("model")   or "").strip()
+    model = (data.get("model") or "").strip()
+    stream_value = data.get("stream")
+    stream = str(stream_value).lower() in {"1", "true", "yes", "on"} if stream_value is not None else False
+    session_id = _get_session_id(data)
 
     if not message:
         return jsonify(*err("message field is required and cannot be empty.", 400))
@@ -206,109 +228,143 @@ def chat():
             _active_model = model
         current_model = _active_model
 
-    # ── Detect style ───────────────────────────────────────────────────────
-    style_name, system_prompt = detect_answer_style(message)
-    context_limit = _get_context_limit(style_name)
-    token_limit   = _get_token_limit(style_name)
-
-    # ── RAG retrieval ──────────────────────────────────────────────────────
+    style_name, _ = detect_answer_style(message)
+    token_limit = _get_token_limit(style_name)
     use_rag = _should_use_rag(message)
-    context = ""
-    docs = []
+
+    bundle = {"docs": [], "context": "", "confidence": 0.0}
     if use_rag:
-        docs = search(message, top_k=TOP_K)
-        context = build_context(docs)
-        if len(context) > context_limit:
-            context = context[:context_limit].rstrip() + "\n...[truncated]..."
+        bundle = prepare_rag_bundle(message, top_k=TOP_K, style=style_name)
 
-    # Knowledge base has no relevant info
-    if use_rag and not context:
-        answer = REFERENCE_FALLBACK
-        _memory.add("user", message)
-        _memory.add("assistant", answer)
-        return jsonify(ok_chat(answer=answer, style=style_name))
+    context = bundle.get("context", "") if isinstance(bundle, dict) else ""
+    confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
 
-    # ── Build message list ─────────────────────────────────────────────────
-    history = _memory.history()
+    history = _memory.history(session_id)
+    history_hash = _history_fingerprint(history)
+    response_key = make_response_cache_key(
+        message,
+        style=style_name,
+        model=current_model,
+        context=context,
+        session_id=f"{session_id}:{history_hash}",
+    )
 
-    if use_rag:
-        messages = build_strict_messages(
-            message,
-            context=context,
-            history=history[-6:] if history else None,
+    cached_answer = get_cached_response(response_key)
+    if cached_answer is not None:
+        _memory.add("user", message, session_id=session_id)
+        _memory.add("assistant", cached_answer, session_id=session_id)
+        return jsonify(ok_chat(answer=cached_answer, style=style_name, session_id=session_id))
+
+    if use_rag and (not context or confidence < MIN_RETRIEVAL_CONFIDENCE):
+        answer = "Not available in the document"
+        _memory.add("user", message, session_id=session_id)
+        _memory.add("assistant", answer, session_id=session_id)
+        set_cached_response(response_key, answer)
+        if stream:
+            return _stream_answer_response(
+                answer_generator=lambda: iter([answer]),
+                status_payload={
+                    "success": True,
+                    "style": style_name,
+                    "session_id": session_id,
+                    "cached": False,
+                    "grounded": False,
+                    "confidence": confidence,
+                },
+            )
+        return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
+
+    messages = _build_messages(
+        query=message,
+        style=style_name,
+        context=context,
+        history=history[-6:] if history else None,
+        use_rag=use_rag,
+    )
+
+    if stream:
+        token_queue: Queue[str | None] = Queue()
+        outcome: dict[str, object] = {}
+
+        def _worker() -> None:
+            try:
+                outcome["answer"] = _answer_via_llm(
+                    messages=messages,
+                    model=current_model,
+                    token_limit=token_limit,
+                    stream=True,
+                    on_token=token_queue.put,
+                )
+            except PartialResponseError as exc:
+                outcome["answer"] = exc.partial_text or "Not available in the document"
+            except Exception as exc:
+                outcome["error"] = str(exc)
+            finally:
+                token_queue.put(None)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+        def _generator():
+            pieces: list[str] = []
+            while True:
+                try:
+                    token = token_queue.get(timeout=FIRST_TOKEN_TIMEOUT)
+                except Empty:
+                    yield f"event: error\ndata: {json.dumps({'error': 'First token timeout'}, ensure_ascii=False)}\n\n"
+                    return
+                if token is None:
+                    break
+                pieces.append(token)
+                yield token
+
+            if "error" in outcome:
+                yield f"event: error\ndata: {json.dumps({'error': str(outcome['error'])}, ensure_ascii=False)}\n\n"
+                return
+
+            answer = "".join(pieces).strip() or str(outcome.get("answer", "")).strip()
+            if use_rag and not answer_is_grounded(answer, context):
+                answer = "Not available in the document"
+            _memory.add("user", message, session_id=session_id)
+            _memory.add("assistant", answer, session_id=session_id)
+            set_cached_response(response_key, answer)
+
+        return _stream_answer_response(
+            answer_generator=_generator,
+            status_payload={
+                "success": True,
+                "style": style_name,
+                "session_id": session_id,
+                "cached": False,
+                "grounded": bool(use_rag),
+                "confidence": confidence,
+            },
         )
-    else:
-        messages = [{"role": "system", "content": (
-            "You are AgniAI, a helpful assistant for India's Agniveer "
-            "recruitment scheme. Respond naturally and concisely."
-        )}]
-        if history:
-            messages.extend(history[-6:])
-        messages.append({"role": "user", "content": message})
 
-    # ── LLM call with per-style token limit ────────────────────────────────
     try:
-        result = chat_with_fallback(
-            _session,
-            current_model,
-            messages,
-            stream_tokens=False,
-            max_tokens_override=token_limit,
+        answer = _answer_via_llm(
+            messages=messages,
+            model=current_model,
+            token_limit=token_limit,
+            stream=False,
         )
-        answer = result.text
-        if use_rag and not answer_is_grounded(answer, context):
-            repair_messages = build_strict_messages(
-                message,
-                context=context,
-                history=history[-6:] if history else None,
-            )
-            repair_messages.append({
-                "role": "user",
-                "content": (
-                    "The previous answer contained unsupported information. "
-                    "Rewrite strictly from the reference information only. "
-                    "If the answer is missing, reply exactly: Not available in the document"
-                ),
-            })
-            result = chat_with_fallback(
-                _session,
-                current_model,
-                repair_messages,
-                stream_tokens=False,
-                max_tokens_override=token_limit,
-            )
-            answer = result.text
-            if not answer_is_grounded(answer, context):
-                answer = REFERENCE_FALLBACK
-
     except PartialResponseError as exc:
         answer = exc.partial_text or "Partial response received. Please try again."
-
     except RuntimeError as exc:
         return jsonify(*err(f"LLM service unavailable: {exc}", 503))
 
-    _memory.add("user",      message)
-    _memory.add("assistant", answer)
+    if use_rag and not answer_is_grounded(answer, context):
+        answer = "Not available in the document"
 
-    return jsonify(ok_chat(answer=answer, style=style_name))
+    _memory.add("user", message, session_id=session_id)
+    _memory.add("assistant", answer, session_id=session_id)
+    set_cached_response(response_key, answer)
+    return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
-
-# =============================================================================
-# INGEST
-# =============================================================================
 
 @app.route("/api/ingest", methods=["POST"])
 def ingest():
-    """
-    POST /api/ingest
-    Body JSON:
-        {
-            "kind":   "pdf|url|txt|text|docx",
-            "target": "/path/to/file or URL"
-        }
-    """
-    data   = request.get_json(force=True, silent=True) or {}
-    kind   = (data.get("kind")   or "").strip().lower()
+    data = request.get_json(force=True, silent=True) or {}
+    kind = (data.get("kind") or "").strip().lower()
     target = (data.get("target") or "").strip()
 
     if not kind:
@@ -317,17 +373,15 @@ def ingest():
         return jsonify(*err("target field is required (file path or URL).", 400))
 
     fn_map = {
-        "pdf":  ingest_pdf,
-        "url":  ingest_url,
-        "txt":  ingest_txt,
+        "pdf": ingest_pdf,
+        "url": ingest_url,
+        "txt": ingest_txt,
         "text": ingest_text,
         "docx": ingest_docx,
     }
 
     if kind not in fn_map:
-        return jsonify(*err(
-            f"Unknown kind '{kind}'. Valid values: pdf, url, txt, text, docx.", 400
-        ))
+        return jsonify(*err(f"Unknown kind '{kind}'. Valid values: pdf, url, txt, text, docx.", 400))
 
     try:
         count = fn_map[kind](target)
@@ -350,53 +404,40 @@ def ingest():
     ))
 
 
-# =============================================================================
-# SOURCES / STATS / MEMORY / RESET
-# =============================================================================
-
 @app.route("/api/sources")
 def sources():
-    """GET /api/sources — list all ingested sources."""
     return jsonify(ok_sources(list_sources()))
 
 
 @app.route("/api/stats")
 def stats():
-    """GET /api/stats — index vector count."""
     s = index_stats()
     return jsonify(ok_stats(vectors=s["vectors"], chunks=s["chunks"]))
 
 
 @app.route("/api/clear_memory", methods=["POST"])
 def clear_memory():
-    """POST /api/clear_memory — wipe conversation history."""
-    _memory.clear()
+    session_id = _get_session_id(request.get_json(force=True, silent=True) or {})
+    _memory.clear(session_id if session_id != "default" else None)
     return jsonify(ok_message("Conversation memory cleared."))
 
 
 @app.route("/api/reset_index", methods=["POST"])
 def reset_index():
-    """POST /api/reset_index — delete the entire knowledge base (irreversible)."""
     clear_index()
     return jsonify(ok_message("Knowledge base reset. Re-ingest documents to continue."))
 
 
-# =============================================================================
-# ENTRY POINT
-# =============================================================================
-
 if __name__ == "__main__":
     stats_data = index_stats()
     print("\n  AgniAI REST API")
-    print("  ───────────────────────────────────────")
     print("  Listening on  http://0.0.0.0:5000")
     print("  Health check  http://localhost:5000/api/health")
     print("  Chat endpoint http://localhost:5000/api/chat  [POST]")
-    print("  ───────────────────────────────────────")
     if stats_data["vectors"] == 0:
-        print("  ⚠  Knowledge base is empty.")
-        print("     POST /api/ingest to add documents before chatting.\n")
+        print("  Warning: Knowledge base is empty.")
+        print("  POST /api/ingest to add documents before chatting.\n")
     else:
-        print(f"  ✔  Knowledge base ready: {stats_data['vectors']} vectors.\n")
+        print(f"  Knowledge base ready: {stats_data['vectors']} vectors.\n")
 
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

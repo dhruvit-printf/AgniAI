@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import pickle
+import hashlib
 import re
 import time
 import warnings
@@ -18,6 +19,8 @@ import faiss
 import numpy as np
 import requests
 from sentence_transformers import SentenceTransformer
+
+from runtime_cache import TTLCache
 
 os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
@@ -44,10 +47,18 @@ from config import (
     STRICT_MIN_SCORE,
     STRICT_RAG_PROMPT,
     STRICT_TOP_K,
+    MIN_RETRIEVAL_CONFIDENCE,
     SYSTEM_PROMPT,
+    STYLE_OUTPUT_GUIDANCE,
     TOP_K,
     USE_HYBRID,
     USE_RERANKER,
+    RETRIEVAL_CACHE_TTL,
+    RESPONSE_CACHE_TTL,
+    EMBED_CACHE_TTL,
+    MAX_CACHE_ENTRIES,
+    MAX_CONTEXT_CHARS,
+    MAX_CONTEXT_CHARS_DEFAULT,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,7 +69,9 @@ _RERANKER_FAILED = False
 _INDEX: Optional[faiss.Index] = None
 _DOCS: List[Dict[str, str]] = []
 _BM25 = None
-_QUERY_EMBED_CACHE: Dict[str, np.ndarray] = {}
+_QUERY_EMBED_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=EMBED_CACHE_TTL)
+_RETRIEVAL_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RETRIEVAL_CACHE_TTL)
+_RESPONSE_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RESPONSE_CACHE_TTL)
 
 
 def _ensure_dirs() -> None:
@@ -294,10 +307,46 @@ def _cache_query_embedding(query: str) -> np.ndarray:
     if cached is not None:
         return cached
     vec = embed_query(query)
-    if len(_QUERY_EMBED_CACHE) > 2048:
-        _QUERY_EMBED_CACHE.clear()
-    _QUERY_EMBED_CACHE[key] = vec
+    _QUERY_EMBED_CACHE.set(key, vec)
     return vec
+
+
+def _hash_text(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def make_retrieval_cache_key(query: str, top_k: int) -> str:
+    return f"{_query_cache_key(query)}|k={top_k}"
+
+
+def make_response_cache_key(
+    query: str,
+    *,
+    style: str,
+    model: str,
+    context: str,
+    session_id: str,
+) -> str:
+    payload = "|".join(
+        [style, model, session_id, _query_cache_key(query), _hash_text(context)]
+    )
+    return _hash_text(payload)
+
+
+def get_cached_retrieval(query: str, top_k: int) -> Optional[List[Dict[str, str]]]:
+    return _RETRIEVAL_CACHE.get(make_retrieval_cache_key(query, top_k))
+
+
+def set_cached_retrieval(query: str, top_k: int, docs: List[Dict[str, str]]) -> None:
+    _RETRIEVAL_CACHE.set(make_retrieval_cache_key(query, top_k), docs)
+
+
+def get_cached_response(key: str) -> Optional[str]:
+    return _RESPONSE_CACHE.get(key)
+
+
+def set_cached_response(key: str, value: str) -> None:
+    _RESPONSE_CACHE.set(key, value)
 
 
 def load_embedding_model() -> SentenceTransformer:
@@ -550,6 +599,11 @@ def _apply_domain_boosts(query_lower: str, doc_text_lower: str) -> float:
 
 
 def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
+    cached = get_cached_retrieval(query, top_k)
+    if cached is not None:
+        logger.debug("Retrieval cache hit for query=%r", query)
+        return [dict(doc) for doc in cached]
+
     index = load_index()
     if index.ntotal == 0:
         return []
@@ -644,7 +698,9 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
             for doc in candidates[: max(top_k, STRICT_TOP_K)]
         ],
     )
-    return candidates[: max(top_k, STRICT_TOP_K)]
+    final = candidates[: max(top_k, STRICT_TOP_K)]
+    set_cached_retrieval(query, top_k, final)
+    return [dict(doc) for doc in final]
 
 
 def build_context(
@@ -676,10 +732,7 @@ def build_context(
         score = float(doc.get("score", 0.0))
         block = f"[{i}] score={score:.3f} source={source}\n{text}"
         if total_chars + len(block) > max_chars:
-            remaining = max_chars - total_chars
-            if remaining <= 0:
-                break
-            block = block[:remaining].rstrip()
+            break
         blocks.append(block)
         total_chars += len(block)
         if total_chars >= max_chars:
@@ -690,6 +743,51 @@ def build_context(
         [{"score": doc.get("score"), "source": doc.get("source")} for doc in ordered[: len(blocks)]],
     )
     return "\n\n---\n\n".join(blocks)
+
+
+def retrieval_confidence(docs: Sequence[Dict[str, str]], query: str) -> float:
+    if not docs:
+        return 0.0
+    ordered = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
+    top_score = float(ordered[0].get("score", 0.0))
+    query_terms = set(_meaningful_tokens(query))
+    if not query_terms:
+        return min(1.0, top_score)
+    top_text = ordered[0].get("text", "")
+    overlap = len(query_terms & set(_meaningful_tokens(top_text))) / max(1, len(query_terms))
+    confidence = (0.65 * top_score) + (0.35 * overlap)
+    if len(ordered) > 1:
+        confidence = min(1.0, confidence + 0.05 * min(2, len(ordered) - 1))
+    return round(float(confidence), 4)
+
+
+def prepare_rag_bundle(
+    query: str,
+    *,
+    top_k: int = TOP_K,
+    style: str = "elaborate",
+) -> Dict[str, object]:
+    retrieval_query = _normalize_query_for_retrieval(query)
+    docs = search(retrieval_query, top_k=top_k)
+    context_limit = (
+        MAX_CONTEXT_CHARS.get(style, MAX_CONTEXT_CHARS_DEFAULT)
+        if isinstance(MAX_CONTEXT_CHARS, dict)
+        else MAX_CONTEXT_CHARS_DEFAULT
+    )
+    context = build_context(
+        docs,
+        max_chunks=STRICT_TOP_K,
+        min_score=STRICT_MIN_SCORE,
+        max_chars=context_limit,
+    )
+    return {
+        "query": query,
+        "retrieval_query": retrieval_query,
+        "docs": docs,
+        "context": context,
+        "confidence": retrieval_confidence(docs, query),
+        "style": style,
+    }
 
 
 def answer_is_grounded(answer: str, context: str) -> bool:
@@ -716,9 +814,14 @@ def build_strict_messages(
     query: str,
     *,
     context: str,
+    style: str = "elaborate",
     history: Optional[List[Dict[str, str]]] = None,
 ) -> List[Dict[str, str]]:
-    messages = [{"role": "system", "content": STRICT_RAG_PROMPT}]
+    system_content = STRICT_RAG_PROMPT
+    style_guidance = STYLE_OUTPUT_GUIDANCE.get(style)
+    if style_guidance:
+        system_content = f"{STRICT_RAG_PROMPT}\n\nStyle:\n- {style_guidance}"
+    messages = [{"role": "system", "content": system_content}]
     if history:
         for msg in history:
             role = msg.get("role")

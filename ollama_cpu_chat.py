@@ -134,15 +134,15 @@ def _default_num_thread() -> int:
 
 def build_rag_context(query: str) -> str:
     try:
-        from rag import build_context, search  # type: ignore
-        docs = search(query, top_k=_CONFIG_TOP_K)
-        context = build_context(docs)
-        return _truncate(context, MAX_CONTEXT_CHARS_DEFAULT)
+        from rag import prepare_rag_bundle  # type: ignore
+        bundle = prepare_rag_bundle(query, top_k=_CONFIG_TOP_K, style="elaborate")
+        context = bundle.get("context", "") if isinstance(bundle, dict) else ""
+        return _truncate(str(context), MAX_CONTEXT_CHARS_DEFAULT)
     except Exception:
         return ""
 
 
-def build_messages(query: str, history: List[dict]) -> List[dict]:
+def build_messages(query: str, history: List[dict], style: str = "elaborate") -> List[dict]:
     context = build_rag_context(query)
     messages: List[dict] = [{"role": "system", "content": STRICT_RAG_PROMPT}]
     if history:
@@ -318,6 +318,7 @@ def chat_with_fallback(
     messages: List[dict],
     *,
     stream_tokens: bool = True,
+    on_token: Optional[Callable[[str], None]] = None,
     max_tokens_override: Optional[int] = None,
 ) -> ChatResult:
     installed  = _installed_models(session)
@@ -335,6 +336,7 @@ def chat_with_fallback(
                     model,
                     messages,
                     stream_tokens=stream_tokens,
+                    on_token=on_token,
                     max_tokens_override=max_tokens_override,
                 )
             except PartialResponseError:
