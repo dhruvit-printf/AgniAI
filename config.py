@@ -13,7 +13,7 @@ Key improvements over previous version:
   • Style keyword lists use whole-word boundaries (enforced in main.py)
   • BM25 STOPWORDS list extended to avoid dropping "age", "pay", "rank"
   • CHUNK_WORDS lowered to 120 for tighter, more precise chunks
-  • CHUNK_OVERLAP raised to 40 to preserve boundary context
+  • CHUNK_OVERLAP raised to 60 to preserve boundary context
 """
 
 from pathlib import Path
@@ -52,11 +52,11 @@ FALLBACK_MODELS = [
 # Smaller chunks = more precise retrieval hits per vector.
 # Higher overlap = sentences at boundaries are still captured in both chunks.
 CHUNK_WORDS     = 120   # tighter chunks → higher precision per vector
-CHUNK_OVERLAP   = 40    # ~33% overlap ratio — preserves boundary sentences
+CHUNK_OVERLAP   = 60    # stronger overlap keeps split facts together
 CHUNK_MIN_WORDS = 12    # discard micro-fragments (e.g. lone table headers)
 
 # ── Retrieval ──────────────────────────────────────────────────────────────
-TOP_K        = 6        # retrieve more candidates before re-ranking
+TOP_K        = 4        # tighter retrieval window reduces context noise
 RERANK_TOP_K = 4        # keep best N after cross-encoder re-ranking
 MIN_SCORE    = 0.20     # drop low-similarity noise (raised from 0.18)
 

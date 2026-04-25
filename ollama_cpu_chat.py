@@ -10,7 +10,8 @@ Fixes in this version:
     app.py and main.py can pass per-style token budgets
   • KEEP_ALIVE raised to 10m for stability on slower machines
   • MAX_TOKENS default raised to 512 (overridden per-style at call time)
-  • NUM_CTX raised to 3072 — fits system prompt + 4000-char context + answer
+  • NUM_CTX reduced to 2048 to lower CPU/RAM pressure
+  • Longer first-token and stream timeouts for slower local hardware
 """
 
 from __future__ import annotations
@@ -54,19 +55,18 @@ FALLBACK_MODELS: List[str] = [
 
 # ── Timeouts ────────────────────────────────────────────────────────────────
 TIMEOUT_CONNECT     = float(os.getenv("OLLAMA_CONNECT_TIMEOUT",    "8"))
-FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "60"))
-STREAM_TIMEOUT      = float(os.getenv("OLLAMA_STREAM_TIMEOUT",     "180"))
+FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "120"))
+STREAM_TIMEOUT      = float(os.getenv("OLLAMA_STREAM_TIMEOUT",     "300"))
 MAX_RETRIES         = int(os.getenv("OLLAMA_MAX_RETRIES",           "2"))
 
 # ── Generation knobs ──────────────────────────────────────────────────────────
-#   NUM_CTX = 3072 fits: system prompt (~500 tokens) + 4000 char context
-#             (~700 tokens) + history + answer comfortably.
+#   NUM_CTX = 2048 keeps RAM pressure lower for CPU-bound machines.
 #   MAX_TOKENS = default ceiling; overridden per-style via max_tokens_override.
 #   _SAMPLING_TOP_K = sampling knob — renamed from TOP_K to avoid shadowing
 #                     the retrieval TOP_K imported from config.
 
 MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",      "512"))
-NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",         "3072"))
+NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",         "2048"))
 TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",   "0.1"))
 _SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",           "10"))   # sampling knob only
 TOP_P           = float(os.getenv("OLLAMA_TOP_P",         "0.9"))
@@ -113,6 +113,23 @@ def _truncate(text: str, limit: int) -> str:
     head = int(limit * 0.70)
     tail = max(0, limit - head - 20)
     return f"{text[:head].rstrip()}\n\n...[truncated]...\n\n{text[-tail:].lstrip()}"
+
+
+def _default_num_thread() -> int:
+    """
+    Prefer an explicit env override; otherwise use a conservative CPU default.
+
+    We cap the automatic value at 4 so Ollama gets enough parallelism without
+    oversubscribing smaller machines.
+    """
+    env_value = os.getenv("OLLAMA_NUM_THREAD")
+    if env_value:
+        try:
+            return max(1, int(env_value))
+        except ValueError:
+            pass
+    cpu_count = os.cpu_count() or 4
+    return max(1, min(4, cpu_count))
 
 
 def build_rag_context(query: str) -> str:
@@ -212,7 +229,7 @@ def _ollama_chat_once(
             "top_k":          _SAMPLING_TOP_K,   # sampling knob — NOT retrieval TOP_K
             "top_p":          TOP_P,
             "repeat_penalty": REPEAT_PENALTY,
-            "num_thread":     int(os.getenv("OLLAMA_NUM_THREAD", "0")),
+            "num_thread":     _default_num_thread(),
         },
     }
 

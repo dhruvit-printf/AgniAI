@@ -10,13 +10,15 @@ Fixes in this version vs previous:
      single-document corpora where diversity hurts more than it helps
   3. build_context deduplication fingerprint extended to 150 chars so
      genuinely different chunks that share a short opening don't get dropped
-  4. Dense-only fallback now returns top-3 chunks (not just 1) when nothing
-     passes MIN_SCORE — prevents empty context on borderline queries
+  4. Strict fallback now returns an empty list when nothing passes MIN_SCORE
+     so the "Not found in the provided documents." rule stays hard
   5. Query expansion covers more Agniveer-specific term patterns
   6. _normalize_query_for_retrieval is now less aggressive — only strips
      obvious filler, not domain terms like "explain" which add useful signal
   7. BM25 per-domain boosting extended (salary, insurance, training, etc.)
-  8. Candidate pool now capped at min(top_k * 12, ntotal) for better recall
+  8. Candidate pool now capped at min(top_k * 12, 40, ntotal) to cut latency
+  9. Re-ranker disables itself for the session when local model files are
+     missing, avoiding repeated failed load attempts
 """
 
 import json
@@ -25,6 +27,7 @@ import os
 import pickle
 import re
 import warnings
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 import faiss
@@ -276,6 +279,14 @@ def load_reranker():
         return _RERANKER
     if _RERANKER_FAILED or not USE_RERANKER:
         return None
+    if not _reranker_local_files_available(RERANKER_MODEL):
+        _RERANKER_FAILED = True
+        globals()["USE_RERANKER"] = False
+        print(
+            f"[WARNING] Re-ranker model '{RERANKER_MODEL}' not found locally. "
+            "Disabling re-ranking for this session."
+        )
+        return None
     try:
         from sentence_transformers import CrossEncoder  # type: ignore
         with warnings.catch_warnings():
@@ -284,8 +295,42 @@ def load_reranker():
         return _RERANKER
     except Exception as exc:
         _RERANKER_FAILED = True
+        globals()["USE_RERANKER"] = False
         print(f"[WARNING] Could not load re-ranker ({exc}). Using bi-encoder scores only.")
         return None
+
+
+def _reranker_local_files_available(model_name: str) -> bool:
+    """
+    Detect whether the CrossEncoder weights already exist in the Hugging Face cache.
+
+    This avoids repeated load attempts that can stall the request path when the
+    machine is offline or the model has never been downloaded.
+    """
+    model_path = Path(model_name)
+    if model_path.exists():
+        return True
+
+    hf_hub_cache = os.getenv("HF_HUB_CACHE")
+    hf_home = os.getenv("HF_HOME")
+    if hf_hub_cache:
+        cache_root = Path(hf_hub_cache)
+    elif hf_home:
+        cache_root = Path(hf_home) / "hub"
+    else:
+        cache_root = Path.home() / ".cache" / "huggingface" / "hub"
+    repo_dir = cache_root / f"models--{model_name.replace('/', '--')}"
+    if not repo_dir.exists():
+        return False
+
+    snapshots = repo_dir / "snapshots"
+    if not snapshots.exists():
+        return False
+
+    for snapshot in snapshots.iterdir():
+        if snapshot.is_dir() and any(snapshot.iterdir()):
+            return True
+    return False
 
 
 def rerank(query: str, docs: List[Dict], top_n: int = RERANK_TOP_K) -> List[Dict]:
@@ -558,7 +603,7 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
     qvec = embed_query(retrieval_query)
 
     # Wider candidate pool → better recall before re-ranking
-    candidate_k = min(max(top_k * 12, 30), index.ntotal)
+    candidate_k = min(max(top_k * 12, 30), 40, index.ntotal)
 
     # ── Dense retrieval ────────────────────────────────────────
     scores_dense, ids = index.search(qvec, candidate_k)
@@ -642,17 +687,8 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
             doc["score"] = round(float(score), 4)
             candidates.append(doc)
 
-    # FIX: Return top-3 fallback chunks instead of just 1 when nothing passes
-    # MIN_SCORE. Prevents empty context on borderline queries (e.g. "age limit").
     if not candidates:
-        fallback = []
-        for i in range(min(3, len(doc_ids))):
-            fid = int(doc_ids[i])
-            if 0 <= fid < len(_DOCS):
-                doc = dict(_DOCS[fid])
-                doc["score"] = round(float(dense_scores[i]), 4)
-                fallback.append(doc)
-        return fallback
+        return []
 
     # ── Cross-encoder re-ranking ───────────────────────────────
     if USE_RERANKER:
