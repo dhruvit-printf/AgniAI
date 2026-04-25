@@ -367,6 +367,19 @@ def chat():
     if cached_answer is not None:
         _memory.add("user", message, session_id=session_id)
         _memory.add("assistant", cached_answer, session_id=session_id)
+        if stream:
+            return _stream_answer_response(
+                answer_generator=lambda: iter([cached_answer]),
+                status_payload={
+                    "success": True,
+                    "style": style_name,
+                    "session_id": session_id,
+                    "cached": True,
+                    "grounded": bool(use_rag),
+                    "confidence": confidence,
+                    "mode": mode,
+                },
+            )
         return jsonify(ok_chat(answer=cached_answer, style=style_name, session_id=session_id))
 
     if intent == "reject":
@@ -438,6 +451,11 @@ def chat():
                     return
 
                 answer = "".join(pieces).strip() or str(outcome.get("answer", "")).strip()
+                if use_rag and mode == "strict_answer" and not context.strip() and not bundle.get("docs"):
+                    answer = REFERENCE_FALLBACK
+                answer = _finalize_answer(answer)
+                if not pieces and answer:
+                    yield answer
                 _memory.add("user", message, session_id=session_id)
                 _memory.add("assistant", answer, session_id=session_id)
                 set_cached_response(response_key, answer)
@@ -531,6 +549,8 @@ def chat():
             if use_rag and mode == "strict_answer" and not context.strip() and not bundle.get("docs"):
                 answer = REFERENCE_FALLBACK
             answer = _finalize_answer(answer)
+            if not pieces and answer:
+                yield answer
             _memory.add("user", message, session_id=session_id)
             _memory.add("assistant", answer, session_id=session_id)
             set_cached_response(response_key, answer)
