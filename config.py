@@ -130,17 +130,31 @@ STYLE_ELABORATE_KEYWORDS = [
 #   4. Forbidden from inferring, guessing, or adding external knowledge
 #   5. If a figure is approximate in the source, say "approximately"
 
+REFERENCE_FALLBACK = (
+    "Not found in the provided documents. Please ingest the relevant official "
+    "notification."
+)
+OFFTOPIC_FALLBACK = (
+    "The retrieved context does not appear to cover your question. Please "
+    "re-ingest the relevant document."
+)
+
 _COMMON_RULES = """\
 STRICT RULES — FOLLOW EXACTLY:
 1. Answer ONLY using the numbered reference chunks provided below.
 2. Do NOT add, infer, or assume any information not explicitly stated in the reference.
 3. Do NOT use your general training knowledge. If it is not in the reference, it does not exist.
 4. If the reference does not contain enough information to answer, reply with EXACTLY:
-   "Not found in the provided documents. Please ingest the relevant official notification."
-5. Quote exact figures, dates, percentages, and rupee amounts directly from the reference.
-6. Cite the chunk numbers you used at the end, e.g. (Source: [1], [3]).
-7. If you are uncertain about a specific figure, say "approximately" — ONLY when the source itself is approximate.
-"""
+   "{reference_fallback}"
+5. If the retrieved chunks are clearly about a different subject, reply with EXACTLY:
+   "{offtopic_fallback}"
+6. Quote exact figures, dates, percentages, and rupee amounts directly from the reference.
+7. Cite the chunk numbers you used at the end, e.g. (Source: [1], [3]).
+8. If you are uncertain about a specific figure, say "approximately" — ONLY when the source itself is approximate.
+""".format(
+    reference_fallback=REFERENCE_FALLBACK,
+    offtopic_fallback=OFFTOPIC_FALLBACK,
+)
 
 SYSTEM_PROMPT_SHORT = f"""\
 You are AgniAI, an expert assistant for India's Agniveer / Agnipath recruitment scheme.

@@ -132,8 +132,7 @@ def build_messages(query: str, history: List[dict]) -> List[dict]:
         messages.extend(history[-MAX_HISTORY_MESSAGES:])
     if context:
         user_content = (
-            f"=== REFERENCE TEXT ===\n{context}\n=== END ===\n\n"
-            f"Question: {query}\n\nAnswer from the reference text above."
+            f"Reference information:\n{context}\n\nQuestion: {query}"
         )
     else:
         user_content = query

@@ -49,6 +49,7 @@ from config import (
     MAX_CONTEXT_CHARS_DEFAULT,
     MAX_TOKENS_STYLE,
     MAX_TOKENS_DEFAULT,
+    REFERENCE_FALLBACK,
     SYSTEM_PROMPT_DETAIL,
     SYSTEM_PROMPT_ELABORATE,
     SYSTEM_PROMPT_SHORT,
@@ -221,10 +222,7 @@ def chat():
 
     # Knowledge base has no relevant info
     if use_rag and not context:
-        answer = (
-            "I don't have that information in my knowledge base. "
-            "Please ingest the relevant document first."
-        )
+        answer = REFERENCE_FALLBACK
         _memory.add("user", message)
         _memory.add("assistant", answer)
         return jsonify(ok_chat(answer=answer, style=style_name))

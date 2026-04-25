@@ -41,6 +41,7 @@ from config import (
     MAX_CONTEXT_CHARS_DEFAULT,
     MAX_TOKENS_STYLE,
     MAX_TOKENS_DEFAULT,
+    REFERENCE_FALLBACK,
     SYSTEM_PROMPT,
     SYSTEM_PROMPT_SHORT,
     SYSTEM_PROMPT_ELABORATE,
@@ -391,11 +392,7 @@ def run_chat() -> None:
                 context = context[:context_limit].rstrip() + "\n...[truncated]..."
 
         if use_rag and not context:
-            no_info = (
-                "I don't have that information in my knowledge base. "
-                "Please ingest the relevant document first using "
-                "/ingest pdf, /ingest url, /ingest docx, or /ingest text."
-            )
+            no_info = REFERENCE_FALLBACK
             print(f"\nAgniAI: {no_info}\n")
             memory.add("user",      raw)
             memory.add("assistant", no_info)
