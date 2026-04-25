@@ -63,7 +63,7 @@ from ingest import (
 from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL_NAME
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
-from rag import build_context, index_stats, search
+from rag import answer_is_grounded, build_context, build_strict_messages, index_stats, search
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -106,7 +106,7 @@ Available commands:
   /stats                  Show index vector count
   /clear                  Clear conversation memory
   /reset                  Delete the entire knowledge base
-  /model <name>           Switch the Ollama model (e.g. phi3:mini)
+  /model <name>           Switch the Ollama model (e.g. mistral:7b-instruct)
   /help                   Show this help
   /exit  or  /quit        Exit AgniAI
 
@@ -116,7 +116,7 @@ Answer style is detected automatically from your question:
   • "... in detail"    → DETAIL (full numbered sections, every figure)
 
 Recommended small models for CPU:
-  ollama pull phi3:mini      (~2.3 GB)
+  ollama pull mistral:7b-instruct      (~4-5 GB, model size varies by tag)
   ollama pull llama3.2:3b   (~2.0 GB)
   ollama pull gemma2:2b     (~1.6 GB)
 """
@@ -360,7 +360,7 @@ def run_chat() -> None:
                 active_model = parts[1].strip()
                 print(green(f"  Model switched to '{active_model}'."))
             else:
-                print(yellow("  Usage: /model <model-name>  e.g.  /model phi3:mini"))
+                print(yellow("  Usage: /model <model-name>  e.g.  /model mistral:7b-instruct"))
             continue
 
         if low.startswith("/ingest "):
@@ -386,7 +386,7 @@ def run_chat() -> None:
         context = ""
         if use_rag:
             print(dim("  Searching knowledge base..."))
-            docs    = search(raw, top_k=TOP_K)
+            docs = search(raw, top_k=TOP_K)
             context = build_context(docs)
             if len(context) > context_limit:
                 context = context[:context_limit].rstrip() + "\n...[truncated]..."
@@ -403,12 +403,10 @@ def run_chat() -> None:
         history = memory.history()
 
         if use_rag:
-            messages = [{"role": "system", "content": active_system_prompt}]
-            if history:
-                messages.extend(history[-6:])   # fixed: was -4
-            user_content = (
-                f"Reference information:\n{context}\n\n"
-                f"Question: {raw}"
+            messages = build_strict_messages(
+                raw,
+                context=context,
+                history=history[-6:] if history else None,
             )
         else:
             messages = [{"role": "system", "content": (
@@ -417,9 +415,7 @@ def run_chat() -> None:
             )}]
             if history:
                 messages.extend(history[-6:])
-            user_content = raw
-
-        messages.append({"role": "user", "content": user_content})
+            messages.append({"role": "user", "content": raw})
 
         # ── LLM call with per-style token limit ────────────────────────────
         try:
@@ -432,6 +428,30 @@ def run_chat() -> None:
                 max_tokens_override=token_limit,
             )
             answer = result.text
+            if use_rag and not answer_is_grounded(answer, context):
+                repair_messages = build_strict_messages(
+                    raw,
+                    context=context,
+                    history=history[-6:] if history else None,
+                )
+                repair_messages.append({
+                    "role": "user",
+                    "content": (
+                        "The previous answer contained unsupported information. "
+                        "Rewrite strictly from the reference information only. "
+                        "If the answer is missing, reply exactly: Not available in the document"
+                    ),
+                })
+                result = chat_with_fallback(
+                    session,
+                    active_model,
+                    repair_messages,
+                    stream_tokens=True,
+                    max_tokens_override=token_limit,
+                )
+                answer = result.text
+                if not answer_is_grounded(answer, context):
+                    answer = REFERENCE_FALLBACK
             print("\n")
         except PartialResponseError as exc:
             print(f"\n  Partial response: {exc}\n")

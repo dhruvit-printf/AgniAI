@@ -25,7 +25,7 @@ from typing import Callable, Iterable, List, Optional
 
 import requests
 
-from config import MAX_CONTEXT_CHARS_DEFAULT, SYSTEM_PROMPT, TOP_K as _CONFIG_TOP_K
+from config import MAX_CONTEXT_CHARS_DEFAULT, STRICT_RAG_PROMPT, TOP_K as _CONFIG_TOP_K
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -41,14 +41,14 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 CHAT_ENDPOINT   = f"{OLLAMA_BASE_URL}/api/chat"
 TAGS_ENDPOINT   = f"{OLLAMA_BASE_URL}/api/tags"
 
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "phi3:mini")
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct")
 
 FALLBACK_MODELS: List[str] = [
     m.strip()
     for m in os.getenv(
         "OLLAMA_FALLBACK_MODELS",
-        "phi3:mini,phi3:3.8b,gemma2:2b,llama3.2:3b,llama3.2:1b,"
-        "mistral:7b-instruct-q4_0",
+        "mistral:7b-instruct,mistral:7b-instruct-q4_0,llama3:8b,llama3:8b-instruct,"
+        "llama3.1:8b,llama3.2:3b,gemma2:2b",
     ).split(",")
     if m.strip()
 ]
@@ -65,7 +65,7 @@ MAX_RETRIES         = int(os.getenv("OLLAMA_MAX_RETRIES",           "2"))
 #   _SAMPLING_TOP_K = sampling knob — renamed from TOP_K to avoid shadowing
 #                     the retrieval TOP_K imported from config.
 
-MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",      "512"))
+MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",      "400"))
 NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",         "2048"))
 TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",   "0.1"))
 _SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",           "10"))   # sampling knob only
@@ -135,7 +135,7 @@ def _default_num_thread() -> int:
 def build_rag_context(query: str) -> str:
     try:
         from rag import build_context, search  # type: ignore
-        docs    = search(query, top_k=_CONFIG_TOP_K)
+        docs = search(query, top_k=_CONFIG_TOP_K)
         context = build_context(docs)
         return _truncate(context, MAX_CONTEXT_CHARS_DEFAULT)
     except Exception:
@@ -144,7 +144,7 @@ def build_rag_context(query: str) -> str:
 
 def build_messages(query: str, history: List[dict]) -> List[dict]:
     context = build_rag_context(query)
-    messages: List[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: List[dict] = [{"role": "system", "content": STRICT_RAG_PROMPT}]
     if history:
         messages.extend(history[-MAX_HISTORY_MESSAGES:])
     if context:
@@ -249,7 +249,7 @@ def _ollama_chat_once(
         ) as resp:
             if resp.status_code == 404:
                 raise OllamaError(
-                    f"Model '{model}' not found. Run:  ollama pull phi3:mini"
+                    f"Model '{model}' not found. Run:  ollama pull mistral:7b-instruct"
                 )
             if resp.status_code >= 400:
                 raise OllamaError(
@@ -279,7 +279,7 @@ def _ollama_chat_once(
                 if not first_token_received and time.time() > deadline_first_token:
                     raise OllamaError(
                         f"Model '{model}' no first token in {FIRST_TOKEN_TIMEOUT:.0f}s. "
-                        "Too large for this CPU. Try:  ollama pull phi3:mini"
+                        "Too large for this CPU. Try:  ollama pull mistral:7b-instruct"
                     )
 
     except requests.Timeout as exc:
@@ -324,7 +324,7 @@ def chat_with_fallback(
     candidates = _candidate_models(requested_model, installed)
 
     if not candidates:
-        raise OllamaError("No Ollama models found. Run:  ollama pull phi3:mini")
+        raise OllamaError("No Ollama models found. Run:  ollama pull mistral:7b-instruct")
 
     last_error: Optional[str] = None
     for model in candidates:
@@ -349,7 +349,7 @@ def chat_with_fallback(
     raise OllamaError(
         f"All models failed. Last error: {last_error}\n"
         f"Tried: {', '.join(candidates)}\n"
-        "Fix: try a smaller local model such as phi3:mini, gemma2:2b, or llama3.2:1b, "
+        "Fix: try a smaller local model such as mistral:7b-instruct-q4_0, gemma2:2b, or llama3.2:3b, "
         "or increase OLLAMA_FIRST_TOKEN_TIMEOUT / OLLAMA_STREAM_TIMEOUT if the model is slow to load."
     )
 

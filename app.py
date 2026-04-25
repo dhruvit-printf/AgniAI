@@ -14,7 +14,7 @@ Fixes in this version:
 
 The .NET backend calls:
     POST http://localhost:5000/api/chat
-    Body: { "message": "What is the age limit?", "model": "phi3:mini" (opt) }
+    Body: { "message": "What is the age limit?", "model": "mistral:7b-instruct" (opt) }
 
     Response:
     {
@@ -70,7 +70,7 @@ from ingest import (
 from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
-from rag import build_context, index_stats, search
+from rag import answer_is_grounded, build_context, build_strict_messages, index_stats, search
 
 import re
 
@@ -181,7 +181,7 @@ def chat():
     Body JSON:
         {
             "message": "What is the age limit?",   ← required
-            "model":   "phi3:mini"                 ← optional
+            "model":   "mistral:7b-instruct"       ← optional
         }
 
     Response JSON:
@@ -214,8 +214,9 @@ def chat():
     # ── RAG retrieval ──────────────────────────────────────────────────────
     use_rag = _should_use_rag(message)
     context = ""
+    docs = []
     if use_rag:
-        docs    = search(message, top_k=TOP_K)
+        docs = search(message, top_k=TOP_K)
         context = build_context(docs)
         if len(context) > context_limit:
             context = context[:context_limit].rstrip() + "\n...[truncated]..."
@@ -231,10 +232,11 @@ def chat():
     history = _memory.history()
 
     if use_rag:
-        messages = [{"role": "system", "content": system_prompt}]
-        if history:
-            messages.extend(history[-6:])   # FIX: was -4
-        user_content = f"Reference information:\n{context}\n\nQuestion: {message}"
+        messages = build_strict_messages(
+            message,
+            context=context,
+            history=history[-6:] if history else None,
+        )
     else:
         messages = [{"role": "system", "content": (
             "You are AgniAI, a helpful assistant for India's Agniveer "
@@ -242,9 +244,7 @@ def chat():
         )}]
         if history:
             messages.extend(history[-6:])
-        user_content = message
-
-    messages.append({"role": "user", "content": user_content})
+        messages.append({"role": "user", "content": message})
 
     # ── LLM call with per-style token limit ────────────────────────────────
     try:
@@ -256,6 +256,30 @@ def chat():
             max_tokens_override=token_limit,
         )
         answer = result.text
+        if use_rag and not answer_is_grounded(answer, context):
+            repair_messages = build_strict_messages(
+                message,
+                context=context,
+                history=history[-6:] if history else None,
+            )
+            repair_messages.append({
+                "role": "user",
+                "content": (
+                    "The previous answer contained unsupported information. "
+                    "Rewrite strictly from the reference information only. "
+                    "If the answer is missing, reply exactly: Not available in the document"
+                ),
+            })
+            result = chat_with_fallback(
+                _session,
+                current_model,
+                repair_messages,
+                stream_tokens=False,
+                max_tokens_override=token_limit,
+            )
+            answer = result.text
+            if not answer_is_grounded(answer, context):
+                answer = REFERENCE_FALLBACK
 
     except PartialResponseError as exc:
         answer = exc.partial_text or "Partial response received. Please try again."
