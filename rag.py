@@ -49,7 +49,6 @@ from config import (
     STRICT_TOP_K,
     MIN_RETRIEVAL_CONFIDENCE,
     SYSTEM_PROMPT,
-    STYLE_OUTPUT_GUIDANCE,
     TOP_K,
     USE_HYBRID,
     USE_RERANKER,
@@ -870,6 +869,7 @@ def prepare_rag_bundle(
     *,
     top_k: int = TOP_K,
     style: str = "elaborate",
+    max_context_chars: Optional[int] = None,
 ) -> Dict[str, object]:
     retrieval_query = _normalize_query_for_retrieval(query)
     docs = search(retrieval_query, top_k=top_k)
@@ -878,6 +878,8 @@ def prepare_rag_bundle(
         if isinstance(MAX_CONTEXT_CHARS, dict)
         else MAX_CONTEXT_CHARS_DEFAULT
     )
+    if max_context_chars is not None:
+        context_limit = max(0, min(int(context_limit), int(max_context_chars)))
     confidence = retrieval_confidence(docs, query)
     mode = decide_answer_mode(query=query, docs=docs, confidence=confidence)
     context_min_score = STRICT_MIN_SCORE if mode == "normal_answer" else LOW_RETRIEVAL_CONFIDENCE
@@ -942,11 +944,6 @@ def build_strict_messages(
     system_content = STRICT_RAG_PROMPT
     if reasoning:
         system_content = STRICT_RAG_PROMPT_COMPUTE
-    style_guidance = STYLE_OUTPUT_GUIDANCE.get(style)
-    if style_guidance:
-        system_content = f"{STRICT_RAG_PROMPT}\n\nStyle:\n- {style_guidance}"
-        if reasoning:
-            system_content = f"{STRICT_RAG_PROMPT_COMPUTE}\n\nStyle:\n- {style_guidance}"
     messages = [{"role": "system", "content": system_content}]
     if history:
         for msg in history:

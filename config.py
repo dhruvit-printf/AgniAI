@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 # Paths
@@ -27,6 +28,7 @@ OLLAMA_URL = os.getenv("OLLAMA_CHAT_URL", f"{OLLAMA_BASE_URL}/api/chat")
 OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", f"{OLLAMA_BASE_URL}/api/tags")
 
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct")
+MODEL_MAX_CONTEXT_TOKENS = int(os.getenv("OLLAMA_NUM_CTX", "2048"))
 FALLBACK_MODELS = [
     m.strip()
     for m in os.getenv(
@@ -80,11 +82,12 @@ MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "3000"))
 
 # Token budgets
 MAX_TOKENS_STYLE = {
-    "short": int(os.getenv("MAX_TOKENS_SHORT", "300")),
-    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "500")),
-    "detail": int(os.getenv("MAX_TOKENS_DETAIL", "800")),
+    "short": int(os.getenv("MAX_TOKENS_SHORT", "140")),
+    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "400")),
+    "detail": int(os.getenv("MAX_TOKENS_DETAIL", "820")),
 }
-MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "500"))
+MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "400"))
+TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "200"))
 
 # CORS
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
@@ -122,38 +125,52 @@ STYLE_OUTPUT_GUIDANCE = {
 # Strict prompt
 REFERENCE_FALLBACK = "Not available in the document"
 
-STRICT_RAG_PROMPT = """You are a strict question-answering system.
+STRICT_RAG_PROMPT = (
+    "You are a strict question-answering system. "
+    "Use only the provided context. Do not add external knowledge. "
+    "If the answer is partially available, use what is present. "
+    "If it is missing, say 'Not available in the document'. "
+    "Be concise and complete. Prioritize key points. Ensure the answer ends with a full sentence."
+)
 
-Rules:
-- Answer ONLY using the provided context
-- Do NOT add any external knowledge
-- If partial information is available, answer using that
-- If completely missing, say: 'Not available in the document'
-- Do NOT hallucinate
-- Keep answers precise and structured
-- Ignore irrelevant context
-
-Format:
-- Use bullet points
-- Be concise and factual"""
-
-STRICT_RAG_PROMPT_COMPUTE = """You are a strict question-answering system.
-
-Rules:
-- Answer ONLY using the provided context
-- Do NOT add any external knowledge
-- You may compute or aggregate values ONLY from the provided context
-- If partial information is available, answer using that
-- If completely missing, say: 'Not available in the document'
-- Do NOT hallucinate
-- Keep answers precise and structured
-- Ignore irrelevant context
-
-Format:
-- Use bullet points
-- Be concise and factual"""
+STRICT_RAG_PROMPT_COMPUTE = (
+    "You are a strict question-answering system. "
+    "Use only the provided context. Do not add external knowledge. "
+    "You may compute or aggregate values only from the provided context. "
+    "If the answer is partially available, use what is present. "
+    "If it is missing, say 'Not available in the document'. "
+    "Be concise and complete. Prioritize key points. Ensure the answer ends with a full sentence."
+)
 
 SYSTEM_PROMPT_SHORT = STRICT_RAG_PROMPT
 SYSTEM_PROMPT_ELABORATE = STRICT_RAG_PROMPT
 SYSTEM_PROMPT_DETAIL = STRICT_RAG_PROMPT
 SYSTEM_PROMPT = STRICT_RAG_PROMPT
+
+
+def estimate_text_tokens(text: str) -> int:
+    text = (text or "").strip()
+    if not text:
+        return 0
+    return max(1, (len(text) + 3) // 4)
+
+
+def estimate_message_tokens(messages: list[dict]) -> int:
+    total = 0
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        total += 6
+        total += estimate_text_tokens(str(message.get("role", "")))
+        total += estimate_text_tokens(str(message.get("content", "")))
+    return total
+
+
+def trim_to_complete_sentence(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return text
+    matches = list(re.finditer(r"[.!?]\s", text))
+    if not matches:
+        return text
+    return text[: matches[-1].end()].strip()

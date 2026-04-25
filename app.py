@@ -21,13 +21,18 @@ from config import (
     MAX_CONTEXT_CHARS_DEFAULT,
     MAX_TOKENS_STYLE,
     MAX_TOKENS_DEFAULT,
+    MODEL_MAX_CONTEXT_TOKENS,
     MIN_RETRIEVAL_CONFIDENCE,
     OLLAMA_TAGS_URL,
+    REFERENCE_FALLBACK,
     SESSION_HEADER,
+    TOKEN_SAFETY_BUFFER,
     STYLE_DETAIL_KEYWORDS,
     STYLE_ELABORATE_KEYWORDS,
     STYLE_SHORT_KEYWORDS,
     TOP_K,
+    estimate_message_tokens,
+    trim_to_complete_sentence,
 )
 from ingest import clear_index, ingest_docx, ingest_pdf, ingest_text, ingest_txt, ingest_url, list_sources
 from memory import ConversationMemory
@@ -40,6 +45,7 @@ from rag import (
     index_stats,
     make_response_cache_key,
     decide_answer_mode,
+    is_reasoning_query,
     prepare_rag_bundle,
     set_cached_response,
 )
@@ -151,6 +157,57 @@ def _get_token_limit(style: str) -> int:
     return MAX_TOKENS_STYLE.get(style, MAX_TOKENS_DEFAULT)
 
 
+def _build_budget_probe_messages(
+    *,
+    query: str,
+    style: str,
+    history: list[dict] | None,
+    reasoning: bool,
+    use_rag: bool,
+) -> list[dict]:
+    if use_rag:
+        return build_strict_messages(
+            query,
+            context="",
+            style=style,
+            reasoning=reasoning,
+            history=history,
+        )
+
+    messages = [{
+        "role": "system",
+        "content": (
+            "You are AgniAI, a helpful assistant for India's Agniveer Training scheme. "
+            "Respond naturally and concisely."
+        ),
+    }]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": query})
+    return messages
+
+
+def _compute_context_char_budget(*, query: str, style: str, history: list[dict] | None, reasoning: bool, use_rag: bool) -> tuple[int, int]:
+    style_budget = _get_token_limit(style)
+    probe_messages = _build_budget_probe_messages(
+        query=query,
+        style=style,
+        history=history,
+        reasoning=reasoning,
+        use_rag=use_rag,
+    )
+    prompt_tokens = estimate_message_tokens(probe_messages)
+    available_after_prompt = MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - TOKEN_SAFETY_BUFFER
+    completion_budget = max(1, min(style_budget, available_after_prompt)) if available_after_prompt > 0 else 1
+    context_tokens = max(0, MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - completion_budget - TOKEN_SAFETY_BUFFER)
+    return completion_budget, context_tokens * 4
+
+
+def _finalize_answer(answer: str) -> str:
+    final = trim_to_complete_sentence(answer)
+    return final or REFERENCE_FALLBACK
+
+
 def _build_messages(
     *,
     query: str,
@@ -252,20 +309,28 @@ def chat():
         current_model = _active_model
 
     style_name, _ = detect_answer_style(message)
-    token_limit = _get_token_limit(style_name)
     intent = _classify_intent(message)
     use_rag = intent == "rag"
+    history = _memory.history(session_id)
+    reasoning = is_reasoning_query(message) if use_rag else False
+
+    token_limit, context_char_budget = _compute_context_char_budget(
+        query=message,
+        style=style_name,
+        history=history,
+        reasoning=reasoning,
+        use_rag=use_rag,
+    )
 
     bundle = {"docs": [], "context": "", "confidence": 0.0}
     if use_rag:
-        bundle = prepare_rag_bundle(message, top_k=TOP_K, style=style_name)
+        bundle = prepare_rag_bundle(message, top_k=TOP_K, style=style_name, max_context_chars=context_char_budget)
 
     context = bundle.get("context", "") if isinstance(bundle, dict) else ""
     confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
     mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
     reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
 
-    history = _memory.history(session_id)
     history_hash = _history_fingerprint(history)
     response_key = make_response_cache_key(
         message,
@@ -351,9 +416,10 @@ def chat():
 
             answer = "".join(pieces).strip() or str(outcome.get("answer", "")).strip()
             if use_rag and mode == "normal_answer" and not answer_is_grounded(answer, context):
-                answer = "Not available in the document"
+                answer = REFERENCE_FALLBACK
             elif use_rag and mode == "strict_answer" and not context.strip() and not bundle.get("docs"):
-                answer = "Not available in the document"
+                answer = REFERENCE_FALLBACK
+            answer = _finalize_answer(answer)
             _memory.add("user", message, session_id=session_id)
             _memory.add("assistant", answer, session_id=session_id)
             set_cached_response(response_key, answer)
@@ -384,9 +450,10 @@ def chat():
         return jsonify(*err(f"LLM service unavailable: {exc}", 503))
 
     if use_rag and mode == "normal_answer" and not answer_is_grounded(answer, context):
-        answer = "Not available in the document"
+        answer = REFERENCE_FALLBACK
     elif use_rag and mode == "strict_answer" and not context.strip() and not bundle.get("docs"):
-        answer = "Not available in the document"
+        answer = REFERENCE_FALLBACK
+    answer = _finalize_answer(answer)
 
     _memory.add("user", message, session_id=session_id)
     _memory.add("assistant", answer, session_id=session_id)

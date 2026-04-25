@@ -20,12 +20,21 @@ import json
 import os
 import sys
 import time
+import re
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Optional
 
 import requests
 
-from config import MAX_CONTEXT_CHARS_DEFAULT, STRICT_RAG_PROMPT, TOP_K as _CONFIG_TOP_K
+from config import (
+    MAX_CONTEXT_CHARS_DEFAULT,
+    MODEL_MAX_CONTEXT_TOKENS,
+    STRICT_RAG_PROMPT,
+    TOKEN_SAFETY_BUFFER,
+    TOP_K as _CONFIG_TOP_K,
+    estimate_message_tokens,
+    trim_to_complete_sentence,
+)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -113,6 +122,14 @@ def _truncate(text: str, limit: int) -> str:
     head = int(limit * 0.70)
     tail = max(0, limit - head - 20)
     return f"{text[:head].rstrip()}\n\n...[truncated]...\n\n{text[-tail:].lstrip()}"
+
+
+def _sentence_safe_chunks(buffer: str) -> tuple[list[str], str]:
+    matches = list(re.finditer(r"[.!?]\s", buffer))
+    if not matches:
+        return [], buffer
+    end = matches[-1].end()
+    return [buffer[:end]], buffer[end:]
 
 
 def _default_num_thread() -> int:
@@ -216,6 +233,12 @@ def _ollama_chat_once(
     max_tokens_override: Optional[int] = None,
 ) -> ChatResult:
     effective_max_tokens = max_tokens_override if max_tokens_override is not None else MAX_TOKENS
+    prompt_tokens_estimate = estimate_message_tokens(messages)
+    available_tokens = MODEL_MAX_CONTEXT_TOKENS - prompt_tokens_estimate - TOKEN_SAFETY_BUFFER
+    if available_tokens > 0:
+        effective_max_tokens = min(effective_max_tokens, available_tokens)
+    else:
+        effective_max_tokens = max(16, min(effective_max_tokens, 64))
 
     payload = {
         "model": model,
@@ -234,6 +257,8 @@ def _ollama_chat_once(
     }
 
     pieces: List[str] = []
+    streamed_text = ""
+    stream_buffer = ""
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     first_token_received = False
@@ -268,13 +293,17 @@ def _ollama_chat_once(
                 token = event.get("message", {}).get("content", "")
                 if token:
                     first_token_received = True
-                    pieces.append(token)
-                    if stream_tokens:
-                        if on_token is not None:
-                            on_token(token)
-                        else:
-                            sys.stdout.write(token)
-                            sys.stdout.flush()
+                    stream_buffer += token
+                    emitted, stream_buffer = _sentence_safe_chunks(stream_buffer)
+                    for chunk in emitted:
+                        pieces.append(chunk)
+                        streamed_text += chunk
+                        if stream_tokens:
+                            if on_token is not None:
+                                on_token(chunk)
+                            else:
+                                sys.stdout.write(chunk)
+                                sys.stdout.flush()
 
                 if not first_token_received and time.time() > deadline_first_token:
                     raise OllamaError(
@@ -283,29 +312,44 @@ def _ollama_chat_once(
                     )
 
     except requests.Timeout as exc:
-        if pieces:
-            raise PartialResponseError("Stream timeout after partial response.", "".join(pieces)) from exc
+        partial = trim_to_complete_sentence("".join(pieces) + stream_buffer)
+        if partial:
+            raise PartialResponseError("Stream timeout after partial response.", partial) from exc
         raise OllamaError(f"Timeout waiting for '{model}'.") from exc
 
     except requests.ConnectionError as exc:
-        if pieces:
-            raise PartialResponseError("Connection dropped mid-stream.", "".join(pieces)) from exc
+        partial = trim_to_complete_sentence("".join(pieces) + stream_buffer)
+        if partial:
+            raise PartialResponseError("Connection dropped mid-stream.", partial) from exc
         raise OllamaError("Cannot connect to Ollama. Run:  ollama serve") from exc
 
     except json.JSONDecodeError as exc:
-        if pieces:
-            raise PartialResponseError("Malformed JSON mid-stream.", "".join(pieces)) from exc
+        partial = trim_to_complete_sentence("".join(pieces) + stream_buffer)
+        if partial:
+            raise PartialResponseError("Malformed JSON mid-stream.", partial) from exc
         raise OllamaError(f"Malformed JSON: {exc}") from exc
 
     except KeyboardInterrupt:
-        if pieces:
-            raise PartialResponseError("Interrupted by user.", "".join(pieces))
+        partial = trim_to_complete_sentence("".join(pieces) + stream_buffer)
+        if partial:
+            raise PartialResponseError("Interrupted by user.", partial)
         raise
+
+    final_text = trim_to_complete_sentence("".join(pieces) + stream_buffer)
+    if stream_tokens and final_text.startswith(streamed_text) and len(final_text) > len(streamed_text):
+        tail = final_text[len(streamed_text):]
+        if tail:
+            if on_token is not None:
+                on_token(tail)
+            else:
+                sys.stdout.write(tail)
+                sys.stdout.flush()
+            streamed_text += tail
 
     duration = time.time() - start
     return ChatResult(
         model=model,
-        text="".join(pieces),
+        text=final_text,
         duration_s=duration,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,

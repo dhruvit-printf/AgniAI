@@ -17,12 +17,16 @@ from config import (
     MAX_CONTEXT_CHARS_DEFAULT,
     MAX_TOKENS_DEFAULT,
     MAX_TOKENS_STYLE,
+    MODEL_MAX_CONTEXT_TOKENS,
     REFERENCE_FALLBACK,
     SESSION_HEADER,
+    TOKEN_SAFETY_BUFFER,
     STYLE_DETAIL_KEYWORDS,
     STYLE_ELABORATE_KEYWORDS,
     STYLE_SHORT_KEYWORDS,
     TOP_K,
+    estimate_message_tokens,
+    trim_to_complete_sentence,
 )
 from ingest import clear_index, ingest_docx, ingest_pdf, ingest_text, ingest_txt, ingest_url, list_sources
 from memory import ConversationMemory
@@ -34,6 +38,7 @@ from rag import (
     get_cached_response,
     index_stats,
     make_response_cache_key,
+    is_reasoning_query,
     prepare_rag_bundle,
     set_cached_response,
 )
@@ -118,6 +123,57 @@ def get_context_limit(style: str) -> int:
 
 def get_token_limit(style: str) -> int:
     return MAX_TOKENS_STYLE.get(style, MAX_TOKENS_DEFAULT)
+
+
+def _build_budget_probe_messages(
+    *,
+    query: str,
+    style: str,
+    history: list[dict] | None,
+    reasoning: bool,
+    use_rag: bool,
+) -> list[dict]:
+    if use_rag:
+        return build_strict_messages(
+            query,
+            context="",
+            style=style,
+            reasoning=reasoning,
+            history=history,
+        )
+
+    messages = [{
+        "role": "system",
+        "content": (
+            "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
+            "Respond naturally and concisely."
+        ),
+    }]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": query})
+    return messages
+
+
+def _compute_context_char_budget(*, query: str, style: str, history: list[dict] | None, reasoning: bool, use_rag: bool) -> tuple[int, int]:
+    style_budget = get_token_limit(style)
+    probe_messages = _build_budget_probe_messages(
+        query=query,
+        style=style,
+        history=history,
+        reasoning=reasoning,
+        use_rag=use_rag,
+    )
+    prompt_tokens = estimate_message_tokens(probe_messages)
+    available_after_prompt = MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - TOKEN_SAFETY_BUFFER
+    completion_budget = max(1, min(style_budget, available_after_prompt)) if available_after_prompt > 0 else 1
+    context_tokens = max(0, MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - completion_budget - TOKEN_SAFETY_BUFFER)
+    return completion_budget, context_tokens * 4
+
+
+def _finalize_answer(answer: str) -> str:
+    final = trim_to_complete_sentence(answer)
+    return final or REFERENCE_FALLBACK
 
 
 def _classify_intent(query: str) -> str:
@@ -284,23 +340,29 @@ def run_chat() -> None:
         style_label = _STYLE_LABEL[style_name]
         style_color = _STYLE_COLOR[style_name]
         context_limit = get_context_limit(style_name)
-        token_limit = get_token_limit(style_name)
-        print(dim("  Answer style: ") + style_color(style_label) + dim(f"  [ctx={context_limit} chars, tokens≤{token_limit}]"))
-
+        history = memory.history()
         intent = _classify_intent(raw)
         use_rag = intent == "rag"
+        reasoning = is_reasoning_query(raw) if use_rag else False
+        token_limit, context_char_budget = _compute_context_char_budget(
+            query=raw,
+            style=style_name,
+            history=history,
+            reasoning=reasoning,
+            use_rag=use_rag,
+        )
+        print(dim("  Answer style: ") + style_color(style_label) + dim(f"  [ctx={context_limit} chars, tokens≤{token_limit}]"))
+
         bundle = {"docs": [], "context": "", "confidence": 0.0, "mode": "reject", "reasoning": False}
         if use_rag:
             print(dim("  Preparing retrieval..."))
-            bundle = prepare_rag_bundle(raw, top_k=TOP_K, style=style_name)
+            bundle = prepare_rag_bundle(raw, top_k=TOP_K, style=style_name, max_context_chars=context_char_budget)
         context = bundle.get("context", "") if isinstance(bundle, dict) else ""
         confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
         mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
         reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
         if use_rag:
             print(dim(f"  Retrieval confidence: {confidence:.3f} | mode={mode} | reasoning={reasoning}"))
-
-        history = memory.history()
         history_hash = _history_fingerprint(history)
         response_key = make_response_cache_key(
             raw,
@@ -353,10 +415,11 @@ def run_chat() -> None:
                 answer = REFERENCE_FALLBACK
             elif use_rag and mode == "strict_answer" and not context.strip() and not bundle.get("docs"):
                 answer = REFERENCE_FALLBACK
+            answer = _finalize_answer(answer)
             print()
         except PartialResponseError as exc:
             print(f"\n  Partial response: {exc}\n")
-            answer = exc.partial_text or REFERENCE_FALLBACK
+            answer = _finalize_answer(exc.partial_text or REFERENCE_FALLBACK)
         except RuntimeError as exc:
             print(f"\n  LLM Error: {exc}\n")
             continue
