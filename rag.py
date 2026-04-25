@@ -47,6 +47,7 @@ from config import (
     REQUEST_TIMEOUT,
     STRICT_MIN_SCORE,
     STRICT_RAG_PROMPT,
+    STRICT_RAG_PROMPT_COMPUTE,
     STRICT_TOP_K,
     MIN_RETRIEVAL_CONFIDENCE,
     SYSTEM_PROMPT,
@@ -63,6 +64,7 @@ from config import (
     LOW_RETRIEVAL_CONFIDENCE,
     STYLE_POINT_TOKEN_BUDGET,
     style_structure_instruction,
+    trim_to_complete_sentence,
 )
 
 logger = logging.getLogger(__name__)
@@ -1342,9 +1344,7 @@ def build_strict_messages(
     reasoning: bool = False,
     history: Optional[List[Dict[str, str]]] = None,
 ) -> List[Dict[str, str]]:
-    system_content = STRICT_RAG_PROMPT
-    if reasoning:
-        system_content = STRICT_RAG_PROMPT_COMPUTE
+    system_content = STRICT_RAG_PROMPT_COMPUTE if reasoning else STRICT_RAG_PROMPT
     system_content = f"{system_content}\n\n{style_structure_instruction(style)}"
     messages = [{"role": "system", "content": system_content}]
     if history:

@@ -478,6 +478,16 @@ def chat():
         set_cached_response(response_key, answer)
         return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
+    # Non-RAG (chat intent) path
+    messages = _build_messages(
+        query=message,
+        style=style_name,
+        context=context,
+        reasoning=reasoning,
+        history=history[-6:] if history else None,
+        use_rag=False,
+    )
+
     if stream:
         token_queue: Queue[str | None] = Queue()
         outcome: dict[str, object] = {}
