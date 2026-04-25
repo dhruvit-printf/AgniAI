@@ -47,7 +47,7 @@ FALLBACK_MODELS: List[str] = [
     for m in os.getenv(
         "OLLAMA_FALLBACK_MODELS",
         "phi3:mini,phi3:3.8b,gemma2:2b,llama3.2:3b,llama3.2:1b,"
-        "mistral:7b-instruct-q4_0,llama3:latest",
+        "mistral:7b-instruct-q4_0",
     ).split(",")
     if m.strip()
 ]
@@ -332,7 +332,8 @@ def chat_with_fallback(
     raise OllamaError(
         f"All models failed. Last error: {last_error}\n"
         f"Tried: {', '.join(candidates)}\n"
-        "Fix: run  ollama pull phi3:mini"
+        "Fix: try a smaller local model such as phi3:mini, gemma2:2b, or llama3.2:1b, "
+        "or increase OLLAMA_FIRST_TOKEN_TIMEOUT / OLLAMA_STREAM_TIMEOUT if the model is slow to load."
     )
 
 

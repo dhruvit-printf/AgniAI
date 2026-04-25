@@ -46,7 +46,6 @@ FALLBACK_MODELS = [
     "llama3.2:3b",
     "llama3.2:1b",
     "mistral:7b-instruct-q4_0",
-    "llama3:latest",
 ]
 
 # ── Chunking ───────────────────────────────────────────────────────────────
