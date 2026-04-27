@@ -20,6 +20,8 @@ from config import (
     MODEL_MAX_CONTEXT_TOKENS,
     REFERENCE_FALLBACK,
     SESSION_HEADER,
+    STRICT_RAG_PROMPT,
+    STRICT_RAG_PROMPT_COMPUTE,
     TOKEN_SAFETY_BUFFER,
     STYLE_DETAIL_KEYWORDS,
     STYLE_ELABORATE_KEYWORDS,
@@ -34,14 +36,16 @@ from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL_NAME
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
 from rag import (
+    build_context,
     build_strict_messages,
     get_cached_response,
     index_stats,
     make_response_cache_key,
-    generate_structured_answer,
     is_reasoning_query,
     prepare_rag_bundle,
     set_cached_response,
+    STRICT_TOP_K,
+    LOW_RETRIEVAL_CONFIDENCE,
 )
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -146,7 +150,7 @@ def _build_budget_probe_messages(
     messages = [{
         "role": "system",
         "content": (
-            "You are AgniAI, a helpful assistant for India's Agniveer Training scheme. "
+            "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
             "Respond naturally and concisely."
             f"\n\n{style_structure_instruction(style)}"
         ),
@@ -157,14 +161,14 @@ def _build_budget_probe_messages(
     return messages
 
 
-def _compute_context_char_budget(*, query: str, style: str, history: list[dict] | None, reasoning: bool, use_rag: bool) -> tuple[int, int]:
+def _compute_context_char_budget(
+    *, query: str, style: str, history: list[dict] | None,
+    reasoning: bool, use_rag: bool,
+) -> tuple[int, int]:
     style_budget = get_token_limit(style)
     probe_messages = _build_budget_probe_messages(
-        query=query,
-        style=style,
-        history=history,
-        reasoning=reasoning,
-        use_rag=use_rag,
+        query=query, style=style, history=history,
+        reasoning=reasoning, use_rag=use_rag,
     )
     prompt_tokens = estimate_message_tokens(probe_messages)
     available_after_prompt = MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - TOKEN_SAFETY_BUFFER
@@ -178,25 +182,47 @@ def _finalize_answer(answer: str) -> str:
     return final or REFERENCE_FALLBACK
 
 
-def _generate_structured_rag_answer(
+def _build_rag_messages(
     *,
     query: str,
-    style: str,
     docs: list[dict],
-    model: str,
-    session,
+    style: str,
     reasoning: bool,
     history: list[dict] | None,
-) -> dict:
-    return generate_structured_answer(
-        query,
-        docs=docs,
-        style=style,
-        model=model,
-        session=session,
-        reasoning=reasoning,
-        history=history,
+    context_char_budget: int,
+) -> list[dict]:
+    """Build the final messages list for a RAG query using retrieved docs."""
+    context = build_context(
+        docs,
+        max_chunks=max(STRICT_TOP_K, min(5, len(docs))),
+        min_score=LOW_RETRIEVAL_CONFIDENCE,
+        max_chars=context_char_budget,
     )
+
+    system_prompt = STRICT_RAG_PROMPT_COMPUTE if reasoning else STRICT_RAG_PROMPT
+    system_prompt = f"{system_prompt}\n\n{style_structure_instruction(style)}"
+
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+
+    if history:
+        for msg in history[-6:]:
+            role = msg.get("role")
+            content = (msg.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content})
+
+    if context.strip():
+        user_content = (
+            f"Reference information:\n{context}\n\n"
+            f"Question: {query}\n\n"
+            "Using ONLY the reference information above, write a complete answer. "
+            "Do not use any knowledge outside the reference information."
+        )
+    else:
+        user_content = query
+
+    messages.append({"role": "user", "content": user_content})
+    return messages, context
 
 
 def _classify_intent(query: str) -> str:
@@ -229,8 +255,13 @@ def _classify_intent(query: str) -> str:
     if any(term in q for term in domain_terms):
         return "rag"
 
-    reasoning_terms = ("calculate", "total", "sum", "overall", "aggregate", "combined", "after 4 years", "over 4 years")
-    if any(term in q for term in reasoning_terms) and any(term in q for term in ("salary", "pay", "service", "seva", "benefit", "nidhi", "year", "years")):
+    reasoning_terms = (
+        "calculate", "total", "sum", "overall", "aggregate", "combined",
+        "after 4 years", "over 4 years",
+    )
+    if any(term in q for term in reasoning_terms) and any(
+        term in q for term in ("salary", "pay", "service", "seva", "benefit", "nidhi", "year", "years")
+    ):
         return "rag"
 
     return "reject"
@@ -253,7 +284,10 @@ def _handle_ingest(command: str) -> None:
 
     kind = parts[1].lower()
     target = parts[2].strip()
-    fn_map = {"pdf": ingest_pdf, "url": ingest_url, "txt": ingest_txt, "text": ingest_text, "docx": ingest_docx}
+    fn_map = {
+        "pdf": ingest_pdf, "url": ingest_url, "txt": ingest_txt,
+        "text": ingest_text, "docx": ingest_docx,
+    }
     if kind not in fn_map:
         print(yellow(f"Unknown type '{kind}'. Use: pdf, url, txt, text, docx."))
         return
@@ -359,6 +393,7 @@ def run_chat() -> None:
             print(yellow(f"  Unknown command: {raw} (type /help for a list)"))
             continue
 
+        # ── Determine style and intent ────────────────────────────────────
         style_name, _ = detect_answer_style(raw)
         style_label = _STYLE_LABEL[style_name]
         style_color = _STYLE_COLOR[style_name]
@@ -368,39 +403,46 @@ def run_chat() -> None:
         use_rag = intent == "rag"
         reasoning = is_reasoning_query(raw) if use_rag else False
         token_limit, context_char_budget = _compute_context_char_budget(
-            query=raw,
-            style=style_name,
-            history=history,
-            reasoning=reasoning,
-            use_rag=use_rag,
+            query=raw, style=style_name, history=history,
+            reasoning=reasoning, use_rag=use_rag,
         )
-        print(dim("  Answer style: ") + style_color(style_label) + dim(f"  [ctx={context_limit} chars, tokens≤{token_limit}]"))
+        print(
+            dim("  Answer style: ") + style_color(style_label)
+            + dim(f"  [ctx={context_limit} chars, tokens≤{token_limit}]")
+        )
 
+        # ── Retrieval ─────────────────────────────────────────────────────
         bundle = {"docs": [], "context": "", "confidence": 0.0, "mode": "reject", "reasoning": False}
         if use_rag:
             print(dim("  Preparing retrieval..."))
             bundle = prepare_rag_bundle(raw, top_k=TOP_K, style=style_name, max_context_chars=context_char_budget)
-        context = bundle.get("context", "") if isinstance(bundle, dict) else ""
+
+        docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
         confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
         mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
         reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
+
         if use_rag:
             print(dim(f"  Retrieval confidence: {confidence:.3f} | mode={mode} | reasoning={reasoning}"))
+
+        # ── Cache check ───────────────────────────────────────────────────
+        context_for_cache = bundle.get("context", "") if isinstance(bundle, dict) else ""
         response_key = make_response_cache_key(
             raw,
             style=style_name,
             model=active_model or DEFAULT_MODEL_NAME,
-            context=context,
+            context=context_for_cache,
             session_id="cli",
         )
         cached_answer = get_cached_response(response_key)
         if cached_answer is not None:
-            print(dim("  Cache hit."))
+            print(dim("  [cache hit]"))
             print(f"\nAgniAI: {cached_answer}\n")
             memory.add("user", raw)
             memory.add("assistant", cached_answer)
             continue
 
+        # ── Reject out-of-domain queries ──────────────────────────────────
         if intent == "reject":
             answer = REFERENCE_FALLBACK
             print(f"\nAgniAI: {answer}\n")
@@ -409,39 +451,46 @@ def run_chat() -> None:
             set_cached_response(response_key, answer)
             continue
 
+        # ── Generate answer (streaming to stdout) ─────────────────────────
         try:
             print("\nAgniAI: ", end="", flush=True)
+
             if use_rag:
-                structured = _generate_structured_rag_answer(
+                # ── RAG path: build messages from retrieved docs, then stream
+                # _build_rag_messages returns (messages, context_string)
+                messages, _ = _build_rag_messages(
                     query=raw,
+                    docs=docs,
                     style=style_name,
-                    docs=bundle.get("docs", []) if isinstance(bundle, dict) else [],
-                    model=active_model or DEFAULT_MODEL_NAME,
-                    session=session,
                     reasoning=reasoning,
                     history=history[-6:] if history else None,
+                    context_char_budget=context_char_budget,
                 )
-                answer = str(structured.get("answer", "")).strip()
-                if not answer:
-                    answer = REFERENCE_FALLBACK
-                print(answer)
             else:
-                messages = [{"role": "system", "content": (
-                    "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. Respond naturally and concisely."
-                    f"\n\n{style_structure_instruction(style_name)}"
-                )}]
+                # ── Non-RAG chat path
+                messages = [{
+                    "role": "system",
+                    "content": (
+                        "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
+                        "Respond naturally and concisely."
+                        f"\n\n{style_structure_instruction(style_name)}"
+                    ),
+                }]
                 if history:
                     messages.extend(history[-6:])
                 messages.append({"role": "user", "content": raw})
-                result = chat_with_fallback(
-                    session,
-                    active_model or DEFAULT_MODEL_NAME,
-                    messages,
-                    stream_tokens=True,
-                    max_tokens_override=token_limit,
-                )
-                answer = _finalize_answer(result.text)
-                print()
+
+            # stream_tokens=True → tokens print to stdout as they arrive
+            result = chat_with_fallback(
+                session,
+                active_model or DEFAULT_MODEL_NAME,
+                messages,
+                stream_tokens=True,   # ← KEY: no more waiting for full answer
+                max_tokens_override=token_limit,
+            )
+            print()  # newline after streamed tokens
+            answer = _finalize_answer(result.text)
+
         except PartialResponseError as exc:
             print(f"\n  Partial response: {exc}\n")
             answer = _finalize_answer(exc.partial_text or REFERENCE_FALLBACK)
@@ -452,6 +501,7 @@ def run_chat() -> None:
             print("\n\n  [Generation stopped]\n")
             continue
 
+        print()
         memory.add("user", raw)
         memory.add("assistant", answer)
         set_cached_response(response_key, answer)

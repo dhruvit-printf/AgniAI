@@ -1,5 +1,3 @@
-"""Retrieval helpers for AgniAI."""
-
 from __future__ import annotations
 
 import json
@@ -189,26 +187,9 @@ _STEP_PATTERNS = [
 
 _STEP_ORDER = {label: idx for idx, label in enumerate(_STEP_TEMPLATE)}
 _STEP_GENERIC_NOISE = {
-    "army",
-    "result",
-    "results",
-    "test",
-    "tests",
-    "part",
-    "chapter",
-    "section",
-    "annexure",
-    "appendix",
-    "schedule",
-    "table",
-    "figure",
-    "contents",
-    "introduction",
-    "overview",
-    "detail",
-    "details",
-    "important",
-    "general",
+    "army", "result", "results", "test", "tests", "part", "chapter", "section",
+    "annexure", "appendix", "schedule", "table", "figure", "contents",
+    "introduction", "overview", "detail", "details", "important", "general",
 }
 _STEP_SECTION_NOISE = (
     r"^part[-\s]*[ivxlcdm0-9]+$",
@@ -387,22 +368,17 @@ def _chunk_similarity(a: str, b: str) -> float:
 def _dedupe_docs(docs: List[Dict[str, str]], similarity_threshold: float = 0.88):
     deduped = []
     seen_hashes = set()
-
     for doc in docs:
         text = _normalise_text(doc.get("text", ""))
         if not text:
             continue
-
         h = hashlib.md5(text.encode()).hexdigest()
         if h in seen_hashes:
             continue
-
         if any(_chunk_similarity(text, d.get("text", "")) >= similarity_threshold for d in deduped):
             continue
-
         seen_hashes.add(h)
         deduped.append(doc)
-
     return deduped
 
 
@@ -486,29 +462,30 @@ def _is_noise_step_text(text: str) -> bool:
         return True
     return False
 
-# ── TOC / garbage-line detector ───────────────────────────────────────────────
+
 _TOC_LINE_RE = re.compile(
     r"""
-    \b\d{1,3}(?:-\d{1,3})?\s*$          # trailing page numbers: "5-11", "78-82"
-    | ^[A-Z][A-Z\s/()&]{4,}\s+\d{1,3}   # ALL-CAPS heading + page number
-    | \(CEE\)\s*\d                        # "(CEE) 36-69"
-    | ^PART[-\s]*[IVX\d]+\b              # "PART-I", "PART - III"
-    | Next,\s+it\s+Will\s+proceed        # UI nav text
-    | ^(?:Enter|Click|Choose|Select|Fill|Read)\s+\w  # form-fill instructions
+    \b\d{1,3}(?:-\d{1,3})?\s*$
+    | ^[A-Z][A-Z\s/()&]{4,}\s+\d{1,3}
+    | \(CEE\)\s*\d
+    | ^PART[-\s]*[IVX\d]+\b
+    | Next,\s+it\s+Will\s+proceed
+    | ^(?:Enter|Click|Choose|Select|Fill|Read)\s+\w
     """,
     re.VERBOSE | re.IGNORECASE,
 )
 
+
 def _is_toc_or_garbage(text: str) -> bool:
-    """Return True if the line looks like a TOC entry, page ref, or UI fragment."""
     text = (text or "").strip()
     if not text or len(text) < 8:
         return True
     if _TOC_LINE_RE.search(text):
         return True
-    if text.isupper() and len(text.split()) <= 5:   # short ALL-CAPS headers
+    if text.isupper() and len(text.split()) <= 5:
         return True
     return False
+
 
 def _canonical_step_label(text: str, context: str = "") -> Optional[str]:
     haystack = f"{text or ''} {context or ''}".lower()
@@ -621,7 +598,6 @@ def _order_structured_points(points: Iterable[Dict[str, str]]) -> List[Dict[str,
                 "source": candidate_source,
                 "score": str(candidate_score),
             }
-
     ordered = [buckets[label] for label in _STEP_TEMPLATE if label in buckets]
     return ordered[: len(_STEP_TEMPLATE)]
 
@@ -754,7 +730,6 @@ def extract_key_points(
 
     deduped = _order_structured_points(_dedupe_points(candidates))
 
-    # First fallback (after initial dedup):
     if len(deduped) < 3:
         fallback = _fallback_points_from_docs(ordered)
         fallback_ordered = _order_structured_points(fallback)
@@ -831,16 +806,12 @@ def _build_support_explanation(point: Dict[str, str], style: str) -> str:
     text = (point.get("support") or point.get("raw") or "").strip()
     if not text:
         return ""
-
     text = re.sub(r"\s+", " ", text)
-
     if style == "short":
         return _limit_words(text, 20)
-
     if style == "elaborate":
         return _limit_sentence_count(text, 3)
-
-    return text  # detailed = full
+    return text
 
 
 def _build_point_messages(
@@ -892,26 +863,17 @@ def _generate_point_explanation(
     style_key = (style or "").strip().lower()
     if style_key == "short":
         return ""
-
     support = (point.get("support") or point.get("raw") or "").strip()
     if not support:
         return ""
-
     try:
         messages = _build_point_messages(
-            query=query,
-            point=point,
-            style=style,
-            reasoning=reasoning,
-            history=history,
+            query=query, point=point, style=style,
+            reasoning=reasoning, history=history,
         )
-
         from ollama_cpu_chat import chat_with_fallback
-
         response = chat_with_fallback(
-            session,
-            model,
-            messages,
+            session, model, messages,
             stream_tokens=False,
             max_tokens_override=_style_point_token_budget(style),
         )
@@ -932,14 +894,11 @@ def format_structured_answer(points, explanations, style: str) -> str:
         explanation = ""
         if idx - 1 < len(explanations):
             explanation = _shape_explanation(
-                _clean_generated_explanation(explanations[idx - 1], title),
-                style,
+                _clean_generated_explanation(explanations[idx - 1], title), style,
             )
-        # NEW: fallback to raw/support text if LLM explanation is empty
         if not explanation:
             explanation = _shape_explanation(
-                point.get("support") or point.get("raw") or "",
-                style,
+                point.get("support") or point.get("raw") or "", style,
             )
         if explanation:
             lines.append(f"   {explanation}")
@@ -957,7 +916,7 @@ def generate_structured_answer(
     history: Optional[List[Dict[str, str]]] = None,
     max_points: int = _MAX_STRUCTURED_POINTS,
 ) -> Dict[str, object]:
-    """Generate a complete structured answer using a single LLM call."""
+    """Generate a complete answer using a single LLM call."""
     if not docs:
         return {
             "answer": REFERENCE_FALLBACK,
@@ -1000,9 +959,8 @@ def generate_structured_answer(
     user_content = (
         f"Reference information:\n{context}\n\n"
         f"Question: {query}\n\n"
-        "Using ONLY the reference information above, write a complete structured answer. "
-        "Do not use any knowledge outside the reference information. "
-        "Do not repeat a numbered list inside a numbered list."
+        "Using ONLY the reference information above, write a complete answer. "
+        "Do not use any knowledge outside the reference information."
     )
     messages.append({"role": "user", "content": user_content})
 
@@ -1011,9 +969,7 @@ def generate_structured_answer(
     try:
         from ollama_cpu_chat import chat_with_fallback
         result = chat_with_fallback(
-            session,
-            model,
-            messages,
+            session, model, messages,
             stream_tokens=False,
             max_tokens_override=token_budget,
         )
@@ -1111,10 +1067,7 @@ def safe_rewrite_query(query: str) -> str:
             best_score = score
             best = candidate
     if best != original and best_score < 0.88:
-        logger.debug("Rewrite rejected for query=%r: best_score=%.3f", query, best_score)
         return original
-    if best != original:
-        logger.debug("Rewrite accepted for query=%r -> %r (score=%.3f)", query, best, best_score)
     return best
 
 
@@ -1193,12 +1146,17 @@ def embed_texts(texts: Sequence[str]) -> np.ndarray:
     return np.asarray(vecs, dtype="float32")
 
 
+# ─── FIX: show_progress_bar=False stops the "Loading weights: 100%|..." bar
+# from printing on every single query. Without this, sentence-transformers
+# defaults to showing a tqdm bar for every encode() call, even for a single
+# query string. The model itself is still cached after the first load.
 def embed_query(query: str) -> np.ndarray:
     model = load_embedding_model()
     vec = model.encode(
         [query],
         convert_to_numpy=True,
         normalize_embeddings=True,
+        show_progress_bar=False,   # ← THE FIX
         batch_size=1,
     )
     return np.asarray(vec, dtype="float32")
@@ -1242,8 +1200,7 @@ def load_reranker():
         logger.info("Reranker not available locally, skipping rerank step.")
         return None
     try:
-        from sentence_transformers import CrossEncoder  # type: ignore
-
+        from sentence_transformers import CrossEncoder
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             _RERANKER = CrossEncoder(RERANKER_MODEL, local_files_only=True)
@@ -1298,8 +1255,7 @@ def save_bm25(docs: List[Dict[str, str]]) -> None:
     def _build() -> None:
         global _BM25
         try:
-            from rank_bm25 import BM25Okapi  # type: ignore
-
+            from rank_bm25 import BM25Okapi
             corpus = [_tokenize(d.get("text", "")) for d in docs_snapshot]
             bm25 = BM25Okapi(corpus)
             _ensure_dirs()
@@ -1319,17 +1275,13 @@ def load_docstore():
     global _DOCSTORE_CACHE
     if _DOCSTORE_CACHE is not None:
         return _DOCSTORE_CACHE
-
     if not DOCSTORE_PATH.exists():
         return []
-
     raw = DOCSTORE_PATH.read_text(encoding="utf-8", errors="replace")
-
     try:
         docs = json.loads(raw)
-    except:
+    except Exception:
         docs = _repair_docstore_from_lines(raw)
-
     _DOCSTORE_CACHE = docs
     return docs
 
@@ -1459,14 +1411,6 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
 
     rewritten_query = _normalize_query_for_retrieval(query)
     retrieval_query = safe_rewrite_query(rewritten_query)
-    if retrieval_query != rewritten_query:
-        logger.debug(
-            "Query rewrite downgraded to preserve intent. original=%r rewritten=%r final=%r",
-            query,
-            rewritten_query,
-            retrieval_query,
-        )
-    logger.debug("Retrieval query: original=%r rewritten=%r final=%r", query, rewritten_query, retrieval_query)
     qvec = _cache_query_embedding(retrieval_query)
 
     candidate_k = min(max(top_k * 4, 10), 40, index.ntotal)
@@ -1548,14 +1492,6 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
 
     candidates = sorted(candidates, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
 
-    logger.debug(
-        "Retrieved chunks for query=%r: %s",
-        query,
-        [
-            {"score": doc.get("score"), "source": doc.get("source"), "chunk_id": doc.get("chunk_id")}
-            for doc in candidates[: max(top_k, STRICT_TOP_K)]
-        ],
-    )
     final = candidates[: max(top_k, STRICT_TOP_K)]
     set_cached_retrieval(query, top_k, final)
     return [dict(doc) for doc in final]
@@ -1625,10 +1561,6 @@ def build_context(
         if total_chars >= max_chars:
             break
 
-    logger.debug(
-        "Final context blocks: %s",
-        [{"score": doc.get("score"), "source": doc.get("source")} for doc in ordered[: len(blocks)]],
-    )
     return "\n\n---\n\n".join(blocks)
 
 
@@ -1699,18 +1631,6 @@ def prepare_rag_bundle(
         max_chars=context_limit,
     )
     points = extract_key_points(docs, query=query)
-    logger.debug(
-        "RAG bundle: confidence=%.3f low=%.2f high=%.2f mode=%s context_min=%.2f docs=%s",
-        confidence,
-        LOW_RETRIEVAL_CONFIDENCE,
-        HIGH_RETRIEVAL_CONFIDENCE,
-        mode,
-        context_min_score,
-        [
-            {"score": d.get("score"), "source": d.get("source")}
-            for d in docs[: min(5, len(docs))]
-        ],
-    )
     return {
         "query": query,
         "retrieval_query": retrieval_query,
@@ -1730,7 +1650,6 @@ def answer_is_grounded(answer: str, context: str) -> bool:
         return False
     if not context.strip():
         return answer.lower() == REFERENCE_FALLBACK.lower()
-
     answer_norm = _normalise_text(answer)
     context_norm = _normalise_text(context)
     numbers = re.findall(r"\b\d+(?:\.\d+)?%?\b", answer_norm)
