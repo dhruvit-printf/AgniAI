@@ -146,7 +146,7 @@ def _build_budget_probe_messages(
     messages = [{
         "role": "system",
         "content": (
-            "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
+            "You are AgniAI, a helpful assistant for India's Agniveer Training scheme. "
             "Respond naturally and concisely."
             f"\n\n{style_structure_instruction(style)}"
         ),
