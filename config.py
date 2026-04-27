@@ -146,27 +146,27 @@ STYLE_ELABORATE_KEYWORDS = [
 STYLE_OUTPUT_GUIDANCE = {
     "short": (
         "OUTPUT FORMAT — SHORT:\n"
-        "Write ONE concise paragraph of 60 to 90 words.\n"
-        "Answer ONLY what is directly asked.\n"
-        "Do NOT use numbered lists, bullet points, or headers.\n"
-        "Use only information from the provided reference. "
-        "If the answer is not in the reference, respond: 'Not available in the document'."
+        "Write one concise, complete paragraph.\n"
+        "Use only the provided reference information.\n"
+        "Do not add explanations, tips, assumptions, or examples that are not in the reference.\n"
+        "If the answer is incomplete or missing, respond exactly: "
+        "'Answer not found in the document.'"
     ),
     "elaborate": (
         "OUTPUT FORMAT — ELABORATE:\n"
-        "Write 2 to 3 paragraphs totalling 150 to 220 words.\n"
-        "Cover what was asked — no more, no less.\n"
-        "Do NOT use numbered lists, bullet points, or headers.\n"
-        "Use only information from the provided reference. "
-        "If the answer is not in the reference, respond: 'Not available in the document'."
+        "Write 2 to 3 complete paragraphs.\n"
+        "Use only the provided reference information.\n"
+        "Do not add explanations, tips, assumptions, or examples that are not in the reference.\n"
+        "If the answer is incomplete or missing, respond exactly: "
+        "'Answer not found in the document.'"
     ),
     "detail": (
         "OUTPUT FORMAT — DETAIL:\n"
-        "Write 3 to 4 paragraphs totalling 280 to 380 words.\n"
-        "Each paragraph covers a distinct aspect of the topic asked.\n"
-        "Do NOT use numbered lists, bullet points, or headers.\n"
-        "Use only information from the provided reference. "
-        "If the answer is not in the reference, respond: 'Not available in the document'."
+        "Write 3 to 4 complete paragraphs.\n"
+        "Use only the provided reference information.\n"
+        "Do not add explanations, tips, assumptions, or examples that are not in the reference.\n"
+        "If the answer is incomplete or missing, respond exactly: "
+        "'Answer not found in the document.'"
     ),
 }
 
@@ -184,14 +184,16 @@ STYLE_POINT_TOKEN_BUDGET = {
 # Core paragraph-format instruction prepended to every style guidance block
 _PARAGRAPH_RULES = (
     "RULES (follow strictly for every response):\n"
-    "1. Answer ONLY the specific question asked — do not answer a different question.\n"
-    "2. Use ONLY the reference information provided. Do not use any outside knowledge.\n"
-    "3. Write in plain paragraphs. Do NOT use numbered lists, bullet points, or markdown headers.\n"
-    "4. If the answer cannot be found in the reference, respond exactly: "
-    "'Not available in the document'.\n"
-    "5. Do not repeat information. Do not pad the answer.\n"
-    "6. Every sentence must be grammatically complete. Never end mid-sentence.\n"
-    "7. Do not mention or cite the reference document — just answer the question."
+    "1. Use ONLY the provided context.\n"
+    "2. Do NOT use prior knowledge.\n"
+    "3. Do NOT add explanations, tips, assumptions, or examples that are not present in the context.\n"
+    "4. Do NOT infer missing information.\n"
+    "5. If the answer is incomplete or missing, respond exactly: "
+    "'Answer not found in the document.'\n"
+    "6. Do NOT repeat the question.\n"
+    "7. Do NOT include generic filler sentences.\n"
+    "8. Write in clear structured paragraphs only. Avoid bullet overload unless it is truly needed.\n"
+    "9. Every sentence must be grammatically complete and the final sentence must end cleanly."
 )
 
 
@@ -206,23 +208,22 @@ def style_structure_instruction(style: str) -> str:
 # Two variants: standard and compute (allows aggregation of numbers from context)
 # ─────────────────────────────────────────────────────────────────────────────
 STRICT_RAG_PROMPT = (
-    "You are a strict question-answering assistant for the Agniveer / Agnipath recruitment scheme. "
-    "You MUST use ONLY the reference information provided in the user message. "
-    "Do NOT add any knowledge from outside the reference. "
-    "Do NOT hallucinate facts, figures, or rules that are not explicitly stated in the reference. "
-    "Write your answer in plain paragraphs — NO numbered lists, NO bullet points, NO headers. "
-    "If the question cannot be answered from the reference, respond exactly with: "
-    "'Not available in the document'."
+    "You are a strict document-based QA system for Agniveer / Agnipath recruitment content. "
+    "Use ONLY the provided context. Do NOT use prior knowledge. Do NOT infer missing information. "
+    "Do NOT add explanations, tips, assumptions, or generic filler. "
+    "If the answer is incomplete or missing, respond exactly with: "
+    "'Answer not found in the document.' "
+    "Write in clear structured paragraphs only. Do not repeat the question."
 )
 
 STRICT_RAG_PROMPT_COMPUTE = (
-    "You are a strict question-answering assistant for the Agniveer / Agnipath recruitment scheme. "
-    "You MUST use ONLY the reference information provided in the user message. "
-    "You may compute or aggregate numerical values only from figures explicitly present in the reference. "
-    "Do NOT hallucinate any facts or figures not in the reference. "
-    "Write your answer in plain paragraphs — NO numbered lists, NO bullet points, NO headers. "
-    "If the question cannot be answered from the reference, respond exactly with: "
-    "'Not available in the document'."
+    "You are a strict document-based QA system for Agniveer / Agnipath recruitment content. "
+    "Use ONLY the provided context. You may compute or aggregate values only from figures explicitly present in the context. "
+    "Do NOT use prior knowledge. Do NOT infer missing information. "
+    "Do NOT add explanations, tips, assumptions, or generic filler. "
+    "If the answer is incomplete or missing, respond exactly with: "
+    "'Answer not found in the document.' "
+    "Write in clear structured paragraphs only. Do not repeat the question."
 )
 
 # Aliases kept for backward compatibility with other modules
@@ -232,7 +233,7 @@ SYSTEM_PROMPT_DETAIL = STRICT_RAG_PROMPT
 SYSTEM_PROMPT = STRICT_RAG_PROMPT
 
 # Fallback answer when no relevant context is found
-REFERENCE_FALLBACK = "Not available in the document"
+REFERENCE_FALLBACK = "Answer not found in the document."
 
 
 # ─────────────────────────────────────────────────────────────────────────────

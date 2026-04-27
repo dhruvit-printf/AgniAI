@@ -405,17 +405,44 @@ def run_chat() -> None:
         intent = _classify_intent(raw)
         use_rag = intent == "rag"
         reasoning = is_reasoning_query(raw) if use_rag else False
+        print(
+            dim("  Answer style: ") + style_color(style_label)
+            + dim(f"  [ctx={context_limit} chars]")
+        )
+
+        # ── Reject out-of-domain queries ──────────────────────────────────
+        if intent == "reject":
+            answer = REFERENCE_FALLBACK
+            print(f"\nAgniAI: {answer}\n")
+            memory.add("user", raw)
+            memory.add("assistant", answer)
+            continue
+
+        # ── Retrieval / cache prep ────────────────────────────────────────
+        bundle = {"docs": [], "context": "", "confidence": 0.0, "mode": "reject", "reasoning": False}
+        context_for_cache = ""
+        response_key = make_response_cache_key(
+            raw,
+            style=style_name,
+            model=active_model or DEFAULT_MODEL_NAME,
+            context=context_for_cache,
+            session_id="cli",
+        )
+
+        if not use_rag:
+            cached_answer = get_cached_response(response_key)
+            if cached_answer is not None:
+                print(dim("  [cache hit]"))
+                print(f"\nAgniAI: {cached_answer}\n")
+                memory.add("user", raw)
+                memory.add("assistant", cached_answer)
+                continue
+
         token_limit, context_char_budget = _compute_context_char_budget(
             query=raw, style=style_name, history=history,
             reasoning=reasoning, use_rag=use_rag,
         )
-        print(
-            dim("  Answer style: ") + style_color(style_label)
-            + dim(f"  [ctx={context_limit} chars, tokens≤{token_limit}]")
-        )
 
-        # ── Retrieval ─────────────────────────────────────────────────────
-        bundle = {"docs": [], "context": "", "confidence": 0.0, "mode": "reject", "reasoning": False}
         if use_rag:
             print(dim("  Preparing retrieval..."))
             bundle = prepare_rag_bundle(
@@ -425,40 +452,32 @@ def run_chat() -> None:
                 max_context_chars=context_char_budget,
                 include_points=False,
             )
+            docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
+            confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
+            mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
+            reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
+            context_for_cache = bundle.get("context", "") if isinstance(bundle, dict) else ""
+            response_key = make_response_cache_key(
+                raw,
+                style=style_name,
+                model=active_model or DEFAULT_MODEL_NAME,
+                context=context_for_cache,
+                session_id="cli",
+            )
+            print(dim(f"  Retrieval confidence: {confidence:.3f} | mode={mode} | reasoning={reasoning}"))
+
+            cached_answer = get_cached_response(response_key)
+            if cached_answer is not None:
+                print(dim("  [cache hit]"))
+                print(f"\nAgniAI: {cached_answer}\n")
+                memory.add("user", raw)
+                memory.add("assistant", cached_answer)
+                continue
 
         docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
         confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
         mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
         reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
-
-        if use_rag:
-            print(dim(f"  Retrieval confidence: {confidence:.3f} | mode={mode} | reasoning={reasoning}"))
-
-        # ── Cache check ───────────────────────────────────────────────────
-        context_for_cache = bundle.get("context", "") if isinstance(bundle, dict) else ""
-        response_key = make_response_cache_key(
-            raw,
-            style=style_name,
-            model=active_model or DEFAULT_MODEL_NAME,
-            context=context_for_cache,
-            session_id="cli",
-        )
-        cached_answer = get_cached_response(response_key)
-        if cached_answer is not None:
-            print(dim("  [cache hit]"))
-            print(f"\nAgniAI: {cached_answer}\n")
-            memory.add("user", raw)
-            memory.add("assistant", cached_answer)
-            continue
-
-        # ── Reject out-of-domain queries ──────────────────────────────────
-        if intent == "reject":
-            answer = REFERENCE_FALLBACK
-            print(f"\nAgniAI: {answer}\n")
-            memory.add("user", raw)
-            memory.add("assistant", answer)
-            set_cached_response(response_key, answer)
-            continue
 
         # ── Generate answer (streaming to stdout) ─────────────────────────
         try:
