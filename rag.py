@@ -1345,6 +1345,8 @@ def _bm25_scores(query: str) -> np.ndarray:
         return np.zeros(len(docs), dtype="float32")
     try:
         scores = np.array(bm25.get_scores(_tokenize(query)), dtype="float32")
+        if scores.shape[0] != len(docs):
+            return np.zeros(len(docs), dtype="float32")
         max_s = scores.max()
         if max_s > 0:
             scores /= max_s

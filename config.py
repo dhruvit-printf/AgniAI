@@ -30,9 +30,9 @@ OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", f"{OLLAMA_BASE_URL}/api/tags")
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct")
 # ─────────────────────────────────────────────────────────────────────────────
 # CONTEXT WINDOW
-# Keep at 2048 for CPU machines. Raise via env var on machines with more RAM.
+# Raised default for longer structured answers; override via env var if needed.
 # ─────────────────────────────────────────────────────────────────────────────
-MODEL_MAX_CONTEXT_TOKENS = int(os.getenv("OLLAMA_NUM_CTX", "2048"))
+MODEL_MAX_CONTEXT_TOKENS = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
 FALLBACK_MODELS = [
     m.strip()
     for m in os.getenv(
@@ -79,38 +79,34 @@ SESSION_HEADER = os.getenv("SESSION_HEADER", "X-Session-Id")
 # ─────────────────────────────────────────────────────────────────────────────
 # CONTEXT CHAR BUDGETS
 # How many characters of retrieved context to pass to the LLM per style.
-# These must leave enough room in the 2048-token context window for both the
-# system prompt and the generated completion.
+# These budgets leave more room for the longer completion targets.
 # ─────────────────────────────────────────────────────────────────────────────
 MAX_CONTEXT_CHARS = {
-    "short":     int(os.getenv("MAX_CONTEXT_CHARS_SHORT",     "1200")),
-    "elaborate": int(os.getenv("MAX_CONTEXT_CHARS_ELABORATE", "1800")),
-    "detail":    int(os.getenv("MAX_CONTEXT_CHARS_DETAIL",    "2200")),
+    "short":     int(os.getenv("MAX_CONTEXT_CHARS_SHORT",     "2000")),
+    "elaborate": int(os.getenv("MAX_CONTEXT_CHARS_ELABORATE", "3500")),
+    "detail":    int(os.getenv("MAX_CONTEXT_CHARS_DETAIL",    "5000")),
 }
-MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "2200"))
+MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "5000"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TOKEN BUDGETS FOR COMPLETION
 # Target word counts from spec:
 #   short    ≈ 250–300 words  → ~320–400 tokens
-#   elaborate≈ 500–600 words  → ~640–780 tokens  (capped by context window)
-#   detail   ≈ 850–900 words  → ~1100–1170 tokens (capped by context window)
+#   elaborate≈ 500–600 words  → ~640–780 tokens
+#   detail   ≈ 850–900 words  → ~1100–1170 tokens
 #
-# Because MODEL_MAX_CONTEXT_TOKENS is 2048 and we spend ~300-600 tokens on
-# the prompt+context, the usable completion space is roughly 1400-1700 tokens.
-# We clamp each budget at 900 so the LLM is never asked for more than the
-# window safely allows on a 2048-token model; raise OLLAMA_NUM_CTX to 4096
-# in the environment for full detail-mode responses.
+# With a 4096-token context window there is more room for longer completions
+# while still leaving headroom for prompt and retrieved context.
 # ─────────────────────────────────────────────────────────────────────────────
 MAX_TOKENS_STYLE = {
-    "short":     int(os.getenv("MAX_TOKENS_SHORT",     "380")),
-    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "700")),
-    "detail":    int(os.getenv("MAX_TOKENS_DETAIL",    "900")),
+    "short":     int(os.getenv("MAX_TOKENS_SHORT",     "420")),
+    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "820")),
+    "detail":    int(os.getenv("MAX_TOKENS_DETAIL",   "1250")),
 }
-MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "700"))
+MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "820"))
 
 # Safety buffer (tokens reserved for model overhead / special tokens)
-TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "150"))
+TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "200"))
 
 # CORS
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
@@ -147,20 +143,39 @@ STYLE_ELABORATE_KEYWORDS = [
 # ─────────────────────────────────────────────────────────────────────────────
 STYLE_OUTPUT_GUIDANCE = {
     "short": (
-        "Write a concise answer of 250 to 300 words total. "
-        "Use numbered points only. Keep only the point title — no extra explanation. "
-        "Never cut off mid-sentence. Every sentence must be complete."
+        "OUTPUT FORMAT — SHORT (strict):\n"
+        "• Total length: exactly 250 to 300 words. Count carefully.\n"
+        "• Use numbered points only. Each point: one complete sentence for the title only.\n"
+        "• No sub-bullets, no extra explanation under each point.\n"
+        "• Every sentence MUST be grammatically complete. Never stop mid-sentence.\n"
+        "• End with a complete concluding sentence.\n"
+        "• DO NOT exceed 300 words. DO NOT write fewer than 250 words."
     ),
     "elaborate": (
-        "Write an answer of 500 to 600 words total. "
-        "Use numbered points. Under each point title, add 2 to 3 complete sentences "
-        "of explanation. Never cut off mid-sentence."
+        "OUTPUT FORMAT — ELABORATE (strict):\n"
+        "• Total length: exactly 500 to 600 words. Count carefully.\n"
+        "• Use numbered points. Under each point title, write 2 to 3 complete sentences:\n"
+        "  (a) Definition or explanation of the point.\n"
+        "  (b) How it applies to Agniveer candidates.\n"
+        "  (c) Any relevant example or figure from the context.\n"
+        "• Maintain logical flow between points.\n"
+        "• Every sentence MUST be grammatically complete. Never stop mid-sentence.\n"
+        "• End with a complete summary sentence.\n"
+        "• DO NOT exceed 600 words. DO NOT write fewer than 500 words."
     ),
     "detail": (
-        "Write a thorough answer of 850 to 900 words total. "
-        "Use numbered points. Under each point title, write a full paragraph of "
-        "explanation (4 to 6 sentences). Cover all relevant aspects. "
-        "Never cut off mid-sentence. Finish every sentence."
+        "OUTPUT FORMAT — DETAIL (strict):\n"
+        "• Total length: exactly 850 to 900 words. Count carefully.\n"
+        "• Use numbered points. Under each point title, write a full paragraph of 4 to 6 sentences:\n"
+        "  (a) Clear definition of the concept.\n"
+        "  (b) Detailed explanation with context from the reference material.\n"
+        "  (c) Specific figures, dates, or requirements if available.\n"
+        "  (d) Practical implications for an Agniveer candidate.\n"
+        "  (e) Any exceptions, relaxations, or special cases.\n"
+        "• Provide rich, comprehensive coverage — do not summarize or skip sub-topics.\n"
+        "• Every sentence MUST be grammatically complete. Never stop mid-sentence.\n"
+        "• End with a thorough concluding paragraph of 3 to 4 sentences.\n"
+        "• DO NOT exceed 900 words. DO NOT write fewer than 850 words."
     ),
 }
 
@@ -168,42 +183,52 @@ STYLE_OUTPUT_GUIDANCE = {
 # PER-POINT TOKEN BUDGETS (used when generating each point's explanation)
 # ─────────────────────────────────────────────────────────────────────────────
 STYLE_POINT_TOKEN_BUDGET = {
-    "short":     int(os.getenv("STYLE_SHORT_POINT_TOKENS",     "10")),
-    "elaborate": int(os.getenv("STYLE_ELABORATE_POINT_TOKENS", "80")),
-    "detail":    int(os.getenv("STYLE_DETAIL_POINT_TOKENS",    "160")),
+    "short":     int(os.getenv("STYLE_SHORT_POINT_TOKENS",     "0")),
+    "elaborate": int(os.getenv("STYLE_ELABORATE_POINT_TOKENS", "120")),
+    "detail":    int(os.getenv("STYLE_DETAIL_POINT_TOKENS",    "220")),
 }
 
 # Strict prompt
 REFERENCE_FALLBACK = "Not available in the document"
 
+_COMPLETION_GUARD = (
+    "\n\nFINAL INSTRUCTION: You MUST write a complete answer. "
+    "If you are approaching your limit, shorten earlier points slightly "
+    "but ALWAYS finish the current sentence and write a concluding sentence. "
+    "An answer that ends mid-sentence will be rejected. "
+    "An answer shorter than the required word count will be rejected."
+)
+
 STRICT_RAG_PROMPT = (
     "You are a strict question-answering system. "
     "Use only the provided context. Do not add external knowledge. "
-    "If context exists, always produce a structured answer instead of 'Not available in the document'. "
-    "If the answer is partially available, use what is present. "
-    "Be complete and thorough. Prioritize all relevant key points. "
-    "IMPORTANT: Every sentence must be complete. Never stop mid-sentence. "
-    "Write until the answer is fully finished."
-)
+    "If context exists, always produce a structured answer. "
+    "If the answer is partially available, use what is present and expand intelligently. "
+    "Be complete and thorough. Prioritize all relevant key points."
+) + _COMPLETION_GUARD
 
 STRICT_RAG_PROMPT_COMPUTE = (
     "You are a strict question-answering system. "
     "Use only the provided context. Do not add external knowledge. "
     "You may compute or aggregate values only from the provided context. "
-    "If context exists, always produce a structured answer instead of 'Not available in the document'. "
-    "If the answer is partially available, use what is present. "
-    "Be complete and thorough. Prioritize all relevant key points. "
-    "IMPORTANT: Every sentence must be complete. Never stop mid-sentence. "
-    "Write until the answer is fully finished."
-)
+    "If context exists, always produce a structured answer. "
+    "If the answer is partially available, use what is present and expand intelligently. "
+    "Be complete and thorough. Prioritize all relevant key points."
+) + _COMPLETION_GUARD
 
 STRUCTURE_FIRST_PROMPT = (
-    "Extract all key points first and keep them in the same order across all styles. "
-    "Do not change the point structure. Use numbered points only. "
-    "Short answers: title only (no explanation). "
-    "Elaborate answers: title + 2 to 3 complete sentences of explanation. "
-    "Detail answers: title + full paragraph (4 to 6 sentences). "
-    "Never drop a point. Never truncate mid-sentence. Always finish every sentence."
+    "CRITICAL RULES (apply to every response):\n"
+    "1. Extract ALL key points from the context before writing. Keep points in a fixed order.\n"
+    "2. Use ONLY numbered points. Never use bullet points or dashes.\n"
+    "3. SHORT style: point title only, one sentence each.\n"
+    "4. ELABORATE style: point title + 2 to 3 sentences of explanation per point.\n"
+    "5. DETAIL style: point title + a full paragraph (4 to 6 sentences) per point.\n"
+    "6. NEVER drop a point. NEVER truncate mid-sentence. ALWAYS finish every sentence.\n"
+    "7. NEVER copy raw text — always paraphrase and expand using your knowledge.\n"
+    "8. If a point needs an example or figure, include it explicitly.\n"
+    "9. After the last numbered point, write a complete concluding sentence or paragraph.\n"
+    "10. Respect the word-count target for the selected style — undershoot or overshoot\n"
+    "    by no more than 20 words."
 )
 
 
@@ -223,7 +248,8 @@ def estimate_text_tokens(text: str) -> int:
     text = (text or "").strip()
     if not text:
         return 0
-    return max(1, (len(text) + 3) // 4)
+    raw = max(1, (len(text) + 2) // 3)
+    return int(raw * 1.10)
 
 
 def estimate_message_tokens(messages: list[dict]) -> int:
@@ -239,41 +265,30 @@ def estimate_message_tokens(messages: list[dict]) -> int:
 
 def trim_to_complete_sentence(text: str) -> str:
     """
-    Return the text trimmed to the last complete sentence.
+    Return text trimmed to the last COMPLETE sentence.
 
-    FIX: The previous implementation was far too aggressive — it used
-    re.finditer(r'[.!?]\\s', text) which requires whitespace AFTER the
-    punctuation, so a sentence ending at the very end of the string (no
-    trailing space) was always discarded, causing the answer to be cut by
-    one full sentence or more.
-
-    New behaviour:
-    1. If the text already ends with a sentence-terminal character
-       (. ! ?) the text is returned as-is (no trimming needed).
-    2. Otherwise we find the last sentence boundary and trim there.
-    3. If no boundary exists at all, return the full text unchanged so
-       partial sentences are preferred over empty strings.
+    Rules:
+    1. If text already ends with . ! ? — return as-is.
+    2. Find the last sentence boundary and trim there.
+    3. Only trim if the result keeps >= 70% of original length.
+    4. If no boundary found, return original unchanged.
     """
     text = (text or "").strip()
     if not text:
         return text
 
-    # Already ends cleanly — return unchanged
+    # Already ends cleanly
     if text[-1] in ".!?":
         return text
 
-    # Find the last sentence-terminal boundary
-    # Match '. ', '! ', '? ', or end-of-string after punctuation
     matches = list(re.finditer(r"[.!?](?:\s|$)", text))
     if not matches:
-        # No sentence boundary found at all — return the full text so we
-        # don't silently drop the entire answer
         return text
 
     last_end = matches[-1].end()
     trimmed = text[:last_end].strip()
-    # Prefer the trimmed version only when it retains meaningful content
-    if trimmed and len(trimmed) >= len(text) * 0.5:
+
+    if trimmed and len(trimmed) >= len(text) * 0.70:
         return trimmed
-    # Otherwise return the original (better a slightly open sentence than nothing)
+
     return text

@@ -31,6 +31,7 @@ from config import (
     CHUNK_OVERLAP,
     CHUNK_WORDS,
     CHUNK_MIN_WORDS,
+    BM25_INDEX_PATH,
     DATA_DIR,
     DOCSTORE_PATH,
     EMBEDDING_DIM,
@@ -378,6 +379,9 @@ def ingest_text(text: str, label: str = "manual_text") -> int:
         if existing_count > 0:
             label = f"manual_text_{existing_count + 1}_{int(time.time())}"
 
+    if _source_already_ingested(label):
+        return 0
+
     chunks = chunk_text_semantic(text)
     return _append_documents(chunks, source=label, doc_type="text")
 
@@ -400,17 +404,20 @@ def list_sources() -> List[Dict]:
 
 def clear_index() -> None:
     """Delete all indexed data (FAISS + docstore + BM25)."""
-    if FAISS_INDEX_PATH.exists():
-        FAISS_INDEX_PATH.unlink()
-    if DOCSTORE_PATH.exists():
-        DOCSTORE_PATH.unlink()
-
-    # Also clear BM25 index
-    from config import BM25_INDEX_PATH
-    if BM25_INDEX_PATH.exists():
-        BM25_INDEX_PATH.unlink()
-
     import rag
-    rag._INDEX = None
-    rag._DOCS  = []
-    rag._BM25  = None
+
+    with rag._INDEX_LOCK:
+        if FAISS_INDEX_PATH.exists():
+            FAISS_INDEX_PATH.unlink()
+        if DOCSTORE_PATH.exists():
+            DOCSTORE_PATH.unlink()
+        if BM25_INDEX_PATH.exists():
+            BM25_INDEX_PATH.unlink()
+        rag._INDEX = None
+        rag._DOCS = []
+        rag._BM25 = None
+        rag._DOCSTORE_CACHE = None
+
+    rag._QUERY_EMBED_CACHE.clear()
+    rag._RETRIEVAL_CACHE.clear()
+    rag._RESPONSE_CACHE.clear()

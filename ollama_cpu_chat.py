@@ -98,12 +98,12 @@ STREAM_TIMEOUT  300 → 600
 
 # ── DROP-IN REPLACEMENTS for the CONFIG block in ollama_cpu_chat.py ───────
 
-MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "900"))   # was 400
-NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",          "2048"))
-TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",    "0.1"))
-_SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",            "10"))
-TOP_P           = float(os.getenv("OLLAMA_TOP_P",          "0.9"))
-REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.1"))
+MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "1250"))
+NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",          "4096"))
+TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",    "0.05"))
+_SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",            "20"))
+TOP_P           = float(os.getenv("OLLAMA_TOP_P",          "0.92"))
+REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
 KEEP_ALIVE      = os.getenv("OLLAMA_KEEP_ALIVE",           "10m")
 
 FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "180"))  # was 120
@@ -340,6 +340,17 @@ def _ollama_chat_once(
                         f"Model '{model}' no first token in {FIRST_TOKEN_TIMEOUT:.0f}s. "
                         "Too large for this CPU. Try:  ollama pull mistral:7b-instruct"
                     )
+
+            if stream_buffer.strip():
+                pieces.append(stream_buffer)
+                if stream_tokens:
+                    if on_token is not None:
+                        on_token(stream_buffer)
+                    else:
+                        sys.stdout.write(stream_buffer)
+                        sys.stdout.flush()
+                streamed_text += stream_buffer
+                stream_buffer = ""
 
     except requests.Timeout as exc:
         partial = trim_to_complete_sentence("".join(pieces) + stream_buffer)

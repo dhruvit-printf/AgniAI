@@ -61,6 +61,33 @@ _memory = ConversationMemory()
 _session = _requests.Session()
 _active_model = DEFAULT_MODEL
 _lock = threading.Lock()
+_STYLE_MIN_WORDS = {
+    "short": 200,
+    "elaborate": 400,
+    "detail": 680,
+}
+
+
+def _validate_answer_length(answer: str, style: str) -> bool:
+    min_words = _STYLE_MIN_WORDS.get((style or "").strip().lower(), 0)
+    if min_words == 0:
+        return True
+    word_count = len((answer or "").split())
+    return word_count >= min_words
+
+
+def _log_answer_quality(answer: str, style: str) -> None:
+    word_count = len((answer or "").split())
+    min_words = _STYLE_MIN_WORDS.get((style or "").strip().lower(), 0)
+    if not _validate_answer_length(answer, style):
+        logger.warning(
+            "Answer below minimum length: style=%s words=%d min=%d",
+            style,
+            word_count,
+            min_words,
+        )
+    else:
+        logger.debug("Answer length OK: style=%s words=%d", style, word_count)
 
 
 @app.before_request
@@ -354,13 +381,12 @@ def chat():
     mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
     reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
 
-    history_hash = _history_fingerprint(history)
     response_key = make_response_cache_key(
         message,
         style=style_name,
         model=current_model,
         context=context,
-        session_id=f"{session_id}:{history_hash}",
+        session_id=session_id,
     )
 
     cached_answer = get_cached_response(response_key)
@@ -386,6 +412,7 @@ def chat():
         answer = "Not available in the document"
         _memory.add("user", message, session_id=session_id)
         _memory.add("assistant", answer, session_id=session_id)
+        _log_answer_quality(answer, style_name)
         set_cached_response(response_key, answer)
         if stream:
             return _stream_answer_response(
@@ -458,6 +485,7 @@ def chat():
                     yield answer
                 _memory.add("user", message, session_id=session_id)
                 _memory.add("assistant", answer, session_id=session_id)
+                _log_answer_quality(answer, style_name)
                 set_cached_response(response_key, answer)
 
             return _stream_answer_response(
@@ -493,6 +521,7 @@ def chat():
             answer = "Not available in the document"
         _memory.add("user", message, session_id=session_id)
         _memory.add("assistant", answer, session_id=session_id)
+        _log_answer_quality(answer, style_name)
         set_cached_response(response_key, answer)
         return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
@@ -507,24 +536,24 @@ def chat():
     )
 
     if stream:
-        token_queue: Queue[str | None] = Queue()
-        outcome: dict[str, object] = {}
+        _token_queue: Queue[str | None] = Queue()
+        _outcome: dict[str, object] = {}
 
         def _worker() -> None:
             try:
-                outcome["answer"] = _answer_via_llm(
+                _outcome["answer"] = _answer_via_llm(
                     messages=messages,
                     model=current_model,
                     token_limit=token_limit,
                     stream=True,
-                    on_token=token_queue.put,
+                    on_token=_token_queue.put,
                 )
             except PartialResponseError as exc:
-                outcome["answer"] = exc.partial_text or "Not available in the document"
+                _outcome["answer"] = exc.partial_text or "Not available in the document"
             except Exception as exc:
-                outcome["error"] = str(exc)
+                _outcome["error"] = str(exc)
             finally:
-                token_queue.put(None)
+                _token_queue.put(None)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -532,7 +561,7 @@ def chat():
             pieces: list[str] = []
             while True:
                 try:
-                    token = token_queue.get(timeout=FIRST_TOKEN_TIMEOUT)
+                    token = _token_queue.get(timeout=FIRST_TOKEN_TIMEOUT)
                 except Empty:
                     yield f"event: error\ndata: {json.dumps({'error': 'First token timeout'}, ensure_ascii=False)}\n\n"
                     return
@@ -541,11 +570,11 @@ def chat():
                 pieces.append(token)
                 yield token
 
-            if "error" in outcome:
-                yield f"event: error\ndata: {json.dumps({'error': str(outcome['error'])}, ensure_ascii=False)}\n\n"
+            if "error" in _outcome:
+                yield f"event: error\ndata: {json.dumps({'error': str(_outcome['error'])}, ensure_ascii=False)}\n\n"
                 return
 
-            answer = "".join(pieces).strip() or str(outcome.get("answer", "")).strip()
+            answer = "".join(pieces).strip() or str(_outcome.get("answer", "")).strip()
             if use_rag and mode == "strict_answer" and not context.strip() and not bundle.get("docs"):
                 answer = REFERENCE_FALLBACK
             answer = _finalize_answer(answer)
@@ -553,6 +582,7 @@ def chat():
                 yield answer
             _memory.add("user", message, session_id=session_id)
             _memory.add("assistant", answer, session_id=session_id)
+            _log_answer_quality(answer, style_name)
             set_cached_response(response_key, answer)
 
         return _stream_answer_response(
@@ -586,6 +616,7 @@ def chat():
 
     _memory.add("user", message, session_id=session_id)
     _memory.add("assistant", answer, session_id=session_id)
+    _log_answer_quality(answer, style_name)
     set_cached_response(response_key, answer)
     return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 

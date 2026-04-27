@@ -386,13 +386,12 @@ def run_chat() -> None:
         reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
         if use_rag:
             print(dim(f"  Retrieval confidence: {confidence:.3f} | mode={mode} | reasoning={reasoning}"))
-        history_hash = _history_fingerprint(history)
         response_key = make_response_cache_key(
             raw,
             style=style_name,
             model=active_model or DEFAULT_MODEL_NAME,
             context=context,
-            session_id=f"cli:{history_hash}",
+            session_id="cli",
         )
         cached_answer = get_cached_response(response_key)
         if cached_answer is not None:
