@@ -20,7 +20,9 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-mpnet-
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
 
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-USE_RERANKER = os.getenv("USE_RERANKER", "1") not in {"0", "false", "False"}
+# Reranker disabled by default — adds latency without meaningful accuracy gain
+# for a small single-domain knowledge base. Set USE_RERANKER=1 to enable.
+USE_RERANKER = os.getenv("USE_RERANKER", "0") not in {"0", "false", "False"}
 
 # Ollama
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
@@ -28,11 +30,10 @@ OLLAMA_URL = os.getenv("OLLAMA_CHAT_URL", f"{OLLAMA_BASE_URL}/api/chat")
 OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", f"{OLLAMA_BASE_URL}/api/tags")
 
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct")
-# ─────────────────────────────────────────────────────────────────────────────
-# CONTEXT WINDOW
-# Raised default for longer structured answers; override via env var if needed.
-# ─────────────────────────────────────────────────────────────────────────────
+
+# Context window — 4096 is the safe default for mistral/llama3 7B models
 MODEL_MAX_CONTEXT_TOKENS = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+
 FALLBACK_MODELS = [
     m.strip()
     for m in os.getenv(
@@ -48,19 +49,23 @@ CHUNK_WORDS = int(os.getenv("CHUNK_WORDS", "420"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "80"))
 CHUNK_MIN_WORDS = int(os.getenv("CHUNK_MIN_WORDS", "12"))
 
-# Retrieval
-TOP_K = int(os.getenv("TOP_K", "8"))
-RERANK_TOP_K = int(os.getenv("RERANK_TOP_K", "5"))
+# ─────────────────────────────────────────────────────────────────────────────
+# RETRIEVAL
+# Reduced TOP_K from 8 → 5: fetches fewer chunks, speeds up embedding + context
+# building without losing relevant content for a focused domain knowledge base.
+# ─────────────────────────────────────────────────────────────────────────────
+TOP_K = int(os.getenv("TOP_K", "5"))
+RERANK_TOP_K = int(os.getenv("RERANK_TOP_K", "4"))
 MIN_SCORE = float(os.getenv("MIN_SCORE", "0.20"))
-STRICT_MIN_SCORE = float(os.getenv("STRICT_MIN_SCORE", "0.70"))
-STRICT_TOP_K = int(os.getenv("STRICT_TOP_K", "5"))
-LOW_RETRIEVAL_CONFIDENCE = float(os.getenv("LOW_RETRIEVAL_CONFIDENCE", "0.45"))
-HIGH_RETRIEVAL_CONFIDENCE = float(os.getenv("HIGH_RETRIEVAL_CONFIDENCE", "0.70"))
+STRICT_MIN_SCORE = float(os.getenv("STRICT_MIN_SCORE", "0.55"))
+STRICT_TOP_K = int(os.getenv("STRICT_TOP_K", "4"))
+LOW_RETRIEVAL_CONFIDENCE = float(os.getenv("LOW_RETRIEVAL_CONFIDENCE", "0.35"))
+HIGH_RETRIEVAL_CONFIDENCE = float(os.getenv("HIGH_RETRIEVAL_CONFIDENCE", "0.60"))
 MIN_RETRIEVAL_CONFIDENCE = LOW_RETRIEVAL_CONFIDENCE
 
 # Hybrid retrieval
-DENSE_WEIGHT = float(os.getenv("DENSE_WEIGHT", "0.55"))
-BM25_WEIGHT = float(os.getenv("BM25_WEIGHT", "0.45"))
+DENSE_WEIGHT = float(os.getenv("DENSE_WEIGHT", "0.60"))
+BM25_WEIGHT = float(os.getenv("BM25_WEIGHT", "0.40"))
 USE_HYBRID = os.getenv("USE_HYBRID", "1") not in {"0", "false", "False"}
 
 # Memory
@@ -77,33 +82,32 @@ MAX_CACHE_ENTRIES = int(os.getenv("MAX_CACHE_ENTRIES", "2048"))
 SESSION_HEADER = os.getenv("SESSION_HEADER", "X-Session-Id")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONTEXT CHAR BUDGETS
-# How many characters of retrieved context to pass to the LLM per style.
-# These budgets leave more room for the longer completion targets.
+# CONTEXT CHAR BUDGETS — how many characters of retrieved context to send to LLM
+# Keeping these moderate prevents prompt token bloat which slows inference.
 # ─────────────────────────────────────────────────────────────────────────────
 MAX_CONTEXT_CHARS = {
-    "short":     int(os.getenv("MAX_CONTEXT_CHARS_SHORT",     "2000")),
-    "elaborate": int(os.getenv("MAX_CONTEXT_CHARS_ELABORATE", "3500")),
-    "detail":    int(os.getenv("MAX_CONTEXT_CHARS_DETAIL",    "5000")),
+    "short":     int(os.getenv("MAX_CONTEXT_CHARS_SHORT",     "1500")),
+    "elaborate": int(os.getenv("MAX_CONTEXT_CHARS_ELABORATE", "2500")),
+    "detail":    int(os.getenv("MAX_CONTEXT_CHARS_DETAIL",    "3500")),
 }
-MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "5000"))
+MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "2500"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TOKEN BUDGETS FOR COMPLETION
-# Target word counts from spec:
-#   short    ≈ 250–300 words  → ~320–400 tokens
-#   elaborate≈ 500–600 words  → ~640–780 tokens
-#   detail   ≈ 850–900 words  → ~1100–1170 tokens
+# Reduced significantly vs previous values:
+#   short    ≈ 80-120  words  → 120  tokens (was 420)
+#   elaborate≈ 180-250 words  → 320  tokens (was 820)
+#   detail   ≈ 300-400 words  → 500  tokens (was 1250)
 #
-# With a 4096-token context window there is more room for longer completions
-# while still leaving headroom for prompt and retrieved context.
+# Smaller budgets = faster inference. Paragraph answers are more dense
+# than numbered lists, so fewer tokens convey more information.
 # ─────────────────────────────────────────────────────────────────────────────
 MAX_TOKENS_STYLE = {
-    "short":     int(os.getenv("MAX_TOKENS_SHORT",     "420")),
-    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "820")),
-    "detail":    int(os.getenv("MAX_TOKENS_DETAIL",   "1250")),
+    "short":     int(os.getenv("MAX_TOKENS_SHORT",     "150")),
+    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "320")),
+    "detail":    int(os.getenv("MAX_TOKENS_DETAIL",    "500")),
 }
-MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "820"))
+MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "320"))
 
 # Safety buffer (tokens reserved for model overhead / special tokens)
 TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "200"))
@@ -136,110 +140,104 @@ STYLE_ELABORATE_KEYWORDS = [
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STYLE OUTPUT GUIDANCE
-# These instructions are injected into the system prompt.  They tell the LLM
-# how much to write per numbered point so that the total answer lands in the
-# correct word-count band.
+# STYLE OUTPUT GUIDANCE — paragraph format, no numbered lists
+# These instructions are injected into the system prompt.
 # ─────────────────────────────────────────────────────────────────────────────
 STYLE_OUTPUT_GUIDANCE = {
     "short": (
         "OUTPUT FORMAT — SHORT:\n"
-        "Target: 250 to 300 words total.\n"
-        "Format: Numbered list only. Each item = one point title + one complete sentence.\n"
-        "Rule: Cover only the specific topic asked. Do NOT cover unrelated topics.\n"
-        "Rule: Do NOT write sub-bullets or paragraphs under any point.\n"
-        "End: One complete concluding sentence after the last numbered point."
+        "Write ONE concise paragraph of 60 to 90 words.\n"
+        "Answer ONLY what is directly asked.\n"
+        "Do NOT use numbered lists, bullet points, or headers.\n"
+        "Use only information from the provided reference. "
+        "If the answer is not in the reference, respond: 'Not available in the document'."
     ),
     "elaborate": (
         "OUTPUT FORMAT — ELABORATE:\n"
-        "Target: 500 to 600 words total.\n"
-        "Format: Numbered list. Each item = point title + 2 to 3 complete sentences.\n"
-        "Content per point: (a) what it means, (b) how it applies to Agniveer candidates, "
-        "(c) any specific figure or rule from the reference material.\n"
-        "Rule: Cover only the specific topic asked. Do NOT cover unrelated topics.\n"
-        "Rule: Do NOT nest a numbered list inside a point explanation.\n"
-        "End: One complete concluding sentence after the last numbered point."
+        "Write 2 to 3 paragraphs totalling 150 to 220 words.\n"
+        "Cover what was asked — no more, no less.\n"
+        "Do NOT use numbered lists, bullet points, or headers.\n"
+        "Use only information from the provided reference. "
+        "If the answer is not in the reference, respond: 'Not available in the document'."
     ),
     "detail": (
         "OUTPUT FORMAT — DETAIL:\n"
-        "Target: 850 to 900 words total.\n"
-        "Format: Numbered list. Each item = point title + a full paragraph of 4 to 6 complete sentences.\n"
-        "Content per point: (a) clear definition, (b) detailed explanation with reference data, "
-        "(c) specific figures/dates/rules, (d) practical meaning for a candidate, "
-        "(e) any exceptions or special cases.\n"
-        "Rule: Cover only the specific topic asked. Do NOT cover unrelated topics.\n"
-        "Rule: Do NOT nest a numbered list inside a point explanation.\n"
-        "End: A concluding paragraph of 2 to 3 complete sentences."
+        "Write 3 to 4 paragraphs totalling 280 to 380 words.\n"
+        "Each paragraph covers a distinct aspect of the topic asked.\n"
+        "Do NOT use numbered lists, bullet points, or headers.\n"
+        "Use only information from the provided reference. "
+        "If the answer is not in the reference, respond: 'Not available in the document'."
     ),
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PER-POINT TOKEN BUDGETS (used when generating each point's explanation)
-# ─────────────────────────────────────────────────────────────────────────────
+# Per-point token budgets (kept for backward compat but not used in paragraph mode)
 STYLE_POINT_TOKEN_BUDGET = {
     "short":     int(os.getenv("STYLE_SHORT_POINT_TOKENS",     "0")),
-    "elaborate": int(os.getenv("STYLE_ELABORATE_POINT_TOKENS", "120")),
-    "detail":    int(os.getenv("STYLE_DETAIL_POINT_TOKENS",    "220")),
+    "elaborate": int(os.getenv("STYLE_ELABORATE_POINT_TOKENS", "80")),
+    "detail":    int(os.getenv("STYLE_DETAIL_POINT_TOKENS",    "150")),
 }
 
-# Strict prompt
-REFERENCE_FALLBACK = "Not available in the document"
+# ─────────────────────────────────────────────────────────────────────────────
+# SYSTEM PROMPTS
+# ─────────────────────────────────────────────────────────────────────────────
 
-_COMPLETION_GUARD = (
-    "\n\nFINAL INSTRUCTION: You MUST write a complete answer. "
-    "If you are approaching your limit, shorten earlier points slightly "
-    "but ALWAYS finish the current sentence and write a concluding sentence. "
-    "An answer that ends mid-sentence will be rejected. "
-    "An answer shorter than the required word count will be rejected."
-)
-
-STRICT_RAG_PROMPT = (
-    "You are a strict question-answering system. "
-    "Use only the provided context. Do not add external knowledge. "
-    "If context exists, always produce a structured answer. "
-    "If the answer is partially available, use what is present and expand intelligently. "
-    "Be complete and thorough. Prioritize all relevant key points."
-) + _COMPLETION_GUARD
-
-STRICT_RAG_PROMPT_COMPUTE = (
-    "You are a strict question-answering system. "
-    "Use only the provided context. Do not add external knowledge. "
-    "You may compute or aggregate values only from the provided context. "
-    "If context exists, always produce a structured answer. "
-    "If the answer is partially available, use what is present and expand intelligently. "
-    "Be complete and thorough. Prioritize all relevant key points."
-) + _COMPLETION_GUARD
-
-STRUCTURE_FIRST_PROMPT = (
-    "CRITICAL RULES (apply to every response):\n"
-    "1. Answer ONLY the specific question asked. Do not answer a different question.\n"
-    "2. Extract key facts from the reference information provided — do not invent facts.\n"
-    "3. Use numbered points only. Each point must be a real topic from the context.\n"
-    "4. SHORT style: numbered point title + one complete sentence. No explanation.\n"
-    "5. ELABORATE style: numbered point title + 2 to 3 sentences of explanation using "
-    "context data (figures, rules, dates where available).\n"
-    "6. DETAIL style: numbered point title + a full paragraph (4 to 6 sentences) with "
-    "specific data, eligibility rules, figures, and practical implications.\n"
-    "7. NEVER invent information not present in the reference material.\n"
-    "8. NEVER copy the exact wording of earlier points into later points.\n"
-    "9. NEVER repeat a numbered list inside an explanation paragraph.\n"
-    "10. Every sentence must be grammatically complete. Never stop mid-sentence.\n"
-    "11. After the last numbered point, write one complete concluding sentence.\n"
-    "12. Respect the word-count target — stay within 20 words of the target range."
+# Core paragraph-format instruction prepended to every style guidance block
+_PARAGRAPH_RULES = (
+    "RULES (follow strictly for every response):\n"
+    "1. Answer ONLY the specific question asked — do not answer a different question.\n"
+    "2. Use ONLY the reference information provided. Do not use any outside knowledge.\n"
+    "3. Write in plain paragraphs. Do NOT use numbered lists, bullet points, or markdown headers.\n"
+    "4. If the answer cannot be found in the reference, respond exactly: "
+    "'Not available in the document'.\n"
+    "5. Do not repeat information. Do not pad the answer.\n"
+    "6. Every sentence must be grammatically complete. Never end mid-sentence.\n"
+    "7. Do not mention or cite the reference document — just answer the question."
 )
 
 
 def style_structure_instruction(style: str) -> str:
     style_key = (style or "").strip().lower()
     guidance = STYLE_OUTPUT_GUIDANCE.get(style_key, STYLE_OUTPUT_GUIDANCE["elaborate"])
-    return f"{STRUCTURE_FIRST_PROMPT}\n\n{guidance}"
+    return f"{_PARAGRAPH_RULES}\n\n{guidance}"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# STRICT RAG SYSTEM PROMPTS
+# Two variants: standard and compute (allows aggregation of numbers from context)
+# ─────────────────────────────────────────────────────────────────────────────
+STRICT_RAG_PROMPT = (
+    "You are a strict question-answering assistant for the Agniveer / Agnipath recruitment scheme. "
+    "You MUST use ONLY the reference information provided in the user message. "
+    "Do NOT add any knowledge from outside the reference. "
+    "Do NOT hallucinate facts, figures, or rules that are not explicitly stated in the reference. "
+    "Write your answer in plain paragraphs — NO numbered lists, NO bullet points, NO headers. "
+    "If the question cannot be answered from the reference, respond exactly with: "
+    "'Not available in the document'."
+)
+
+STRICT_RAG_PROMPT_COMPUTE = (
+    "You are a strict question-answering assistant for the Agniveer / Agnipath recruitment scheme. "
+    "You MUST use ONLY the reference information provided in the user message. "
+    "You may compute or aggregate numerical values only from figures explicitly present in the reference. "
+    "Do NOT hallucinate any facts or figures not in the reference. "
+    "Write your answer in plain paragraphs — NO numbered lists, NO bullet points, NO headers. "
+    "If the question cannot be answered from the reference, respond exactly with: "
+    "'Not available in the document'."
+)
+
+# Aliases kept for backward compatibility with other modules
 SYSTEM_PROMPT_SHORT = STRICT_RAG_PROMPT
 SYSTEM_PROMPT_ELABORATE = STRICT_RAG_PROMPT
 SYSTEM_PROMPT_DETAIL = STRICT_RAG_PROMPT
 SYSTEM_PROMPT = STRICT_RAG_PROMPT
 
+# Fallback answer when no relevant context is found
+REFERENCE_FALLBACK = "Not available in the document"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOKEN ESTIMATION UTILITIES
+# ─────────────────────────────────────────────────────────────────────────────
 
 def estimate_text_tokens(text: str) -> int:
     text = (text or "").strip()
@@ -274,7 +272,6 @@ def trim_to_complete_sentence(text: str) -> str:
     if not text:
         return text
 
-    # Already ends cleanly
     if text[-1] in ".!?":
         return text
 

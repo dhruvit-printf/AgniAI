@@ -2,16 +2,6 @@
 ollama_cpu_chat.py
 ==================
 CPU-optimised Ollama streaming client for AgniAI.
-
-Fixes in this version:
-  • TOP_K variable no longer shadows the config.TOP_K import (name was
-    reused locally — caused retrieval TOP_K to be overwritten to 5)
-  • Added max_tokens_override parameter to chat_with_fallback() so
-    app.py and main.py can pass per-style token budgets
-  • KEEP_ALIVE raised to 10m for stability on slower machines
-  • MAX_TOKENS default raised to 512 (overridden per-style at call time)
-  • NUM_CTX reduced to 2048 to lower CPU/RAM pressure
-  • Longer first-token and stream timeouts for slower local hardware
 """
 
 from __future__ import annotations
@@ -44,7 +34,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 
 # =============================================================================
-# CONFIG  (all overridable via environment variables)
+# CONFIG
 # =============================================================================
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
@@ -65,49 +55,25 @@ FALLBACK_MODELS: List[str] = [
 
 # ── Timeouts ────────────────────────────────────────────────────────────────
 TIMEOUT_CONNECT     = float(os.getenv("OLLAMA_CONNECT_TIMEOUT",    "8"))
-FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "120"))
+FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "180"))
 STREAM_TIMEOUT      = float(os.getenv("OLLAMA_STREAM_TIMEOUT",     "300"))
 MAX_RETRIES         = int(os.getenv("OLLAMA_MAX_RETRIES",           "2"))
 
-"""
-WHAT CHANGED and WHY
-────────────────────
-MAX_TOKENS  300 → 900
-  The old default of 300 tokens was a hard ceiling that prevented the LLM
-  from ever producing more than ~225 words — well under the 250-word minimum
-  for even the "short" style.  The new default of 900 matches the highest
-  per-style budget (detail mode) so the LLM is never silently capped below
-  what the style requires.  Per-style overrides passed via max_tokens_override
-  still take precedence, so short/elaborate modes are unaffected.
-
-NUM_CTX  2048 (unchanged)
-  Keeping 2048 for CPU safety.  Users with more RAM should set
-  OLLAMA_NUM_CTX=4096 in their environment — this unlocks full detail
-  responses without needing to modify code.
-
-KEEP_ALIVE  "10m" (unchanged)
-
-FIRST_TOKEN_TIMEOUT  120 → 180
-  Longer timeout prevents premature stream abandonment on slow CPUs when
-  generating detail-length answers.
-
-STREAM_TIMEOUT  300 → 600
-  A 900-token response at 5 tok/s on CPU takes ~180 s; 600 s gives ample
-  headroom without hanging forever.
-"""
-
-# ── DROP-IN REPLACEMENTS for the CONFIG block in ollama_cpu_chat.py ───────
-
-MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "1250"))
+# ─────────────────────────────────────────────────────────────────────────────
+# MAX_TOKENS reduced from 1250 → 500.
+# Per-style overrides from config.MAX_TOKENS_STYLE are passed via
+# max_tokens_override at call time, so this default only fires when no
+# override is supplied (e.g. direct CLI usage).
+#
+# NUM_CTX: 4096 recommended. Set OLLAMA_NUM_CTX=2048 on low-RAM machines.
+# ─────────────────────────────────────────────────────────────────────────────
+MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "500"))
 NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",          "4096"))
 TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",    "0.05"))
 _SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",            "20"))
 TOP_P           = float(os.getenv("OLLAMA_TOP_P",          "0.92"))
 REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
 KEEP_ALIVE      = os.getenv("OLLAMA_KEEP_ALIVE",           "10m")
-
-FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "180"))  # was 120
-STREAM_TIMEOUT      = float(os.getenv("OLLAMA_STREAM_TIMEOUT",      "600"))  # was 300
 
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "6"))
 
@@ -160,12 +126,6 @@ def _sentence_safe_chunks(buffer: str) -> tuple[list[str], str]:
 
 
 def _default_num_thread() -> int:
-    """
-    Prefer an explicit env override; otherwise use a conservative CPU default.
-
-    We cap the automatic value at 4 so Ollama gets enough parallelism without
-    oversubscribing smaller machines.
-    """
     env_value = os.getenv("OLLAMA_NUM_THREAD")
     if env_value:
         try:
@@ -195,9 +155,7 @@ def build_messages(query: str, history: List[dict], style: str = "elaborate") ->
     if history:
         messages.extend(history[-MAX_HISTORY_MESSAGES:])
     if context:
-        user_content = (
-            f"Reference information:\n{context}\n\nQuestion: {query}"
-        )
+        user_content = f"Reference information:\n{context}\n\nQuestion: {query}"
     else:
         user_content = query
     messages.append({"role": "user", "content": user_content})
@@ -279,7 +237,7 @@ def _ollama_chat_once(
             "temperature":    TEMPERATURE,
             "num_ctx":        NUM_CTX,
             "num_predict":    effective_max_tokens,
-            "top_k":          _SAMPLING_TOP_K,   # sampling knob — NOT retrieval TOP_K
+            "top_k":          _SAMPLING_TOP_K,
             "top_p":          TOP_P,
             "repeat_penalty": REPEAT_PENALTY,
             "num_thread":     _default_num_thread(),
@@ -436,8 +394,7 @@ def chat_with_fallback(
     raise OllamaError(
         f"All models failed. Last error: {last_error}\n"
         f"Tried: {', '.join(candidates)}\n"
-        "Fix: try a smaller local model such as mistral:7b-instruct-q4_0, gemma2:2b, or llama3.2:3b, "
-        "or increase OLLAMA_FIRST_TOKEN_TIMEOUT / OLLAMA_STREAM_TIMEOUT if the model is slow to load."
+        "Fix: try a smaller local model such as mistral:7b-instruct-q4_0, gemma2:2b, or llama3.2:3b."
     )
 
 
