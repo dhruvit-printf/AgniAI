@@ -147,24 +147,30 @@ STYLE_OUTPUT_GUIDANCE = {
     "short": (
         "OUTPUT FORMAT — SHORT:\n"
         "Write one concise, complete paragraph.\n"
+        "Stay within the target length and keep the answer compact.\n"
         "Use only the provided reference information.\n"
         "Do not add explanations, tips, assumptions, or examples that are not in the reference.\n"
+        "Deliver the key facts first and end cleanly.\n"
         "If the answer is incomplete or missing, respond exactly: "
         "'Answer not found in the document.'"
     ),
     "elaborate": (
         "OUTPUT FORMAT — ELABORATE:\n"
         "Write 2 to 3 complete paragraphs.\n"
+        "Stay within the target length and keep the answer information-dense.\n"
         "Use only the provided reference information.\n"
         "Do not add explanations, tips, assumptions, or examples that are not in the reference.\n"
+        "Deliver all key facts first and compress any remaining content if needed.\n"
         "If the answer is incomplete or missing, respond exactly: "
         "'Answer not found in the document.'"
     ),
     "detail": (
         "OUTPUT FORMAT — DETAIL:\n"
         "Write 3 to 4 complete paragraphs.\n"
+        "Stay within the target length and keep the answer information-dense.\n"
         "Use only the provided reference information.\n"
         "Do not add explanations, tips, assumptions, or examples that are not in the reference.\n"
+        "Deliver all key facts first and compress any remaining content if needed.\n"
         "If the answer is incomplete or missing, respond exactly: "
         "'Answer not found in the document.'"
     ),
@@ -193,7 +199,8 @@ _PARAGRAPH_RULES = (
     "6. Do NOT repeat the question.\n"
     "7. Do NOT include generic filler sentences.\n"
     "8. Write in clear structured paragraphs only. Avoid bullet overload unless it is truly needed.\n"
-    "9. Every sentence must be grammatically complete and the final sentence must end cleanly."
+    "9. Deliver all key facts first, compress the remainder if needed, and never cut mid-sentence.\n"
+    "10. Every sentence must be grammatically complete and the final sentence must end cleanly."
 )
 
 
@@ -211,6 +218,7 @@ STRICT_RAG_PROMPT = (
     "You are a strict document-based QA system for Agniveer / Agnipath recruitment content. "
     "Use ONLY the provided context. Do NOT use prior knowledge. Do NOT infer missing information. "
     "Do NOT add explanations, tips, assumptions, or generic filler. "
+    "Deliver all key facts first, keep the answer compact, and avoid unnecessary repetition. "
     "If the answer is incomplete or missing, respond exactly with: "
     "'Answer not found in the document.' "
     "Write in clear structured paragraphs only. Do not repeat the question."
@@ -221,6 +229,7 @@ STRICT_RAG_PROMPT_COMPUTE = (
     "Use ONLY the provided context. You may compute or aggregate values only from figures explicitly present in the context. "
     "Do NOT use prior knowledge. Do NOT infer missing information. "
     "Do NOT add explanations, tips, assumptions, or generic filler. "
+    "Deliver all key facts first, keep the answer compact, and avoid unnecessary repetition. "
     "If the answer is incomplete or missing, respond exactly with: "
     "'Answer not found in the document.' "
     "Write in clear structured paragraphs only. Do not repeat the question."
