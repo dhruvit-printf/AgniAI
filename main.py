@@ -43,6 +43,7 @@ from rag import (
     make_response_cache_key,
     is_reasoning_query,
     prepare_rag_bundle,
+    warmup_runtime,
     set_cached_response,
     STRICT_TOP_K,
     LOW_RETRIEVAL_CONFIDENCE,
@@ -190,14 +191,16 @@ def _build_rag_messages(
     reasoning: bool,
     history: list[dict] | None,
     context_char_budget: int,
+    context: str | None = None,
 ) -> list[dict]:
     """Build the final messages list for a RAG query using retrieved docs."""
-    context = build_context(
-        docs,
-        max_chunks=max(STRICT_TOP_K, min(5, len(docs))),
-        min_score=LOW_RETRIEVAL_CONFIDENCE,
-        max_chars=context_char_budget,
-    )
+    if context is None:
+        context = build_context(
+            docs,
+            max_chunks=max(STRICT_TOP_K, min(5, len(docs))),
+            min_score=LOW_RETRIEVAL_CONFIDENCE,
+            max_chars=context_char_budget,
+        )
 
     system_prompt = STRICT_RAG_PROMPT_COMPUTE if reasoning else STRICT_RAG_PROMPT
     system_prompt = f"{system_prompt}\n\n{style_structure_instruction(style)}"
@@ -415,7 +418,13 @@ def run_chat() -> None:
         bundle = {"docs": [], "context": "", "confidence": 0.0, "mode": "reject", "reasoning": False}
         if use_rag:
             print(dim("  Preparing retrieval..."))
-            bundle = prepare_rag_bundle(raw, top_k=TOP_K, style=style_name, max_context_chars=context_char_budget)
+            bundle = prepare_rag_bundle(
+                raw,
+                top_k=TOP_K,
+                style=style_name,
+                max_context_chars=context_char_budget,
+                include_points=False,
+            )
 
         docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
         confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
@@ -465,6 +474,7 @@ def run_chat() -> None:
                     reasoning=reasoning,
                     history=history[-6:] if history else None,
                     context_char_budget=context_char_budget,
+                    context=bundle.get("context", "") if isinstance(bundle, dict) else "",
                 )
             else:
                 # ── Non-RAG chat path
@@ -508,4 +518,5 @@ def run_chat() -> None:
 
 
 if __name__ == "__main__":
+    warmup_runtime()
     run_chat()

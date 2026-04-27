@@ -76,6 +76,8 @@ REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
 KEEP_ALIVE      = os.getenv("OLLAMA_KEEP_ALIVE",           "10m")
 
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "6"))
+MODEL_LIST_CACHE_TTL = float(os.getenv("OLLAMA_MODEL_LIST_CACHE_TTL", "30"))
+_MODEL_LIST_CACHE: tuple[float, List[str]] | None = None
 
 
 # =============================================================================
@@ -139,7 +141,12 @@ def _default_num_thread() -> int:
 def build_rag_context(query: str) -> str:
     try:
         from rag import prepare_rag_bundle  # type: ignore
-        bundle = prepare_rag_bundle(query, top_k=_CONFIG_TOP_K, style="elaborate")
+        bundle = prepare_rag_bundle(
+            query,
+            top_k=_CONFIG_TOP_K,
+            style="elaborate",
+            include_points=False,
+        )
         context = bundle.get("context", "") if isinstance(bundle, dict) else ""
         return _truncate(str(context), MAX_CONTEXT_CHARS_DEFAULT)
     except Exception:
@@ -167,12 +174,20 @@ def build_messages(query: str, history: List[dict], style: str = "elaborate") ->
 # =============================================================================
 
 def _installed_models(session: requests.Session) -> List[str]:
+    global _MODEL_LIST_CACHE
+    now = time.time()
+    if _MODEL_LIST_CACHE is not None:
+        ts, models = _MODEL_LIST_CACHE
+        if now - ts < MODEL_LIST_CACHE_TTL:
+            return list(models)
     try:
         resp = session.get(TAGS_ENDPOINT, timeout=(TIMEOUT_CONNECT, 10))
         resp.raise_for_status()
         models = resp.json().get("models", [])
         models.sort(key=lambda m: m.get("size", 99_000_000_000))
-        return [m["name"] for m in models if m.get("name")]
+        names = [m["name"] for m in models if m.get("name")]
+        _MODEL_LIST_CACHE = (now, names)
+        return names
     except Exception:
         return []
 

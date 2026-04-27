@@ -82,6 +82,7 @@ _QUERY_EMBED_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=EMBED_CACHE_TTL)
 _RETRIEVAL_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RETRIEVAL_CACHE_TTL)
 _RESPONSE_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RESPONSE_CACHE_TTL)
 _MAX_STRUCTURED_POINTS = int(os.getenv("MAX_STRUCTURED_POINTS", "12"))
+_PRELOAD_THREAD: Optional[threading.Thread] = None
 
 _STEP_TEMPLATE = [
     "Preparation",
@@ -909,6 +910,7 @@ def generate_structured_answer(
     query: str,
     *,
     docs: Sequence[Dict[str, str]],
+    context: Optional[str] = None,
     style: str,
     model: str,
     session,
@@ -926,14 +928,15 @@ def generate_structured_answer(
             "token_budget_per_point": 0,
         }
 
-    context = build_context(
-        docs,
-        max_chunks=max(STRICT_TOP_K, min(5, len(docs))),
-        min_score=LOW_RETRIEVAL_CONFIDENCE,
-        max_chars=MAX_CONTEXT_CHARS.get(style, MAX_CONTEXT_CHARS_DEFAULT)
-        if isinstance(MAX_CONTEXT_CHARS, dict)
-        else MAX_CONTEXT_CHARS_DEFAULT,
-    )
+    if context is None:
+        context = build_context(
+            docs,
+            max_chunks=max(STRICT_TOP_K, min(5, len(docs))),
+            min_score=LOW_RETRIEVAL_CONFIDENCE,
+            max_chars=MAX_CONTEXT_CHARS.get(style, MAX_CONTEXT_CHARS_DEFAULT)
+            if isinstance(MAX_CONTEXT_CHARS, dict)
+            else MAX_CONTEXT_CHARS_DEFAULT,
+        )
 
     if not context.strip():
         return {
@@ -1122,6 +1125,41 @@ def get_cached_response(key: str) -> Optional[str]:
 
 def set_cached_response(key: str, value: str) -> None:
     _RESPONSE_CACHE.set(key, value)
+
+
+def warmup_runtime(*, async_load: bool = False) -> None:
+    """Preload embedding and index state to reduce first-request latency."""
+    global _PRELOAD_THREAD
+    if not async_load:
+        try:
+            load_embedding_model()
+        except Exception as exc:
+            logger.debug("Embedding warmup failed: %s", exc)
+        try:
+            load_index()
+            if USE_HYBRID:
+                load_bm25()
+        except Exception as exc:
+            logger.debug("Index warmup failed: %s", exc)
+        return
+
+    if _PRELOAD_THREAD is not None and _PRELOAD_THREAD.is_alive():
+        return
+
+    def _warm() -> None:
+        try:
+            load_embedding_model()
+        except Exception as exc:
+            logger.debug("Embedding warmup failed: %s", exc)
+        try:
+            load_index()
+            if USE_HYBRID:
+                load_bm25()
+        except Exception as exc:
+            logger.debug("Index warmup failed: %s", exc)
+
+    _PRELOAD_THREAD = threading.Thread(target=_warm, daemon=True)
+    _PRELOAD_THREAD.start()
 
 
 def load_embedding_model() -> SentenceTransformer:
@@ -1404,10 +1442,12 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
         logger.debug("Retrieval cache hit for query=%r", query)
         return [dict(doc) for doc in cached]
 
-    index = load_index()
+    index, docs_snapshot = _index_snapshot()
+    if index is None:
+        index = load_index()
+        index, docs_snapshot = _index_snapshot()
     if index.ntotal == 0:
         return []
-    _, docs_snapshot = _index_snapshot()
 
     rewritten_query = _normalize_query_for_retrieval(query)
     retrieval_query = safe_rewrite_query(rewritten_query)
@@ -1611,6 +1651,7 @@ def prepare_rag_bundle(
     top_k: int = TOP_K,
     style: str = "elaborate",
     max_context_chars: Optional[int] = None,
+    include_points: bool = False,
 ) -> Dict[str, object]:
     retrieval_query = _normalize_query_for_retrieval(query)
     docs = search(retrieval_query, top_k=top_k)
@@ -1630,13 +1671,12 @@ def prepare_rag_bundle(
         min_score=context_min_score,
         max_chars=context_limit,
     )
-    points = extract_key_points(docs, query=query)
     return {
         "query": query,
         "retrieval_query": retrieval_query,
         "docs": docs,
         "context": context,
-        "points": points,
+        "points": extract_key_points(docs, query=query) if include_points else [],
         "confidence": confidence,
         "mode": mode,
         "reasoning": is_reasoning_query(query),

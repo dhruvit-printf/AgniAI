@@ -48,6 +48,7 @@ from rag import (
     generate_structured_answer,
     is_reasoning_query,
     prepare_rag_bundle,
+    warmup_runtime,
     set_cached_response,
 )
 
@@ -270,6 +271,7 @@ def _generate_structured_rag_answer(
     query: str,
     style: str,
     docs: list[dict],
+    context: str | None,
     model: str,
     session,
     reasoning: bool,
@@ -278,6 +280,7 @@ def _generate_structured_rag_answer(
     return generate_structured_answer(
         query,
         docs=docs,
+        context=context,
         style=style,
         model=model,
         session=session,
@@ -374,7 +377,13 @@ def chat():
 
     bundle = {"docs": [], "context": "", "confidence": 0.0}
     if use_rag:
-        bundle = prepare_rag_bundle(message, top_k=TOP_K, style=style_name, max_context_chars=context_char_budget)
+        bundle = prepare_rag_bundle(
+            message,
+            top_k=TOP_K,
+            style=style_name,
+            max_context_chars=context_char_budget,
+            include_points=False,
+        )
 
     context = bundle.get("context", "") if isinstance(bundle, dict) else ""
     confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
@@ -442,6 +451,7 @@ def chat():
                         query=message,
                         style=style_name,
                         docs=docs,
+                        context=context,
                         model=current_model,
                         session=_session,
                         reasoning=reasoning,
@@ -505,6 +515,7 @@ def chat():
             query=message,
             style=style_name,
             docs=docs,
+            context=context,
             model=current_model,
             session=_session,
             reasoning=reasoning,
@@ -683,6 +694,7 @@ def reset_index():
 
 
 if __name__ == "__main__":
+    warmup_runtime()
     stats_data = index_stats()
     print("\n  AgniAI REST API")
     print("  Listening on  http://0.0.0.0:5000")
