@@ -422,12 +422,6 @@ def run_chat() -> None:
                     history=history[-6:] if history else None,
                 )
                 answer = str(structured.get("answer", "")).strip()
-                if not answer and structured.get("points"):
-                    answer = "\n".join(
-                        f"{idx}. {point.get('title', '').strip()}"
-                        for idx, point in enumerate(structured.get("points", []), start=1)
-                        if point.get("title")
-                    )
                 if not answer:
                     answer = REFERENCE_FALLBACK
                 print(answer)

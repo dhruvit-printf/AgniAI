@@ -511,14 +511,8 @@ def chat():
             history=structured_history,
         )
         answer = str(structured.get("answer", "")).strip()
-        if not answer and structured.get("points"):
-            answer = "\n".join(
-                f"{idx}. {point.get('title', '').strip()}"
-                for idx, point in enumerate(structured.get("points", []), start=1)
-                if point.get("title")
-            )
         if not answer:
-            answer = "Not available in the document"
+            answer = REFERENCE_FALLBACK
         _memory.add("user", message, session_id=session_id)
         _memory.add("assistant", answer, session_id=session_id)
         _log_answer_quality(answer, style_name)

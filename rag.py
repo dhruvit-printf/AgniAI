@@ -62,6 +62,7 @@ from config import (
     MAX_CACHE_ENTRIES,
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_CHARS_DEFAULT,
+    MAX_TOKENS_STYLE,
     HIGH_RETRIEVAL_CONFIDENCE,
     LOW_RETRIEVAL_CONFIDENCE,
     STYLE_POINT_TOKEN_BUDGET,
@@ -723,8 +724,15 @@ def extract_key_points(
     query: str = "",
     max_points: int = _MAX_STRUCTURED_POINTS,
 ) -> List[Dict[str, str]]:
+    _PROCESS_KEYWORDS = (
+        "process", "step", "procedure", "how to join", "recruitment process",
+        "selection process", "how do i apply", "how to apply",
+    )
+    _query_lower = (query or "").lower()
+    _is_process_query = any(kw in _query_lower for kw in _PROCESS_KEYWORDS)
+
     if not docs:
-        return _structured_step_template(query=query, docs=docs)
+        return _structured_step_template(query=query, docs=docs) if _is_process_query else []
 
     ordered = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
     candidates: List[Dict[str, str]] = []
@@ -745,16 +753,17 @@ def extract_key_points(
 
     deduped = _order_structured_points(_dedupe_points(candidates))
 
+    # First fallback (after initial dedup):
     if len(deduped) < 3:
         fallback = _fallback_points_from_docs(ordered)
         fallback_ordered = _order_structured_points(fallback)
         if len(fallback_ordered) > len(deduped):
             deduped = fallback_ordered
 
-    if not deduped:
+    if not deduped and _is_process_query:
         deduped = _structured_step_template(query=query, docs=ordered)
 
-    if len(deduped) < 3:
+    if len(deduped) < 3 and _is_process_query:
         deduped = _structured_step_template(query=query, docs=ordered)
 
     if max_points <= 0:
@@ -947,33 +956,80 @@ def generate_structured_answer(
     history: Optional[List[Dict[str, str]]] = None,
     max_points: int = _MAX_STRUCTURED_POINTS,
 ) -> Dict[str, object]:
-    points = extract_key_points(docs, query=query, max_points=max_points)
-    if not points and docs:
-        points = _fallback_points_from_docs(docs)
-    explanations: List[str] = []
-    for point in points:
-        explanations.append(
-            _generate_point_explanation(
-                session=session,
-                model=model,
-                query=query,
-                point=point,
-                style=style,
-                reasoning=reasoning,
-                history=history,
-            )
-        )
+    """Generate a complete structured answer using a single LLM call."""
+    if not docs:
+        return {
+            "answer": REFERENCE_FALLBACK,
+            "points": [],
+            "explanations": [],
+            "structured": False,
+            "token_budget_per_point": 0,
+        }
 
-    answer = format_structured_answer(points, explanations, style)
-    if not answer and points:
-        answer = format_structured_answer(points, [""] * len(points), style)
+    context = build_context(
+        docs,
+        max_chunks=max(STRICT_TOP_K, min(5, len(docs))),
+        min_score=LOW_RETRIEVAL_CONFIDENCE,
+        max_chars=MAX_CONTEXT_CHARS.get(style, MAX_CONTEXT_CHARS_DEFAULT)
+        if isinstance(MAX_CONTEXT_CHARS, dict)
+        else MAX_CONTEXT_CHARS_DEFAULT,
+    )
+
+    if not context.strip():
+        return {
+            "answer": REFERENCE_FALLBACK,
+            "points": [],
+            "explanations": [],
+            "structured": False,
+            "token_budget_per_point": 0,
+        }
+
+    system_prompt = STRICT_RAG_PROMPT_COMPUTE if reasoning else STRICT_RAG_PROMPT
+    system_prompt = f"{system_prompt}\n\n{style_structure_instruction(style)}"
+
+    messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+
+    if history:
+        for msg in history[-6:]:
+            role = msg.get("role")
+            content = (msg.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content})
+
+    user_content = (
+        f"Reference information:\n{context}\n\n"
+        f"Question: {query}\n\n"
+        "Using ONLY the reference information above, write a complete structured answer. "
+        "Do not use any knowledge outside the reference information. "
+        "Do not repeat a numbered list inside a numbered list."
+    )
+    messages.append({"role": "user", "content": user_content})
+
+    token_budget = MAX_TOKENS_STYLE.get(style, MAX_TOKENS_DEFAULT)
+
+    try:
+        from ollama_cpu_chat import chat_with_fallback
+        result = chat_with_fallback(
+            session,
+            model,
+            messages,
+            stream_tokens=False,
+            max_tokens_override=token_budget,
+        )
+        answer = trim_to_complete_sentence((result.text or "").strip())
+    except Exception as exc:
+        logger.warning("Single-shot LLM call failed: %s", exc)
+        answer = ""
+
+    if not answer:
+        answer = REFERENCE_FALLBACK
 
     return {
-        "answer": answer.strip(),
-        "points": points,
-        "explanations": explanations,
-        "structured": bool(points),
-        "token_budget_per_point": _style_point_token_budget(style),
+        "answer": answer,
+        "points": [],
+        "explanations": [],
+        "structured": bool(answer and answer != REFERENCE_FALLBACK),
+        "token_budget_per_point": token_budget,
     }
 
 
