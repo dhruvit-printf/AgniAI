@@ -1109,14 +1109,14 @@ def make_response_cache_key(
     return _hash_text(payload)
 
 
-def get_cached_retrieval(query: str, top_k: int):
-    normalized = _normalize_query_for_retrieval(query)
-    return _RETRIEVAL_CACHE.get(make_retrieval_cache_key(normalized, top_k))
+def get_cached_retrieval(query: str, top_k: int, *, normalized: bool = False):
+    key_query = query if normalized else _normalize_query_for_retrieval(query)
+    return _RETRIEVAL_CACHE.get(make_retrieval_cache_key(key_query, top_k))
 
 
-def set_cached_retrieval(query: str, top_k: int, docs):
-    normalized = _normalize_query_for_retrieval(query)
-    _RETRIEVAL_CACHE.set(make_retrieval_cache_key(normalized, top_k), docs)
+def set_cached_retrieval(query: str, top_k: int, docs, *, normalized: bool = False):
+    key_query = query if normalized else _normalize_query_for_retrieval(query)
+    _RETRIEVAL_CACHE.set(make_retrieval_cache_key(key_query, top_k), docs)
 
 
 def get_cached_response(key: str) -> Optional[str]:
@@ -1436,8 +1436,8 @@ def _apply_domain_boosts(query_lower: str, doc_text_lower: str) -> float:
     return best
 
 
-def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
-    cached = get_cached_retrieval(query, top_k)
+def search(query: str, top_k: int = TOP_K, *, normalized: bool = False) -> List[Dict[str, str]]:
+    cached = get_cached_retrieval(query, top_k, normalized=normalized)
     if cached is not None:
         logger.debug("Retrieval cache hit for query=%r", query)
         return [dict(doc) for doc in cached]
@@ -1449,7 +1449,7 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
     if index.ntotal == 0:
         return []
 
-    rewritten_query = _normalize_query_for_retrieval(query)
+    rewritten_query = query if normalized else _normalize_query_for_retrieval(query)
     retrieval_query = safe_rewrite_query(rewritten_query)
     qvec = _cache_query_embedding(retrieval_query)
 
@@ -1533,7 +1533,7 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
     candidates = sorted(candidates, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
 
     final = candidates[: max(top_k, STRICT_TOP_K)]
-    set_cached_retrieval(query, top_k, final)
+    set_cached_retrieval(query, top_k, final, normalized=True)
     return [dict(doc) for doc in final]
 
 
@@ -1654,7 +1654,7 @@ def prepare_rag_bundle(
     include_points: bool = False,
 ) -> Dict[str, object]:
     retrieval_query = _normalize_query_for_retrieval(query)
-    docs = search(retrieval_query, top_k=top_k)
+    docs = search(retrieval_query, top_k=top_k, normalized=True)
     context_limit = (
         MAX_CONTEXT_CHARS.get(style, MAX_CONTEXT_CHARS_DEFAULT)
         if isinstance(MAX_CONTEXT_CHARS, dict)
