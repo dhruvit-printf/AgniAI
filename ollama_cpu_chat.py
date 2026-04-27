@@ -69,19 +69,45 @@ FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "120"))
 STREAM_TIMEOUT      = float(os.getenv("OLLAMA_STREAM_TIMEOUT",     "300"))
 MAX_RETRIES         = int(os.getenv("OLLAMA_MAX_RETRIES",           "2"))
 
-# ── Generation knobs ──────────────────────────────────────────────────────────
-#   NUM_CTX = 2048 keeps RAM pressure lower for CPU-bound machines.
-#   MAX_TOKENS = default ceiling; overridden per-style via max_tokens_override.
-#   _SAMPLING_TOP_K = sampling knob — renamed from TOP_K to avoid shadowing
-#                     the retrieval TOP_K imported from config.
+"""
+WHAT CHANGED and WHY
+────────────────────
+MAX_TOKENS  300 → 900
+  The old default of 300 tokens was a hard ceiling that prevented the LLM
+  from ever producing more than ~225 words — well under the 250-word minimum
+  for even the "short" style.  The new default of 900 matches the highest
+  per-style budget (detail mode) so the LLM is never silently capped below
+  what the style requires.  Per-style overrides passed via max_tokens_override
+  still take precedence, so short/elaborate modes are unaffected.
 
-MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",      "400"))
-NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",         "2048"))
-TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",   "0.1"))
-_SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",           "10"))   # sampling knob only
-TOP_P           = float(os.getenv("OLLAMA_TOP_P",         "0.9"))
-REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY","1.1"))
-KEEP_ALIVE      = os.getenv("OLLAMA_KEEP_ALIVE",          "10m")
+NUM_CTX  2048 (unchanged)
+  Keeping 2048 for CPU safety.  Users with more RAM should set
+  OLLAMA_NUM_CTX=4096 in their environment — this unlocks full detail
+  responses without needing to modify code.
+
+KEEP_ALIVE  "10m" (unchanged)
+
+FIRST_TOKEN_TIMEOUT  120 → 180
+  Longer timeout prevents premature stream abandonment on slow CPUs when
+  generating detail-length answers.
+
+STREAM_TIMEOUT  300 → 600
+  A 900-token response at 5 tok/s on CPU takes ~180 s; 600 s gives ample
+  headroom without hanging forever.
+"""
+
+# ── DROP-IN REPLACEMENTS for the CONFIG block in ollama_cpu_chat.py ───────
+
+MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "900"))   # was 400
+NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",          "2048"))
+TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",    "0.1"))
+_SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",            "10"))
+TOP_P           = float(os.getenv("OLLAMA_TOP_P",          "0.9"))
+REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.1"))
+KEEP_ALIVE      = os.getenv("OLLAMA_KEEP_ALIVE",           "10m")
+
+FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "180"))  # was 120
+STREAM_TIMEOUT      = float(os.getenv("OLLAMA_STREAM_TIMEOUT",      "600"))  # was 300
 
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "6"))
 

@@ -28,6 +28,10 @@ OLLAMA_URL = os.getenv("OLLAMA_CHAT_URL", f"{OLLAMA_BASE_URL}/api/chat")
 OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", f"{OLLAMA_BASE_URL}/api/tags")
 
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct")
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTEXT WINDOW
+# Keep at 2048 for CPU machines. Raise via env var on machines with more RAM.
+# ─────────────────────────────────────────────────────────────────────────────
 MODEL_MAX_CONTEXT_TOKENS = int(os.getenv("OLLAMA_NUM_CTX", "2048"))
 FALLBACK_MODELS = [
     m.strip()
@@ -72,22 +76,41 @@ EMBED_CACHE_TTL = int(os.getenv("EMBED_CACHE_TTL", "3600"))
 MAX_CACHE_ENTRIES = int(os.getenv("MAX_CACHE_ENTRIES", "2048"))
 SESSION_HEADER = os.getenv("SESSION_HEADER", "X-Session-Id")
 
-# Context budgets
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTEXT CHAR BUDGETS
+# How many characters of retrieved context to pass to the LLM per style.
+# These must leave enough room in the 2048-token context window for both the
+# system prompt and the generated completion.
+# ─────────────────────────────────────────────────────────────────────────────
 MAX_CONTEXT_CHARS = {
-    "short": int(os.getenv("MAX_CONTEXT_CHARS_SHORT", "1800")),
-    "elaborate": int(os.getenv("MAX_CONTEXT_CHARS_ELABORATE", "2400")),
-    "detail": int(os.getenv("MAX_CONTEXT_CHARS_DETAIL", "3000")),
+    "short":     int(os.getenv("MAX_CONTEXT_CHARS_SHORT",     "1200")),
+    "elaborate": int(os.getenv("MAX_CONTEXT_CHARS_ELABORATE", "1800")),
+    "detail":    int(os.getenv("MAX_CONTEXT_CHARS_DETAIL",    "2200")),
 }
-MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "3000"))
+MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "2200"))
 
-# Token budgets
+# ─────────────────────────────────────────────────────────────────────────────
+# TOKEN BUDGETS FOR COMPLETION
+# Target word counts from spec:
+#   short    ≈ 250–300 words  → ~320–400 tokens
+#   elaborate≈ 500–600 words  → ~640–780 tokens  (capped by context window)
+#   detail   ≈ 850–900 words  → ~1100–1170 tokens (capped by context window)
+#
+# Because MODEL_MAX_CONTEXT_TOKENS is 2048 and we spend ~300-600 tokens on
+# the prompt+context, the usable completion space is roughly 1400-1700 tokens.
+# We clamp each budget at 900 so the LLM is never asked for more than the
+# window safely allows on a 2048-token model; raise OLLAMA_NUM_CTX to 4096
+# in the environment for full detail-mode responses.
+# ─────────────────────────────────────────────────────────────────────────────
 MAX_TOKENS_STYLE = {
-    "short": int(os.getenv("MAX_TOKENS_SHORT", "140")),
-    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "400")),
-    "detail": int(os.getenv("MAX_TOKENS_DETAIL", "820")),
+    "short":     int(os.getenv("MAX_TOKENS_SHORT",     "380")),
+    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "700")),
+    "detail":    int(os.getenv("MAX_TOKENS_DETAIL",    "900")),
 }
-MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "400"))
-TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "200"))
+MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "700"))
+
+# Safety buffer (tokens reserved for model overhead / special tokens)
+TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "150"))
 
 # CORS
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
@@ -116,16 +139,38 @@ STYLE_ELABORATE_KEYWORDS = [
     "walk me through", "how does", "how do",
 ]
 
+# ─────────────────────────────────────────────────────────────────────────────
+# STYLE OUTPUT GUIDANCE
+# These instructions are injected into the system prompt.  They tell the LLM
+# how much to write per numbered point so that the total answer lands in the
+# correct word-count band.
+# ─────────────────────────────────────────────────────────────────────────────
 STYLE_OUTPUT_GUIDANCE = {
-    "short": "Use numbered points only. Keep the exact same point list. Write only the point title, with no extra explanation.",
-    "elaborate": "Use numbered points only. Keep the exact same point list. Add 1 to 2 short lines under each title.",
-    "detail": "Use numbered points only. Keep the exact same point list. Add a full explanation under each title.",
+    "short": (
+        "Write a concise answer of 250 to 300 words total. "
+        "Use numbered points only. Keep only the point title — no extra explanation. "
+        "Never cut off mid-sentence. Every sentence must be complete."
+    ),
+    "elaborate": (
+        "Write an answer of 500 to 600 words total. "
+        "Use numbered points. Under each point title, add 2 to 3 complete sentences "
+        "of explanation. Never cut off mid-sentence."
+    ),
+    "detail": (
+        "Write a thorough answer of 850 to 900 words total. "
+        "Use numbered points. Under each point title, write a full paragraph of "
+        "explanation (4 to 6 sentences). Cover all relevant aspects. "
+        "Never cut off mid-sentence. Finish every sentence."
+    ),
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PER-POINT TOKEN BUDGETS (used when generating each point's explanation)
+# ─────────────────────────────────────────────────────────────────────────────
 STYLE_POINT_TOKEN_BUDGET = {
-    "short": int(os.getenv("STYLE_SHORT_POINT_TOKENS", "10")),
-    "elaborate": int(os.getenv("STYLE_ELABORATE_POINT_TOKENS", "40")),
-    "detail": int(os.getenv("STYLE_DETAIL_POINT_TOKENS", "80")),
+    "short":     int(os.getenv("STYLE_SHORT_POINT_TOKENS",     "10")),
+    "elaborate": int(os.getenv("STYLE_ELABORATE_POINT_TOKENS", "80")),
+    "detail":    int(os.getenv("STYLE_DETAIL_POINT_TOKENS",    "160")),
 }
 
 # Strict prompt
@@ -136,7 +181,9 @@ STRICT_RAG_PROMPT = (
     "Use only the provided context. Do not add external knowledge. "
     "If context exists, always produce a structured answer instead of 'Not available in the document'. "
     "If the answer is partially available, use what is present. "
-    "Be concise and complete. Prioritize key points. Ensure the answer ends with a full sentence."
+    "Be complete and thorough. Prioritize all relevant key points. "
+    "IMPORTANT: Every sentence must be complete. Never stop mid-sentence. "
+    "Write until the answer is fully finished."
 )
 
 STRICT_RAG_PROMPT_COMPUTE = (
@@ -145,21 +192,26 @@ STRICT_RAG_PROMPT_COMPUTE = (
     "You may compute or aggregate values only from the provided context. "
     "If context exists, always produce a structured answer instead of 'Not available in the document'. "
     "If the answer is partially available, use what is present. "
-    "Be concise and complete. Prioritize key points. Ensure the answer ends with a full sentence."
+    "Be complete and thorough. Prioritize all relevant key points. "
+    "IMPORTANT: Every sentence must be complete. Never stop mid-sentence. "
+    "Write until the answer is fully finished."
 )
 
 STRUCTURE_FIRST_PROMPT = (
-    "Always extract all key points first and keep them in the same order across styles. "
-    "Do not change the structure. Use numbered points only. "
-    "Short answers keep only the title, elaborate answers add 1 to 2 lines, and detail answers add the full explanation. "
-    "Never drop a point because of length; shorten explanations instead."
+    "Extract all key points first and keep them in the same order across all styles. "
+    "Do not change the point structure. Use numbered points only. "
+    "Short answers: title only (no explanation). "
+    "Elaborate answers: title + 2 to 3 complete sentences of explanation. "
+    "Detail answers: title + full paragraph (4 to 6 sentences). "
+    "Never drop a point. Never truncate mid-sentence. Always finish every sentence."
 )
 
 
 def style_structure_instruction(style: str) -> str:
     style_key = (style or "").strip().lower()
     guidance = STYLE_OUTPUT_GUIDANCE.get(style_key, STYLE_OUTPUT_GUIDANCE["elaborate"])
-    return f"{STRUCTURE_FIRST_PROMPT} {guidance}"
+    return f"{STRUCTURE_FIRST_PROMPT}\n\n{guidance}"
+
 
 SYSTEM_PROMPT_SHORT = STRICT_RAG_PROMPT
 SYSTEM_PROMPT_ELABORATE = STRICT_RAG_PROMPT
@@ -186,10 +238,42 @@ def estimate_message_tokens(messages: list[dict]) -> int:
 
 
 def trim_to_complete_sentence(text: str) -> str:
+    """
+    Return the text trimmed to the last complete sentence.
+
+    FIX: The previous implementation was far too aggressive — it used
+    re.finditer(r'[.!?]\\s', text) which requires whitespace AFTER the
+    punctuation, so a sentence ending at the very end of the string (no
+    trailing space) was always discarded, causing the answer to be cut by
+    one full sentence or more.
+
+    New behaviour:
+    1. If the text already ends with a sentence-terminal character
+       (. ! ?) the text is returned as-is (no trimming needed).
+    2. Otherwise we find the last sentence boundary and trim there.
+    3. If no boundary exists at all, return the full text unchanged so
+       partial sentences are preferred over empty strings.
+    """
     text = (text or "").strip()
     if not text:
         return text
-    matches = list(re.finditer(r"[.!?]\s", text))
-    if not matches:
+
+    # Already ends cleanly — return unchanged
+    if text[-1] in ".!?":
         return text
-    return text[: matches[-1].end()].strip()
+
+    # Find the last sentence-terminal boundary
+    # Match '. ', '! ', '? ', or end-of-string after punctuation
+    matches = list(re.finditer(r"[.!?](?:\s|$)", text))
+    if not matches:
+        # No sentence boundary found at all — return the full text so we
+        # don't silently drop the entire answer
+        return text
+
+    last_end = matches[-1].end()
+    trimmed = text[:last_end].strip()
+    # Prefer the trimmed version only when it retains meaningful content
+    if trimmed and len(trimmed) >= len(text) * 0.5:
+        return trimmed
+    # Otherwise return the original (better a slightly open sentence than nothing)
+    return text

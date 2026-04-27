@@ -80,6 +80,143 @@ _RETRIEVAL_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RETRIEVAL_CACHE_TTL)
 _RESPONSE_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RESPONSE_CACHE_TTL)
 _MAX_STRUCTURED_POINTS = int(os.getenv("MAX_STRUCTURED_POINTS", "12"))
 
+_STEP_TEMPLATE = [
+    "Preparation",
+    "Online CEE",
+    "Rally Process",
+    "Medical Examination",
+    "Review Opportunity",
+    "Final Selection",
+    "Training",
+]
+
+_STEP_PATTERNS = [
+    (
+        "Preparation",
+        [
+            r"\bpreparation\b",
+            r"\bbefore rally\b",
+            r"\bpre[- ]?rally\b",
+            r"\bregistration\b",
+            r"\bapply\b",
+            r"\bapplication\b",
+            r"\beligibility\b",
+            r"\bdocuments?\b",
+            r"\badmit card\b",
+        ],
+    ),
+    (
+        "Online CEE",
+        [
+            r"\bcee\b",
+            r"\bcommon entrance exam\b",
+            r"\bonline exam\b",
+            r"\bonline entrance exam\b",
+            r"\bwritten exam\b",
+            r"\bcomputer[- ]based\b",
+            r"\bcbt\b",
+        ],
+    ),
+    (
+        "Rally Process",
+        [
+            r"\brally\b",
+            r"\bphysical test\b",
+            r"\bphysical fitness test\b",
+            r"\bpft\b",
+            r"\bfitness test\b",
+            r"\brun\b",
+            r"\bmeasurement\b",
+            r"\bheight\b",
+            r"\bchest\b",
+            r"\bweight\b",
+        ],
+    ),
+    (
+        "Medical Examination",
+        [
+            r"\bmedical examination\b",
+            r"\bmedical test\b",
+            r"\bmedical\b",
+            r"\bdoctor\b",
+            r"\bhospital\b",
+            r"\bfitness certificate\b",
+        ],
+    ),
+    (
+        "Review Opportunity",
+        [
+            r"\bre[- ]?medical\b",
+            r"\breview\b",
+            r"\brecheck\b",
+            r"\bappeal\b",
+            r"\bverification\b",
+            r"\bclarification\b",
+            r"\breconsider\b",
+        ],
+    ),
+    (
+        "Final Selection",
+        [
+            r"\bfinal selection\b",
+            r"\bselection list\b",
+            r"\bmerit\b",
+            r"\bresult\b",
+            r"\bdispatch\b",
+            r"\bdespatch\b",
+            r"\bjoining\b",
+            r"\bappointment\b",
+            r"\boffer\b",
+        ],
+    ),
+    (
+        "Training",
+        [
+            r"\btraining\b",
+            r"\binduction\b",
+            r"\bbasic training\b",
+            r"\bregimental\b",
+            r"\borientation\b",
+            r"\bcentre\b",
+        ],
+    ),
+]
+
+_STEP_ORDER = {label: idx for idx, label in enumerate(_STEP_TEMPLATE)}
+_STEP_GENERIC_NOISE = {
+    "army",
+    "result",
+    "results",
+    "test",
+    "tests",
+    "part",
+    "chapter",
+    "section",
+    "annexure",
+    "appendix",
+    "schedule",
+    "table",
+    "figure",
+    "contents",
+    "introduction",
+    "overview",
+    "detail",
+    "details",
+    "important",
+    "general",
+}
+_STEP_SECTION_NOISE = (
+    r"^part[-\s]*[ivxlcdm0-9]+$",
+    r"^chapter[-\s]*[ivxlcdm0-9]+$",
+    r"^section[-\s]*[ivxlcdm0-9]+$",
+    r"^annexure[-\s]*[ivxlcdm0-9]+$",
+    r"^appendix[-\s]*[ivxlcdm0-9]+$",
+    r"^result[s]?$",
+    r"^army$",
+    r"^tests?$",
+    r"^[ivxlcdm]+$",
+)
+
 
 def _ensure_dirs() -> None:
     FAISS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -318,6 +455,144 @@ def _looks_like_heading(line: str) -> bool:
     return False
 
 
+def _is_noise_step_text(text: str) -> bool:
+    candidate = _clean_point_title(text)
+    if not candidate:
+        return True
+    lowered = _normalise_text(candidate)
+    if any(re.fullmatch(pattern, lowered) for pattern in _STEP_SECTION_NOISE):
+        return True
+    if lowered in _STEP_GENERIC_NOISE:
+        return True
+    words = lowered.split()
+    if len(words) == 1:
+        return _canonical_step_label(candidate) is None
+    if len(words) <= 2 and _canonical_step_label(candidate) is None:
+        return True
+    alpha_words = [w for w in words if re.search(r"[a-z\u0900-\u097f]", w)]
+    if not alpha_words:
+        return True
+    if candidate.isupper() and len(words) <= 4 and _canonical_step_label(candidate) is None:
+        return True
+    return False
+
+
+def _canonical_step_label(text: str, context: str = "") -> Optional[str]:
+    haystack = f"{text or ''} {context or ''}".lower()
+    if not haystack.strip():
+        return None
+    for label, patterns in _STEP_PATTERNS:
+        if any(re.search(pattern, haystack, flags=re.IGNORECASE) for pattern in patterns):
+            return label
+    return None
+
+
+def _step_support_snippet(text: str, label: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
+    label_patterns = dict(_STEP_PATTERNS).get(label, [])
+    sentences = _sentence_split(text)
+    hits = []
+    for sentence in sentences:
+        lowered = sentence.lower()
+        if any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in label_patterns):
+            cleaned = sentence.strip()
+            if cleaned:
+                hits.append(cleaned)
+    if hits:
+        return " ".join(hits[:2]).strip()
+    sections = _split_section_candidates(text)
+    if sections:
+        first = sections[0].strip()
+        if len(first) > 220:
+            return first[:220].rstrip()
+        return first
+    if len(text) > 220:
+        return text[:220].rstrip()
+    return text
+
+
+def _merge_step_point(
+    existing: Dict[str, str],
+    *,
+    support: str,
+    raw: str,
+    score: float,
+    source: str,
+) -> Dict[str, str]:
+    if support:
+        existing_support = (existing.get("support") or "").strip()
+        if not existing_support:
+            existing["support"] = support
+        elif support not in existing_support:
+            existing["support"] = f"{existing_support} {support}".strip()
+    if raw and not existing.get("raw"):
+        existing["raw"] = raw
+    if source and not existing.get("source"):
+        existing["source"] = source
+    existing["score"] = str(max(float(existing.get("score", 0.0)), score))
+    return existing
+
+
+def _structured_step_template(query: str = "", docs: Sequence[Dict[str, str]] | None = None) -> List[Dict[str, str]]:
+    docs = list(docs or [])
+    points: List[Dict[str, str]] = []
+    for label in _STEP_TEMPLATE:
+        support = ""
+        source = ""
+        if docs:
+            for doc in sorted(docs, key=lambda d: float(d.get("score", 0.0)), reverse=True):
+                text = (doc.get("text") or "").strip()
+                if not text:
+                    continue
+                snippet = _step_support_snippet(text, label)
+                if snippet:
+                    support = snippet
+                    source = doc.get("source", "")
+                    break
+        points.append({
+            "title": label,
+            "support": support,
+            "raw": support or label,
+            "source": source,
+            "score": "0.0",
+        })
+    return points
+
+
+def _order_structured_points(points: Iterable[Dict[str, str]]) -> List[Dict[str, str]]:
+    buckets: Dict[str, Dict[str, str]] = {}
+    for point in points:
+        title = _canonical_step_label(point.get("title", ""), point.get("support", "")) or _canonical_step_label(point.get("raw", ""))
+        if not title:
+            continue
+        cleaned_title = title
+        candidate_support = (point.get("support") or "").strip()
+        candidate_raw = (point.get("raw") or "").strip()
+        candidate_source = (point.get("source") or "").strip()
+        candidate_score = float(point.get("score", 0.0))
+        if cleaned_title in buckets:
+            buckets[cleaned_title] = _merge_step_point(
+                buckets[cleaned_title],
+                support=candidate_support,
+                raw=candidate_raw,
+                score=candidate_score,
+                source=candidate_source,
+            )
+        else:
+            buckets[cleaned_title] = {
+                "title": cleaned_title,
+                "support": candidate_support,
+                "raw": candidate_raw,
+                "source": candidate_source,
+                "score": str(candidate_score),
+            }
+
+    ordered = [buckets[label] for label in _STEP_TEMPLATE if label in buckets]
+    return ordered[: len(_STEP_TEMPLATE)]
+
+
 def _strip_leading_marker(text: str) -> str:
     return re.sub(r"^\s*(?:\d+[\).\:-]?\s*|\-|\*|•\s*)", "", (text or "").strip())
 
@@ -375,23 +650,16 @@ def _section_to_point(section: str) -> Optional[Dict[str, str]]:
         return None
     lines = [line.strip() for line in section.splitlines() if line.strip()]
     first_line = lines[0] if lines else section
-    title = ""
-    support = ""
-
-    if _looks_like_heading(first_line):
-        title = _clean_point_title(first_line)
-        support = _infer_support_text(" ".join(lines[1:]) if len(lines) > 1 else "", title)
-    else:
-        title = _clean_point_title(first_line)
-        support = _infer_support_text(section, title)
-
+    if _is_noise_step_text(first_line):
+        return None
+    title = _canonical_step_label(first_line, section)
     if not title:
-        sentences = _sentence_split(section)
-        if sentences:
-            title = _clean_point_title(sentences[0])
-            support = _infer_support_text(section, title)
+        title = _canonical_step_label(section)
     if not title:
         return None
+    support = _step_support_snippet(section, title)
+    if not support:
+        support = _infer_support_text(section, title)
     return {"title": title, "support": support, "raw": section}
 
 
@@ -415,29 +683,7 @@ def _dedupe_points(points: Iterable[Dict[str, str]]) -> List[Dict[str, str]]:
 
 
 def _fallback_points_from_docs(docs: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
-    points: List[Dict[str, str]] = []
-    for doc in docs:
-        text = (doc.get("text") or "").strip()
-        if not text:
-            continue
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        candidate = ""
-        if lines:
-            for line in lines:
-                cleaned = _clean_point_title(line)
-                if cleaned:
-                    candidate = cleaned
-                    break
-        if not candidate:
-            sentences = _sentence_split(text)
-            candidate = _clean_point_title(sentences[0]) if sentences else ""
-        if not candidate:
-            candidate = _clean_point_title(doc.get("source", ""))
-        if not candidate:
-            continue
-        support = _infer_support_text(text, candidate)
-        points.append({"title": candidate, "support": support, "raw": text})
-    return _dedupe_points(points)
+    return _structured_step_template(docs=docs)
 
 
 def extract_key_points(
@@ -447,7 +693,7 @@ def extract_key_points(
     max_points: int = _MAX_STRUCTURED_POINTS,
 ) -> List[Dict[str, str]]:
     if not docs:
-        return []
+        return _structured_step_template(query=query, docs=docs)
 
     ordered = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
     candidates: List[Dict[str, str]] = []
@@ -466,16 +712,25 @@ def extract_key_points(
             point["source"] = doc.get("source", "")
             candidates.append(point)
 
-    deduped = _dedupe_points(candidates)
+    deduped = _order_structured_points(_dedupe_points(candidates))
+
+    if len(deduped) < 3:
+        fallback = _fallback_points_from_docs(ordered)
+        fallback_ordered = _order_structured_points(fallback)
+        if len(fallback_ordered) > len(deduped):
+            deduped = fallback_ordered
+
     if not deduped:
-        deduped = _fallback_points_from_docs(ordered)
+        deduped = _structured_step_template(query=query, docs=ordered)
 
-    if not deduped and query.strip():
-        deduped = [{"title": _clean_point_title(query) or query.strip(), "support": "", "raw": query.strip()}]
+    if len(deduped) < 3:
+        deduped = _structured_step_template(query=query, docs=ordered)
 
-    if max_points > 0:
-        deduped = deduped[:max_points]
-    return deduped
+    if max_points <= 0:
+        return []
+
+    limit = min(max_points, len(_STEP_TEMPLATE))
+    return deduped[:limit]
 
 
 def _style_point_token_budget(style: str) -> int:
@@ -493,15 +748,29 @@ def _limit_sentence_count(text: str, max_sentences: int) -> str:
     return " ".join(sentences[:max_sentences]).strip()
 
 
+def _limit_words(text: str, max_words: int) -> str:
+    text = (text or "").strip()
+    if not text or max_words <= 0:
+        return ""
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    return " ".join(words[:max_words]).strip()
+
+
 def _shape_explanation(text: str, style: str) -> str:
     style_key = (style or "").strip().lower()
-    text = trim_to_complete_sentence((text or "").strip())
+    text = (text or "").strip()
+    if not text:
+        return ""
     if style_key == "short":
         return ""
+    text = trim_to_complete_sentence(text)
     if not text:
         return ""
     if style_key == "elaborate":
-        return _limit_sentence_count(text, 2)
+        return _limit_sentence_count(text, 3)   # was 2
+    # detail — return all sentences
     return text
 
 
@@ -509,12 +778,35 @@ def _clean_generated_explanation(text: str, title: str) -> str:
     text = (text or "").strip()
     if not text:
         return ""
+    text = text.strip("*_` ")
     text = _strip_leading_marker(text)
     title_norm = _normalise_text(title)
     text_norm = _normalise_text(text)
     if title_norm and text_norm.startswith(title_norm):
         text = text[len(title):].lstrip(" :-—\n\t")
     return text.strip()
+
+
+def _build_support_explanation(point: Dict[str, str], style: str) -> str:
+    style_key = (style or "").strip().lower()
+    if style_key == "short":
+        return ""
+
+    title = point.get("title", "").strip()
+    support = (point.get("support") or point.get("raw") or "").strip()
+    if not support:
+        return ""
+
+    cleaned = _clean_generated_explanation(support, title)
+    if not cleaned:
+        return ""
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if style_key == "elaborate":
+        cleaned = _shape_explanation(cleaned, "elaborate")
+    else:
+        cleaned = _shape_explanation(cleaned, "detail")
+    return cleaned
 
 
 def _build_point_messages(
@@ -563,40 +855,13 @@ def _generate_point_explanation(
     reasoning: bool = False,
     history: Optional[List[Dict[str, str]]] = None,
 ) -> str:
+    del session, model, query, reasoning, history
+    return _build_support_explanation(point, style)
+
+
+def format_structured_answer(points, explanations, style: str) -> str:
     style_key = (style or "").strip().lower()
-    if style_key == "short":
-        return ""
-    support = (point.get("support") or point.get("raw") or "").strip()
-    if not support:
-        return ""
-    messages = _build_point_messages(
-        query=query,
-        point=point,
-        style=style,
-        reasoning=reasoning,
-        history=history,
-    )
-    token_budget = _style_point_token_budget(style_key)
-    from ollama_cpu_chat import chat_with_fallback  # local import to avoid circular dependency
-
-    try:
-        result = chat_with_fallback(
-            session,
-            model,
-            messages,
-            stream_tokens=False,
-            max_tokens_override=token_budget,
-        )
-        cleaned = _clean_generated_explanation(result.text, point.get("title", ""))
-        return _shape_explanation(cleaned, style)
-    except Exception as exc:
-        logger.debug("Point generation failed for %r: %s", point.get("title", ""), exc)
-        return ""
-
-
-def format_structured_answer(points: Sequence[Dict[str, str]], explanations: Sequence[str], style: str) -> str:
-    style_key = (style or "").strip().lower()
-    lines: List[str] = []
+    lines = []
     for idx, point in enumerate(points, start=1):
         title = _clean_point_title(point.get("title", "")) or f"Point {idx}"
         lines.append(f"{idx}. {title}")
@@ -606,6 +871,12 @@ def format_structured_answer(points: Sequence[Dict[str, str]], explanations: Seq
         if idx - 1 < len(explanations):
             explanation = _shape_explanation(
                 _clean_generated_explanation(explanations[idx - 1], title),
+                style,
+            )
+        # NEW: fallback to raw/support text if LLM explanation is empty
+        if not explanation:
+            explanation = _shape_explanation(
+                point.get("support") or point.get("raw") or "",
                 style,
             )
         if explanation:
