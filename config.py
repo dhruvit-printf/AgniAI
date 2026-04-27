@@ -95,19 +95,19 @@ MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "2500"))
 # ─────────────────────────────────────────────────────────────────────────────
 # TOKEN BUDGETS FOR COMPLETION
 # Reduced significantly vs previous values:
-#   short    ≈ 80-120  words  → 120  tokens (was 420)
-#   elaborate≈ 180-250 words  → 320  tokens (was 820)
+#   short    ≈ 80-120  words  → 200  tokens (was 420)
+#   elaborate≈ 180-250 words  → 350  tokens (was 820)
 #   detail   ≈ 300-400 words  → 500  tokens (was 1250)
 #
 # Smaller budgets = faster inference. Paragraph answers are more dense
 # than numbered lists, so fewer tokens convey more information.
 # ─────────────────────────────────────────────────────────────────────────────
 MAX_TOKENS_STYLE = {
-    "short":     int(os.getenv("MAX_TOKENS_SHORT",     "150")),
-    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "320")),
+    "short":     int(os.getenv("MAX_TOKENS_SHORT",     "200")),
+    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "350")),
     "detail":    int(os.getenv("MAX_TOKENS_DETAIL",    "500")),
 }
-MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "320"))
+MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "350"))
 
 # Safety buffer (tokens reserved for model overhead / special tokens)
 TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "200"))

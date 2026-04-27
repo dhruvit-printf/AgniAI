@@ -67,7 +67,7 @@ MAX_RETRIES         = int(os.getenv("OLLAMA_MAX_RETRIES",           "2"))
 #
 # NUM_CTX: 4096 recommended. Set OLLAMA_NUM_CTX=2048 on low-RAM machines.
 # ─────────────────────────────────────────────────────────────────────────────
-MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "500"))
+MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "900"))
 NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",          "4096"))
 TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",    "0.05"))
 _SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",            "20"))
