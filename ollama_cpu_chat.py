@@ -211,7 +211,7 @@ def _candidate_models(requested: str, installed: List[str]) -> List[str]:
 
 def _iter_ndjson(resp: requests.Response) -> Iterable[dict]:
     buffer = b""
-    for chunk in resp.iter_content(chunk_size=2048):
+    for chunk in resp.iter_content(chunk_size=512):
         if not chunk:
             continue
         buffer += chunk
@@ -224,6 +224,24 @@ def _iter_ndjson(resp: requests.Response) -> Iterable[dict]:
     tail = buffer.strip()
     if tail:
         yield json.loads(tail.decode("utf-8", errors="replace"))
+
+
+def _flush_partial_stream(
+    buffer: str,
+    *,
+    min_chars: int = 80,
+) -> tuple[list[str], str]:
+    matches = list(re.finditer(r"[.!?]\s", buffer))
+    if matches:
+        end = matches[-1].end()
+        return [buffer[:end]], buffer[end:]
+
+    if len(buffer) >= min_chars:
+        cut = max(buffer.rfind(" "), buffer.rfind("\n"))
+        if cut > 0:
+            return [buffer[: cut + 1]], buffer[cut + 1 :]
+
+    return [], buffer
 
 
 def _ollama_chat_once(
@@ -297,7 +315,7 @@ def _ollama_chat_once(
                 if token:
                     first_token_received = True
                     stream_buffer += token
-                    emitted, stream_buffer = _sentence_safe_chunks(stream_buffer)
+                    emitted, stream_buffer = _flush_partial_stream(stream_buffer)
                     for chunk in emitted:
                         pieces.append(chunk)
                         streamed_text += chunk

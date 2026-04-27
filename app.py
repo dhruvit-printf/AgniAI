@@ -444,25 +444,24 @@ def chat():
         if stream:
             token_queue: Queue[str | None] = Queue()
             outcome: dict[str, object] = {}
+            rag_messages = _build_messages(
+                query=message,
+                style=style_name,
+                context=context,
+                reasoning=reasoning,
+                history=structured_history,
+                use_rag=True,
+            )
 
             def _worker() -> None:
                 try:
-                    structured = _generate_structured_rag_answer(
-                        query=message,
-                        style=style_name,
-                        docs=docs,
-                        context=context,
+                    outcome["answer"] = _answer_via_llm(
+                        messages=rag_messages,
                         model=current_model,
-                        session=_session,
-                        reasoning=reasoning,
-                        history=structured_history,
+                        token_limit=token_limit,
+                        stream=True,
+                        on_token=token_queue.put,
                     )
-                    answer_text = str(structured.get("answer", "")).strip()
-                    outcome["structured"] = structured
-                    outcome["answer"] = answer_text
-                    for line in answer_text.splitlines(keepends=True) or [answer_text]:
-                        if line:
-                            token_queue.put(line)
                 except Exception as exc:
                     outcome["error"] = str(exc)
                 finally:
