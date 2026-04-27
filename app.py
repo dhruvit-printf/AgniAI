@@ -367,16 +367,43 @@ def chat():
     history = _memory.history(session_id)
     reasoning = is_reasoning_query(message) if use_rag else False
 
-    token_limit, context_char_budget = _compute_context_char_budget(
-        query=message,
-        style=style_name,
-        history=history,
-        reasoning=reasoning,
-        use_rag=use_rag,
-    )
+    if intent == "reject":
+        response_key = make_response_cache_key(
+            message,
+            style=style_name,
+            model=_active_model,
+            context="",
+            session_id=session_id,
+        )
+        answer = REFERENCE_FALLBACK
+        _memory.add("user", message, session_id=session_id)
+        _memory.add("assistant", answer, session_id=session_id)
+        _log_answer_quality(answer, style_name)
+        set_cached_response(response_key, answer)
+        if stream:
+            return _stream_answer_response(
+                answer_generator=lambda: iter([answer]),
+                status_payload={
+                    "success": True,
+                    "style": style_name,
+                    "session_id": session_id,
+                    "cached": False,
+                    "grounded": False,
+                    "confidence": 0.0,
+                    "mode": "reject",
+                },
+            )
+        return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
     bundle = {"docs": [], "context": "", "confidence": 0.0}
     if use_rag:
+        token_limit, context_char_budget = _compute_context_char_budget(
+            query=message,
+            style=style_name,
+            history=history,
+            reasoning=reasoning,
+            use_rag=use_rag,
+        )
         bundle = prepare_rag_bundle(
             message,
             top_k=TOP_K,
@@ -384,19 +411,53 @@ def chat():
             max_context_chars=context_char_budget,
             include_points=False,
         )
-
-    context = bundle.get("context", "") if isinstance(bundle, dict) else ""
-    confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
-    mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
-    reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
-
-    response_key = make_response_cache_key(
-        message,
-        style=style_name,
-        model=current_model,
-        context=context,
-        session_id=session_id,
-    )
+        context = bundle.get("context", "") if isinstance(bundle, dict) else ""
+        confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
+        mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
+        reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
+        response_key = make_response_cache_key(
+            message,
+            style=style_name,
+            model=current_model,
+            context=context,
+            session_id=session_id,
+        )
+    else:
+        context = ""
+        confidence = 0.0
+        mode = "reject"
+        response_key = make_response_cache_key(
+            message,
+            style=style_name,
+            model=current_model,
+            context=context,
+            session_id=session_id,
+        )
+        cached_answer = get_cached_response(response_key)
+        if cached_answer is not None:
+            _memory.add("user", message, session_id=session_id)
+            _memory.add("assistant", cached_answer, session_id=session_id)
+            if stream:
+                return _stream_answer_response(
+                    answer_generator=lambda: iter([cached_answer]),
+                    status_payload={
+                        "success": True,
+                        "style": style_name,
+                        "session_id": session_id,
+                        "cached": True,
+                        "grounded": bool(use_rag),
+                        "confidence": confidence,
+                        "mode": mode,
+                    },
+                )
+            return jsonify(ok_chat(answer=cached_answer, style=style_name, session_id=session_id))
+        token_limit, context_char_budget = _compute_context_char_budget(
+            query=message,
+            style=style_name,
+            history=history,
+            reasoning=reasoning,
+            use_rag=use_rag,
+        )
 
     cached_answer = get_cached_response(response_key)
     if cached_answer is not None:
@@ -416,27 +477,6 @@ def chat():
                 },
             )
         return jsonify(ok_chat(answer=cached_answer, style=style_name, session_id=session_id))
-
-    if intent == "reject":
-        answer = "Not available in the document"
-        _memory.add("user", message, session_id=session_id)
-        _memory.add("assistant", answer, session_id=session_id)
-        _log_answer_quality(answer, style_name)
-        set_cached_response(response_key, answer)
-        if stream:
-            return _stream_answer_response(
-                answer_generator=lambda: iter([answer]),
-                status_payload={
-                    "success": True,
-                    "style": style_name,
-                    "session_id": session_id,
-                    "cached": False,
-                    "grounded": False,
-                    "confidence": confidence,
-                    "mode": mode,
-                },
-            )
-        return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
     if use_rag:
         structured_history = history[-6:] if history else None
@@ -553,7 +593,7 @@ def chat():
                     on_token=_token_queue.put,
                 )
             except PartialResponseError as exc:
-                _outcome["answer"] = exc.partial_text or "Not available in the document"
+                _outcome["answer"] = exc.partial_text or REFERENCE_FALLBACK
             except Exception as exc:
                 _outcome["error"] = str(exc)
             finally:
