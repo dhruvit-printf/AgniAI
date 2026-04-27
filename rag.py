@@ -10,6 +10,7 @@ import hashlib
 import re
 import time
 import warnings
+import threading
 from difflib import SequenceMatcher
 from dataclasses import dataclass
 from functools import lru_cache
@@ -27,6 +28,7 @@ os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 logging.getLogger("transformers").setLevel(logging.ERROR)
+_DOCSTORE_CACHE = None
 
 from config import (
     BM25_INDEX_PATH,
@@ -75,6 +77,7 @@ _RERANKER_FAILED = False
 _INDEX: Optional[faiss.Index] = None
 _DOCS: List[Dict[str, str]] = []
 _BM25 = None
+_INDEX_LOCK = threading.RLock()
 _QUERY_EMBED_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=EMBED_CACHE_TTL)
 _RETRIEVAL_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RETRIEVAL_CACHE_TTL)
 _RESPONSE_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RESPONSE_CACHE_TTL)
@@ -379,20 +382,25 @@ def _chunk_similarity(a: str, b: str) -> float:
     return max(ratio, jaccard)
 
 
-def _dedupe_docs(docs: List[Dict[str, str]], similarity_threshold: float = 0.88) -> List[Dict[str, str]]:
-    deduped: List[Dict[str, str]] = []
-    seen_fingerprints: set[str] = set()
+def _dedupe_docs(docs: List[Dict[str, str]], similarity_threshold: float = 0.88):
+    deduped = []
+    seen_hashes = set()
+
     for doc in docs:
         text = _normalise_text(doc.get("text", ""))
         if not text:
             continue
-        fingerprint = text[:180]
-        if fingerprint in seen_fingerprints:
+
+        h = hashlib.md5(text.encode()).hexdigest()
+        if h in seen_hashes:
             continue
-        if any(_chunk_similarity(text, existing.get("text", "")) >= similarity_threshold for existing in deduped):
+
+        if any(_chunk_similarity(text, d.get("text", "")) >= similarity_threshold for d in deduped):
             continue
-        seen_fingerprints.add(fingerprint)
+
+        seen_hashes.add(h)
         deduped.append(doc)
+
     return deduped
 
 
@@ -476,6 +484,29 @@ def _is_noise_step_text(text: str) -> bool:
         return True
     return False
 
+# ── TOC / garbage-line detector ───────────────────────────────────────────────
+_TOC_LINE_RE = re.compile(
+    r"""
+    \b\d{1,3}(?:-\d{1,3})?\s*$          # trailing page numbers: "5-11", "78-82"
+    | ^[A-Z][A-Z\s/()&]{4,}\s+\d{1,3}   # ALL-CAPS heading + page number
+    | \(CEE\)\s*\d                        # "(CEE) 36-69"
+    | ^PART[-\s]*[IVX\d]+\b              # "PART-I", "PART - III"
+    | Next,\s+it\s+Will\s+proceed        # UI nav text
+    | ^(?:Enter|Click|Choose|Select|Fill|Read)\s+\w  # form-fill instructions
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+def _is_toc_or_garbage(text: str) -> bool:
+    """Return True if the line looks like a TOC entry, page ref, or UI fragment."""
+    text = (text or "").strip()
+    if not text or len(text) < 8:
+        return True
+    if _TOC_LINE_RE.search(text):
+        return True
+    if text.isupper() and len(text.split()) <= 5:   # short ALL-CAPS headers
+        return True
+    return False
 
 def _canonical_step_label(text: str, context: str = "") -> Optional[str]:
     haystack = f"{text or ''} {context or ''}".lower()
@@ -769,8 +800,7 @@ def _shape_explanation(text: str, style: str) -> str:
     if not text:
         return ""
     if style_key == "elaborate":
-        return _limit_sentence_count(text, 3)   # was 2
-    # detail — return all sentences
+        return _limit_sentence_count(text, 5)
     return text
 
 
@@ -788,25 +818,19 @@ def _clean_generated_explanation(text: str, title: str) -> str:
 
 
 def _build_support_explanation(point: Dict[str, str], style: str) -> str:
-    style_key = (style or "").strip().lower()
-    if style_key == "short":
+    text = (point.get("support") or point.get("raw") or "").strip()
+    if not text:
         return ""
 
-    title = point.get("title", "").strip()
-    support = (point.get("support") or point.get("raw") or "").strip()
-    if not support:
-        return ""
+    text = re.sub(r"\s+", " ", text)
 
-    cleaned = _clean_generated_explanation(support, title)
-    if not cleaned:
-        return ""
+    if style == "short":
+        return _limit_words(text, 20)
 
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if style_key == "elaborate":
-        cleaned = _shape_explanation(cleaned, "elaborate")
-    else:
-        cleaned = _shape_explanation(cleaned, "detail")
-    return cleaned
+    if style == "elaborate":
+        return _limit_sentence_count(text, 3)
+
+    return text  # detailed = full
 
 
 def _build_point_messages(
@@ -855,8 +879,36 @@ def _generate_point_explanation(
     reasoning: bool = False,
     history: Optional[List[Dict[str, str]]] = None,
 ) -> str:
-    del session, model, query, reasoning, history
-    return _build_support_explanation(point, style)
+    style_key = (style or "").strip().lower()
+    if style_key == "short":
+        return ""
+
+    support = (point.get("support") or point.get("raw") or "").strip()
+    if not support:
+        return ""
+
+    try:
+        messages = _build_point_messages(
+            query=query,
+            point=point,
+            style=style,
+            reasoning=reasoning,
+            history=history,
+        )
+
+        from ollama_cpu_chat import chat_with_fallback
+
+        response = chat_with_fallback(
+            session,
+            model,
+            messages,
+            stream_tokens=False,
+            max_tokens_override=_style_point_token_budget(style),
+        )
+        return _clean_generated_explanation((response.text or "").strip(), point.get("title", ""))
+    except Exception as exc:
+        logger.warning("Point explanation generation failed: %s", exc)
+        return _build_support_explanation(point, style)
 
 
 def format_structured_answer(points, explanations, style: str) -> str:
@@ -908,7 +960,7 @@ def generate_structured_answer(
                 point=point,
                 style=style,
                 reasoning=reasoning,
-                history=None,
+                history=history,
             )
         )
 
@@ -1037,20 +1089,21 @@ def make_response_cache_key(
     style: str,
     model: str,
     context: str,
-    session_id: str,
+    session_id: str = "",
 ) -> str:
-    payload = "|".join(
-        [style, model, session_id, _query_cache_key(query), _hash_text(context)]
-    )
+    del session_id
+    payload = "|".join([style, model, _query_cache_key(query), _hash_text(context)])
     return _hash_text(payload)
 
 
-def get_cached_retrieval(query: str, top_k: int) -> Optional[List[Dict[str, str]]]:
-    return _RETRIEVAL_CACHE.get(make_retrieval_cache_key(query, top_k))
+def get_cached_retrieval(query: str, top_k: int):
+    normalized = _normalize_query_for_retrieval(query)
+    return _RETRIEVAL_CACHE.get(make_retrieval_cache_key(normalized, top_k))
 
 
-def set_cached_retrieval(query: str, top_k: int, docs: List[Dict[str, str]]) -> None:
-    _RETRIEVAL_CACHE.set(make_retrieval_cache_key(query, top_k), docs)
+def set_cached_retrieval(query: str, top_k: int, docs):
+    normalized = _normalize_query_for_retrieval(query)
+    _RETRIEVAL_CACHE.set(make_retrieval_cache_key(normalized, top_k), docs)
 
 
 def get_cached_response(key: str) -> Optional[str]:
@@ -1112,7 +1165,13 @@ def _reranker_local_files_available(model_name: str) -> bool:
     snapshots = repo_dir / "snapshots"
     if not snapshots.exists():
         return False
-    return any(snapshot.is_dir() and any(snapshot.iterdir()) for snapshot in snapshots.iterdir())
+    try:
+        return any(
+            snapshot.is_dir() and any(snapshot.iterdir())
+            for snapshot in snapshots.iterdir()
+        )
+    except (PermissionError, OSError, StopIteration):
+        return False
 
 
 def load_reranker():
@@ -1177,39 +1236,45 @@ def load_bm25():
 def save_bm25(docs: List[Dict[str, str]]) -> None:
     if not USE_HYBRID:
         return
-    try:
-        from rank_bm25 import BM25Okapi  # type: ignore
+    docs_snapshot = list(docs or [])
 
-        corpus = [_tokenize(d.get("text", "")) for d in docs]
-        bm25 = BM25Okapi(corpus)
-        _ensure_dirs()
-        with open(BM25_INDEX_PATH, "wb") as f:
-            pickle.dump(bm25, f)
+    def _build() -> None:
         global _BM25
-        _BM25 = bm25
-    except ModuleNotFoundError:
-        return
-    except Exception as exc:
-        logger.warning("BM25 index build failed: %s", exc)
+        try:
+            from rank_bm25 import BM25Okapi  # type: ignore
+
+            corpus = [_tokenize(d.get("text", "")) for d in docs_snapshot]
+            bm25 = BM25Okapi(corpus)
+            _ensure_dirs()
+            with open(BM25_INDEX_PATH, "wb") as f:
+                pickle.dump(bm25, f)
+            with _INDEX_LOCK:
+                _BM25 = bm25
+        except ModuleNotFoundError:
+            return
+        except Exception as exc:
+            logger.warning("BM25 index build failed: %s", exc)
+
+    threading.Thread(target=_build, daemon=True).start()
 
 
-def load_docstore() -> List[Dict[str, str]]:
+def load_docstore():
+    global _DOCSTORE_CACHE
+    if _DOCSTORE_CACHE is not None:
+        return _DOCSTORE_CACHE
+
     if not DOCSTORE_PATH.exists():
         return []
+
     raw = DOCSTORE_PATH.read_text(encoding="utf-8", errors="replace")
+
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        repaired = _escape_control_chars_in_json_strings(raw)
-        try:
-            docs = json.loads(repaired)
-        except json.JSONDecodeError:
-            docs = _repair_docstore_from_lines(raw)
-            if not docs:
-                raise
-        _save_docstore(docs)
-        logger.warning("Repaired malformed docstore.json and saved cleaned copy.")
-        return docs
+        docs = json.loads(raw)
+    except:
+        docs = _repair_docstore_from_lines(raw)
+
+    _DOCSTORE_CACHE = docs
+    return docs
 
 
 def _save_docstore(docs: List[Dict[str, str]]) -> None:
@@ -1239,33 +1304,45 @@ def load_index() -> faiss.Index:
     global _INDEX, _DOCS
     if _INDEX is not None and _DOCS:
         return _INDEX
-    _ensure_dirs()
-    _DOCS = load_docstore()
-    if FAISS_INDEX_PATH.exists():
-        _INDEX = faiss.read_index(str(FAISS_INDEX_PATH))
-    else:
-        _INDEX = _new_index()
-    if _INDEX.d != EMBEDDING_DIM:
-        _INDEX = _rebuild_index_from_docs(_DOCS)
-    if _INDEX.ntotal > 0 and len(_DOCS) == 0:
-        logger.warning("FAISS index has vectors but docstore is empty.")
-    return _INDEX
+    with _INDEX_LOCK:
+        if _INDEX is not None and _DOCS:
+            return _INDEX
+        _ensure_dirs()
+        _DOCS = load_docstore()
+        if FAISS_INDEX_PATH.exists():
+            _INDEX = faiss.read_index(str(FAISS_INDEX_PATH))
+        else:
+            _INDEX = _new_index()
+        if _INDEX.d != EMBEDDING_DIM:
+            _INDEX = _rebuild_index_from_docs(_DOCS)
+        if _INDEX.ntotal > 0 and len(_DOCS) == 0:
+            logger.warning("FAISS index has vectors but docstore is empty.")
+        return _INDEX
 
 
 def save_index(index: faiss.Index, docs: List[Dict[str, str]]) -> None:
-    global _DOCS, _INDEX
-    _ensure_dirs()
-    faiss.write_index(index, str(FAISS_INDEX_PATH))
-    _save_docstore(docs)
-    _DOCS = docs
-    _INDEX = index
-    save_bm25(docs)
+    global _DOCS, _INDEX, _DOCSTORE_CACHE
+    docs_snapshot = list(docs or [])
+    with _INDEX_LOCK:
+        _ensure_dirs()
+        faiss.write_index(index, str(FAISS_INDEX_PATH))
+        _save_docstore(docs_snapshot)
+        _DOCS = docs_snapshot
+        _INDEX = index
+        _DOCSTORE_CACHE = docs_snapshot
+    save_bm25(docs_snapshot)
+
+
+def _index_snapshot() -> tuple[Optional[faiss.Index], List[Dict[str, str]]]:
+    with _INDEX_LOCK:
+        return _INDEX, list(_DOCS)
 
 
 def _bm25_scores(query: str) -> np.ndarray:
     bm25 = load_bm25()
-    if bm25 is None or not _DOCS:
-        return np.zeros(len(_DOCS), dtype="float32")
+    _, docs = _index_snapshot()
+    if bm25 is None or not docs:
+        return np.zeros(len(docs), dtype="float32")
     try:
         scores = np.array(bm25.get_scores(_tokenize(query)), dtype="float32")
         max_s = scores.max()
@@ -1273,7 +1350,7 @@ def _bm25_scores(query: str) -> np.ndarray:
             scores /= max_s
         return scores
     except Exception:
-        return np.zeros(len(_DOCS), dtype="float32")
+        return np.zeros(len(docs), dtype="float32")
 
 
 def _min_max_normalize(values: np.ndarray) -> np.ndarray:
@@ -1319,6 +1396,7 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
     index = load_index()
     if index.ntotal == 0:
         return []
+    _, docs_snapshot = _index_snapshot()
 
     rewritten_query = _normalize_query_for_retrieval(query)
     retrieval_query = safe_rewrite_query(rewritten_query)
@@ -1332,7 +1410,7 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
     logger.debug("Retrieval query: original=%r rewritten=%r final=%r", query, rewritten_query, retrieval_query)
     qvec = _cache_query_embedding(retrieval_query)
 
-    candidate_k = min(max(top_k * 8, 20), 60, index.ntotal)
+    candidate_k = min(max(top_k * 4, 10), 40, index.ntotal)
     scores_dense, ids = index.search(qvec, candidate_k)
     dense_scores = scores_dense[0]
     doc_ids = ids[0]
@@ -1342,7 +1420,7 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
         if doc_id >= 0
     }
 
-    if USE_HYBRID and _DOCS:
+    if USE_HYBRID and docs_snapshot:
         bm25_all = _bm25_scores(retrieval_query)
         bm25_top_ids = np.argsort(bm25_all)[::-1][:candidate_k]
 
@@ -1357,7 +1435,7 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
         candidate_ids: List[int] = []
         seen_ids: set[int] = set()
         for doc_id in list(doc_ids) + [int(x) for x in bm25_top_ids]:
-            if doc_id < 0 or doc_id >= len(_DOCS) or doc_id in seen_ids:
+            if doc_id < 0 or doc_id >= len(docs_snapshot) or doc_id in seen_ids:
                 continue
             candidate_ids.append(int(doc_id))
             seen_ids.add(int(doc_id))
@@ -1375,7 +1453,7 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
         fused: List[tuple] = []
         for doc_id, ds, bs in zip(candidate_ids, dense_values, bm25_values):
             combined = dense_weight * float(ds) + bm25_weight * float(bs)
-            doc_text = _DOCS[doc_id].get("text", "")
+            doc_text = docs_snapshot[doc_id].get("text", "")
             if query_terms:
                 doc_terms = set(_meaningful_tokens(doc_text))
                 overlap = len(query_terms & doc_terms) / max(1, len(query_terms))
@@ -1387,17 +1465,17 @@ def search(query: str, top_k: int = TOP_K) -> List[Dict[str, str]]:
         fused.sort(key=lambda item: item[0], reverse=True)
         candidates = []
         for combined, doc_id in fused:
-            doc = dict(_DOCS[doc_id])
+            doc = dict(docs_snapshot[doc_id])
             doc["score"] = round(float(combined), 4)
             candidates.append(doc)
     else:
         candidates = []
         for doc_id, score in zip(doc_ids, dense_scores):
-            if doc_id < 0 or doc_id >= len(_DOCS):
+            if doc_id < 0 or doc_id >= len(docs_snapshot):
                 continue
             if float(score) < MIN_SCORE:
                 continue
-            doc = dict(_DOCS[doc_id])
+            doc = dict(docs_snapshot[doc_id])
             doc["score"] = round(float(score), 4)
             candidates.append(doc)
 
@@ -1630,8 +1708,11 @@ def build_strict_messages(
 
 
 def index_stats() -> Dict[str, int]:
-    index = load_index()
-    return {"vectors": int(index.ntotal), "chunks": len(_DOCS)}
+    index, docs = _index_snapshot()
+    if index is None:
+        index = load_index()
+        _, docs = _index_snapshot()
+    return {"vectors": int(index.ntotal), "chunks": len(docs)}
 
 
 def _installed_models(session: requests.Session) -> List[str]:
