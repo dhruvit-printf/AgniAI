@@ -107,14 +107,14 @@ MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "1800"))
 
 # ── Token budgets for completion ───────────────────────────────────────────
 MAX_TOKENS_STYLE = {
-    "short":     int(os.getenv("MAX_TOKENS_SHORT",     "200")),
-    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "350")),
-    "detail":    int(os.getenv("MAX_TOKENS_DETAIL",    "500")),
+    "short":     int(os.getenv("MAX_TOKENS_SHORT",     "250")),
+    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "500")),
+    "detail":    int(os.getenv("MAX_TOKENS_DETAIL",    "800")),
 }
-MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "350"))
+MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "500"))
 
 # Safety buffer (tokens reserved for model overhead / special tokens)
-TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "200"))
+TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "100"))
 
 # ── CORS ───────────────────────────────────────────────────────────────────
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
@@ -146,34 +146,28 @@ STYLE_ELABORATE_KEYWORDS = [
 # ── Style output guidance ──────────────────────────────────────────────────
 STYLE_OUTPUT_GUIDANCE = {
     "short": (
-        "OUTPUT FORMAT — SHORT:\n"
-        "Write one concise, complete paragraph.\n"
-        "Stay within the target length and keep the answer compact.\n"
-        "Use only the provided reference information.\n"
-        "Do not add explanations, tips, assumptions, or examples that are not in the reference.\n"
-        "Deliver the key facts first and end cleanly.\n"
-        "If the answer is incomplete or missing, respond exactly: "
-        "'Answer not found in the document.'"
+        "OUTPUT FORMAT — SHORT (strict):\n"
+        "Write exactly ONE concise paragraph of 60–90 words.\n"
+        "State only the key facts. No elaboration, no repetition, no summary sentence at the end.\n"
+        "Use ONLY the provided reference information.\n"
+        "If the answer is not in the reference, respond exactly: 'Answer not found in the document.'"
     ),
     "elaborate": (
-        "OUTPUT FORMAT — ELABORATE:\n"
-        "Write 2 to 3 complete paragraphs.\n"
-        "Stay within the target length and keep the answer information-dense.\n"
-        "Use only the provided reference information.\n"
-        "Do not add explanations, tips, assumptions, or examples that are not in the reference.\n"
-        "Deliver all key facts first and compress any remaining content if needed.\n"
-        "If the answer is incomplete or missing, respond exactly: "
-        "'Answer not found in the document.'"
+        "OUTPUT FORMAT — ELABORATE (strict):\n"
+        "Write 2 to 3 paragraphs totalling 150–250 words.\n"
+        "First paragraph: core facts. Second paragraph: supporting details or context. "
+        "Third paragraph (optional): practical implications or exceptions.\n"
+        "Use ONLY the provided reference information. No bullet points unless listing more than 4 items.\n"
+        "If the answer is not in the reference, respond exactly: 'Answer not found in the document.'"
     ),
     "detail": (
-        "OUTPUT FORMAT — DETAIL:\n"
-        "Write 3 to 4 complete paragraphs.\n"
-        "Stay within the target length and keep the answer information-dense.\n"
-        "Use only the provided reference information.\n"
-        "Do not add explanations, tips, assumptions, or examples that are not in the reference.\n"
-        "Deliver all key facts first and compress any remaining content if needed.\n"
-        "If the answer is incomplete or missing, respond exactly: "
-        "'Answer not found in the document.'"
+        "OUTPUT FORMAT — DETAIL (strict):\n"
+        "Write 3 to 5 paragraphs totalling 300–450 words.\n"
+        "Cover: (1) core eligibility/facts, (2) specific requirements or conditions, "
+        "(3) exceptions or special cases, (4) process or procedure if applicable, "
+        "(5) important notes or warnings.\n"
+        "Use ONLY the provided reference information. Be thorough but do not invent information.\n"
+        "If the answer is not in the reference, respond exactly: 'Answer not found in the document.'"
     ),
 }
 

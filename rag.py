@@ -1166,7 +1166,7 @@ def _warmup_ollama() -> None:
                 "model": DEFAULT_MODEL,
                 "messages": [{"role": "user", "content": "hi"}],
                 "stream": False,
-                "keep_alive": "-1",
+                "keep_alive": "10m",
                 "options": {
                     "num_predict": 1,
                     "temperature": 0.0,

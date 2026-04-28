@@ -51,7 +51,7 @@ TAGS_ENDPOINT   = f"{OLLAMA_BASE_URL}/api/tags"
 
 # CHANGED: q4_K_M quantization — 2-3x faster on CPU, ~99% factual accuracy
 MODEL_NAME = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct-q4_K_M")
-
+DEFAULT_MODEL = "mistral:7b-instruct-q4_K_M"
 FALLBACK_MODELS: List[str] = [
     m.strip()
     for m in os.getenv(
@@ -68,15 +68,15 @@ FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "180"))
 STREAM_TIMEOUT      = float(os.getenv("OLLAMA_STREAM_TIMEOUT",     "300"))
 MAX_RETRIES         = int(os.getenv("OLLAMA_MAX_RETRIES",           "2"))
 
-MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "900"))
-NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",          "4096"))
+MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "1200"))
+NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",          "8192"))
 TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",    "0.05"))
 _SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",            "20"))
 TOP_P           = float(os.getenv("OLLAMA_TOP_P",          "0.92"))
 REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
 
 # CHANGED: -1 means keep model loaded forever — never unload on idle
-KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "-1")  # was "10m"
+KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m")  # was "10m"
 
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "6"))
 MODEL_LIST_CACHE_TTL = float(os.getenv("OLLAMA_MODEL_LIST_CACHE_TTL", "30"))
@@ -140,7 +140,7 @@ def _start_keepalive_heartbeat(
                         "model": target_model,
                         "messages": [{"role": "user", "content": "."}],
                         "stream": False,
-                        "keep_alive": "-1",
+                        "keep_alive": "10m",
                         "options": {
                             "num_predict": 0,   # generate nothing
                             "num_ctx": 64,      # tiny context for heartbeat
