@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sys
 from hashlib import sha1
@@ -30,9 +31,11 @@ from config import (
     estimate_message_tokens,
     style_structure_instruction,
     trim_to_complete_sentence,
-    app
 )
-from ingest import clear_index, ingest_docx, ingest_pdf, ingest_text, ingest_txt, ingest_url, list_sources
+from ingest import (
+    clear_index, ingest_docx, ingest_pdf, ingest_text,
+    ingest_txt, ingest_url, list_sources,
+)
 from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL_NAME
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
@@ -48,7 +51,6 @@ from rag import (
     set_cached_response,
     STRICT_TOP_K,
     LOW_RETRIEVAL_CONFIDENCE,
-    _session,
 )
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -57,19 +59,23 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
+# =============================================================================
+# COLOUR HELPERS
+# =============================================================================
+
 def _c(code: str, text: str) -> str:
     if not sys.stdout.isatty():
         return text
     return f"\033[{code}m{text}\033[0m"
 
 
-def dim(t): return _c("2", t)
-def bold(t): return _c("1", t)
-def cyan(t): return _c("96", t)
-def green(t): return _c("92", t)
+def dim(t):    return _c("2",  t)
+def bold(t):   return _c("1",  t)
+def cyan(t):   return _c("96", t)
+def green(t):  return _c("92", t)
 def yellow(t): return _c("93", t)
-def red(t): return _c("91", t)
-def blue(t): return _c("94", t)
+def red(t):    return _c("91", t)
+def blue(t):   return _c("94", t)
 
 
 BANNER = cyan(r"""
@@ -101,6 +107,10 @@ Answer style is detected automatically from your question.
 _STYLE_LABEL = {"short": "SHORT", "elaborate": "ELABORATE", "detail": "DETAIL"}
 _STYLE_COLOR = {"short": yellow, "elaborate": cyan, "detail": blue}
 
+
+# =============================================================================
+# HELPERS
+# =============================================================================
 
 def _kw_match(query_lower: str, keywords: list) -> bool:
     for kw in keywords:
@@ -175,8 +185,14 @@ def _compute_context_char_budget(
     )
     prompt_tokens = estimate_message_tokens(probe_messages)
     available_after_prompt = MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - TOKEN_SAFETY_BUFFER
-    completion_budget = max(1, min(style_budget, available_after_prompt)) if available_after_prompt > 0 else 1
-    context_tokens = max(0, MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - completion_budget - TOKEN_SAFETY_BUFFER)
+    completion_budget = (
+        max(1, min(style_budget, available_after_prompt))
+        if available_after_prompt > 0 else 1
+    )
+    context_tokens = max(
+        0,
+        MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - completion_budget - TOKEN_SAFETY_BUFFER,
+    )
     return completion_budget, context_tokens * 4
 
 
@@ -194,7 +210,7 @@ def _build_rag_messages(
     history: list[dict] | None,
     context_char_budget: int,
     context: str | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], str]:
     """Build the final messages list for a RAG query using retrieved docs."""
     if context is None:
         context = build_context(
@@ -265,15 +281,13 @@ def _classify_intent(query: str) -> str:
         "after 4 years", "over 4 years",
     )
     if any(term in q for term in reasoning_terms) and any(
-        term in q for term in ("salary", "pay", "service", "seva", "benefit", "nidhi", "year", "years")
+        term in q for term in (
+            "salary", "pay", "service", "seva", "benefit", "nidhi", "year", "years"
+        )
     ):
         return "rag"
 
     return "reject"
-
-
-def _should_use_rag(query: str) -> bool:
-    return _classify_intent(query) == "rag"
 
 
 def _ensure_dirs() -> None:
@@ -281,10 +295,17 @@ def _ensure_dirs() -> None:
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# =============================================================================
+# COMMAND HANDLERS
+# =============================================================================
+
 def _handle_ingest(command: str) -> None:
     parts = command.split(maxsplit=2)
     if len(parts) < 3:
-        print(yellow("Usage: /ingest pdf <path> | /ingest url <url> | /ingest txt <path> | /ingest text <content> | /ingest docx <path>"))
+        print(yellow(
+            "Usage: /ingest pdf <path> | /ingest url <url> | "
+            "/ingest txt <path> | /ingest text <content> | /ingest docx <path>"
+        ))
         return
 
     kind = parts[1].lower()
@@ -326,7 +347,9 @@ def _handle_stats() -> None:
 
 
 def _handle_reset() -> None:
-    confirm = input(yellow("  This will DELETE the entire knowledge base. Type YES to confirm: ")).strip()
+    confirm = input(
+        yellow("  This will DELETE the entire knowledge base. Type YES to confirm: ")
+    ).strip()
     if confirm == "YES":
         clear_index()
         print(green("  Knowledge base cleared."))
@@ -334,23 +357,26 @@ def _handle_reset() -> None:
         print(dim("  Reset cancelled."))
 
 
-def _history_fingerprint(history: list[dict]) -> str:
-    payload = json.dumps(history[-6:], ensure_ascii=False, sort_keys=True)
-    return sha1(payload.encode("utf-8", errors="ignore")).hexdigest()
-
+# =============================================================================
+# MAIN CHAT LOOP
+# =============================================================================
 
 def run_chat() -> None:
     _ensure_dirs()
     memory = ConversationMemory()
     active_model: Optional[str] = DEFAULT_MODEL_NAME
     session = requests.Session()
+
+    # Keep model hot during CLI session
     from ollama_cpu_chat import _start_keepalive_heartbeat
     _start_keepalive_heartbeat(session, interval_seconds=300)
-    
+
     print(BANNER)
     stats = index_stats()
     if stats["vectors"] == 0:
-        print(yellow("  Knowledge base is empty. Use /ingest to add PDFs, URLs, or text.\n"))
+        print(yellow(
+            "  Knowledge base is empty. Use /ingest to add PDFs, URLs, or text.\n"
+        ))
     else:
         print(dim(f"  Knowledge base ready: {stats['vectors']} vectors loaded.\n"))
     print(dim(f"  Active model: {active_model}  (type /model <name> to switch)\n"))
@@ -366,6 +392,8 @@ def run_chat() -> None:
             continue
 
         low = raw.lower()
+
+        # ── Built-in commands ──────────────────────────────────────────────
         if low in {"/exit", "/quit"}:
             print("Goodbye.")
             break
@@ -422,14 +450,18 @@ def run_chat() -> None:
             memory.add("assistant", answer)
             continue
 
-        # ── Retrieval / cache prep ────────────────────────────────────────
-        bundle = {"docs": [], "context": "", "confidence": 0.0, "mode": "reject", "reasoning": False}
-        context_for_cache = ""
+        # ── Compute token / context budgets ───────────────────────────────
+        token_limit, context_char_budget = _compute_context_char_budget(
+            query=raw, style=style_name, history=history,
+            reasoning=reasoning, use_rag=use_rag,
+        )
+
+        # ── Cache check (pre-retrieval for non-RAG) ───────────────────────
         response_key = make_response_cache_key(
             raw,
             style=style_name,
             model=active_model or DEFAULT_MODEL_NAME,
-            context=context_for_cache,
+            context="",
             session_id="cli",
         )
 
@@ -442,11 +474,11 @@ def run_chat() -> None:
                 memory.add("assistant", cached_answer)
                 continue
 
-        token_limit, context_char_budget = _compute_context_char_budget(
-            query=raw, style=style_name, history=history,
-            reasoning=reasoning, use_rag=use_rag,
-        )
-
+        # ── RAG retrieval ─────────────────────────────────────────────────
+        bundle: dict = {
+            "docs": [], "context": "", "confidence": 0.0,
+            "mode": "reject", "reasoning": False,
+        }
         if use_rag:
             print(dim("  Preparing retrieval..."))
             bundle = prepare_rag_bundle(
@@ -468,7 +500,10 @@ def run_chat() -> None:
                 context=context_for_cache,
                 session_id="cli",
             )
-            print(dim(f"  Retrieval confidence: {confidence:.3f} | mode={mode} | reasoning={reasoning}"))
+            print(dim(
+                f"  Retrieval confidence: {confidence:.3f} | "
+                f"mode={mode} | reasoning={reasoning}"
+            ))
 
             cached_answer = get_cached_response(response_key)
             if cached_answer is not None:
@@ -488,8 +523,7 @@ def run_chat() -> None:
             print("\nAgniAI: ", end="", flush=True)
 
             if use_rag:
-                # ── RAG path: build messages from retrieved docs, then stream
-                # _build_rag_messages returns (messages, context_string)
+                # Build messages from retrieved docs
                 messages, _ = _build_rag_messages(
                     query=raw,
                     docs=docs,
@@ -500,12 +534,11 @@ def run_chat() -> None:
                     context=bundle.get("context", "") if isinstance(bundle, dict) else "",
                 )
             else:
-                # ── Non-RAG chat path
                 messages = [{
                     "role": "system",
                     "content": (
-                        "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
-                        "Respond naturally and concisely."
+                        "You are AgniAI, a helpful assistant for India's Agniveer "
+                        "recruitment scheme. Respond naturally and concisely."
                         f"\n\n{style_structure_instruction(style_name)}"
                     ),
                 }]
@@ -513,12 +546,11 @@ def run_chat() -> None:
                     messages.extend(history[-6:])
                 messages.append({"role": "user", "content": raw})
 
-            # stream_tokens=True → tokens print to stdout as they arrive
             result = chat_with_fallback(
                 session,
                 active_model or DEFAULT_MODEL_NAME,
                 messages,
-                stream_tokens=True,   # ← KEY: no more waiting for full answer
+                stream_tokens=True,
                 max_tokens_override=token_limit,
             )
             print()  # newline after streamed tokens
@@ -540,11 +572,17 @@ def run_chat() -> None:
         set_cached_response(response_key, answer)
 
 
+# =============================================================================
+# ENTRY POINT — CLI only
+# =============================================================================
+
 if __name__ == "__main__":
-    warmup_runtime()
-    
-    from ollama_cpu_chat import _start_keepalive_heartbeat
-    _start_keepalive_heartbeat(_session, interval_seconds=300)
-    
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    # Preload everything before entering the chat loop
+    warmup_runtime(async_load=False)
+
     run_chat()

@@ -62,6 +62,8 @@ _memory = ConversationMemory()
 _session = _requests.Session()
 _active_model = DEFAULT_MODEL
 _lock = threading.Lock()
+
+# Minimum word counts per style — used for quality logging only, not blocking
 _STYLE_MIN_WORDS = {
     "short": 200,
     "elaborate": 400,
@@ -83,9 +85,7 @@ def _log_answer_quality(answer: str, style: str) -> None:
     if not _validate_answer_length(answer, style):
         logger.warning(
             "Answer below minimum length: style=%s words=%d min=%d",
-            style,
-            word_count,
-            min_words,
+            style, word_count, min_words,
         )
     else:
         logger.debug("Answer length OK: style=%s words=%d", style, word_count)
@@ -100,7 +100,10 @@ def _start_timer() -> None:
 def _log_request(response):
     elapsed_ms = (time.time() - getattr(g, "request_start", time.time())) * 1000.0
     response.headers["X-Request-Duration-Ms"] = f"{elapsed_ms:.1f}"
-    logger.info("%s %s -> %s in %.1fms", request.method, request.path, response.status_code, elapsed_ms)
+    logger.info(
+        "%s %s -> %s in %.1fms",
+        request.method, request.path, response.status_code, elapsed_ms,
+    )
     return response
 
 
@@ -155,25 +158,25 @@ def _classify_intent(query: str) -> str:
     if any(term in q for term in domain_terms):
         return "rag"
 
-    reasoning_terms = ("calculate", "total", "sum", "overall", "aggregate", "combined", "after 4 years", "over 4 years")
-    if any(term in q for term in reasoning_terms) and any(term in q for term in ("salary", "pay", "service", "seva", "benefit", "nidhi", "year", "years")):
+    reasoning_terms = (
+        "calculate", "total", "sum", "overall", "aggregate", "combined",
+        "after 4 years", "over 4 years",
+    )
+    if any(term in q for term in reasoning_terms) and any(
+        term in q for term in (
+            "salary", "pay", "service", "seva", "benefit", "nidhi", "year", "years"
+        )
+    ):
         return "rag"
 
     return "reject"
 
 
-def _should_use_rag(query: str) -> bool:
-    return _classify_intent(query) == "rag"
-
-
 def _get_session_id(data: dict) -> str:
-    session_id = (data.get("session_id") or request.headers.get(SESSION_HEADER) or "").strip()
+    session_id = (
+        data.get("session_id") or request.headers.get(SESSION_HEADER) or ""
+    ).strip()
     return session_id or "default"
-
-
-def _history_fingerprint(history: list[dict]) -> str:
-    payload = json.dumps(history[-6:], ensure_ascii=False, sort_keys=True)
-    return sha1(payload.encode("utf-8", errors="ignore")).hexdigest()
 
 
 def _get_context_limit(style: str) -> int:
@@ -216,19 +219,25 @@ def _build_budget_probe_messages(
     return messages
 
 
-def _compute_context_char_budget(*, query: str, style: str, history: list[dict] | None, reasoning: bool, use_rag: bool) -> tuple[int, int]:
+def _compute_context_char_budget(
+    *, query: str, style: str, history: list[dict] | None,
+    reasoning: bool, use_rag: bool,
+) -> tuple[int, int]:
     style_budget = _get_token_limit(style)
     probe_messages = _build_budget_probe_messages(
-        query=query,
-        style=style,
-        history=history,
-        reasoning=reasoning,
-        use_rag=use_rag,
+        query=query, style=style, history=history,
+        reasoning=reasoning, use_rag=use_rag,
     )
     prompt_tokens = estimate_message_tokens(probe_messages)
     available_after_prompt = MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - TOKEN_SAFETY_BUFFER
-    completion_budget = max(1, min(style_budget, available_after_prompt)) if available_after_prompt > 0 else 1
-    context_tokens = max(0, MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - completion_budget - TOKEN_SAFETY_BUFFER)
+    completion_budget = (
+        max(1, min(style_budget, available_after_prompt))
+        if available_after_prompt > 0 else 1
+    )
+    context_tokens = max(
+        0,
+        MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - completion_budget - TOKEN_SAFETY_BUFFER,
+    )
     return completion_budget, context_tokens * 4
 
 
@@ -289,7 +298,10 @@ def _generate_structured_rag_answer(
     )
 
 
-def _answer_via_llm(*, messages: list[dict], model: str, token_limit: int, stream: bool, on_token=None) -> str:
+def _answer_via_llm(
+    *, messages: list[dict], model: str, token_limit: int,
+    stream: bool, on_token=None,
+) -> str:
     result = chat_with_fallback(
         _session,
         model,
@@ -309,13 +321,23 @@ def _stream_answer_response(answer_generator, status_payload: dict) -> Response:
                 if isinstance(token, str) and token.startswith("event:"):
                     yield token
                 else:
-                    yield f"event: token\ndata: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                    yield (
+                        f"event: token\ndata: "
+                        f"{json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                    )
         except Exception as exc:
-            yield f"event: error\ndata: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+            yield (
+                f"event: error\ndata: "
+                f"{json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+            )
         yield "event: done\ndata: {}\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
 
+
+# =============================================================================
+# ROUTES
+# =============================================================================
 
 @app.route("/api/health")
 def health():
@@ -350,7 +372,10 @@ def chat():
     message = (data.get("message") or "").strip()
     model = (data.get("model") or "").strip()
     stream_value = data.get("stream")
-    stream = str(stream_value).lower() in {"1", "true", "yes", "on"} if stream_value is not None else False
+    stream = (
+        str(stream_value).lower() in {"1", "true", "yes", "on"}
+        if stream_value is not None else False
+    )
     session_id = _get_session_id(data)
 
     if not message:
@@ -367,6 +392,7 @@ def chat():
     history = _memory.history(session_id)
     reasoning = is_reasoning_query(message) if use_rag else False
 
+    # ── Reject / out-of-domain ─────────────────────────────────────────────
     if intent == "reject":
         response_key = make_response_cache_key(
             message,
@@ -395,15 +421,18 @@ def chat():
             )
         return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
-    bundle = {"docs": [], "context": "", "confidence": 0.0}
+    # ── Compute budgets first (needed by both RAG and non-RAG paths) ───────
+    token_limit, context_char_budget = _compute_context_char_budget(
+        query=message,
+        style=style_name,
+        history=history,
+        reasoning=reasoning,
+        use_rag=use_rag,
+    )
+
+    # ── RAG retrieval ──────────────────────────────────────────────────────
+    bundle: dict = {"docs": [], "context": "", "confidence": 0.0}
     if use_rag:
-        token_limit, context_char_budget = _compute_context_char_budget(
-            query=message,
-            style=style_name,
-            history=history,
-            reasoning=reasoning,
-            use_rag=use_rag,
-        )
         bundle = prepare_rag_bundle(
             message,
             top_k=TOP_K,
@@ -415,50 +444,20 @@ def chat():
         confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
         mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
         reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
-        response_key = make_response_cache_key(
-            message,
-            style=style_name,
-            model=current_model,
-            context=context,
-            session_id=session_id,
-        )
     else:
         context = ""
         confidence = 0.0
-        mode = "reject"
-        response_key = make_response_cache_key(
-            message,
-            style=style_name,
-            model=current_model,
-            context=context,
-            session_id=session_id,
-        )
-        cached_answer = get_cached_response(response_key)
-        if cached_answer is not None:
-            _memory.add("user", message, session_id=session_id)
-            _memory.add("assistant", cached_answer, session_id=session_id)
-            if stream:
-                return _stream_answer_response(
-                    answer_generator=lambda: iter([cached_answer]),
-                    status_payload={
-                        "success": True,
-                        "style": style_name,
-                        "session_id": session_id,
-                        "cached": True,
-                        "grounded": bool(use_rag),
-                        "confidence": confidence,
-                        "mode": mode,
-                    },
-                )
-            return jsonify(ok_chat(answer=cached_answer, style=style_name, session_id=session_id))
-        token_limit, context_char_budget = _compute_context_char_budget(
-            query=message,
-            style=style_name,
-            history=history,
-            reasoning=reasoning,
-            use_rag=use_rag,
-        )
+        mode = "chat"
 
+    response_key = make_response_cache_key(
+        message,
+        style=style_name,
+        model=current_model,
+        context=context,
+        session_id=session_id,
+    )
+
+    # ── Cache check (after retrieval so key is stable) ─────────────────────
     cached_answer = get_cached_response(response_key)
     if cached_answer is not None:
         _memory.add("user", message, session_id=session_id)
@@ -476,11 +475,15 @@ def chat():
                     "mode": mode,
                 },
             )
-        return jsonify(ok_chat(answer=cached_answer, style=style_name, session_id=session_id))
+        return jsonify(ok_chat(
+            answer=cached_answer, style=style_name, session_id=session_id,
+        ))
 
+    # ── RAG answer generation ──────────────────────────────────────────────
     if use_rag:
         structured_history = history[-6:] if history else None
         docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
+
         if stream:
             token_queue: Queue[str | None] = Queue()
             outcome: dict[str, object] = {}
@@ -493,7 +496,7 @@ def chat():
                 use_rag=True,
             )
 
-            def _worker() -> None:
+            def _rag_worker() -> None:
                 try:
                     outcome["answer"] = _answer_via_llm(
                         messages=rag_messages,
@@ -507,15 +510,18 @@ def chat():
                 finally:
                     token_queue.put(None)
 
-            threading.Thread(target=_worker, daemon=True).start()
+            threading.Thread(target=_rag_worker, daemon=True).start()
 
-            def _generator():
+            def _rag_generator():
                 pieces: list[str] = []
                 while True:
                     try:
                         token = token_queue.get(timeout=FIRST_TOKEN_TIMEOUT)
                     except Empty:
-                        yield f"event: error\ndata: {json.dumps({'error': 'First token timeout'}, ensure_ascii=False)}\n\n"
+                        yield (
+                            f"event: error\ndata: "
+                            f"{json.dumps({'error': 'First token timeout'}, ensure_ascii=False)}\n\n"
+                        )
                         return
                     if token is None:
                         break
@@ -523,11 +529,15 @@ def chat():
                     yield token
 
                 if "error" in outcome:
-                    yield f"event: error\ndata: {json.dumps({'error': str(outcome['error'])}, ensure_ascii=False)}\n\n"
+                    yield (
+                        f"event: error\ndata: "
+                        f"{json.dumps({'error': str(outcome['error'])}, ensure_ascii=False)}\n\n"
+                    )
                     return
 
                 answer = "".join(pieces).strip() or str(outcome.get("answer", "")).strip()
-                if use_rag and mode == "strict_answer" and not context.strip() and not bundle.get("docs"):
+                # Fallback if context was empty — never hallucinate
+                if mode == "strict_answer" and not context.strip() and not docs:
                     answer = REFERENCE_FALLBACK
                 answer = _finalize_answer(answer)
                 if not pieces and answer:
@@ -538,7 +548,7 @@ def chat():
                 set_cached_response(response_key, answer)
 
             return _stream_answer_response(
-                answer_generator=_generator,
+                answer_generator=_rag_generator,
                 status_payload={
                     "success": True,
                     "style": style_name,
@@ -550,6 +560,7 @@ def chat():
                 },
             )
 
+        # Non-streaming RAG
         structured = _generate_structured_rag_answer(
             query=message,
             style=style_name,
@@ -561,7 +572,7 @@ def chat():
             history=structured_history,
         )
         answer = str(structured.get("answer", "")).strip()
-        if not answer:
+        if not answer or (not context.strip() and not docs):
             answer = REFERENCE_FALLBACK
         _memory.add("user", message, session_id=session_id)
         _memory.add("assistant", answer, session_id=session_id)
@@ -569,7 +580,7 @@ def chat():
         set_cached_response(response_key, answer)
         return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
-    # Non-RAG (chat intent) path
+    # ── Non-RAG (chat / greeting) path ────────────────────────────────────
     messages = _build_messages(
         query=message,
         style=style_name,
@@ -583,7 +594,7 @@ def chat():
         _token_queue: Queue[str | None] = Queue()
         _outcome: dict[str, object] = {}
 
-        def _worker() -> None:
+        def _chat_worker() -> None:
             try:
                 _outcome["answer"] = _answer_via_llm(
                     messages=messages,
@@ -599,15 +610,18 @@ def chat():
             finally:
                 _token_queue.put(None)
 
-        threading.Thread(target=_worker, daemon=True).start()
+        threading.Thread(target=_chat_worker, daemon=True).start()
 
-        def _generator():
+        def _chat_generator():
             pieces: list[str] = []
             while True:
                 try:
                     token = _token_queue.get(timeout=FIRST_TOKEN_TIMEOUT)
                 except Empty:
-                    yield f"event: error\ndata: {json.dumps({'error': 'First token timeout'}, ensure_ascii=False)}\n\n"
+                    yield (
+                        f"event: error\ndata: "
+                        f"{json.dumps({'error': 'First token timeout'}, ensure_ascii=False)}\n\n"
+                    )
                     return
                 if token is None:
                     break
@@ -615,12 +629,13 @@ def chat():
                 yield token
 
             if "error" in _outcome:
-                yield f"event: error\ndata: {json.dumps({'error': str(_outcome['error'])}, ensure_ascii=False)}\n\n"
+                yield (
+                    f"event: error\ndata: "
+                    f"{json.dumps({'error': str(_outcome['error'])}, ensure_ascii=False)}\n\n"
+                )
                 return
 
             answer = "".join(pieces).strip() or str(_outcome.get("answer", "")).strip()
-            if use_rag and mode == "strict_answer" and not context.strip() and not bundle.get("docs"):
-                answer = REFERENCE_FALLBACK
             answer = _finalize_answer(answer)
             if not pieces and answer:
                 yield answer
@@ -630,13 +645,13 @@ def chat():
             set_cached_response(response_key, answer)
 
         return _stream_answer_response(
-            answer_generator=_generator,
+            answer_generator=_chat_generator,
             status_payload={
                 "success": True,
                 "style": style_name,
                 "session_id": session_id,
                 "cached": False,
-                "grounded": bool(use_rag),
+                "grounded": False,
                 "confidence": confidence,
                 "mode": mode,
             },
@@ -654,10 +669,7 @@ def chat():
     except RuntimeError as exc:
         return jsonify(*err(f"LLM service unavailable: {exc}", 503))
 
-    if use_rag and mode == "strict_answer" and not context.strip() and not bundle.get("docs"):
-        answer = REFERENCE_FALLBACK
     answer = _finalize_answer(answer)
-
     _memory.add("user", message, session_id=session_id)
     _memory.add("assistant", answer, session_id=session_id)
     _log_answer_quality(answer, style_name)
@@ -677,15 +689,14 @@ def ingest():
         return jsonify(*err("target field is required (file path or URL).", 400))
 
     fn_map = {
-        "pdf": ingest_pdf,
-        "url": ingest_url,
-        "txt": ingest_txt,
-        "text": ingest_text,
-        "docx": ingest_docx,
+        "pdf": ingest_pdf, "url": ingest_url, "txt": ingest_txt,
+        "text": ingest_text, "docx": ingest_docx,
     }
 
     if kind not in fn_map:
-        return jsonify(*err(f"Unknown kind '{kind}'. Valid values: pdf, url, txt, text, docx.", 400))
+        return jsonify(*err(
+            f"Unknown kind '{kind}'. Valid values: pdf, url, txt, text, docx.", 400
+        ))
 
     try:
         count = fn_map[kind](target)
@@ -729,16 +740,30 @@ def clear_memory():
 @app.route("/api/reset_index", methods=["POST"])
 def reset_index():
     clear_index()
-    return jsonify(ok_message("Knowledge base reset. Re-ingest documents to continue."))
+    return jsonify(ok_message(
+        "Knowledge base reset. Re-ingest documents to continue."
+    ))
 
+
+# =============================================================================
+# ENTRY POINT
+# =============================================================================
 
 if __name__ == "__main__":
-    warmup_runtime()
-    stats_data = index_stats()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    # 1. Preload all models (embedding + FAISS + BM25 + Ollama LLM)
+    warmup_runtime(async_load=False)
+
+    # 2. Start keepalive heartbeat so model never unloads
     from ollama_cpu_chat import _start_keepalive_heartbeat
     _start_keepalive_heartbeat(_session, interval_seconds=300)
-    
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+
+    stats_data = index_stats()
+
     print("\n  AgniAI REST API")
     print("  Listening on  http://0.0.0.0:5000")
     print("  Health check  http://localhost:5000/api/health")
@@ -749,4 +774,5 @@ if __name__ == "__main__":
     else:
         print(f"  Knowledge base ready: {stats_data['vectors']} vectors.\n")
 
+    # Single app.run() call — was duplicated in the original
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

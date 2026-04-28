@@ -26,6 +26,7 @@ os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 logging.getLogger("transformers").setLevel(logging.ERROR)
+
 _DOCSTORE_CACHE = None
 
 from config import (
@@ -71,6 +72,9 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+# Shared requests session — exported so app.py / main.py can import it
+_session = requests.Session()
+
 _MODEL: Optional[SentenceTransformer] = None
 _RERANKER = None
 _RERANKER_FAILED = False
@@ -81,6 +85,10 @@ _INDEX_LOCK = threading.RLock()
 _QUERY_EMBED_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=EMBED_CACHE_TTL)
 _RETRIEVAL_CACHE   = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RETRIEVAL_CACHE_TTL)
 _RESPONSE_CACHE    = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RESPONSE_CACHE_TTL)
+
+# Cache for BM25 score arrays keyed by query — avoids re-scoring full corpus
+_BM25_SCORE_CACHE  = TTLCache(maxsize=512, ttl=RETRIEVAL_CACHE_TTL)
+
 _MAX_STRUCTURED_POINTS = int(os.getenv("MAX_STRUCTURED_POINTS", "12"))
 _PRELOAD_THREAD: Optional[threading.Thread] = None
 
@@ -616,7 +624,9 @@ def _infer_support_text(section: str, title: str) -> str:
         if section_norm.startswith(title_norm):
             section = section[len(title):].lstrip(" :-—\n\t")
         else:
-            section = re.sub(re.escape(title), "", section, count=1, flags=re.IGNORECASE).strip(" :-—\n\t")
+            section = re.sub(
+                re.escape(title), "", section, count=1, flags=re.IGNORECASE
+            ).strip(" :-—\n\t")
     sentences = _sentence_split(section)
     if not sentences:
         return section.strip()
@@ -677,7 +687,7 @@ def extract_key_points(
         "process", "step", "procedure", "how to join", "recruitment process",
         "selection process", "how do i apply", "how to apply",
     )
-    _query_lower     = (query or "").lower()
+    _query_lower      = (query or "").lower()
     _is_process_query = any(kw in _query_lower for kw in _PROCESS_KEYWORDS)
 
     if not docs:
@@ -798,10 +808,13 @@ def _build_point_messages(
     system_content = (
         f"{system_content}\n\n"
         f"{style_structure_instruction(style)}\n"
-        "You are writing the explanation for a single numbered point in a fixed structured answer. "
-        "Do not add, remove, or rename points. Output only the explanation body for this one point. "
+        "You are writing the explanation for a single numbered point in a fixed "
+        "structured answer. "
+        "Do not add, remove, or rename points. Output only the explanation body "
+        "for this one point. "
         "Use only the supplied point title and supporting context. "
-        "If the supporting context is thin, stay conservative and summarize only what is explicit."
+        "If the supporting context is thin, stay conservative and summarize only "
+        "what is explicit."
     )
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_content}]
     if history:
@@ -849,7 +862,9 @@ def _generate_point_explanation(
             stream_tokens=False,
             max_tokens_override=_style_point_token_budget(style),
         )
-        return _clean_generated_explanation((response.text or "").strip(), point.get("title", ""))
+        return _clean_generated_explanation(
+            (response.text or "").strip(), point.get("title", "")
+        )
     except Exception as exc:
         logger.warning("Point explanation generation failed: %s", exc)
         return _build_support_explanation(point, style)
@@ -889,7 +904,7 @@ def generate_structured_answer(
     history: Optional[List[Dict[str, str]]] = None,
     max_points: int = _MAX_STRUCTURED_POINTS,
 ) -> Dict[str, object]:
-    """Generate a complete answer using a single LLM call."""
+    """Generate a complete answer using a single LLM call (no hallucination path)."""
     if not docs:
         return {
             "answer": REFERENCE_FALLBACK,
@@ -979,7 +994,9 @@ def _normalize_query_for_retrieval(query: str) -> str:
         "full breakdown", "break it down", "please", "can you", "could you",
     )
     for phrase in sorted(filler_phrases, key=len, reverse=True):
-        cleaned = re.sub(rf"\b{re.escape(phrase)}\b", " ", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(
+            rf"\b{re.escape(phrase)}\b", " ", cleaned, flags=re.IGNORECASE
+        )
 
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,!?:;")
     if len(cleaned.split()) < 3:
@@ -1014,9 +1031,15 @@ def _normalize_query_for_retrieval(query: str) -> str:
 def _rewrite_query_candidates(query: str) -> List[str]:
     q = query.strip().lower()
     candidates = [q]
-    if any(word in q for word in ("calculate", "total", "sum", "overall", "aggregate", "combined")):
+    if any(
+        word in q for word in (
+            "calculate", "total", "sum", "overall", "aggregate", "combined"
+        )
+    ):
         candidates.append(
-            re.sub(r"\b(calculate|total|sum|overall|aggregate|combined)\b", " ", q)
+            re.sub(
+                r"\b(calculate|total|sum|overall|aggregate|combined)\b", " ", q
+            )
         )
     return [re.sub(r"\s+", " ", cand).strip() for cand in candidates if cand.strip()]
 
@@ -1032,9 +1055,8 @@ def _query_similarity(a: str, b: str) -> float:
 
 def safe_rewrite_query(query: str) -> str:
     """
-    CHANGED: pre-cache all candidate embeddings in a single batch before
-    comparing similarities, so _query_similarity hits the cache every time
-    instead of re-embedding the same string multiple times.
+    Pre-cache all candidate embeddings in a single batch before comparing
+    similarities — avoids re-embedding the same string multiple times.
     """
     candidates = _rewrite_query_candidates(query)
     if len(candidates) == 1:
@@ -1043,15 +1065,23 @@ def safe_rewrite_query(query: str) -> str:
     original = candidates[0]
 
     # Pre-cache all candidates so _query_similarity never re-embeds
-    for candidate in candidates:
-        key = _query_cache_key(candidate)
-        if _QUERY_EMBED_CACHE.get(key) is None:
-            _QUERY_EMBED_CACHE.set(key, embed_query(candidate))
+    uncached = [c for c in candidates if _QUERY_EMBED_CACHE.get(_query_cache_key(c)) is None]
+    if uncached:
+        model  = load_embedding_model()
+        vecs   = model.encode(
+            uncached,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+            batch_size=len(uncached),
+        )
+        for text, vec in zip(uncached, vecs):
+            _QUERY_EMBED_CACHE.set(_query_cache_key(text), np.array([vec], dtype="float32"))
 
     best       = original
     best_score = -1.0
     for candidate in candidates:
-        score = _query_similarity(original, candidate)   # hits cache
+        score = _query_similarity(original, candidate)
         if score > best_score:
             best_score = score
             best       = candidate
@@ -1088,16 +1118,13 @@ def make_response_cache_key(
     *,
     style: str,
     model: str,
-    context: str,         # kept for signature compatibility — not used in key
+    context: str,
     session_id: str = "",
 ) -> str:
     """
-    CHANGED: key is now query + style + model only (context excluded).
-
-    Retrieval is deterministic (IndexFlatIP, no randomness), so the same
-    normalized query always returns the same context. Including context in
-    the key was preventing cache hits when whitespace or source paths differed
-    by a single character.
+    Cache key is query + style + model only (context excluded).
+    Retrieval is deterministic so same query always yields same context.
+    Excluding context prevents misses from whitespace/path differences.
     """
     del session_id  # intentionally ignored
     normalized = _query_cache_key(query)
@@ -1124,18 +1151,16 @@ def set_cached_response(key: str, value: str) -> None:
 
 
 # =============================================================================
-# OLLAMA WARMUP HELPER
+# OLLAMA WARMUP
 # =============================================================================
 
 def _warmup_ollama() -> None:
     """
     Send a minimal 1-token request to force Ollama to load the LLM into RAM.
-    keep_alive=-1 ensures the model stays loaded after warmup completes.
-    Blocks until the model is ready or the timeout is exceeded.
+    keep_alive=-1 ensures the model stays loaded after warmup.
     """
     try:
-        session = requests.Session()
-        session.post(
+        _session.post(
             OLLAMA_URL,
             json={
                 "model": DEFAULT_MODEL,
@@ -1143,12 +1168,12 @@ def _warmup_ollama() -> None:
                 "stream": False,
                 "keep_alive": "-1",
                 "options": {
-                    "num_predict": 1,    # generate only 1 token — just enough to load weights
+                    "num_predict": 1,
                     "temperature": 0.0,
-                    "num_ctx": 512,      # minimal context for warmup
+                    "num_ctx": 512,
                 },
             },
-            timeout=(10, 180),           # allow up to 3 min for initial model load
+            timeout=(10, 180),
         )
         logger.info("Ollama model '%s' pre-loaded and ready.", DEFAULT_MODEL)
     except Exception as exc:
@@ -1163,24 +1188,21 @@ def _warmup_ollama() -> None:
 
 def warmup_runtime(*, async_load: bool = False) -> None:
     """
-    Preload embedding model, FAISS index, BM25, and Ollama LLM to reduce
-    first-request latency to near zero.
+    Preload embedding model, FAISS index, BM25, and Ollama LLM.
 
-    CHANGED:
-      - Embedding model now runs a dummy encode() after loading to fully
-        initialize weights (prevents a slow first real query).
-      - Ollama LLM is pre-loaded via _warmup_ollama() so the first user
-        query never pays the 20-60s cold-start cost.
-      - Both sync and async paths include all three warmup steps.
+    Changes from original:
+    - load_embedding_model() tries local_files_only first, then falls back to
+      downloading — prevents a crash on first run before model is cached.
+    - Dummy encode() fully initialises weights so first real query has no
+      extra initialization cost.
+    - Ollama LLM is pre-loaded via _warmup_ollama().
     """
     global _PRELOAD_THREAD
 
     def _do_warmup() -> None:
-        # Step 1: Load and fully initialize embedding model
+        # Step 1: Load embedding model (local cache first, download if missing)
         try:
             model = load_embedding_model()
-            # Dummy encode forces weight initialization — without this the first
-            # real query still pays a smaller but noticeable initialization cost
             model.encode(
                 ["Agniveer age eligibility salary benefits recruitment"],
                 convert_to_numpy=True,
@@ -1190,7 +1212,7 @@ def warmup_runtime(*, async_load: bool = False) -> None:
         except Exception as exc:
             logger.debug("Embedding warmup failed: %s", exc)
 
-        # Step 2: Load FAISS index and BM25 into RAM
+        # Step 2: Load FAISS + BM25 into RAM
         try:
             load_index()
             if USE_HYBRID:
@@ -1206,10 +1228,11 @@ def warmup_runtime(*, async_load: bool = False) -> None:
         _do_warmup()
         return
 
-    # Async path — all steps run in a daemon thread
     if _PRELOAD_THREAD is not None and _PRELOAD_THREAD.is_alive():
         return
-    _PRELOAD_THREAD = threading.Thread(target=_do_warmup, daemon=True, name="agniai-warmup")
+    _PRELOAD_THREAD = threading.Thread(
+        target=_do_warmup, daemon=True, name="agniai-warmup"
+    )
     _PRELOAD_THREAD.start()
 
 
@@ -1218,12 +1241,27 @@ def warmup_runtime(*, async_load: bool = False) -> None:
 # =============================================================================
 
 def load_embedding_model() -> SentenceTransformer:
+    """
+    Load embedding model.
+    FIX: tries local_files_only=True first (fast path for subsequent runs),
+    then falls back to local_files_only=False (allows download on first run).
+    Original code used local_files_only=True unconditionally, which crashes
+    on first run before the model is cached by HuggingFace.
+    """
     global _MODEL
     if _MODEL is not None:
         return _MODEL
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        _MODEL = SentenceTransformer(EMBEDDING_MODEL, local_files_only=True)
+        try:
+            _MODEL = SentenceTransformer(EMBEDDING_MODEL, local_files_only=True)
+        except Exception:
+            # Model not cached yet — download it (only happens once)
+            logger.info(
+                "Embedding model not cached locally, downloading '%s'...",
+                EMBEDDING_MODEL,
+            )
+            _MODEL = SentenceTransformer(EMBEDDING_MODEL, local_files_only=False)
     return _MODEL
 
 
@@ -1245,7 +1283,7 @@ def embed_query(query: str) -> np.ndarray:
         [query],
         convert_to_numpy=True,
         normalize_embeddings=True,
-        show_progress_bar=False,   # suppress tqdm bar on every query
+        show_progress_bar=False,
         batch_size=1,
     )
     return np.asarray(vec, dtype="float32")
@@ -1458,20 +1496,36 @@ def _index_snapshot() -> tuple[Optional[faiss.Index], List[Dict[str, str]]]:
 # =============================================================================
 
 def _bm25_scores(query: str) -> np.ndarray:
+    """
+    FIX: BM25 scores are now cached per-query to avoid rescoring the full
+    corpus on every search call for the same query string.
+    """
+    cache_key = f"bm25|{_query_cache_key(query)}"
+    cached = _BM25_SCORE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     bm25 = load_bm25()
     _, docs = _index_snapshot()
     if bm25 is None or not docs:
-        return np.zeros(len(docs), dtype="float32")
+        result = np.zeros(len(docs), dtype="float32")
+        _BM25_SCORE_CACHE.set(cache_key, result)
+        return result
     try:
         scores = np.array(bm25.get_scores(_tokenize(query)), dtype="float32")
         if scores.shape[0] != len(docs):
-            return np.zeros(len(docs), dtype="float32")
+            result = np.zeros(len(docs), dtype="float32")
+            _BM25_SCORE_CACHE.set(cache_key, result)
+            return result
         max_s = scores.max()
         if max_s > 0:
-            scores /= max_s
+            scores = (scores / max_s).astype("float32")
+        _BM25_SCORE_CACHE.set(cache_key, scores)
         return scores
     except Exception:
-        return np.zeros(len(docs), dtype="float32")
+        result = np.zeros(len(docs), dtype="float32")
+        _BM25_SCORE_CACHE.set(cache_key, result)
+        return result
 
 
 def _min_max_normalize(values: np.ndarray) -> np.ndarray:
@@ -1485,18 +1539,18 @@ def _min_max_normalize(values: np.ndarray) -> np.ndarray:
 
 
 _DOMAIN_BOOSTS = [
-    (r"\bage\b",                r"required age|eligibility",              0.70),
-    (r"eligibilit",             r"eligibility criteria|required age",      0.70),
-    (r"selection|how.*select",  r"recruitment process|flow chart",         0.90),
-    (r"how.*appl|apply",        r"registration|application",               0.70),
-    (r"salary|pay|package",     r"seva nidhi|in hand|monthly",             0.80),
-    (r"physical|pft",           r"physical fitness test|1\.6 km run",      0.80),
-    (r"bonus mark",             r"bonus marks|ncc|sports",                 0.80),
-    (r"insurance",              r"48 lakh|life insurance",                 0.80),
-    (r"training",               r"military training|regimental",           0.70),
+    (r"\bage\b",                r"required age|eligibility",               0.70),
+    (r"eligibilit",             r"eligibility criteria|required age",       0.70),
+    (r"selection|how.*select",  r"recruitment process|flow chart",          0.90),
+    (r"how.*appl|apply",        r"registration|application",                0.70),
+    (r"salary|pay|package",     r"seva nidhi|in hand|monthly",              0.80),
+    (r"physical|pft",           r"physical fitness test|1\.6 km run",       0.80),
+    (r"bonus mark",             r"bonus marks|ncc|sports",                  0.80),
+    (r"insurance",              r"48 lakh|life insurance",                  0.80),
+    (r"training",               r"military training|regimental",            0.70),
     (r"document",               r"documents required|matric|aadhaar|domicile", 0.70),
-    (r"medical",                r"medical examination|army medical",       0.70),
-    (r"ncc",                    r"ncc.*certificate|bonus.*ncc",            0.70),
+    (r"medical",                r"medical examination|army medical",        0.70),
+    (r"ncc",                    r"ncc.*certificate|bonus.*ncc",             0.70),
 ]
 
 
@@ -1541,6 +1595,7 @@ def search(
     }
 
     if USE_HYBRID and docs_snapshot:
+        # _bm25_scores is now cached — no per-query full-corpus rescan
         bm25_all     = _bm25_scores(retrieval_query)
         bm25_top_ids = np.argsort(bm25_all)[::-1][:candidate_k]
 
@@ -1705,7 +1760,9 @@ def retrieval_confidence(docs: Sequence[Dict[str, str]], query: str) -> float:
     if not query_terms:
         return min(1.0, top_score)
     top_text   = ordered[0].get("text", "")
-    overlap    = len(query_terms & set(_meaningful_tokens(top_text))) / max(1, len(query_terms))
+    overlap    = (
+        len(query_terms & set(_meaningful_tokens(top_text))) / max(1, len(query_terms))
+    )
     confidence = (0.65 * top_score) + (0.35 * overlap)
     if len(ordered) > 1:
         confidence = min(1.0, confidence + 0.05 * min(2, len(ordered) - 1))
@@ -1760,7 +1817,9 @@ def prepare_rag_bundle(
         context_limit = max(0, min(int(context_limit), int(max_context_chars)))
     confidence         = retrieval_confidence(docs, query)
     mode               = decide_answer_mode(query=query, docs=docs, confidence=confidence)
-    context_min_score  = STRICT_MIN_SCORE if mode == "normal_answer" else LOW_RETRIEVAL_CONFIDENCE
+    context_min_score  = (
+        STRICT_MIN_SCORE if mode == "normal_answer" else LOW_RETRIEVAL_CONFIDENCE
+    )
     context            = build_context(
         docs,
         max_chunks=max(STRICT_TOP_K, min(5, top_k)),
@@ -1881,14 +1940,13 @@ def call_llm(
     history: Optional[List[Dict[str, str]]] = None,
     model: Optional[str] = None,
 ) -> str:
-    session = requests.Session()
     requested_models: List[str] = []
     if model:
         requested_models.append(model)
     requested_models.append(DEFAULT_MODEL)
     requested_models.extend(FALLBACK_MODELS)
 
-    installed        = _installed_models(session)
+    installed        = _installed_models(_session)
     candidate_models: List[str] = []
     for requested in requested_models:
         for candidate in _candidate_models(requested, installed):
@@ -1901,13 +1959,17 @@ def call_llm(
     last_error: Optional[str] = None
     for candidate in candidate_models:
         try:
-            resp = session.post(
+            resp = _session.post(
                 OLLAMA_URL,
                 json={
                     "model": candidate,
                     "messages": messages,
                     "stream": False,
-                    "options": {"temperature": 0.1, "num_predict": 400, "num_ctx": 2048},
+                    "options": {
+                        "temperature": 0.1,
+                        "num_predict": 400,
+                        "num_ctx": 2048,
+                    },
                 },
                 timeout=(8, REQUEST_TIMEOUT),
             )
