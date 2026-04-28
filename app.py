@@ -735,6 +735,10 @@ def reset_index():
 if __name__ == "__main__":
     warmup_runtime()
     stats_data = index_stats()
+    from ollama_cpu_chat import _start_keepalive_heartbeat
+    _start_keepalive_heartbeat(_session, interval_seconds=300)
+    
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
     print("\n  AgniAI REST API")
     print("  Listening on  http://0.0.0.0:5000")
     print("  Health check  http://localhost:5000/api/health")

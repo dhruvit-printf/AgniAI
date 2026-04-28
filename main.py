@@ -30,6 +30,7 @@ from config import (
     estimate_message_tokens,
     style_structure_instruction,
     trim_to_complete_sentence,
+    app
 )
 from ingest import clear_index, ingest_docx, ingest_pdf, ingest_text, ingest_txt, ingest_url, list_sources
 from memory import ConversationMemory
@@ -47,6 +48,7 @@ from rag import (
     set_cached_response,
     STRICT_TOP_K,
     LOW_RETRIEVAL_CONFIDENCE,
+    _session,
 )
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -342,7 +344,9 @@ def run_chat() -> None:
     memory = ConversationMemory()
     active_model: Optional[str] = DEFAULT_MODEL_NAME
     session = requests.Session()
-
+    from ollama_cpu_chat import _start_keepalive_heartbeat
+    _start_keepalive_heartbeat(session, interval_seconds=300)
+    
     print(BANNER)
     stats = index_stats()
     if stats["vectors"] == 0:
@@ -538,4 +542,9 @@ def run_chat() -> None:
 
 if __name__ == "__main__":
     warmup_runtime()
+    
+    from ollama_cpu_chat import _start_keepalive_heartbeat
+    _start_keepalive_heartbeat(_session, interval_seconds=300)
+    
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
     run_chat()

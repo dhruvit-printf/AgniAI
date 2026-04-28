@@ -79,8 +79,8 @@ _DOCS: List[Dict[str, str]] = []
 _BM25 = None
 _INDEX_LOCK = threading.RLock()
 _QUERY_EMBED_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=EMBED_CACHE_TTL)
-_RETRIEVAL_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RETRIEVAL_CACHE_TTL)
-_RESPONSE_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RESPONSE_CACHE_TTL)
+_RETRIEVAL_CACHE   = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RETRIEVAL_CACHE_TTL)
+_RESPONSE_CACHE    = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RESPONSE_CACHE_TTL)
 _MAX_STRUCTURED_POINTS = int(os.getenv("MAX_STRUCTURED_POINTS", "12"))
 _PRELOAD_THREAD: Optional[threading.Thread] = None
 
@@ -98,90 +98,55 @@ _STEP_PATTERNS = [
     (
         "Preparation",
         [
-            r"\bpreparation\b",
-            r"\bbefore rally\b",
-            r"\bpre[- ]?rally\b",
-            r"\bregistration\b",
-            r"\bapply\b",
-            r"\bapplication\b",
-            r"\beligibility\b",
-            r"\bdocuments?\b",
-            r"\badmit card\b",
+            r"\bpreparation\b", r"\bbefore rally\b", r"\bpre[- ]?rally\b",
+            r"\bregistration\b", r"\bapply\b", r"\bapplication\b",
+            r"\beligibility\b", r"\bdocuments?\b", r"\badmit card\b",
         ],
     ),
     (
         "Online CEE",
         [
-            r"\bcee\b",
-            r"\bcommon entrance exam\b",
-            r"\bonline exam\b",
-            r"\bonline entrance exam\b",
-            r"\bwritten exam\b",
-            r"\bcomputer[- ]based\b",
-            r"\bcbt\b",
+            r"\bcee\b", r"\bcommon entrance exam\b", r"\bonline exam\b",
+            r"\bonline entrance exam\b", r"\bwritten exam\b",
+            r"\bcomputer[- ]based\b", r"\bcbt\b",
         ],
     ),
     (
         "Rally Process",
         [
-            r"\brally\b",
-            r"\bphysical test\b",
-            r"\bphysical fitness test\b",
-            r"\bpft\b",
-            r"\bfitness test\b",
-            r"\brun\b",
-            r"\bmeasurement\b",
-            r"\bheight\b",
-            r"\bchest\b",
-            r"\bweight\b",
+            r"\brally\b", r"\bphysical test\b", r"\bphysical fitness test\b",
+            r"\bpft\b", r"\bfitness test\b", r"\brun\b",
+            r"\bmeasurement\b", r"\bheight\b", r"\bchest\b", r"\bweight\b",
         ],
     ),
     (
         "Medical Examination",
         [
-            r"\bmedical examination\b",
-            r"\bmedical test\b",
-            r"\bmedical\b",
-            r"\bdoctor\b",
-            r"\bhospital\b",
-            r"\bfitness certificate\b",
+            r"\bmedical examination\b", r"\bmedical test\b", r"\bmedical\b",
+            r"\bdoctor\b", r"\bhospital\b", r"\bfitness certificate\b",
         ],
     ),
     (
         "Review Opportunity",
         [
-            r"\bre[- ]?medical\b",
-            r"\breview\b",
-            r"\brecheck\b",
-            r"\bappeal\b",
-            r"\bverification\b",
-            r"\bclarification\b",
+            r"\bre[- ]?medical\b", r"\breview\b", r"\brecheck\b",
+            r"\bappeal\b", r"\bverification\b", r"\bclarification\b",
             r"\breconsider\b",
         ],
     ),
     (
         "Final Selection",
         [
-            r"\bfinal selection\b",
-            r"\bselection list\b",
-            r"\bmerit\b",
-            r"\bresult\b",
-            r"\bdispatch\b",
-            r"\bdespatch\b",
-            r"\bjoining\b",
-            r"\bappointment\b",
-            r"\boffer\b",
+            r"\bfinal selection\b", r"\bselection list\b", r"\bmerit\b",
+            r"\bresult\b", r"\bdispatch\b", r"\bdespatch\b",
+            r"\bjoining\b", r"\bappointment\b", r"\boffer\b",
         ],
     ),
     (
         "Training",
         [
-            r"\btraining\b",
-            r"\binduction\b",
-            r"\bbasic training\b",
-            r"\bregimental\b",
-            r"\borientation\b",
-            r"\bcentre\b",
+            r"\btraining\b", r"\binduction\b", r"\bbasic training\b",
+            r"\bregimental\b", r"\borientation\b", r"\bcentre\b",
         ],
     ),
 ]
@@ -404,7 +369,7 @@ def _split_section_candidates(text: str) -> List[str]:
                 sections.append(" ".join(current).strip())
                 current = []
             continue
-        bullet_like = bool(re.match(r"^(\d+[\).\:-]|\-|\*|•)\s+", line))
+        bullet_like  = bool(re.match(r"^(\d+[\).\:-]|\-|\*|•)\s+", line))
         heading_like = _looks_like_heading(line)
         if heading_like and current:
             sections.append(" ".join(current).strip())
@@ -546,12 +511,15 @@ def _merge_step_point(
     return existing
 
 
-def _structured_step_template(query: str = "", docs: Sequence[Dict[str, str]] | None = None) -> List[Dict[str, str]]:
+def _structured_step_template(
+    query: str = "",
+    docs: Sequence[Dict[str, str]] | None = None,
+) -> List[Dict[str, str]]:
     docs = list(docs or [])
     points: List[Dict[str, str]] = []
     for label in _STEP_TEMPLATE:
         support = ""
-        source = ""
+        source  = ""
         if docs:
             for doc in sorted(docs, key=lambda d: float(d.get("score", 0.0)), reverse=True):
                 text = (doc.get("text") or "").strip()
@@ -560,14 +528,14 @@ def _structured_step_template(query: str = "", docs: Sequence[Dict[str, str]] | 
                 snippet = _step_support_snippet(text, label)
                 if snippet:
                     support = snippet
-                    source = doc.get("source", "")
+                    source  = doc.get("source", "")
                     break
         points.append({
-            "title": label,
+            "title":   label,
             "support": support,
-            "raw": support or label,
-            "source": source,
-            "score": "0.0",
+            "raw":     support or label,
+            "source":  source,
+            "score":   "0.0",
         })
     return points
 
@@ -575,14 +543,17 @@ def _structured_step_template(query: str = "", docs: Sequence[Dict[str, str]] | 
 def _order_structured_points(points: Iterable[Dict[str, str]]) -> List[Dict[str, str]]:
     buckets: Dict[str, Dict[str, str]] = {}
     for point in points:
-        title = _canonical_step_label(point.get("title", ""), point.get("support", "")) or _canonical_step_label(point.get("raw", ""))
+        title = (
+            _canonical_step_label(point.get("title", ""), point.get("support", ""))
+            or _canonical_step_label(point.get("raw", ""))
+        )
         if not title:
             continue
-        cleaned_title = title
-        candidate_support = (point.get("support") or "").strip()
-        candidate_raw = (point.get("raw") or "").strip()
-        candidate_source = (point.get("source") or "").strip()
-        candidate_score = float(point.get("score", 0.0))
+        cleaned_title      = title
+        candidate_support  = (point.get("support") or "").strip()
+        candidate_raw      = (point.get("raw")     or "").strip()
+        candidate_source   = (point.get("source")  or "").strip()
+        candidate_score    = float(point.get("score", 0.0))
         if cleaned_title in buckets:
             buckets[cleaned_title] = _merge_step_point(
                 buckets[cleaned_title],
@@ -593,11 +564,11 @@ def _order_structured_points(points: Iterable[Dict[str, str]]) -> List[Dict[str,
             )
         else:
             buckets[cleaned_title] = {
-                "title": cleaned_title,
+                "title":   cleaned_title,
                 "support": candidate_support,
-                "raw": candidate_raw,
-                "source": candidate_source,
-                "score": str(candidate_score),
+                "raw":     candidate_raw,
+                "source":  candidate_source,
+                "score":   str(candidate_score),
             }
     ordered = [buckets[label] for label in _STEP_TEMPLATE if label in buckets]
     return ordered[: len(_STEP_TEMPLATE)]
@@ -640,7 +611,7 @@ def _infer_support_text(section: str, title: str) -> str:
     if not section:
         return ""
     if title:
-        title_norm = _normalise_text(title)
+        title_norm   = _normalise_text(title)
         section_norm = _normalise_text(section)
         if section_norm.startswith(title_norm):
             section = section[len(title):].lstrip(" :-—\n\t")
@@ -658,7 +629,7 @@ def _section_to_point(section: str) -> Optional[Dict[str, str]]:
     section = (section or "").strip()
     if not section:
         return None
-    lines = [line.strip() for line in section.splitlines() if line.strip()]
+    lines      = [line.strip() for line in section.splitlines() if line.strip()]
     first_line = lines[0] if lines else section
     if _is_noise_step_text(first_line):
         return None
@@ -685,9 +656,9 @@ def _dedupe_points(points: Iterable[Dict[str, str]]) -> List[Dict[str, str]]:
             continue
         seen.add(key)
         deduped.append({
-            "title": title,
+            "title":   title,
             "support": (point.get("support") or "").strip(),
-            "raw": (point.get("raw") or "").strip(),
+            "raw":     (point.get("raw")     or "").strip(),
         })
     return deduped
 
@@ -706,13 +677,13 @@ def extract_key_points(
         "process", "step", "procedure", "how to join", "recruitment process",
         "selection process", "how do i apply", "how to apply",
     )
-    _query_lower = (query or "").lower()
+    _query_lower     = (query or "").lower()
     _is_process_query = any(kw in _query_lower for kw in _PROCESS_KEYWORDS)
 
     if not docs:
         return _structured_step_template(query=query, docs=docs) if _is_process_query else []
 
-    ordered = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
+    ordered    = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
     candidates: List[Dict[str, str]] = []
     for doc in ordered:
         text = (doc.get("text") or "").strip()
@@ -725,14 +696,14 @@ def extract_key_points(
             point = _section_to_point(section)
             if not point:
                 continue
-            point["score"] = str(float(doc.get("score", 0.0)))
+            point["score"]  = str(float(doc.get("score", 0.0)))
             point["source"] = doc.get("source", "")
             candidates.append(point)
 
     deduped = _order_structured_points(_dedupe_points(candidates))
 
     if len(deduped) < 3:
-        fallback = _fallback_points_from_docs(ordered)
+        fallback         = _fallback_points_from_docs(ordered)
         fallback_ordered = _order_structured_points(fallback)
         if len(fallback_ordered) > len(deduped):
             deduped = fallback_ordered
@@ -797,7 +768,7 @@ def _clean_generated_explanation(text: str, title: str) -> str:
     text = text.strip("*_` ")
     text = _strip_leading_marker(text)
     title_norm = _normalise_text(title)
-    text_norm = _normalise_text(text)
+    text_norm  = _normalise_text(text)
     if title_norm and text_norm.startswith(title_norm):
         text = text[len(title):].lstrip(" :-—\n\t")
     return text.strip()
@@ -835,11 +806,11 @@ def _build_point_messages(
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_content}]
     if history:
         for msg in history:
-            role = msg.get("role")
+            role    = msg.get("role")
             content = (msg.get("content") or "").strip()
             if role in {"user", "assistant"} and content:
                 messages.append({"role": role, "content": content})
-    support = (point.get("support") or point.get("raw") or "").strip()
+    support      = (point.get("support") or point.get("raw") or "").strip()
     user_content = (
         f"Question: {query}\n"
         f"Point title: {point.get('title', '').strip()}\n"
@@ -933,9 +904,11 @@ def generate_structured_answer(
             docs,
             max_chunks=max(STRICT_TOP_K, min(5, len(docs))),
             min_score=LOW_RETRIEVAL_CONFIDENCE,
-            max_chars=MAX_CONTEXT_CHARS.get(style, MAX_CONTEXT_CHARS_DEFAULT)
-            if isinstance(MAX_CONTEXT_CHARS, dict)
-            else MAX_CONTEXT_CHARS_DEFAULT,
+            max_chars=(
+                MAX_CONTEXT_CHARS.get(style, MAX_CONTEXT_CHARS_DEFAULT)
+                if isinstance(MAX_CONTEXT_CHARS, dict)
+                else MAX_CONTEXT_CHARS_DEFAULT
+            ),
         )
 
     if not context.strip():
@@ -954,7 +927,7 @@ def generate_structured_answer(
 
     if history:
         for msg in history[-6:]:
-            role = msg.get("role")
+            role    = msg.get("role")
             content = (msg.get("content") or "").strip()
             if role in {"user", "assistant"} and content:
                 messages.append({"role": role, "content": content})
@@ -985,10 +958,10 @@ def generate_structured_answer(
         answer = REFERENCE_FALLBACK
 
     return {
-        "answer": answer,
-        "points": [],
-        "explanations": [],
-        "structured": bool(answer and answer != REFERENCE_FALLBACK),
+        "answer":                answer,
+        "points":                [],
+        "explanations":          [],
+        "structured":            bool(answer and answer != REFERENCE_FALLBACK),
         "token_budget_per_point": token_budget,
     }
 
@@ -1013,23 +986,23 @@ def _normalize_query_for_retrieval(query: str) -> str:
         cleaned = query.strip().lower()
 
     expansions = (
-        (r"\bage limit\b", "required age eligibility"),
-        (r"\bage\b", "required age eligibility"),
-        (r"\beligibilit", "eligibility criteria required age qualification"),
-        (r"\bselection process\b", "recruitment process merit medical physical fitness"),
-        (r"\bhow.*select", "recruitment process merit medical physical fitness"),
-        (r"\brecruitment process\b", "registration rally medical"),
-        (r"\bhow.*appl", "registration application"),
-        (r"\bsalary\b", "customised package in hand seva nidhi monthly"),
-        (r"\bpay\b", "customised package in hand monthly"),
-        (r"\bphysical test\b", "physical fitness test pft 1.6 km run"),
-        (r"\bpft\b", "physical fitness test 1.6 km run"),
-        (r"\bbonus mark", "bonus marks ncc sports"),
-        (r"\binsurance\b", "life insurance cover 48 lakhs"),
-        (r"\bseva nidhi\b", "seva nidhi corpus fund exit after 4 year lakh"),
-        (r"\btraining\b", "military training regimental centre"),
-        (r"\bdocument", "documents required matric aadhaar domicile"),
-        (r"\bmedical\b", "medical examination army medical standards"),
+        (r"\bage limit\b",          "required age eligibility"),
+        (r"\bage\b",                "required age eligibility"),
+        (r"\beligibilit",           "eligibility criteria required age qualification"),
+        (r"\bselection process\b",  "recruitment process merit medical physical fitness"),
+        (r"\bhow.*select",          "recruitment process merit medical physical fitness"),
+        (r"\brecruitment process\b","registration rally medical"),
+        (r"\bhow.*appl",            "registration application"),
+        (r"\bsalary\b",             "customised package in hand seva nidhi monthly"),
+        (r"\bpay\b",                "customised package in hand monthly"),
+        (r"\bphysical test\b",      "physical fitness test pft 1.6 km run"),
+        (r"\bpft\b",                "physical fitness test 1.6 km run"),
+        (r"\bbonus mark",           "bonus marks ncc sports"),
+        (r"\binsurance\b",          "life insurance cover 48 lakhs"),
+        (r"\bseva nidhi\b",         "seva nidhi corpus fund exit after 4 year lakh"),
+        (r"\btraining\b",           "military training regimental centre"),
+        (r"\bdocument",             "documents required matric aadhaar domicile"),
+        (r"\bmedical\b",            "medical examination army medical standards"),
     )
     for pattern, extra in expansions:
         if re.search(pattern, cleaned):
@@ -1058,17 +1031,31 @@ def _query_similarity(a: str, b: str) -> float:
 
 
 def safe_rewrite_query(query: str) -> str:
+    """
+    CHANGED: pre-cache all candidate embeddings in a single batch before
+    comparing similarities, so _query_similarity hits the cache every time
+    instead of re-embedding the same string multiple times.
+    """
     candidates = _rewrite_query_candidates(query)
     if len(candidates) == 1:
         return candidates[0]
+
     original = candidates[0]
-    best = original
+
+    # Pre-cache all candidates so _query_similarity never re-embeds
+    for candidate in candidates:
+        key = _query_cache_key(candidate)
+        if _QUERY_EMBED_CACHE.get(key) is None:
+            _QUERY_EMBED_CACHE.set(key, embed_query(candidate))
+
+    best       = original
     best_score = -1.0
     for candidate in candidates:
-        score = _query_similarity(original, candidate)
+        score = _query_similarity(original, candidate)   # hits cache
         if score > best_score:
             best_score = score
-            best = candidate
+            best       = candidate
+
     if best != original and best_score < 0.88:
         return original
     return best
@@ -1079,7 +1066,7 @@ def _query_cache_key(query: str) -> str:
 
 
 def _cache_query_embedding(query: str) -> np.ndarray:
-    key = _query_cache_key(query)
+    key    = _query_cache_key(query)
     cached = _QUERY_EMBED_CACHE.get(key)
     if cached is not None:
         return cached
@@ -1101,11 +1088,20 @@ def make_response_cache_key(
     *,
     style: str,
     model: str,
-    context: str,
+    context: str,         # kept for signature compatibility — not used in key
     session_id: str = "",
 ) -> str:
-    del session_id
-    payload = "|".join([style, model, _query_cache_key(query), _hash_text(context)])
+    """
+    CHANGED: key is now query + style + model only (context excluded).
+
+    Retrieval is deterministic (IndexFlatIP, no randomness), so the same
+    normalized query always returns the same context. Including context in
+    the key was preventing cache hits when whitespace or source paths differed
+    by a single character.
+    """
+    del session_id  # intentionally ignored
+    normalized = _query_cache_key(query)
+    payload    = f"{style}|{model}|{normalized}"
     return _hash_text(payload)
 
 
@@ -1127,40 +1123,99 @@ def set_cached_response(key: str, value: str) -> None:
     _RESPONSE_CACHE.set(key, value)
 
 
+# =============================================================================
+# OLLAMA WARMUP HELPER
+# =============================================================================
+
+def _warmup_ollama() -> None:
+    """
+    Send a minimal 1-token request to force Ollama to load the LLM into RAM.
+    keep_alive=-1 ensures the model stays loaded after warmup completes.
+    Blocks until the model is ready or the timeout is exceeded.
+    """
+    try:
+        session = requests.Session()
+        session.post(
+            OLLAMA_URL,
+            json={
+                "model": DEFAULT_MODEL,
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+                "keep_alive": "-1",
+                "options": {
+                    "num_predict": 1,    # generate only 1 token — just enough to load weights
+                    "temperature": 0.0,
+                    "num_ctx": 512,      # minimal context for warmup
+                },
+            },
+            timeout=(10, 180),           # allow up to 3 min for initial model load
+        )
+        logger.info("Ollama model '%s' pre-loaded and ready.", DEFAULT_MODEL)
+    except Exception as exc:
+        logger.warning(
+            "Ollama warmup failed — model will load on first real query. Reason: %s", exc
+        )
+
+
+# =============================================================================
+# WARMUP RUNTIME
+# =============================================================================
+
 def warmup_runtime(*, async_load: bool = False) -> None:
-    """Preload embedding and index state to reduce first-request latency."""
+    """
+    Preload embedding model, FAISS index, BM25, and Ollama LLM to reduce
+    first-request latency to near zero.
+
+    CHANGED:
+      - Embedding model now runs a dummy encode() after loading to fully
+        initialize weights (prevents a slow first real query).
+      - Ollama LLM is pre-loaded via _warmup_ollama() so the first user
+        query never pays the 20-60s cold-start cost.
+      - Both sync and async paths include all three warmup steps.
+    """
     global _PRELOAD_THREAD
-    if not async_load:
+
+    def _do_warmup() -> None:
+        # Step 1: Load and fully initialize embedding model
         try:
-            load_embedding_model()
+            model = load_embedding_model()
+            # Dummy encode forces weight initialization — without this the first
+            # real query still pays a smaller but noticeable initialization cost
+            model.encode(
+                ["Agniveer age eligibility salary benefits recruitment"],
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
+            logger.info("Embedding model ready.")
         except Exception as exc:
             logger.debug("Embedding warmup failed: %s", exc)
+
+        # Step 2: Load FAISS index and BM25 into RAM
         try:
             load_index()
             if USE_HYBRID:
                 load_bm25()
+            logger.info("FAISS + BM25 index ready.")
         except Exception as exc:
             logger.debug("Index warmup failed: %s", exc)
+
+        # Step 3: Pre-load Ollama LLM into RAM
+        _warmup_ollama()
+
+    if not async_load:
+        _do_warmup()
         return
 
+    # Async path — all steps run in a daemon thread
     if _PRELOAD_THREAD is not None and _PRELOAD_THREAD.is_alive():
         return
-
-    def _warm() -> None:
-        try:
-            load_embedding_model()
-        except Exception as exc:
-            logger.debug("Embedding warmup failed: %s", exc)
-        try:
-            load_index()
-            if USE_HYBRID:
-                load_bm25()
-        except Exception as exc:
-            logger.debug("Index warmup failed: %s", exc)
-
-    _PRELOAD_THREAD = threading.Thread(target=_warm, daemon=True)
+    _PRELOAD_THREAD = threading.Thread(target=_do_warmup, daemon=True, name="agniai-warmup")
     _PRELOAD_THREAD.start()
 
+
+# =============================================================================
+# EMBEDDING
+# =============================================================================
 
 def load_embedding_model() -> SentenceTransformer:
     global _MODEL
@@ -1174,7 +1229,7 @@ def load_embedding_model() -> SentenceTransformer:
 
 def embed_texts(texts: Sequence[str]) -> np.ndarray:
     model = load_embedding_model()
-    vecs = model.encode(
+    vecs  = model.encode(
         list(texts),
         convert_to_numpy=True,
         normalize_embeddings=True,
@@ -1184,28 +1239,28 @@ def embed_texts(texts: Sequence[str]) -> np.ndarray:
     return np.asarray(vecs, dtype="float32")
 
 
-# ─── FIX: show_progress_bar=False stops the "Loading weights: 100%|..." bar
-# from printing on every single query. Without this, sentence-transformers
-# defaults to showing a tqdm bar for every encode() call, even for a single
-# query string. The model itself is still cached after the first load.
 def embed_query(query: str) -> np.ndarray:
     model = load_embedding_model()
-    vec = model.encode(
+    vec   = model.encode(
         [query],
         convert_to_numpy=True,
         normalize_embeddings=True,
-        show_progress_bar=False,   # ← THE FIX
+        show_progress_bar=False,   # suppress tqdm bar on every query
         batch_size=1,
     )
     return np.asarray(vec, dtype="float32")
 
+
+# =============================================================================
+# RERANKER
+# =============================================================================
 
 def _reranker_local_files_available(model_name: str) -> bool:
     model_path = Path(model_name)
     if model_path.exists():
         return True
     hf_hub_cache = os.getenv("HF_HUB_CACHE")
-    hf_home = os.getenv("HF_HOME")
+    hf_home      = os.getenv("HF_HOME")
     if hf_hub_cache:
         cache_root = Path(hf_hub_cache)
     elif hf_home:
@@ -1256,7 +1311,7 @@ def rerank(query: str, docs: List[Dict], top_n: int = RERANK_TOP_K) -> List[Dict
     if reranker is None:
         return docs[:top_n]
     try:
-        pairs = [(query, d.get("text", "")) for d in docs]
+        pairs  = [(query, d.get("text", "")) for d in docs]
         scores = reranker.predict(pairs)
         ranked = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
         reranked = []
@@ -1269,6 +1324,10 @@ def rerank(query: str, docs: List[Dict], top_n: int = RERANK_TOP_K) -> List[Dict
         logger.warning("Re-ranking failed, using original order: %s", exc)
         return docs[:top_n]
 
+
+# =============================================================================
+# BM25
+# =============================================================================
 
 def load_bm25():
     global _BM25
@@ -1295,7 +1354,7 @@ def save_bm25(docs: List[Dict[str, str]]) -> None:
         try:
             from rank_bm25 import BM25Okapi
             corpus = [_tokenize(d.get("text", "")) for d in docs_snapshot]
-            bm25 = BM25Okapi(corpus)
+            bm25   = BM25Okapi(corpus)
             _ensure_dirs()
             with open(BM25_INDEX_PATH, "wb") as f:
                 pickle.dump(bm25, f)
@@ -1308,6 +1367,10 @@ def save_bm25(docs: List[Dict[str, str]]) -> None:
 
     threading.Thread(target=_build, daemon=True).start()
 
+
+# =============================================================================
+# DOCSTORE
+# =============================================================================
 
 def load_docstore():
     global _DOCSTORE_CACHE
@@ -1330,17 +1393,22 @@ def _save_docstore(docs: List[Dict[str, str]]) -> None:
         json.dump(docs, fh, ensure_ascii=False, indent=2)
 
 
+# =============================================================================
+# FAISS INDEX
+# =============================================================================
+
 def _rebuild_index_from_docs(docs: List[Dict[str, str]]) -> faiss.Index:
     index = _new_index()
     if not docs:
         return index
-    texts = [d.get("text", "") for d in docs]
+    texts   = [d.get("text", "") for d in docs]
     vectors = embed_texts(texts)
     if vectors.size == 0:
         return index
     if vectors.shape[1] != EMBEDDING_DIM:
         raise ValueError(
-            f"Embedding dimension mismatch while rebuilding: expected {EMBEDDING_DIM}, got {vectors.shape[1]}"
+            f"Embedding dimension mismatch while rebuilding: "
+            f"expected {EMBEDDING_DIM}, got {vectors.shape[1]}"
         )
     index.add(vectors)
     save_index(index, docs)
@@ -1374,9 +1442,9 @@ def save_index(index: faiss.Index, docs: List[Dict[str, str]]) -> None:
         _ensure_dirs()
         faiss.write_index(index, str(FAISS_INDEX_PATH))
         _save_docstore(docs_snapshot)
-        _DOCS = docs_snapshot
-        _INDEX = index
-        _DOCSTORE_CACHE = docs_snapshot
+        _DOCS            = docs_snapshot
+        _INDEX           = index
+        _DOCSTORE_CACHE  = docs_snapshot
     save_bm25(docs_snapshot)
 
 
@@ -1384,6 +1452,10 @@ def _index_snapshot() -> tuple[Optional[faiss.Index], List[Dict[str, str]]]:
     with _INDEX_LOCK:
         return _INDEX, list(_DOCS)
 
+
+# =============================================================================
+# SEARCH
+# =============================================================================
 
 def _bm25_scores(query: str) -> np.ndarray:
     bm25 = load_bm25()
@@ -1413,18 +1485,18 @@ def _min_max_normalize(values: np.ndarray) -> np.ndarray:
 
 
 _DOMAIN_BOOSTS = [
-    (r"\bage\b", r"required age|eligibility", 0.70),
-    (r"eligibilit", r"eligibility criteria|required age", 0.70),
-    (r"selection|how.*select", r"recruitment process|flow chart", 0.90),
-    (r"how.*appl|apply", r"registration|application", 0.70),
-    (r"salary|pay|package", r"seva nidhi|in hand|monthly", 0.80),
-    (r"physical|pft", r"physical fitness test|1\.6 km run", 0.80),
-    (r"bonus mark", r"bonus marks|ncc|sports", 0.80),
-    (r"insurance", r"48 lakh|life insurance", 0.80),
-    (r"training", r"military training|regimental", 0.70),
-    (r"document", r"documents required|matric|aadhaar|domicile", 0.70),
-    (r"medical", r"medical examination|army medical", 0.70),
-    (r"ncc", r"ncc.*certificate|bonus.*ncc", 0.70),
+    (r"\bage\b",                r"required age|eligibility",              0.70),
+    (r"eligibilit",             r"eligibility criteria|required age",      0.70),
+    (r"selection|how.*select",  r"recruitment process|flow chart",         0.90),
+    (r"how.*appl|apply",        r"registration|application",               0.70),
+    (r"salary|pay|package",     r"seva nidhi|in hand|monthly",             0.80),
+    (r"physical|pft",           r"physical fitness test|1\.6 km run",      0.80),
+    (r"bonus mark",             r"bonus marks|ncc|sports",                 0.80),
+    (r"insurance",              r"48 lakh|life insurance",                 0.80),
+    (r"training",               r"military training|regimental",           0.70),
+    (r"document",               r"documents required|matric|aadhaar|domicile", 0.70),
+    (r"medical",                r"medical examination|army medical",       0.70),
+    (r"ncc",                    r"ncc.*certificate|bonus.*ncc",            0.70),
 ]
 
 
@@ -1436,7 +1508,12 @@ def _apply_domain_boosts(query_lower: str, doc_text_lower: str) -> float:
     return best
 
 
-def search(query: str, top_k: int = TOP_K, *, normalized: bool = False) -> List[Dict[str, str]]:
+def search(
+    query: str,
+    top_k: int = TOP_K,
+    *,
+    normalized: bool = False,
+) -> List[Dict[str, str]]:
     cached = get_cached_retrieval(query, top_k, normalized=normalized)
     if cached is not None:
         logger.debug("Retrieval cache hit for query=%r", query)
@@ -1449,22 +1526,22 @@ def search(query: str, top_k: int = TOP_K, *, normalized: bool = False) -> List[
     if index.ntotal == 0:
         return []
 
-    rewritten_query = query if normalized else _normalize_query_for_retrieval(query)
-    retrieval_query = safe_rewrite_query(rewritten_query)
-    qvec = _cache_query_embedding(retrieval_query)
+    rewritten_query  = query if normalized else _normalize_query_for_retrieval(query)
+    retrieval_query  = safe_rewrite_query(rewritten_query)
+    qvec             = _cache_query_embedding(retrieval_query)
 
-    candidate_k = min(max(top_k * 4, 10), 40, index.ntotal)
+    candidate_k   = min(max(top_k * 4, 10), 40, index.ntotal)
     scores_dense, ids = index.search(qvec, candidate_k)
-    dense_scores = scores_dense[0]
-    doc_ids = ids[0]
-    dense_map = {
+    dense_scores  = scores_dense[0]
+    doc_ids       = ids[0]
+    dense_map     = {
         int(doc_id): float(score)
         for doc_id, score in zip(doc_ids, dense_scores)
         if doc_id >= 0
     }
 
     if USE_HYBRID and docs_snapshot:
-        bm25_all = _bm25_scores(retrieval_query)
+        bm25_all     = _bm25_scores(retrieval_query)
         bm25_top_ids = np.argsort(bm25_all)[::-1][:candidate_k]
 
         token_count = len(retrieval_query.split())
@@ -1487,11 +1564,11 @@ def search(query: str, top_k: int = TOP_K, *, normalized: bool = False) -> List[
             [dense_map.get(doc_id, 0.0) for doc_id in candidate_ids], dtype="float32"
         )
         dense_values = _min_max_normalize(dense_values)
-        bm25_values = np.array(
+        bm25_values  = np.array(
             [float(bm25_all[doc_id]) for doc_id in candidate_ids], dtype="float32"
         )
-        query_terms = set(_meaningful_tokens(retrieval_query))
-        query_lower = retrieval_query.lower()
+        query_terms  = set(_meaningful_tokens(retrieval_query))
+        query_lower  = retrieval_query.lower()
 
         fused: List[tuple] = []
         for doc_id, ds, bs in zip(candidate_ids, dense_values, bm25_values):
@@ -1499,7 +1576,7 @@ def search(query: str, top_k: int = TOP_K, *, normalized: bool = False) -> List[
             doc_text = docs_snapshot[doc_id].get("text", "")
             if query_terms:
                 doc_terms = set(_meaningful_tokens(doc_text))
-                overlap = len(query_terms & doc_terms) / max(1, len(query_terms))
+                overlap   = len(query_terms & doc_terms) / max(1, len(query_terms))
                 combined += 0.15 * overlap
             combined += _apply_domain_boosts(query_lower, doc_text.lower())
             if combined >= MIN_SCORE:
@@ -1508,8 +1585,8 @@ def search(query: str, top_k: int = TOP_K, *, normalized: bool = False) -> List[
         fused.sort(key=lambda item: item[0], reverse=True)
         candidates = []
         for combined, doc_id in fused:
-            doc = dict(docs_snapshot[doc_id])
-            doc["score"] = round(float(combined), 4)
+            doc           = dict(docs_snapshot[doc_id])
+            doc["score"]  = round(float(combined), 4)
             candidates.append(doc)
     else:
         candidates = []
@@ -1518,7 +1595,7 @@ def search(query: str, top_k: int = TOP_K, *, normalized: bool = False) -> List[
                 continue
             if float(score) < MIN_SCORE:
                 continue
-            doc = dict(docs_snapshot[doc_id])
+            doc          = dict(docs_snapshot[doc_id])
             doc["score"] = round(float(score), 4)
             candidates.append(doc)
 
@@ -1528,14 +1605,23 @@ def search(query: str, top_k: int = TOP_K, *, normalized: bool = False) -> List[
     candidates = _dedupe_docs(candidates)
 
     if USE_RERANKER:
-        candidates = rerank(query, candidates, top_n=min(max(top_k, RERANK_TOP_K), len(candidates)))
+        candidates = rerank(
+            query, candidates,
+            top_n=min(max(top_k, RERANK_TOP_K), len(candidates)),
+        )
 
-    candidates = sorted(candidates, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
+    candidates = sorted(
+        candidates, key=lambda doc: float(doc.get("score", 0.0)), reverse=True
+    )
 
     final = candidates[: max(top_k, STRICT_TOP_K)]
     set_cached_retrieval(query, top_k, final, normalized=True)
     return [dict(doc) for doc in final]
 
+
+# =============================================================================
+# CONTEXT BUILDING
+# =============================================================================
 
 def build_context(
     docs: Sequence[Dict[str, str]],
@@ -1551,7 +1637,9 @@ def build_context(
     ordered = [doc for doc in ordered if float(doc.get("score", 0.0)) >= min_score]
     ordered = _dedupe_docs(ordered)[:max_chunks]
     if not ordered:
-        ordered = _dedupe_docs(sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True))[:max_chunks]
+        ordered = _dedupe_docs(
+            sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
+        )[:max_chunks]
 
     if not ordered:
         return ""
@@ -1587,7 +1675,7 @@ def build_context(
         source = doc.get("source", "unknown")
         if len(source) > 60:
             source = "..." + source[-57:]
-        score = float(doc.get("score", 0.0))
+        score  = float(doc.get("score", 0.0))
         header = f"[{i}] score={score:.3f} source={source}\n"
         remaining = max_chars - total_chars - len(header)
         if remaining <= 0:
@@ -1604,16 +1692,20 @@ def build_context(
     return "\n\n---\n\n".join(blocks)
 
 
+# =============================================================================
+# CONFIDENCE & MODE
+# =============================================================================
+
 def retrieval_confidence(docs: Sequence[Dict[str, str]], query: str) -> float:
     if not docs:
         return 0.0
-    ordered = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
-    top_score = float(ordered[0].get("score", 0.0))
+    ordered    = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
+    top_score  = float(ordered[0].get("score", 0.0))
     query_terms = set(_meaningful_tokens(query))
     if not query_terms:
         return min(1.0, top_score)
-    top_text = ordered[0].get("text", "")
-    overlap = len(query_terms & set(_meaningful_tokens(top_text))) / max(1, len(query_terms))
+    top_text   = ordered[0].get("text", "")
+    overlap    = len(query_terms & set(_meaningful_tokens(top_text))) / max(1, len(query_terms))
     confidence = (0.65 * top_score) + (0.35 * overlap)
     if len(ordered) > 1:
         confidence = min(1.0, confidence + 0.05 * min(2, len(ordered) - 1))
@@ -1645,6 +1737,10 @@ def decide_answer_mode(
     return "normal_answer"
 
 
+# =============================================================================
+# RAG BUNDLE
+# =============================================================================
+
 def prepare_rag_bundle(
     query: str,
     *,
@@ -1654,35 +1750,39 @@ def prepare_rag_bundle(
     include_points: bool = False,
 ) -> Dict[str, object]:
     retrieval_query = _normalize_query_for_retrieval(query)
-    docs = search(retrieval_query, top_k=top_k, normalized=True)
-    context_limit = (
+    docs            = search(retrieval_query, top_k=top_k, normalized=True)
+    context_limit   = (
         MAX_CONTEXT_CHARS.get(style, MAX_CONTEXT_CHARS_DEFAULT)
         if isinstance(MAX_CONTEXT_CHARS, dict)
         else MAX_CONTEXT_CHARS_DEFAULT
     )
     if max_context_chars is not None:
         context_limit = max(0, min(int(context_limit), int(max_context_chars)))
-    confidence = retrieval_confidence(docs, query)
-    mode = decide_answer_mode(query=query, docs=docs, confidence=confidence)
-    context_min_score = STRICT_MIN_SCORE if mode == "normal_answer" else LOW_RETRIEVAL_CONFIDENCE
-    context = build_context(
+    confidence         = retrieval_confidence(docs, query)
+    mode               = decide_answer_mode(query=query, docs=docs, confidence=confidence)
+    context_min_score  = STRICT_MIN_SCORE if mode == "normal_answer" else LOW_RETRIEVAL_CONFIDENCE
+    context            = build_context(
         docs,
         max_chunks=max(STRICT_TOP_K, min(5, top_k)),
         min_score=context_min_score,
         max_chars=context_limit,
     )
     return {
-        "query": query,
-        "retrieval_query": retrieval_query,
-        "docs": docs,
-        "context": context,
-        "points": extract_key_points(docs, query=query) if include_points else [],
-        "confidence": confidence,
-        "mode": mode,
-        "reasoning": is_reasoning_query(query),
-        "style": style,
+        "query":            query,
+        "retrieval_query":  retrieval_query,
+        "docs":             docs,
+        "context":          context,
+        "points":           extract_key_points(docs, query=query) if include_points else [],
+        "confidence":       confidence,
+        "mode":             mode,
+        "reasoning":        is_reasoning_query(query),
+        "style":            style,
     }
 
+
+# =============================================================================
+# GROUNDING CHECK
+# =============================================================================
 
 def answer_is_grounded(answer: str, context: str) -> bool:
     answer = (answer or "").strip()
@@ -1690,18 +1790,22 @@ def answer_is_grounded(answer: str, context: str) -> bool:
         return False
     if not context.strip():
         return answer.lower() == REFERENCE_FALLBACK.lower()
-    answer_norm = _normalise_text(answer)
+    answer_norm  = _normalise_text(answer)
     context_norm = _normalise_text(context)
     numbers = re.findall(r"\b\d+(?:\.\d+)?%?\b", answer_norm)
     for num in numbers:
         if num not in context_norm:
             return False
-    tokens = [tok for tok in _meaningful_tokens(answer_norm) if len(tok) >= 5]
+    tokens    = [tok for tok in _meaningful_tokens(answer_norm) if len(tok) >= 5]
     if not tokens:
         return True
     supported = sum(1 for tok in tokens if tok in context_norm)
     return supported / max(1, len(tokens)) >= 0.75
 
+
+# =============================================================================
+# MESSAGE BUILDERS
+# =============================================================================
 
 def build_strict_messages(
     query: str,
@@ -1716,7 +1820,7 @@ def build_strict_messages(
     messages = [{"role": "system", "content": system_content}]
     if history:
         for msg in history:
-            role = msg.get("role")
+            role    = msg.get("role")
             content = msg.get("content", "").strip()
             if role in {"user", "assistant"} and content:
                 messages.append({"role": role, "content": content})
@@ -1724,6 +1828,10 @@ def build_strict_messages(
     messages.append({"role": "user", "content": user_content})
     return messages
 
+
+# =============================================================================
+# STATS & LEGACY LLM CALL
+# =============================================================================
 
 def index_stats() -> Dict[str, int]:
     index, docs = _index_snapshot()
@@ -1761,7 +1869,10 @@ def _candidate_models(requested: str, installed: List[str]) -> List[str]:
     return ordered
 
 
-def _build_messages(prompt: str, history: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, str]]:
+def _build_messages(
+    prompt: str,
+    history: Optional[List[Dict[str, str]]] = None,
+) -> List[Dict[str, str]]:
     return build_strict_messages(prompt, context="", history=history)
 
 
@@ -1777,7 +1888,7 @@ def call_llm(
     requested_models.append(DEFAULT_MODEL)
     requested_models.extend(FALLBACK_MODELS)
 
-    installed = _installed_models(session)
+    installed        = _installed_models(session)
     candidate_models: List[str] = []
     for requested in requested_models:
         for candidate in _candidate_models(requested, installed):
@@ -1786,7 +1897,7 @@ def call_llm(
     if not candidate_models:
         raise RuntimeError("No Ollama models found.")
 
-    messages = _build_messages(prompt, history)
+    messages   = _build_messages(prompt, history)
     last_error: Optional[str] = None
     for candidate in candidate_models:
         try:

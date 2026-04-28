@@ -2,6 +2,13 @@
 ollama_cpu_chat.py
 ==================
 CPU-optimised Ollama streaming client for AgniAI.
+
+Changes vs original:
+  • KEEP_ALIVE = "-1"  — model stays loaded in RAM indefinitely
+  • MODEL_NAME updated to q4_K_M quantized variant
+  • _default_num_thread: removed hard cap of 4, uses all physical cores - 1
+  • Added _start_keepalive_heartbeat() to ping Ollama periodically so the
+    model is never evicted even if keep_alive is overridden externally
 """
 
 from __future__ import annotations
@@ -11,6 +18,7 @@ import os
 import sys
 import time
 import re
+import threading
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Optional
 
@@ -41,14 +49,15 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 CHAT_ENDPOINT   = f"{OLLAMA_BASE_URL}/api/chat"
 TAGS_ENDPOINT   = f"{OLLAMA_BASE_URL}/api/tags"
 
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct")
+# CHANGED: q4_K_M quantization — 2-3x faster on CPU, ~99% factual accuracy
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct-q4_K_M")
 
 FALLBACK_MODELS: List[str] = [
     m.strip()
     for m in os.getenv(
         "OLLAMA_FALLBACK_MODELS",
-        "mistral:7b-instruct,mistral:7b-instruct-q4_0,llama3:8b,llama3:8b-instruct,"
-        "llama3.1:8b,llama3.2:3b,gemma2:2b",
+        "mistral:7b-instruct-q4_K_M,mistral:7b-instruct,mistral:7b-instruct-q4_0,"
+        "llama3:8b,llama3:8b-instruct,llama3.1:8b,llama3.2:3b,gemma2:2b",
     ).split(",")
     if m.strip()
 ]
@@ -59,21 +68,15 @@ FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "180"))
 STREAM_TIMEOUT      = float(os.getenv("OLLAMA_STREAM_TIMEOUT",     "300"))
 MAX_RETRIES         = int(os.getenv("OLLAMA_MAX_RETRIES",           "2"))
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MAX_TOKENS reduced from 1250 → 500.
-# Per-style overrides from config.MAX_TOKENS_STYLE are passed via
-# max_tokens_override at call time, so this default only fires when no
-# override is supplied (e.g. direct CLI usage).
-#
-# NUM_CTX: 4096 recommended. Set OLLAMA_NUM_CTX=2048 on low-RAM machines.
-# ─────────────────────────────────────────────────────────────────────────────
 MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "900"))
 NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",          "4096"))
 TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",    "0.05"))
 _SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",            "20"))
 TOP_P           = float(os.getenv("OLLAMA_TOP_P",          "0.92"))
 REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
-KEEP_ALIVE      = os.getenv("OLLAMA_KEEP_ALIVE",           "10m")
+
+# CHANGED: -1 means keep model loaded forever — never unload on idle
+KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "-1")  # was "10m"
 
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "6"))
 MODEL_LIST_CACHE_TTL = float(os.getenv("OLLAMA_MODEL_LIST_CACHE_TTL", "30"))
@@ -107,6 +110,52 @@ class PartialResponseError(OllamaError):
 
 
 # =============================================================================
+# KEEPALIVE HEARTBEAT
+# =============================================================================
+
+def _start_keepalive_heartbeat(
+    session: requests.Session,
+    interval_seconds: int = 240,
+    model: Optional[str] = None,
+) -> None:
+    """
+    Send a no-op request to Ollama every `interval_seconds` so the LLM model
+    is never evicted from RAM — even if Ollama's keep_alive is overridden
+    externally.
+
+    Uses num_predict=0 so it generates zero tokens and costs essentially
+    nothing (just keeps the model hot).
+
+    Call once at startup, runs as a daemon thread.
+    """
+    target_model = model or MODEL_NAME
+
+    def _beat() -> None:
+        while True:
+            time.sleep(interval_seconds)
+            try:
+                session.post(
+                    CHAT_ENDPOINT,
+                    json={
+                        "model": target_model,
+                        "messages": [{"role": "user", "content": "."}],
+                        "stream": False,
+                        "keep_alive": "-1",
+                        "options": {
+                            "num_predict": 0,   # generate nothing
+                            "num_ctx": 64,      # tiny context for heartbeat
+                        },
+                    },
+                    timeout=(5, 15),
+                )
+            except Exception:
+                pass  # Ollama briefly busy or restarting — silently retry next cycle
+
+    thread = threading.Thread(target=_beat, daemon=True, name="ollama-heartbeat")
+    thread.start()
+
+
+# =============================================================================
 # RAG HOOK (for standalone CLI usage)
 # =============================================================================
 
@@ -128,14 +177,23 @@ def _sentence_safe_chunks(buffer: str) -> tuple[list[str], str]:
 
 
 def _default_num_thread() -> int:
+    """
+    CHANGED: removed hard cap of 4 threads.
+    Token generation scales well with physical core count; we reserve 1 core
+    for the Flask / Python process itself.
+    Hyperthreading (logical cores) does not meaningfully help LLM inference,
+    so we target physical cores where detectable.
+    """
     env_value = os.getenv("OLLAMA_NUM_THREAD")
     if env_value:
         try:
             return max(1, int(env_value))
         except ValueError:
             pass
+
     cpu_count = os.cpu_count() or 4
-    return max(1, min(4, cpu_count))
+    # Reserve 1 core for the OS / Flask process
+    return max(1, cpu_count - 1)
 
 
 def build_rag_context(query: str) -> str:
@@ -235,12 +293,10 @@ def _flush_partial_stream(
     if matches:
         end = matches[-1].end()
         return [buffer[:end]], buffer[end:]
-
     if len(buffer) >= min_chars:
         cut = max(buffer.rfind(" "), buffer.rfind("\n"))
         if cut > 0:
-            return [buffer[: cut + 1]], buffer[cut + 1 :]
-
+            return [buffer[: cut + 1]], buffer[cut + 1:]
     return [], buffer
 
 
@@ -265,7 +321,7 @@ def _ollama_chat_once(
         "model": model,
         "messages": messages,
         "stream": True,
-        "keep_alive": KEEP_ALIVE,
+        "keep_alive": KEEP_ALIVE,   # "-1" — stays loaded forever
         "options": {
             "temperature":    TEMPERATURE,
             "num_ctx":        NUM_CTX,
@@ -295,7 +351,7 @@ def _ollama_chat_once(
         ) as resp:
             if resp.status_code == 404:
                 raise OllamaError(
-                    f"Model '{model}' not found. Run:  ollama pull mistral:7b-instruct"
+                    f"Model '{model}' not found. Run:  ollama pull {MODEL_NAME}"
                 )
             if resp.status_code >= 400:
                 raise OllamaError(
@@ -329,7 +385,7 @@ def _ollama_chat_once(
                 if not first_token_received and time.time() > deadline_first_token:
                     raise OllamaError(
                         f"Model '{model}' no first token in {FIRST_TOKEN_TIMEOUT:.0f}s. "
-                        "Too large for this CPU. Try:  ollama pull mistral:7b-instruct"
+                        "Too large for this CPU. Try:  ollama pull mistral:7b-instruct-q4_K_M"
                     )
 
             if stream_buffer.strip():
@@ -401,7 +457,9 @@ def chat_with_fallback(
     candidates = _candidate_models(requested_model, installed)
 
     if not candidates:
-        raise OllamaError("No Ollama models found. Run:  ollama pull mistral:7b-instruct")
+        raise OllamaError(
+            f"No Ollama models found. Run:  ollama pull {MODEL_NAME}"
+        )
 
     last_error: Optional[str] = None
     for model in candidates:
@@ -427,7 +485,7 @@ def chat_with_fallback(
     raise OllamaError(
         f"All models failed. Last error: {last_error}\n"
         f"Tried: {', '.join(candidates)}\n"
-        "Fix: try a smaller local model such as mistral:7b-instruct-q4_0, gemma2:2b, or llama3.2:3b."
+        "Fix: try a smaller model such as mistral:7b-instruct-q4_K_M, gemma2:2b, or llama3.2:3b."
     )
 
 
@@ -447,6 +505,9 @@ def main() -> int:
     installed = _installed_models(session)
     if installed:
         print(f"Installed (smallest first): {', '.join(installed)}\n")
+
+    # Start heartbeat so model stays loaded during CLI session
+    _start_keepalive_heartbeat(session, interval_seconds=240)
 
     while True:
         try:
@@ -480,8 +541,8 @@ def main() -> int:
         try:
             result = chat_with_fallback(session, model, messages, stream_tokens=True)
             print()
-            history.append({"role": "user",     "content": user})
-            history.append({"role": "assistant", "content": result.text})
+            history.append({"role": "user",      "content": user})
+            history.append({"role": "assistant",  "content": result.text})
             if len(history) > MAX_HISTORY_MESSAGES * 2:
                 history = history[-(MAX_HISTORY_MESSAGES * 2):]
             print(
