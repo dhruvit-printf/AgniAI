@@ -6,7 +6,6 @@ import json
 import logging
 import threading
 import time
-from hashlib import sha1
 from queue import Empty, Queue
 
 import requests as _requests
@@ -31,7 +30,6 @@ from config import (
     MAX_TOKENS_STYLE,
     MAX_TOKENS_DEFAULT,
     MODEL_MAX_CONTEXT_TOKENS,
-    MIN_RETRIEVAL_CONFIDENCE,
     OLLAMA_TAGS_URL,
     REFERENCE_FALLBACK,
     SESSION_HEADER,
