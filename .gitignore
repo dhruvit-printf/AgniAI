@@ -45,18 +45,17 @@ htmlcov/
 Thumbs.db
 Desktop.ini
 
-# AgniAI generated runtime data
+# AgniAI generated runtime data — keep folder structure, ignore contents
 data/*
 !data/.gitkeep
-index/*
-!index/.gitkeep
 
-# Generated model / cache artifacts
-*.index
-*.pkl
-*.sqlite3
-*.json
+# FAISS index and docstore — generated at runtime, never commit
+index/agni.index
+index/docstore.json
+index/bm25.pkl
 
+# Benchmark outputs — generated at runtime
+benchmark_results/
 
 # IDE settings
 .vscode/

@@ -13,9 +13,18 @@ import requests as _requests
 from flask import Flask, Response, g, jsonify, request, stream_with_context
 from flask_cors import CORS
 
-from api_models import err, ok_chat, ok_health, ok_ingest, ok_message, ok_sources, ok_stats
+from api_models import (
+    err,
+    ok_chat,
+    ok_health,
+    ok_ingest,
+    ok_message,
+    ok_sources,
+    ok_stats,
+)
 from config import (
     ALLOWED_ORIGINS,
+    API_SECRET_KEY,
     FIRST_TOKEN_TIMEOUT,
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_CHARS_DEFAULT,
@@ -31,11 +40,20 @@ from config import (
     STYLE_ELABORATE_KEYWORDS,
     STYLE_SHORT_KEYWORDS,
     TOP_K,
+    classify_intent,
     estimate_message_tokens,
     style_structure_instruction,
     trim_to_complete_sentence,
 )
-from ingest import clear_index, ingest_docx, ingest_pdf, ingest_text, ingest_txt, ingest_url, list_sources
+from ingest import (
+    clear_index,
+    ingest_docx,
+    ingest_pdf,
+    ingest_text,
+    ingest_txt,
+    ingest_url,
+    list_sources,
+)
 from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
@@ -63,7 +81,6 @@ _session = _requests.Session()
 _active_model = DEFAULT_MODEL
 _lock = threading.Lock()
 
-# Minimum word counts per style — used for quality logging only, not blocking
 _STYLE_MIN_WORDS = {
     "short": 200,
     "elaborate": 400,
@@ -75,8 +92,7 @@ def _validate_answer_length(answer: str, style: str) -> bool:
     min_words = _STYLE_MIN_WORDS.get((style or "").strip().lower(), 0)
     if min_words == 0:
         return True
-    word_count = len((answer or "").split())
-    return word_count >= min_words
+    return len((answer or "").split()) >= min_words
 
 
 def _log_answer_quality(answer: str, style: str) -> None:
@@ -85,7 +101,9 @@ def _log_answer_quality(answer: str, style: str) -> None:
     if not _validate_answer_length(answer, style):
         logger.warning(
             "Answer below minimum length: style=%s words=%d min=%d",
-            style, word_count, min_words,
+            style,
+            word_count,
+            min_words,
         )
     else:
         logger.debug("Answer length OK: style=%s words=%d", style, word_count)
@@ -102,9 +120,27 @@ def _log_request(response):
     response.headers["X-Request-Duration-Ms"] = f"{elapsed_ms:.1f}"
     logger.info(
         "%s %s -> %s in %.1fms",
-        request.method, request.path, response.status_code, elapsed_ms,
+        request.method,
+        request.path,
+        response.status_code,
+        elapsed_ms,
     )
     return response
+
+
+def _require_secret(fn):
+    """Decorator: reject request if API_SECRET_KEY is set and header doesn't match."""
+    from functools import wraps
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if API_SECRET_KEY:
+            provided = request.headers.get("X-Api-Key", "")
+            if provided != API_SECRET_KEY:
+                return jsonify(*err("Unauthorized. Provide X-Api-Key header.", 401))
+        return fn(*args, **kwargs)
+
+    return wrapper
 
 
 def _kw_match(query_lower: str, keywords: list) -> bool:
@@ -126,50 +162,6 @@ def detect_answer_style(query: str) -> tuple[str, str]:
     if _kw_match(q, STYLE_ELABORATE_KEYWORDS):
         return "elaborate", "elaborate"
     return "elaborate", "elaborate"
-
-
-def _classify_intent(query: str) -> str:
-    q = query.strip().lower()
-    tokens = [t for t in q.split() if t]
-    if not tokens:
-        return "reject"
-
-    greeting_like = {
-        "hi", "hello", "hey", "thanks", "thank you", "good morning",
-        "good afternoon", "good evening", "bye", "greetings", "welcome",
-        "ok", "okay",
-    }
-    if q in greeting_like and len(tokens) <= 2:
-        return "chat"
-
-    small_talk = (
-        "how are you", "what's up", "whats up", "good morning", "good afternoon",
-        "good evening", "thank you", "thanks",
-    )
-    if any(phrase in q for phrase in small_talk):
-        return "chat"
-
-    domain_terms = (
-        "age", "eligibility", "salary", "pay", "selection", "medical", "pft",
-        "physical", "training", "insurance", "ncc", "document", "apply",
-        "application", "seva", "nidhi", "recruitment", "joining", "service",
-        "agni", "agniveer", "benefit", "package", "rally", "medical", "fitness",
-    )
-    if any(term in q for term in domain_terms):
-        return "rag"
-
-    reasoning_terms = (
-        "calculate", "total", "sum", "overall", "aggregate", "combined",
-        "after 4 years", "over 4 years",
-    )
-    if any(term in q for term in reasoning_terms) and any(
-        term in q for term in (
-            "salary", "pay", "service", "seva", "benefit", "nidhi", "year", "years"
-        )
-    ):
-        return "rag"
-
-    return "reject"
 
 
 def _get_session_id(data: dict) -> str:
@@ -205,14 +197,15 @@ def _build_budget_probe_messages(
             reasoning=reasoning,
             history=history,
         )
-
-    messages = [{
-        "role": "system",
-        "content": (
-            "You are AgniAI, a helpful assistant for India's Agniveer Training scheme. "
-            "Respond naturally and concisely."
-        ),
-    }]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are AgniAI, a helpful assistant for India's Agniveer Training scheme. "
+                "Respond naturally and concisely."
+            ),
+        }
+    ]
     if history:
         messages.extend(history)
     messages.append({"role": "user", "content": query})
@@ -220,23 +213,36 @@ def _build_budget_probe_messages(
 
 
 def _compute_context_char_budget(
-    *, query: str, style: str, history: list[dict] | None,
-    reasoning: bool, use_rag: bool,
+    *,
+    query: str,
+    style: str,
+    history: list[dict] | None,
+    reasoning: bool,
+    use_rag: bool,
 ) -> tuple[int, int]:
     style_budget = _get_token_limit(style)
     probe_messages = _build_budget_probe_messages(
-        query=query, style=style, history=history,
-        reasoning=reasoning, use_rag=use_rag,
+        query=query,
+        style=style,
+        history=history,
+        reasoning=reasoning,
+        use_rag=use_rag,
     )
     prompt_tokens = estimate_message_tokens(probe_messages)
-    available_after_prompt = MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - TOKEN_SAFETY_BUFFER
+    available_after_prompt = (
+        MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - TOKEN_SAFETY_BUFFER
+    )
     completion_budget = (
         max(1, min(style_budget, available_after_prompt))
-        if available_after_prompt > 0 else 1
+        if available_after_prompt > 0
+        else 1
     )
     context_tokens = max(
         0,
-        MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - completion_budget - TOKEN_SAFETY_BUFFER,
+        MODEL_MAX_CONTEXT_TOKENS
+        - prompt_tokens
+        - completion_budget
+        - TOKEN_SAFETY_BUFFER,
     )
     return completion_budget, context_tokens * 4
 
@@ -263,12 +269,16 @@ def _build_messages(
             reasoning=reasoning,
             history=history,
         )
-
-    messages = [{"role": "system", "content": (
-        "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
-        "Respond naturally and concisely."
-        f"\n\n{style_structure_instruction(style)}"
-    )}]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
+                "Respond naturally and concisely."
+                f"\n\n{style_structure_instruction(style)}"
+            ),
+        }
+    ]
     if history:
         messages.extend(history)
     messages.append({"role": "user", "content": query})
@@ -299,8 +309,12 @@ def _generate_structured_rag_answer(
 
 
 def _answer_via_llm(
-    *, messages: list[dict], model: str, token_limit: int,
-    stream: bool, on_token=None,
+    *,
+    messages: list[dict],
+    model: str,
+    token_limit: int,
+    stream: bool,
+    on_token=None,
 ) -> str:
     result = chat_with_fallback(
         _session,
@@ -339,6 +353,7 @@ def _stream_answer_response(answer_generator, status_payload: dict) -> Response:
 # ROUTES
 # =============================================================================
 
+
 @app.route("/api/health")
 def health():
     stats_data = index_stats()
@@ -349,19 +364,23 @@ def health():
         ollama_ok = False
 
     if not ollama_ok:
-        return jsonify(ok_health(
+        return jsonify(
+            ok_health(
+                vectors=stats_data["vectors"],
+                chunks=stats_data["chunks"],
+                model=_active_model,
+                status="ollama_unreachable",
+            )
+        ), 503
+
+    return jsonify(
+        ok_health(
             vectors=stats_data["vectors"],
             chunks=stats_data["chunks"],
             model=_active_model,
-            status="ollama_unreachable",
-        )), 503
-
-    return jsonify(ok_health(
-        vectors=stats_data["vectors"],
-        chunks=stats_data["chunks"],
-        model=_active_model,
-        status="ok",
-    ))
+            status="ok",
+        )
+    )
 
 
 @app.route("/api/chat", methods=["POST"])
@@ -374,7 +393,8 @@ def chat():
     stream_value = data.get("stream")
     stream = (
         str(stream_value).lower() in {"1", "true", "yes", "on"}
-        if stream_value is not None else False
+        if stream_value is not None
+        else False
     )
     session_id = _get_session_id(data)
 
@@ -387,7 +407,8 @@ def chat():
         current_model = _active_model
 
     style_name, _ = detect_answer_style(message)
-    intent = _classify_intent(message)
+    # Use shared classifier from config.py — single source of truth
+    intent = classify_intent(message)
     use_rag = intent == "rag"
     history = _memory.history(session_id)
     reasoning = is_reasoning_query(message) if use_rag else False
@@ -421,7 +442,7 @@ def chat():
             )
         return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
-    # ── Compute budgets first (needed by both RAG and non-RAG paths) ───────
+    # ── Compute budgets ────────────────────────────────────────────────────
     token_limit, context_char_budget = _compute_context_char_budget(
         query=message,
         style=style_name,
@@ -441,9 +462,13 @@ def chat():
             include_points=False,
         )
         context = bundle.get("context", "") if isinstance(bundle, dict) else ""
-        confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
+        confidence = (
+            float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
+        )
         mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
-        reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
+        reasoning = (
+            bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
+        )
     else:
         context = ""
         confidence = 0.0
@@ -457,7 +482,7 @@ def chat():
         session_id=session_id,
     )
 
-    # ── Cache check (after retrieval so key is stable) ─────────────────────
+    # ── Cache check ────────────────────────────────────────────────────────
     cached_answer = get_cached_response(response_key)
     if cached_answer is not None:
         _memory.add("user", message, session_id=session_id)
@@ -475,9 +500,13 @@ def chat():
                     "mode": mode,
                 },
             )
-        return jsonify(ok_chat(
-            answer=cached_answer, style=style_name, session_id=session_id,
-        ))
+        return jsonify(
+            ok_chat(
+                answer=cached_answer,
+                style=style_name,
+                session_id=session_id,
+            )
+        )
 
     # ── RAG answer generation ──────────────────────────────────────────────
     if use_rag:
@@ -535,8 +564,9 @@ def chat():
                     )
                     return
 
-                answer = "".join(pieces).strip() or str(outcome.get("answer", "")).strip()
-                # Fallback if context was empty — never hallucinate
+                answer = (
+                    "".join(pieces).strip() or str(outcome.get("answer", "")).strip()
+                )
                 if mode == "strict_answer" and not context.strip() and not docs:
                     answer = REFERENCE_FALLBACK
                 answer = _finalize_answer(answer)
@@ -689,14 +719,18 @@ def ingest():
         return jsonify(*err("target field is required (file path or URL).", 400))
 
     fn_map = {
-        "pdf": ingest_pdf, "url": ingest_url, "txt": ingest_txt,
-        "text": ingest_text, "docx": ingest_docx,
+        "pdf": ingest_pdf,
+        "url": ingest_url,
+        "txt": ingest_txt,
+        "text": ingest_text,
+        "docx": ingest_docx,
     }
-
     if kind not in fn_map:
-        return jsonify(*err(
-            f"Unknown kind '{kind}'. Valid values: pdf, url, txt, text, docx.", 400
-        ))
+        return jsonify(
+            *err(
+                f"Unknown kind '{kind}'. Valid values: pdf, url, txt, text, docx.", 400
+            )
+        )
 
     try:
         count = fn_map[kind](target)
@@ -706,17 +740,20 @@ def ingest():
         return jsonify(*err(f"Ingestion failed: {exc}", 500))
 
     if count == 0:
-        return jsonify(ok_ingest(
-            message="Source was already ingested. No new chunks added.",
-            chunks=0,
+        return jsonify(
+            ok_ingest(
+                message="Source was already ingested. No new chunks added.",
+                chunks=0,
+                source=target,
+            )
+        )
+    return jsonify(
+        ok_ingest(
+            message=f"Successfully ingested {count} chunks.",
+            chunks=count,
             source=target,
-        ))
-
-    return jsonify(ok_ingest(
-        message=f"Successfully ingested {count} chunks.",
-        chunks=count,
-        source=target,
-    ))
+        )
+    )
 
 
 @app.route("/api/sources")
@@ -738,11 +775,11 @@ def clear_memory():
 
 
 @app.route("/api/reset_index", methods=["POST"])
+@_require_secret
 def reset_index():
+    """Destructive: deletes entire knowledge base. Protected by API_SECRET_KEY if set."""
     clear_index()
-    return jsonify(ok_message(
-        "Knowledge base reset. Re-ingest documents to continue."
-    ))
+    return jsonify(ok_message("Knowledge base reset. Re-ingest documents to continue."))
 
 
 # =============================================================================
@@ -755,11 +792,10 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    # 1. Preload all models (embedding + FAISS + BM25 + Ollama LLM)
     warmup_runtime(async_load=False)
 
-    # 2. Start keepalive heartbeat so model never unloads
     from ollama_cpu_chat import _start_keepalive_heartbeat
+
     _start_keepalive_heartbeat(_session, interval_seconds=300)
 
     stats_data = index_stats()
@@ -768,11 +804,12 @@ if __name__ == "__main__":
     print("  Listening on  http://0.0.0.0:5000")
     print("  Health check  http://localhost:5000/api/health")
     print("  Chat endpoint http://localhost:5000/api/chat  [POST]")
+    if API_SECRET_KEY:
+        print("  Auth          X-Api-Key header required for /api/reset_index")
     if stats_data["vectors"] == 0:
         print("  Warning: Knowledge base is empty.")
         print("  POST /api/ingest to add documents before chatting.\n")
     else:
         print(f"  Knowledge base ready: {stats_data['vectors']} vectors.\n")
 
-    # Single app.run() call — was duplicated in the original
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

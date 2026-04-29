@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import sys
-from hashlib import sha1
 from typing import Optional, Tuple
 
 import requests
@@ -20,7 +18,6 @@ from config import (
     MAX_TOKENS_STYLE,
     MODEL_MAX_CONTEXT_TOKENS,
     REFERENCE_FALLBACK,
-    SESSION_HEADER,
     STRICT_RAG_PROMPT,
     STRICT_RAG_PROMPT_COMPUTE,
     TOKEN_SAFETY_BUFFER,
@@ -28,13 +25,19 @@ from config import (
     STYLE_ELABORATE_KEYWORDS,
     STYLE_SHORT_KEYWORDS,
     TOP_K,
+    classify_intent,
     estimate_message_tokens,
     style_structure_instruction,
     trim_to_complete_sentence,
 )
 from ingest import (
-    clear_index, ingest_docx, ingest_pdf, ingest_text,
-    ingest_txt, ingest_url, list_sources,
+    clear_index,
+    ingest_docx,
+    ingest_pdf,
+    ingest_text,
+    ingest_txt,
+    ingest_url,
+    list_sources,
 )
 from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL_NAME
@@ -63,19 +66,39 @@ if hasattr(sys.stderr, "reconfigure"):
 # COLOUR HELPERS
 # =============================================================================
 
+
 def _c(code: str, text: str) -> str:
     if not sys.stdout.isatty():
         return text
     return f"\033[{code}m{text}\033[0m"
 
 
-def dim(t):    return _c("2",  t)
-def bold(t):   return _c("1",  t)
-def cyan(t):   return _c("96", t)
-def green(t):  return _c("92", t)
-def yellow(t): return _c("93", t)
-def red(t):    return _c("91", t)
-def blue(t):   return _c("94", t)
+def dim(t):
+    return _c("2", t)
+
+
+def bold(t):
+    return _c("1", t)
+
+
+def cyan(t):
+    return _c("96", t)
+
+
+def green(t):
+    return _c("92", t)
+
+
+def yellow(t):
+    return _c("93", t)
+
+
+def red(t):
+    return _c("91", t)
+
+
+def blue(t):
+    return _c("94", t)
 
 
 BANNER = cyan(r"""
@@ -102,6 +125,9 @@ Available commands:
   /exit  or  /quit        Exit AgniAI
 
 Answer style is detected automatically from your question.
+  - "briefly" / "in short"   → SHORT
+  - "explain" / "elaborate"  → ELABORATE
+  - "in detail" / "step by step" → DETAIL
 """
 
 _STYLE_LABEL = {"short": "SHORT", "elaborate": "ELABORATE", "detail": "DETAIL"}
@@ -111,6 +137,7 @@ _STYLE_COLOR = {"short": yellow, "elaborate": cyan, "detail": blue}
 # =============================================================================
 # HELPERS
 # =============================================================================
+
 
 def _kw_match(query_lower: str, keywords: list) -> bool:
     for kw in keywords:
@@ -159,15 +186,16 @@ def _build_budget_probe_messages(
             reasoning=reasoning,
             history=history,
         )
-
-    messages = [{
-        "role": "system",
-        "content": (
-            "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
-            "Respond naturally and concisely."
-            f"\n\n{style_structure_instruction(style)}"
-        ),
-    }]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
+                "Respond naturally and concisely."
+                f"\n\n{style_structure_instruction(style)}"
+            ),
+        }
+    ]
     if history:
         messages.extend(history)
     messages.append({"role": "user", "content": query})
@@ -175,23 +203,36 @@ def _build_budget_probe_messages(
 
 
 def _compute_context_char_budget(
-    *, query: str, style: str, history: list[dict] | None,
-    reasoning: bool, use_rag: bool,
+    *,
+    query: str,
+    style: str,
+    history: list[dict] | None,
+    reasoning: bool,
+    use_rag: bool,
 ) -> tuple[int, int]:
     style_budget = get_token_limit(style)
     probe_messages = _build_budget_probe_messages(
-        query=query, style=style, history=history,
-        reasoning=reasoning, use_rag=use_rag,
+        query=query,
+        style=style,
+        history=history,
+        reasoning=reasoning,
+        use_rag=use_rag,
     )
     prompt_tokens = estimate_message_tokens(probe_messages)
-    available_after_prompt = MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - TOKEN_SAFETY_BUFFER
+    available_after_prompt = (
+        MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - TOKEN_SAFETY_BUFFER
+    )
     completion_budget = (
         max(1, min(style_budget, available_after_prompt))
-        if available_after_prompt > 0 else 1
+        if available_after_prompt > 0
+        else 1
     )
     context_tokens = max(
         0,
-        MODEL_MAX_CONTEXT_TOKENS - prompt_tokens - completion_budget - TOKEN_SAFETY_BUFFER,
+        MODEL_MAX_CONTEXT_TOKENS
+        - prompt_tokens
+        - completion_budget
+        - TOKEN_SAFETY_BUFFER,
     )
     return completion_budget, context_tokens * 4
 
@@ -211,7 +252,6 @@ def _build_rag_messages(
     context_char_budget: int,
     context: str | None = None,
 ) -> tuple[list[dict], str]:
-    """Build the final messages list for a RAG query using retrieved docs."""
     if context is None:
         context = build_context(
             docs,
@@ -224,7 +264,6 @@ def _build_rag_messages(
     system_prompt = f"{system_prompt}\n\n{style_structure_instruction(style)}"
 
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
-
     if history:
         for msg in history[-6:]:
             role = msg.get("role")
@@ -246,50 +285,6 @@ def _build_rag_messages(
     return messages, context
 
 
-def _classify_intent(query: str) -> str:
-    q = query.strip().lower()
-    tokens = [t for t in q.split() if t]
-    if not tokens:
-        return "reject"
-
-    greeting_like = {
-        "hi", "hello", "hey", "thanks", "thank you", "good morning",
-        "good afternoon", "good evening", "bye", "greetings", "welcome",
-        "ok", "okay",
-    }
-    if q in greeting_like and len(tokens) <= 2:
-        return "chat"
-
-    small_talk = (
-        "how are you", "what's up", "whats up", "good morning", "good afternoon",
-        "good evening", "thank you", "thanks",
-    )
-    if any(phrase in q for phrase in small_talk):
-        return "chat"
-
-    domain_terms = (
-        "age", "eligibility", "salary", "pay", "selection", "medical", "pft",
-        "physical", "training", "insurance", "ncc", "document", "apply",
-        "application", "seva", "nidhi", "recruitment", "joining", "service",
-        "agni", "agniveer", "benefit", "package", "rally", "fitness",
-    )
-    if any(term in q for term in domain_terms):
-        return "rag"
-
-    reasoning_terms = (
-        "calculate", "total", "sum", "overall", "aggregate", "combined",
-        "after 4 years", "over 4 years",
-    )
-    if any(term in q for term in reasoning_terms) and any(
-        term in q for term in (
-            "salary", "pay", "service", "seva", "benefit", "nidhi", "year", "years"
-        )
-    ):
-        return "rag"
-
-    return "reject"
-
-
 def _ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
@@ -299,20 +294,26 @@ def _ensure_dirs() -> None:
 # COMMAND HANDLERS
 # =============================================================================
 
+
 def _handle_ingest(command: str) -> None:
     parts = command.split(maxsplit=2)
     if len(parts) < 3:
-        print(yellow(
-            "Usage: /ingest pdf <path> | /ingest url <url> | "
-            "/ingest txt <path> | /ingest text <content> | /ingest docx <path>"
-        ))
+        print(
+            yellow(
+                "Usage: /ingest pdf <path> | /ingest url <url> | "
+                "/ingest txt <path> | /ingest text <content> | /ingest docx <path>"
+            )
+        )
         return
 
     kind = parts[1].lower()
     target = parts[2].strip()
     fn_map = {
-        "pdf": ingest_pdf, "url": ingest_url, "txt": ingest_txt,
-        "text": ingest_text, "docx": ingest_docx,
+        "pdf": ingest_pdf,
+        "url": ingest_url,
+        "txt": ingest_txt,
+        "text": ingest_text,
+        "docx": ingest_docx,
     }
     if kind not in fn_map:
         print(yellow(f"Unknown type '{kind}'. Use: pdf, url, txt, text, docx."))
@@ -361,22 +362,25 @@ def _handle_reset() -> None:
 # MAIN CHAT LOOP
 # =============================================================================
 
+
 def run_chat() -> None:
     _ensure_dirs()
     memory = ConversationMemory()
     active_model: Optional[str] = DEFAULT_MODEL_NAME
     session = requests.Session()
 
-    # Keep model hot during CLI session
     from ollama_cpu_chat import _start_keepalive_heartbeat
+
     _start_keepalive_heartbeat(session, interval_seconds=300)
 
     print(BANNER)
     stats = index_stats()
     if stats["vectors"] == 0:
-        print(yellow(
-            "  Knowledge base is empty. Use /ingest to add PDFs, URLs, or text.\n"
-        ))
+        print(
+            yellow(
+                "  Knowledge base is empty. Use /ingest to add PDFs, URLs, or text.\n"
+            )
+        )
     else:
         print(dim(f"  Knowledge base ready: {stats['vectors']} vectors loaded.\n"))
     print(dim(f"  Active model: {active_model}  (type /model <name> to switch)\n"))
@@ -428,21 +432,25 @@ def run_chat() -> None:
             print(yellow(f"  Unknown command: {raw} (type /help for a list)"))
             continue
 
-        # ── Determine style and intent ────────────────────────────────────
+        # ── Determine style and intent ─────────────────────────────────────
         style_name, _ = detect_answer_style(raw)
         style_label = _STYLE_LABEL[style_name]
         style_color = _STYLE_COLOR[style_name]
         context_limit = get_context_limit(style_name)
         history = memory.history()
-        intent = _classify_intent(raw)
+
+        # Use shared classifier from config.py — single source of truth
+        intent = classify_intent(raw)
         use_rag = intent == "rag"
         reasoning = is_reasoning_query(raw) if use_rag else False
+
         print(
-            dim("  Answer style: ") + style_color(style_label)
+            dim("  Answer style: ")
+            + style_color(style_label)
             + dim(f"  [ctx={context_limit} chars]")
         )
 
-        # ── Reject out-of-domain queries ──────────────────────────────────
+        # ── Reject out-of-domain queries ───────────────────────────────────
         if intent == "reject":
             answer = REFERENCE_FALLBACK
             print(f"\nAgniAI: {answer}\n")
@@ -450,13 +458,16 @@ def run_chat() -> None:
             memory.add("assistant", answer)
             continue
 
-        # ── Compute token / context budgets ───────────────────────────────
+        # ── Compute token / context budgets ────────────────────────────────
         token_limit, context_char_budget = _compute_context_char_budget(
-            query=raw, style=style_name, history=history,
-            reasoning=reasoning, use_rag=use_rag,
+            query=raw,
+            style=style_name,
+            history=history,
+            reasoning=reasoning,
+            use_rag=use_rag,
         )
 
-        # ── Cache check (pre-retrieval for non-RAG) ───────────────────────
+        # ── Cache check (pre-retrieval for non-RAG) ────────────────────────
         response_key = make_response_cache_key(
             raw,
             style=style_name,
@@ -464,7 +475,6 @@ def run_chat() -> None:
             context="",
             session_id="cli",
         )
-
         if not use_rag:
             cached_answer = get_cached_response(response_key)
             if cached_answer is not None:
@@ -474,10 +484,13 @@ def run_chat() -> None:
                 memory.add("assistant", cached_answer)
                 continue
 
-        # ── RAG retrieval ─────────────────────────────────────────────────
+        # ── RAG retrieval ──────────────────────────────────────────────────
         bundle: dict = {
-            "docs": [], "context": "", "confidence": 0.0,
-            "mode": "reject", "reasoning": False,
+            "docs": [],
+            "context": "",
+            "confidence": 0.0,
+            "mode": "reject",
+            "reasoning": False,
         }
         if use_rag:
             print(dim("  Preparing retrieval..."))
@@ -489,10 +502,22 @@ def run_chat() -> None:
                 include_points=False,
             )
             docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
-            confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
-            mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
-            reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
-            context_for_cache = bundle.get("context", "") if isinstance(bundle, dict) else ""
+            confidence = (
+                float(bundle.get("confidence", 0.0))
+                if isinstance(bundle, dict)
+                else 0.0
+            )
+            mode = (
+                bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
+            )
+            reasoning = (
+                bool(bundle.get("reasoning", False))
+                if isinstance(bundle, dict)
+                else False
+            )
+            context_for_cache = (
+                bundle.get("context", "") if isinstance(bundle, dict) else ""
+            )
             response_key = make_response_cache_key(
                 raw,
                 style=style_name,
@@ -500,10 +525,12 @@ def run_chat() -> None:
                 context=context_for_cache,
                 session_id="cli",
             )
-            print(dim(
-                f"  Retrieval confidence: {confidence:.3f} | "
-                f"mode={mode} | reasoning={reasoning}"
-            ))
+            print(
+                dim(
+                    f"  Retrieval confidence: {confidence:.3f} | "
+                    f"mode={mode} | reasoning={reasoning}"
+                )
+            )
 
             cached_answer = get_cached_response(response_key)
             if cached_answer is not None:
@@ -514,16 +541,19 @@ def run_chat() -> None:
                 continue
 
         docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
-        confidence = float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
+        confidence = (
+            float(bundle.get("confidence", 0.0)) if isinstance(bundle, dict) else 0.0
+        )
         mode = bundle.get("mode", "reject") if isinstance(bundle, dict) else "reject"
-        reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
+        reasoning = (
+            bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
+        )
 
-        # ── Generate answer (streaming to stdout) ─────────────────────────
+        # ── Generate answer (streaming to stdout) ──────────────────────────
         try:
             print("\nAgniAI: ", end="", flush=True)
 
             if use_rag:
-                # Build messages from retrieved docs
                 messages, _ = _build_rag_messages(
                     query=raw,
                     docs=docs,
@@ -531,17 +561,21 @@ def run_chat() -> None:
                     reasoning=reasoning,
                     history=history[-6:] if history else None,
                     context_char_budget=context_char_budget,
-                    context=bundle.get("context", "") if isinstance(bundle, dict) else "",
+                    context=bundle.get("context", "")
+                    if isinstance(bundle, dict)
+                    else "",
                 )
             else:
-                messages = [{
-                    "role": "system",
-                    "content": (
-                        "You are AgniAI, a helpful assistant for India's Agniveer "
-                        "recruitment scheme. Respond naturally and concisely."
-                        f"\n\n{style_structure_instruction(style_name)}"
-                    ),
-                }]
+                messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are AgniAI, a helpful assistant for India's Agniveer "
+                            "recruitment scheme. Respond naturally and concisely."
+                            f"\n\n{style_structure_instruction(style_name)}"
+                        ),
+                    }
+                ]
                 if history:
                     messages.extend(history[-6:])
                 messages.append({"role": "user", "content": raw})
@@ -553,7 +587,7 @@ def run_chat() -> None:
                 stream_tokens=True,
                 max_tokens_override=token_limit,
             )
-            print()  # newline after streamed tokens
+            print()
             answer = _finalize_answer(result.text)
 
         except PartialResponseError as exc:
@@ -573,7 +607,7 @@ def run_chat() -> None:
 
 
 # =============================================================================
-# ENTRY POINT — CLI only
+# ENTRY POINT
 # =============================================================================
 
 if __name__ == "__main__":
@@ -582,7 +616,5 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    # Preload everything before entering the chat loop
     warmup_runtime(async_load=False)
-
     run_chat()
