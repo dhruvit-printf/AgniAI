@@ -268,3 +268,7 @@ python benchmark_test.py --verbose
 ## Privacy
 
 All computation happens **on your machine**. No data is sent to any cloud service. The embedding model is downloaded once and cached locally — subsequent runs are fully offline.
+
+# These two services must always be running
+# sudo systemctl status ollama    # Ollama LLM
+# sudo systemctl status agniai    # AgniAI Flask API

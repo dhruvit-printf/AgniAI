@@ -798,9 +798,9 @@ if __name__ == "__main__":
     stats_data = index_stats()
 
     print("\n  AgniAI REST API")
-    print("  Listening on  http://0.0.0.0:5000")
-    print("  Health check  http://localhost:5000/api/health")
-    print("  Chat endpoint http://localhost:5000/api/chat  [POST]")
+    print("  Listening on  http://0.0.0.0:7257")
+    print("  Health check  http://localhost:7257/api/health")
+    print("  Chat endpoint http://localhost:7257/api/chat  [POST]")
     if API_SECRET_KEY:
         print("  Auth          X-Api-Key header required for /api/reset_index")
     if stats_data["vectors"] == 0:
@@ -809,4 +809,4 @@ if __name__ == "__main__":
     else:
         print(f"  Knowledge base ready: {stats_data['vectors']} vectors.\n")
 
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=7257, debug=False, threaded=True)

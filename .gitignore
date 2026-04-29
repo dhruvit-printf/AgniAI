@@ -63,3 +63,8 @@ benchmark_results/
 
 # Flask / local server artifacts
 instance/
+
+index/
+*.index
+*.pkl
+*.json
