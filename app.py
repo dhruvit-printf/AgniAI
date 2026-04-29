@@ -60,7 +60,6 @@ from rag import (
     get_cached_response,
     index_stats,
     make_response_cache_key,
-    decide_answer_mode,
     generate_structured_answer,
     is_reasoning_query,
     prepare_rag_bundle,
