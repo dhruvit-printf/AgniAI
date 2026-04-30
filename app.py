@@ -71,7 +71,12 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
-CORS(app, origins=ALLOWED_ORIGINS)
+CORS(app,
+     origins=["https://localhost:7257", "http://localhost:7257",
+               "http://localhost:5000", "http://localhost:3000", "*"],
+     allow_headers=["Content-Type", "X-Api-Key", "X-Session-Id"],
+     methods=["GET", "POST", "OPTIONS"],
+     supports_credentials=True)
 
 _memory = ConversationMemory()
 _session = _requests.Session()
