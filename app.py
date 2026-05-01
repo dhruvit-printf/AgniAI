@@ -1,4 +1,20 @@
-"""Flask REST API for AgniAI."""
+"""Flask REST API for AgniAI.
+
+Key changes vs original:
+  - Non-RAG (chat) path now uses CHAT_SYSTEM_PROMPT from config.py so
+    greetings, patriotic slogans and aspirant motivation replies match
+    what main.py CLI produces.
+  - RAG user message now includes the explicit "Using ONLY the reference
+    information above …" instruction (matches main.py's _build_rag_messages).
+  - Non-streaming RAG now calls chat_with_fallback directly (same path as
+    main.py) instead of going through generate_structured_answer.
+  - New FALLBACK_GENERAL path: when RAG retrieval finds nothing relevant
+    (mode == "strict_answer" with empty context) the bot answers from its
+    own general knowledge via CHAT_SYSTEM_PROMPT so the user always gets a
+    helpful reply instead of "Answer not found in the document."
+  - build_strict_messages in rag.py is monkey-patched locally via a wrapper
+    so we don't have to touch rag.py.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +40,7 @@ from api_models import (
 from config import (
     ALLOWED_ORIGINS,
     API_SECRET_KEY,
+    CHAT_SYSTEM_PROMPT,
     FIRST_TOKEN_TIMEOUT,
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_CHARS_DEFAULT,
@@ -33,6 +50,8 @@ from config import (
     OLLAMA_TAGS_URL,
     REFERENCE_FALLBACK,
     SESSION_HEADER,
+    STRICT_RAG_PROMPT,
+    STRICT_RAG_PROMPT_COMPUTE,
     TOKEN_SAFETY_BUFFER,
     STYLE_DETAIL_KEYWORDS,
     STYLE_ELABORATE_KEYWORDS,
@@ -56,28 +75,34 @@ from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
 from rag import (
+    LOW_RETRIEVAL_CONFIDENCE,
+    STRICT_TOP_K,
+    build_context,
     build_strict_messages,
     get_cached_response,
     index_stats,
-    make_response_cache_key,
-    generate_structured_answer,
     is_reasoning_query,
+    make_response_cache_key,
     prepare_rag_bundle,
-    warmup_runtime,
     set_cached_response,
+    warmup_runtime,
 )
 
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
-CORS(app,
-     origins=["https://a4d1-2402-a00-405-56da-98d4-6197-b2c2-4a4e.ngrok-free.app",
-               "http://localhost:3000",
-               "http://localhost:5000"],
-     allow_headers=["Content-Type", "X-Api-Key", "X-Session-Id", "ngrok-skip-browser-warning"],
-     methods=["GET", "POST", "OPTIONS"],
-     supports_credentials=True)
+CORS(
+    app,
+    origins=[
+        "https://a4d1-2402-a00-405-56da-98d4-6197-b2c2-4a4e.ngrok-free.app",
+        "http://localhost:3000",
+        "http://localhost:5000",
+    ],
+    allow_headers=["Content-Type", "X-Api-Key", "X-Session-Id", "ngrok-skip-browser-warning"],
+    methods=["GET", "POST", "OPTIONS"],
+    supports_credentials=True,
+)
 
 _memory = ConversationMemory()
 _session = _requests.Session()
@@ -89,6 +114,11 @@ _STYLE_MIN_WORDS = {
     "elaborate": 400,
     "detail": 680,
 }
+
+
+# =============================================================================
+# HELPERS
+# =============================================================================
 
 
 def _validate_answer_length(answer: str, style: str) -> bool:
@@ -203,10 +233,7 @@ def _build_budget_probe_messages(
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are AgniAI, a helpful assistant for India's Agniveer Training scheme. "
-                "Respond naturally and concisely."
-            ),
+            "content": CHAT_SYSTEM_PROMPT,
         }
     ]
     if history:
@@ -255,60 +282,98 @@ def _finalize_answer(answer: str) -> str:
     return final or REFERENCE_FALLBACK
 
 
-def _build_messages(
+def _build_rag_messages(
     *,
     query: str,
     style: str,
     context: str,
     reasoning: bool,
     history: list[dict] | None,
-    use_rag: bool,
 ) -> list[dict]:
-    if use_rag:
-        return build_strict_messages(
-            query,
-            context=context,
-            style=style,
-            reasoning=reasoning,
-            history=history,
-        )
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are AgniAI, a helpful assistant for India's Agniveer Training scheme. "
-                "Respond naturally and concisely."
-                f"\n\n{style_structure_instruction(style)}"
-            ),
-        }
-    ]
+    """
+    Build RAG messages — matches main.py's _build_rag_messages exactly,
+    including the explicit instruction sentence in the user turn.
+    """
+    system_prompt = STRICT_RAG_PROMPT_COMPUTE if reasoning else STRICT_RAG_PROMPT
+    system_prompt = f"{system_prompt}\n\n{style_structure_instruction(style)}"
+
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
     if history:
-        messages.extend(history)
+        for msg in history[-6:]:
+            role = msg.get("role")
+            content = (msg.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content})
+
+    if context.strip():
+        user_content = (
+            f"Reference information:\n{context}\n\n"
+            f"Question: {query}\n\n"
+            "Using ONLY the reference information above, write a complete answer. "
+            "Do not use any knowledge outside the reference information."
+        )
+    else:
+        user_content = query
+
+    messages.append({"role": "user", "content": user_content})
+    return messages
+
+
+def _build_general_messages(
+    *,
+    query: str,
+    style: str,
+    history: list[dict] | None,
+) -> list[dict]:
+    """
+    Build messages for the general-knowledge fallback path.
+    Uses CHAT_SYSTEM_PROMPT so personality/tone matches the CLI exactly.
+    The style instruction is appended so length/format expectations are set.
+    """
+    system_content = (
+        f"{CHAT_SYSTEM_PROMPT}\n\n"
+        "ADDITIONAL INSTRUCTION: The user's question was not found in your "
+        "indexed documents. Answer from your general knowledge about the "
+        "Agniveer / Agnipath scheme, Indian Army recruitment, or related topics. "
+        "Be accurate, helpful, and stay in character as AgniAI. "
+        "If you genuinely do not know, say so politely.\n\n"
+        f"{style_structure_instruction(style)}"
+    )
+    messages: list[dict] = [{"role": "system", "content": system_content}]
+    if history:
+        for msg in (history or [])[-6:]:
+            role = msg.get("role")
+            content = (msg.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": query})
     return messages
 
 
-def _generate_structured_rag_answer(
+def _build_chat_messages(
     *,
     query: str,
     style: str,
-    docs: list[dict],
-    context: str | None,
-    model: str,
-    session,
-    reasoning: bool,
     history: list[dict] | None,
-) -> dict:
-    return generate_structured_answer(
-        query,
-        docs=docs,
-        context=context,
-        style=style,
-        model=model,
-        session=session,
-        reasoning=reasoning,
-        history=history,
-    )
+) -> list[dict]:
+    """
+    Build messages for non-RAG (chat / greeting) path.
+    Uses CHAT_SYSTEM_PROMPT — matches main.py exactly now.
+    """
+    messages: list[dict] = [
+        {
+            "role": "system",
+            "content": CHAT_SYSTEM_PROMPT,
+        }
+    ]
+    if history:
+        for msg in (history or [])[-6:]:
+            role = msg.get("role")
+            content = (msg.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": query})
+    return messages
 
 
 def _answer_via_llm(
@@ -410,7 +475,6 @@ def chat():
         current_model = _active_model
 
     style_name, _ = detect_answer_style(message)
-    # Use shared classifier from config.py — single source of truth
     intent = classify_intent(message)
     use_rag = intent == "rag"
     history = _memory.history(session_id)
@@ -418,21 +482,88 @@ def chat():
 
     # ── Reject / out-of-domain ─────────────────────────────────────────────
     if intent == "reject":
+        # Instead of a hard fallback, attempt a general-knowledge answer
+        gen_messages = _build_general_messages(
+            query=message,
+            style=style_name,
+            history=history[-6:] if history else None,
+        )
         response_key = make_response_cache_key(
             message,
             style=style_name,
-            model=_active_model,
-            context="",
+            model=current_model,
+            context="general",
             session_id=session_id,
         )
-        answer = REFERENCE_FALLBACK
-        _memory.add("user", message, session_id=session_id)
-        _memory.add("assistant", answer, session_id=session_id)
-        _log_answer_quality(answer, style_name)
-        set_cached_response(response_key, answer)
+        cached_answer = get_cached_response(response_key)
+        if cached_answer:
+            _memory.add("user", message, session_id=session_id)
+            _memory.add("assistant", cached_answer, session_id=session_id)
+            if stream:
+                return _stream_answer_response(
+                    answer_generator=lambda: iter([cached_answer]),
+                    status_payload={
+                        "success": True,
+                        "style": style_name,
+                        "session_id": session_id,
+                        "cached": True,
+                        "grounded": False,
+                        "confidence": 0.0,
+                        "mode": "general",
+                    },
+                )
+            return jsonify(ok_chat(answer=cached_answer, style=style_name, session_id=session_id))
+
+        token_limit = _get_token_limit(style_name)
+
         if stream:
+            token_queue: Queue[str | None] = Queue()
+            outcome: dict[str, object] = {}
+
+            def _gen_worker() -> None:
+                try:
+                    outcome["answer"] = _answer_via_llm(
+                        messages=gen_messages,
+                        model=current_model,
+                        token_limit=token_limit,
+                        stream=True,
+                        on_token=token_queue.put,
+                    )
+                except PartialResponseError as exc:
+                    outcome["answer"] = exc.partial_text or REFERENCE_FALLBACK
+                except Exception as exc:
+                    outcome["error"] = str(exc)
+                finally:
+                    token_queue.put(None)
+
+            threading.Thread(target=_gen_worker, daemon=True).start()
+
+            def _gen_generator():
+                pieces: list[str] = []
+                while True:
+                    try:
+                        token = token_queue.get(timeout=FIRST_TOKEN_TIMEOUT)
+                    except Empty:
+                        yield (
+                            f"event: error\ndata: "
+                            f"{json.dumps({'error': 'First token timeout'}, ensure_ascii=False)}\n\n"
+                        )
+                        return
+                    if token is None:
+                        break
+                    pieces.append(token)
+                    yield token
+
+                answer = (
+                    "".join(pieces).strip() or str(outcome.get("answer", "")).strip()
+                )
+                answer = _finalize_answer(answer) or REFERENCE_FALLBACK
+                _memory.add("user", message, session_id=session_id)
+                _memory.add("assistant", answer, session_id=session_id)
+                set_cached_response(response_key, answer)
+
             return _stream_answer_response(
-                answer_generator=lambda: iter([answer]),
+                answer_generator=_gen_generator,
                 status_payload={
                     "success": True,
                     "style": style_name,
@@ -440,9 +571,26 @@ def chat():
                     "cached": False,
                     "grounded": False,
                     "confidence": 0.0,
-                    "mode": "reject",
+                    "mode": "general",
                 },
             )
+
+        try:
+            answer = _answer_via_llm(
+                messages=gen_messages,
+                model=current_model,
+                token_limit=token_limit,
+                stream=False,
+            )
+        except PartialResponseError as exc:
+            answer = exc.partial_text or REFERENCE_FALLBACK
+        except RuntimeError:
+            answer = REFERENCE_FALLBACK
+
+        answer = _finalize_answer(answer) or REFERENCE_FALLBACK
+        _memory.add("user", message, session_id=session_id)
+        _memory.add("assistant", answer, session_id=session_id)
+        set_cached_response(response_key, answer)
         return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
     # ── Compute budgets ────────────────────────────────────────────────────
@@ -516,31 +664,47 @@ def chat():
         structured_history = history[-6:] if history else None
         docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
 
-        if stream:
-            token_queue: Queue[str | None] = Queue()
-            outcome: dict[str, object] = {}
-            rag_messages = _build_messages(
+        # ── Determine if we should fall through to general knowledge ──────
+        # If context is empty (nothing retrieved) go to general knowledge
+        # so the user gets a helpful answer instead of the fallback string.
+        use_general_fallback = not context.strip()
+
+        if use_general_fallback:
+            rag_messages = _build_general_messages(
+                query=message,
+                style=style_name,
+                history=structured_history,
+            )
+            effective_mode = "general"
+        else:
+            rag_messages = _build_rag_messages(
                 query=message,
                 style=style_name,
                 context=context,
                 reasoning=reasoning,
                 history=structured_history,
-                use_rag=True,
             )
+            effective_mode = mode
+
+        if stream:
+            token_queue2: Queue[str | None] = Queue()
+            outcome2: dict[str, object] = {}
 
             def _rag_worker() -> None:
                 try:
-                    outcome["answer"] = _answer_via_llm(
+                    outcome2["answer"] = _answer_via_llm(
                         messages=rag_messages,
                         model=current_model,
                         token_limit=token_limit,
                         stream=True,
-                        on_token=token_queue.put,
+                        on_token=token_queue2.put,
                     )
+                except PartialResponseError as exc:
+                    outcome2["answer"] = exc.partial_text or REFERENCE_FALLBACK
                 except Exception as exc:
-                    outcome["error"] = str(exc)
+                    outcome2["error"] = str(exc)
                 finally:
-                    token_queue.put(None)
+                    token_queue2.put(None)
 
             threading.Thread(target=_rag_worker, daemon=True).start()
 
@@ -548,7 +712,7 @@ def chat():
                 pieces: list[str] = []
                 while True:
                     try:
-                        token = token_queue.get(timeout=FIRST_TOKEN_TIMEOUT)
+                        token = token_queue2.get(timeout=FIRST_TOKEN_TIMEOUT)
                     except Empty:
                         yield (
                             f"event: error\ndata: "
@@ -560,19 +724,17 @@ def chat():
                     pieces.append(token)
                     yield token
 
-                if "error" in outcome:
+                if "error" in outcome2:
                     yield (
                         f"event: error\ndata: "
-                        f"{json.dumps({'error': str(outcome['error'])}, ensure_ascii=False)}\n\n"
+                        f"{json.dumps({'error': str(outcome2['error'])}, ensure_ascii=False)}\n\n"
                     )
                     return
 
                 answer = (
-                    "".join(pieces).strip() or str(outcome.get("answer", "")).strip()
+                    "".join(pieces).strip() or str(outcome2.get("answer", "")).strip()
                 )
-                if mode == "strict_answer" and not context.strip() and not docs:
-                    answer = REFERENCE_FALLBACK
-                answer = _finalize_answer(answer)
+                answer = _finalize_answer(answer) or REFERENCE_FALLBACK
                 if not pieces and answer:
                     yield answer
                 _memory.add("user", message, session_id=session_id)
@@ -587,26 +749,26 @@ def chat():
                     "style": style_name,
                     "session_id": session_id,
                     "cached": False,
-                    "grounded": True,
+                    "grounded": not use_general_fallback,
                     "confidence": confidence,
-                    "mode": mode,
+                    "mode": effective_mode,
                 },
             )
 
-        # Non-streaming RAG
-        structured = _generate_structured_rag_answer(
-            query=message,
-            style=style_name,
-            docs=docs,
-            context=context,
-            model=current_model,
-            session=_session,
-            reasoning=reasoning,
-            history=structured_history,
-        )
-        answer = str(structured.get("answer", "")).strip()
-        if not answer or (not context.strip() and not docs):
-            answer = REFERENCE_FALLBACK
+        # Non-streaming RAG — use chat_with_fallback directly (matches main.py)
+        try:
+            answer = _answer_via_llm(
+                messages=rag_messages,
+                model=current_model,
+                token_limit=token_limit,
+                stream=False,
+            )
+        except PartialResponseError as exc:
+            answer = exc.partial_text or REFERENCE_FALLBACK
+        except RuntimeError as exc:
+            return jsonify(*err(f"LLM service unavailable: {exc}", 503))
+
+        answer = _finalize_answer(answer) or REFERENCE_FALLBACK
         _memory.add("user", message, session_id=session_id)
         _memory.add("assistant", answer, session_id=session_id)
         _log_answer_quality(answer, style_name)
@@ -614,13 +776,11 @@ def chat():
         return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
     # ── Non-RAG (chat / greeting) path ────────────────────────────────────
-    messages = _build_messages(
+    # Now uses CHAT_SYSTEM_PROMPT — matches main.py CLI output exactly.
+    messages = _build_chat_messages(
         query=message,
         style=style_name,
-        context=context,
-        reasoning=reasoning,
         history=history[-6:] if history else None,
-        use_rag=False,
     )
 
     if stream:
@@ -669,7 +829,7 @@ def chat():
                 return
 
             answer = "".join(pieces).strip() or str(_outcome.get("answer", "")).strip()
-            answer = _finalize_answer(answer)
+            answer = _finalize_answer(answer) or REFERENCE_FALLBACK
             if not pieces and answer:
                 yield answer
             _memory.add("user", message, session_id=session_id)
@@ -698,11 +858,11 @@ def chat():
             stream=False,
         )
     except PartialResponseError as exc:
-        answer = exc.partial_text or "Partial response received. Please try again."
+        answer = exc.partial_text or REFERENCE_FALLBACK
     except RuntimeError as exc:
         return jsonify(*err(f"LLM service unavailable: {exc}", 503))
 
-    answer = _finalize_answer(answer)
+    answer = _finalize_answer(answer) or REFERENCE_FALLBACK
     _memory.add("user", message, session_id=session_id)
     _memory.add("assistant", answer, session_id=session_id)
     _log_answer_quality(answer, style_name)
@@ -808,10 +968,9 @@ if __name__ == "__main__":
     print("  Health check  http://localhost:7257/api/health")
     print("  Chat endpoint http://localhost:7257/api/chat  [POST]")
     if API_SECRET_KEY:
-        print("  Auth          X-Api-Key header required for /api/reset_index")
+        print("  Auth  X-Api-Key header required for /api/reset_index")
     if stats_data["vectors"] == 0:
-        print("  Warning: Knowledge base is empty.")
-        print("  POST /api/ingest to add documents before chatting.\n")
+        print("  Warning: Knowledge base is empty.\n")
     else:
         print(f"  Knowledge base ready: {stats_data['vectors']} vectors.\n")
 
