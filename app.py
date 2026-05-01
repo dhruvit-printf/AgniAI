@@ -95,7 +95,7 @@ app.config["JSON_AS_ASCII"] = False
 CORS(
     app,
     origins=[
-        "https://a4d1-2402-a00-405-56da-98d4-6197-b2c2-4a4e.ngrok-free.app",
+        "https://452a-2402-a00-405-56da-54b4-1651-4e17-a393.ngrok-free.app",
         "http://localhost:3000",
         "http://localhost:5000",
     ],
@@ -950,9 +950,20 @@ def reset_index():
 # =============================================================================
 
 if __name__ == "__main__":
+    from logging.handlers import RotatingFileHandler
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            RotatingFileHandler(
+                "agniai.log",
+                maxBytes=5 * 1024 * 1024,
+                backupCount=10,
+                encoding="utf-8",
+            )
+        ],
     )
 
     warmup_runtime(async_load=False)
