@@ -93,73 +93,127 @@ _MAX_STRUCTURED_POINTS = int(os.getenv("MAX_STRUCTURED_POINTS", "12"))
 _PRELOAD_THREAD: Optional[threading.Thread] = None
 
 _STEP_TEMPLATE = [
-    "Preparation",
-    "Online CEE",
-    "Rally Process",
+    "Registration & Preparation",
+    "Online CEE (Written Exam)",
+    "Rally & Physical Fitness Test",
     "Medical Examination",
-    "Review Opportunity",
-    "Final Selection",
-    "Training",
+    "Document Verification",
+    "Final Merit & Selection",
+    "Reporting to Training Centre",
+    "Basic Military Training",
+    "Regimental Training",
+    "Pass Out & Deployment",
 ]
 
 _STEP_PATTERNS = [
     (
-        "Preparation",
+        "Registration & Preparation",
         [
-            r"\bpreparation\b", r"\bbefore rally\b", r"\bpre[- ]?rally\b",
-            r"\bregistration\b", r"\bapply\b", r"\bapplication\b",
-            r"\beligibility\b", r"\bdocuments?\b", r"\badmit card\b",
+            r"\bpreparation\b", r"\bregistration\b",
+            r"\bapply\b", r"\bapplication\b",
+            r"\bpre[- ]?rally\b", r"\bbefore rally\b",
+            r"\beligibility\b", r"\bdomicile\b",
+            r"\badmit card\b", r"\bhow to apply\b",
+            r"\bonline registration\b",
         ],
     ),
     (
-        "Online CEE",
+        "Online CEE (Written Exam)",
         [
-            r"\bcee\b", r"\bcommon entrance exam\b", r"\bonline exam\b",
-            r"\bonline entrance exam\b", r"\bwritten exam\b",
+            r"\bcee\b", r"\bcommon entrance exam\b",
+            r"\bonline exam\b", r"\bwritten exam\b",
             r"\bcomputer[- ]based\b", r"\bcbt\b",
+            r"\bonline entrance\b", r"\bexamination\b",
         ],
     ),
     (
-        "Rally Process",
+        "Rally & Physical Fitness Test",
         [
-            r"\brally\b", r"\bphysical test\b", r"\bphysical fitness test\b",
-            r"\bpft\b", r"\bfitness test\b", r"\brun\b",
-            r"\bmeasurement\b", r"\bheight\b", r"\bchest\b", r"\bweight\b",
+            r"\brally\b", r"\bphysical test\b",
+            r"\bphysical fitness test\b", r"\bpft\b",
+            r"\bfitness test\b", r"\b1\.6 km\b",
+            r"\brun\b", r"\bmeasurement\b",
+            r"\bheight\b", r"\bchest\b", r"\bweight\b",
+            r"\bbeam\b", r"\b9 feet\b",
         ],
     ),
     (
         "Medical Examination",
         [
-            r"\bmedical examination\b", r"\bmedical test\b", r"\bmedical\b",
-            r"\bdoctor\b", r"\bhospital\b", r"\bfitness certificate\b",
+            r"\bmedical examination\b", r"\bmedical test\b",
+            r"\bmedical\b", r"\bdoctor\b",
+            r"\bhospital\b", r"\bfitness certificate\b",
+            r"\bmedical standard\b", r"\beyesight\b",
+            r"\bhearing\b", r"\bchest x[- ]?ray\b",
         ],
     ),
     (
-        "Review Opportunity",
+        "Document Verification",
         [
-            r"\bre[- ]?medical\b", r"\breview\b", r"\brecheck\b",
-            r"\bappeal\b", r"\bverification\b", r"\bclarification\b",
-            r"\breconsider\b",
+            r"\bdocument\b", r"\bverification\b",
+            r"\bdomicile\b", r"\baadhaar\b",
+            r"\bcertificate\b", r"\bmatric\b",
+            r"\bclass 10\b", r"\bmarksheet\b",
+            r"\bcaste\b", r"\bcharacter certificate\b",
         ],
     ),
     (
-        "Final Selection",
+        "Final Merit & Selection",
         [
-            r"\bfinal selection\b", r"\bselection list\b", r"\bmerit\b",
-            r"\bresult\b", r"\bdispatch\b", r"\bdespatch\b",
-            r"\bjoining\b", r"\bappointment\b", r"\boffer\b",
+            r"\bfinal selection\b", r"\bselection list\b",
+            r"\bmerit\b", r"\bmerit list\b",
+            r"\bresult\b", r"\bdispatch\b",
+            r"\bjoining\b", r"\bappointment\b",
+            r"\boffer letter\b", r"\bselected\b",
         ],
     ),
     (
-        "Training",
+        "Reporting to Training Centre",
         [
-            r"\btraining\b", r"\binduction\b", r"\bbasic training\b",
-            r"\bregimental\b", r"\borientation\b", r"\bcentre\b",
+            r"\breporting\b", r"\breport\b",
+            r"\btraining centre\b", r"\btraining center\b",
+            r"\bjoin training\b", r"\bregimental centre\b",
+            r"\binduction\b", r"\borientation\b",
+            r"\bwhen to report\b", r"\bwhere to report\b",
+        ],
+    ),
+    (
+        "Basic Military Training",
+        [
+            r"\bbasic training\b", r"\bmilitary training\b",
+            r"\bbasic military\b", r"\bweeks of training\b",
+            r"\bmonths of training\b", r"\bdrill\b",
+            r"\bweapon training\b", r"\bfiring\b",
+            r"\bfieldcraft\b", r"\bfield craft\b",
+            r"\bmap reading\b", r"\bphysical conditioning\b",
+            r"\bcombat\b", r"\bdiscipline\b",
+        ],
+    ),
+    (
+        "Regimental Training",
+        [
+            r"\bregimental training\b", r"\bregiment\b",
+            r"\bbattalion\b", r"\bunit training\b",
+            r"\bspecialisation\b", r"\bspecialization\b",
+            r"\barms training\b", r"\badvanced training\b",
+            r"\bposted to unit\b",
+        ],
+    ),
+    (
+        "Pass Out & Deployment",
+        [
+            r"\bpass out\b", r"\bpassout\b",
+            r"\bgraduation\b", r"\bcompletion\b",
+            r"\bdeployment\b", r"\bposting\b",
+            r"\bposted\b", r"\ballotment\b",
+            r"\bunit posting\b", r"\bafter training\b",
+            r"\bwhere posted\b", r"\bdeployed\b",
         ],
     ),
 ]
 
 _STEP_ORDER = {label: idx for idx, label in enumerate(_STEP_TEMPLATE)}
+
 _STEP_GENERIC_NOISE = {
     "army", "result", "results", "test", "tests", "part", "chapter", "section",
     "annexure", "appendix", "schedule", "table", "figure", "contents",

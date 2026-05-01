@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
 CORS(app,
-     origins=["https://48bf-2402-a00-405-56da-1d6-36cd-799d-8436.ngrok-free.app",
+     origins=["https://a4d1-2402-a00-405-56da-98d4-6197-b2c2-4a4e.ngrok-free.app",
                "http://localhost:3000",
                "http://localhost:5000"],
      allow_headers=["Content-Type", "X-Api-Key", "X-Session-Id", "ngrok-skip-browser-warning"],
@@ -276,7 +276,7 @@ def _build_messages(
         {
             "role": "system",
             "content": (
-                "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
+                "You are AgniAI, a helpful assistant for India's Agniveer Training scheme. "
                 "Respond naturally and concisely."
                 f"\n\n{style_structure_instruction(style)}"
             ),
