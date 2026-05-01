@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
 CORS(app,
-     origins=["https://0d2c-2402-a00-405-56da-a9b1-b535-f4e2-d49b.ngrok-free.app",
+     origins=["https://48bf-2402-a00-405-56da-1d6-36cd-799d-8436.ngrok-free.app",
                "http://localhost:3000",
                "http://localhost:5000"],
      allow_headers=["Content-Type", "X-Api-Key", "X-Session-Id", "ngrok-skip-browser-warning"],
