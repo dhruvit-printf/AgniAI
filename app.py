@@ -92,13 +92,11 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
+_cors_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+
 CORS(
     app,
-    origins=[
-        "https://452a-2402-a00-405-56da-54b4-1651-4e17-a393.ngrok-free.app",
-        "http://localhost:3000",
-        "http://localhost:5000",
-    ],
+    origins=_cors_origins if _cors_origins != ["*"] else "*",
     allow_headers=["Content-Type", "X-Api-Key", "X-Session-Id", "ngrok-skip-browser-warning"],
     methods=["GET", "POST", "OPTIONS"],
     supports_credentials=True,
@@ -326,19 +324,47 @@ def _build_general_messages(
     history: list[dict] | None,
 ) -> list[dict]:
     """
-    Build messages for the general-knowledge fallback path.
-    Uses CHAT_SYSTEM_PROMPT so personality/tone matches the CLI exactly.
-    The style instruction is appended so length/format expectations are set.
+    Builds messages for out-of-KB queries.
+    Detects whether the query is factual/subject-based or casual/personal
+    and sets the tone accordingly.
     """
-    system_content = (
-        f"{CHAT_SYSTEM_PROMPT}\n\n"
-        "ADDITIONAL INSTRUCTION: The user's question was not found in your "
-        "indexed documents. Answer from your general knowledge about the "
-        "Agniveer / Agnipath scheme, Indian Army recruitment, or related topics. "
-        "Be accurate, helpful, and stay in character as AgniAI. "
-        "If you genuinely do not know, say so politely.\n\n"
-        f"{style_structure_instruction(style)}"
+    query_lower = query.lower().strip()
+
+    # Detect factual / subject question
+    _FACTUAL_SIGNALS = (
+        "what is", "what are", "who is", "who was", "when did", "when was",
+        "where is", "where was", "how does", "how do", "why does", "why do",
+        "explain", "define", "difference between", "full form", "meaning of",
+        "capital of", "president of", "prime minister", "how many", "how much",
+        "which country", "which state", "formula", "equation", "calculate",
+        "theorem", "law of", "principle of", "history of", "founder of",
+        "invented by", "discovered by", "what happens", "why is", "how is",
     )
+    is_factual = any(signal in query_lower for signal in _FACTUAL_SIGNALS)
+
+    if is_factual:
+        system_content = (
+            f"{CHAT_SYSTEM_PROMPT}\n\n"
+            "The user is asking a factual or subject-based question outside your "
+            "Agniveer knowledge base. Answer it like a knowledgeable teacher or mentor — "
+            "accurate, clear, and complete. Do not restrict yourself to Agniveer topics. "
+            "If the topic connects to Agniveer or Indian Army, mention that naturally at the end. "
+            "Do not say 'Answer not found in the document.' Just answer the question properly.\n\n"
+            f"{style_structure_instruction(style)}"
+        )
+    else:
+        # Casual / personal / emotional — reply like a human
+        system_content = (
+            f"{CHAT_SYSTEM_PROMPT}\n\n"
+            "The user is talking to you naturally — sharing something personal, "
+            "asking for advice, or just having a conversation. "
+            "Respond like a warm, caring human — not like a document reader. "
+            "Be genuine, encouraging, and natural. Keep it conversational. "
+            "Do not use bullet points or structured formatting. "
+            "Do not say 'Answer not found in the document.' Just talk to them.\n\n"
+            f"{style_structure_instruction(style)}"
+        )
+
     messages: list[dict] = [{"role": "system", "content": system_content}]
     if history:
         for msg in (history or [])[-6:]:
