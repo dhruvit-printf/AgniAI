@@ -108,9 +108,9 @@ _active_model = DEFAULT_MODEL
 _lock = threading.Lock()
 
 _STYLE_MIN_WORDS = {
-    "short": 200,
-    "elaborate": 400,
-    "detail": 680,
+    "short": 50,
+    "elaborate": 120,
+    "detail": 250,
 }
 
 

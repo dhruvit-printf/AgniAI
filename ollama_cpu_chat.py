@@ -76,7 +76,7 @@ TOP_P           = float(os.getenv("OLLAMA_TOP_P",          "0.92"))
 REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
 
 # CHANGED: -1 means keep model loaded forever — never unload on idle
-KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m")  # was "10m"
+KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "-1")
 
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "6"))
 MODEL_LIST_CACHE_TTL = float(os.getenv("OLLAMA_MODEL_LIST_CACHE_TTL", "30"))
@@ -287,7 +287,7 @@ def _iter_ndjson(resp: requests.Response) -> Iterable[dict]:
 def _flush_partial_stream(
     buffer: str,
     *,
-    min_chars: int = 80,
+    min_chars: int = 120,
 ) -> tuple[list[str], str]:
     matches = list(re.finditer(r"[.!?]\s", buffer))
     if matches:

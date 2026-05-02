@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 import requests
 
 from config import (
+    CHAT_SYSTEM_PROMPT,
     DATA_DIR,
     INDEX_DIR,
     MAX_CONTEXT_CHARS,
@@ -189,11 +190,7 @@ def _build_budget_probe_messages(
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are AgniAI, a helpful assistant for India's Agniveer recruitment scheme. "
-                "Respond naturally and concisely."
-                f"\n\n{style_structure_instruction(style)}"
-            ),
+            "content": CHAT_SYSTEM_PROMPT,
         }
     ]
     if history:
@@ -569,11 +566,7 @@ def run_chat() -> None:
                 messages = [
                     {
                         "role": "system",
-                        "content": (
-                            "You are AgniAI, a helpful assistant for India's Agniveer "
-                            "recruitment scheme. Respond naturally and concisely."
-                            f"\n\n{style_structure_instruction(style_name)}"
-                        ),
+                        "content": CHAT_SYSTEM_PROMPT,
                     }
                 ]
                 if history:

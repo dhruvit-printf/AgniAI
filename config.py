@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Dict, List, Optional
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
@@ -30,7 +31,7 @@ OLLAMA_URL      = os.getenv("OLLAMA_CHAT_URL", f"{OLLAMA_BASE_URL}/api/chat")
 OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", f"{OLLAMA_BASE_URL}/api/tags")
 
 DEFAULT_MODEL            = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct-q4_K_M")
-MODEL_MAX_CONTEXT_TOKENS = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+MODEL_MAX_CONTEXT_TOKENS = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 
 FALLBACK_MODELS = [
     m.strip()
@@ -78,7 +79,6 @@ SESSION_HEADER  = os.getenv("SESSION_HEADER", "X-Session-Id")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
 
 # ── API Security ───────────────────────────────────────────────────────────
-# Set this in production to protect destructive endpoints (e.g. /api/reset_index)
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "")
 
 # ── Context char budgets ───────────────────────────────────────────────────
@@ -90,44 +90,55 @@ MAX_CONTEXT_CHARS = {
 MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "1800"))
 
 # ── Token budgets for completion ───────────────────────────────────────────
+# FIX: raised elaborate 500→700, detail 800→1100, default 500→600
+# so Mistral 7B doesn't hit the limit mid-sentence on longer answers.
 MAX_TOKENS_STYLE = {
     "short":     int(os.getenv("MAX_TOKENS_SHORT",     "250")),
-    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "500")),
-    "detail":    int(os.getenv("MAX_TOKENS_DETAIL",    "800")),
+    "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "700")),
+    "detail":    int(os.getenv("MAX_TOKENS_DETAIL",    "1100")),
 }
-MAX_TOKENS_DEFAULT  = int(os.getenv("MAX_TOKENS_DEFAULT",  "500"))
+MAX_TOKENS_DEFAULT  = int(os.getenv("MAX_TOKENS_DEFAULT",  "600"))
 TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "100"))
 
 
 # =============================================================================
 # INTENT CLASSIFICATION PHRASE LISTS
-#
-# IMPORTANT — priority order in classify_intent():
-#   chat phrases are checked BEFORE domain terms so that casual expressions
-#   like "i want to join agniveer" go to chat, not RAG.
 # =============================================================================
+
+# ── Negation signals used inside classify_intent ───────────────────────────
+# Defined here as module-level constants so they can be reused elsewhere.
+_NEGATION_SIGNALS = (
+    "not", "no ", "can't", "cannot", "don't", "didn't", "failed",
+    "rejected", "disqualified", "ineligible", "without", "unable",
+    "if i don't", "if i fail", "what if i", "even if", "despite",
+    "won't", "wouldn't", "couldn't", "shouldn't",
+    "over age", "overage", "under age", "underage",
+    "too old", "too young", "too short", "too light", "too heavy",
+    "someone who", "person who", "people who",
+)
+
+_NEGATION_DOMAIN_TERMS = (
+    "join", "apply", "eligible", "qualify", "pass", "medical",
+    "physical", "age", "height", "document", "certificate",
+    "salary", "training", "selection", "exam", "rally", "ncc",
+    "weight", "chest", "run", "beam", "agniveer", "agnipath",
+)
 
 # ── Greetings — exact match ────────────────────────────────────────────────
 GREETING_PHRASES = {
-    # Basic
     "hi", "hello", "hey", "hii", "hiii", "heyy", "heya",
     "hola", "howdy", "yo", "sup", "wassup", "whatsup",
-    # Farewells
     "bye", "goodbye", "good bye", "see you", "see ya",
     "take care", "good night", "goodnight", "good day",
-    # Time-based
     "good morning", "good afternoon", "good evening",
-    # Thanks
     "thanks", "thank you", "thank u", "thankyou",
     "ty", "thx", "thanks a lot", "thank you so much",
     "many thanks", "dhanyawad", "shukriya", "meherbani",
-    # Acknowledgements
     "ok", "okay", "ok thanks", "okay thanks", "alright",
     "got it", "understood", "sure", "noted", "cool",
     "great", "nice", "awesome", "wonderful", "amazing",
     "fantastic", "excellent", "perfect", "good",
     "well done", "good job", "nice work", "keep it up", "carry on",
-    # Patriotic short exact phrases
     "jay hind", "jai hind", "vande mataram",
     "bharat mata ki jai", "jai bharat", "jai jawan",
     "mera bharat mahan", "tiranga", "salute",
@@ -138,15 +149,12 @@ GREETING_PHRASES = {
     "waheguru ji ka khalsa", "bum bum bhole",
     "bol bajrang bali ki jai", "durga mata ki jai",
     "indian army zindabad", "army zindabad",
-    # Hindi greetings
     "namaste", "namaskar", "pranam", "namasté",
     "jai shree ram", "jai shri ram", "ram ram", "jai siya ram",
-    # Army terms
     "yes sir", "sir", "ma'am", "mam",
     "attention", "at ease", "dismissed",
     "roger", "roger that", "copy that", "wilco",
     "over", "out", "fall in", "stand easy",
-    # Bot compliments (short exact)
     "you are helpful", "youre helpful", "you're great",
     "you are great", "you are good", "youre good",
     "nice bot", "good bot", "helpful bot", "great bot",
@@ -154,14 +162,11 @@ GREETING_PHRASES = {
 
 # ── Small talk — partial / substring match ─────────────────────────────────
 SMALL_TALK_PHRASES = (
-    # How are you variants
     "how are you", "how r you", "how are u", "how r u",
     "how do you do", "how is it going", "how's it going",
     "hows it going", "how are things", "how are you doing",
     "are you okay", "you okay", "u okay",
-    # What's up
     "what's up", "whats up", "what is up",
-    # Identity questions
     "who are you", "what are you", "what is your name",
     "whats your name", "what's your name", "your name",
     "tell me about yourself", "introduce yourself",
@@ -173,11 +178,9 @@ SMALL_TALK_PHRASES = (
     "are you real", "who made you", "who created you",
     "who built you", "who developed you",
     "are you chatgpt", "are you gpt",
-    # Feelings
     "i am happy", "i am sad", "i feel good", "i feel bad",
     "i am bored", "i am tired", "i am stressed", "i am confused",
     "i need help", "help me", "please help", "help",
-    # Filler
     "nice to meet you", "nice to meet u",
     "pleased to meet you", "great to meet you",
     "good to meet you", "glad to meet you",
@@ -185,14 +188,11 @@ SMALL_TALK_PHRASES = (
     "i like you", "i love you", "i love this",
     "this is great", "this is helpful",
     "very helpful", "so helpful", "great help", "big help",
-    # Availability
     "you there", "are you there", "you available",
     "are you available", "are you online", "u there",
     "hello there", "anyone there", "is anyone there",
-    # Motivation asks
     "motivate me", "give me motivation", "i need motivation",
     "inspire me", "give me inspiration", "encourage me", "cheer me up",
-    # Farewells / wishes
     "have a good day", "have a nice day", "have a great day",
     "have a wonderful day", "enjoy your day",
     "take care of yourself", "stay safe", "stay healthy",
@@ -202,28 +202,23 @@ SMALL_TALK_PHRASES = (
 
 # ── Patriotic / army pride — partial match ─────────────────────────────────
 PATRIOTIC_PHRASES = (
-    # National slogans
     "jay hind", "jai hind", "vande mataram",
     "bharat mata ki jai", "jai bharat",
     "inquilab zindabad", "jai jawan jai kisan",
     "jai jawan", "jai kisan", "jai vigyan",
     "mera bharat mahan", "hindustan zindabad",
     "bharat zindabad", "india zindabad",
-    # Army values / heritage words
     "shaurya", "veerta", "parakram", "balidan",
     "shaheed", "sainik", "sena", "fauj", "fauji",
     "desh seva", "rashtra seva", "desh bhakti", "deshbhakti",
     "watan", "tiranga", "tricolor", "national flag",
-    # Occasions
     "republic day", "independence day", "army day",
     "vijay diwas", "kargil vijay diwas",
-    # Regiment / corps battle cries
     "jai mata di", "durga mata ki jai", "har har mahadev",
     "bum bum bhole", "sat sri akal", "waheguru ji ka khalsa",
     "jai rajputana", "rajputana rifles", "jai mahakal",
     "bol bajrang bali ki jai",
     "indian army zindabad", "army zindabad",
-    # Pride / motivational
     "proud to be indian", "proud of indian army",
     "salute to army", "salute to soldiers",
     "respect the army", "army is great",
@@ -233,9 +228,7 @@ PATRIOTIC_PHRASES = (
 )
 
 # ── Agniveer aspirant casual talk ──────────────────────────────────────────
-# Checked BEFORE DOMAIN_TERMS — casual phrases go to chat, not RAG.
 AGNIVEER_CASUAL_PHRASES = (
-    # Identity / aspiration
     "i want to join agniveer",
     "i want to become agniveer",
     "i am an agniveer aspirant",
@@ -252,7 +245,6 @@ AGNIVEER_CASUAL_PHRASES = (
     "i love agniveer",
     "agniveer zindabad",
     "agniveer rocks",
-    # Motivation / emotions
     "wish me luck",
     "pray for me",
     "i am nervous",
@@ -271,14 +263,17 @@ AGNIVEER_CASUAL_PHRASES = (
     "i need motivation",
     "inspire me",
     "i feel demotivated",
-    "i failed",
+    # FIX: "i failed" was too short and matched inside "can i join if i failed medical"
+    # Use more specific phrases that won't substring-match negated domain questions.
+    "i failed the exam",
+    "i failed the rally",
+    "i failed agniveer",
     "i got rejected",
     "i did not pass",
     "i did not qualify",
     "better luck next time",
     "i will try again",
     "never give up",
-    # General agniveer talk
     "agniveer life",
     "life of an agniveer",
     "agniveer is tough",
@@ -351,9 +346,6 @@ PROCESS_PHRASES = (
 )
 
 # ── Domain terms — RAG trigger ─────────────────────────────────────────────
-# NOTE: "agniveer" and "training" alone are intentionally NOT here because
-# casual phrases containing those words (e.g. "i love agniveer") should be
-# caught by AGNIVEER_CASUAL_PHRASES first and go to chat.
 DOMAIN_TERMS = (
     "age limit",
     "eligibility",
@@ -523,7 +515,6 @@ _PARAGRAPH_RULES = (
     "9. Deliver all key facts first, compress the remainder, never cut mid-sentence.\n"
     "10. Every sentence must be grammatically complete and end cleanly."
 )
-
 STRICT_RAG_PROMPT = (
     "You are a strict document-based QA system for the Agniveer / Agnipath "
     "training process of the Indian Armed Forces. "
@@ -549,6 +540,20 @@ STRICT_RAG_PROMPT_COMPUTE = (
     "Write in clear structured paragraphs only. Do not repeat the question."
 )
 
+CONDITIONAL_RAG_PROMPT = (
+    "You are a document-based QA system for the Agniveer / Agnipath "
+    "training process of the Indian Armed Forces. "
+    "The user is asking a conditional or negated question (e.g. what happens if they fail, "
+    "or whether someone without a certain qualification can apply). "
+    "Use ONLY the provided context. You MAY reason about eligibility from the stated requirements — "
+    "for example, if the context states a minimum height of 170cm, you may infer that someone "
+    "below 170cm would not meet that requirement. "
+    "Do NOT invent facts not present in the context. "
+    "Be direct and helpful. Do not repeat the question. "
+    "If the context truly contains no relevant information, respond: "
+    "'Answer not found in the document.'"
+)
+
 SYSTEM_PROMPT_SHORT     = STRICT_RAG_PROMPT
 SYSTEM_PROMPT_ELABORATE = STRICT_RAG_PROMPT
 SYSTEM_PROMPT_DETAIL    = STRICT_RAG_PROMPT
@@ -557,7 +562,6 @@ SYSTEM_PROMPT           = STRICT_RAG_PROMPT
 REFERENCE_FALLBACK = "Answer not found in the document."
 
 # ── Conversational system prompt ───────────────────────────────────────────
-# Used for ALL non-RAG (chat) responses.
 CHAT_SYSTEM_PROMPT = (
     "You are AgniAI — a friendly, patriotic AI assistant built specifically "
     "to help young Indians learn about and prepare for the Agniveer / Agnipath "
@@ -676,8 +680,8 @@ def estimate_message_tokens(messages: list[dict]) -> int:
     return total
 
 
+# config.py — trim_to_complete_sentence
 def trim_to_complete_sentence(text: str) -> str:
-    """Return text trimmed to the last complete sentence."""
     text = (text or "").strip()
     if not text:
         return text
@@ -685,13 +689,18 @@ def trim_to_complete_sentence(text: str) -> str:
         return text
     matches = list(re.finditer(r"[.!?](?:\s|$)", text))
     if not matches:
+        # FIX: if no sentence boundary found but text is long enough, return as-is
+        # rather than returning raw mid-token text
+        if len(text.split()) >= 10:
+            return text  # ← was: return text (already correct, no change needed here)
         return text
     last_end = matches[-1].end()
-    trimmed  = text[:last_end].strip()
-    if trimmed and len(trimmed) >= len(text) * 0.70:
+    trimmed = text[:last_end].strip()
+    if trimmed and len(trimmed) >= len(text) * 0.50:
         return trimmed
+    # FIX: if trim would throw away more than half, return original rather than
+    # silently losing the tail — caller sees complete text, not truncated garbage
     return text
-
 
 # =============================================================================
 # INTENT CLASSIFIER
@@ -702,16 +711,17 @@ def classify_intent(query: str) -> str:
     Classify query intent as 'chat', 'rag', or 'reject'.
 
     Priority order (do NOT reorder — order matters):
-      1. Exact greeting match          → chat
-      2. Small talk substring match    → chat
-      3. Patriotic phrases             → chat
-      4. Agniveer casual talk          → chat  (before domain terms!)
-      5. Training process phrases      → rag
-      6. Joining / process phrases     → rag
-      7. Domain terms                  → rag
-      8. Reasoning + salary            → rag
-      9. Short unknown (<=10 tokens)   → chat  (friendly fallback)
-     10. Long off-topic                → reject
+      1. Exact greeting match                    → chat
+      2. Small talk substring match              → chat
+      3. Patriotic phrases                       → chat
+      4. Agniveer casual talk                    → chat  (before domain terms!)
+      5. Training process phrases                → rag
+      6. Joining / process phrases               → rag
+      7. Domain terms                            → rag
+      7b. Negated domain questions               → rag   ← NEW
+      8. Reasoning + salary                      → rag
+      9. Short unknown (<=10 tokens)             → chat  (friendly fallback)
+     10. Long off-topic                          → reject
     """
     q = query.strip().lower()
     # Normalize punctuation so "Jay Hind!" == "jay hind"
@@ -747,6 +757,14 @@ def classify_intent(query: str) -> str:
 
     # 7. Domain terms → RAG
     if any(term in q for term in DOMAIN_TERMS):
+        return "rag"
+
+    # 7b. Negated domain questions → RAG
+    # e.g. "can i join if i failed medical", "what if i don't have ncc certificate"
+    # These were previously falling through to step 9/10 because negation words
+    # prevented any domain term from matching, but the question is still RAG.
+    _has_negation = any(sig in q for sig in _NEGATION_SIGNALS)
+    if _has_negation and any(term in q for term in _NEGATION_DOMAIN_TERMS):
         return "rag"
 
     # 8. Reasoning + salary → RAG
