@@ -1051,12 +1051,17 @@ def _normalize_query_for_retrieval(query: str) -> str:
         cleaned = re.sub(
             rf"\b{re.escape(phrase)}\b", " ", cleaned, flags=re.IGNORECASE
         )
+ 
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,!?:;")
+ 
+    # If stripping filler left almost nothing, fall back to original query
     if len(cleaned.split()) < 3:
         cleaned = query.strip().lower()
-
-    # Strip negation words AFTER the short-query fallback guard.
-    # Negation words help classify intent but hurt vector retrieval.
+ 
+    # FIX: Strip negation words AFTER the short-query fallback (not inside it).
+    # Negation words help classify intent but hurt vector retrieval because
+    # "don't", "failed", "without" pull embeddings away from relevant docs.
+    # e.g. "can I join if I don't have NCC" → "join ncc certificate"
     negation_strip = re.compile(
         r"\b(not|no|don'?t|can'?t|cannot|didn'?t|failed?|rejected|without|"
         r"unable to|if i don'?t|if i fail)\b",
@@ -1064,36 +1069,46 @@ def _normalize_query_for_retrieval(query: str) -> str:
     )
     cleaned = negation_strip.sub(" ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
+ 
+    # Guard: if negation stripping emptied the query, restore original
     if len(cleaned.split()) < 2:
         cleaned = query.strip().lower()
-
-    # More-specific expansions BEFORE broader ones.
-    # Medical/physical must come before the broad eligibility expansion.
+ 
+    # FIX: More-specific expansions come BEFORE broader ones.
+    # medical/physical must precede the broad "eligibility / can i" expansion —
+    # otherwise "can i ... medical" matches the eligibility pattern first.
     expansions = (
-        (r"\bage limit\b|\bmaximum age\b|\bminimum age\b|\bhow old\b",
-         "required age eligibility"),
+        # ── Salary / pay ──────────────────────────────────────────────────
+        (r"\bsalary\b|\bpay\b|\bhow much.*earn|\bhow much.*paid|\bincome\b|\bstipend\b",
+         "customised package in hand seva nidhi monthly"),
+        # ── Medical (before eligibility) ───────────────────────────────────
         (r"\bmedical\b",
          "medical examination army medical standards"),
+        # ── Physical / fitness ────────────────────────────────────────────
         (r"\bphysical test\b|\bpft\b|\bfitness\b|\b1\.6 km\b|\brun\b|\bbeam\b",
          "physical fitness test pft 1.6 km run"),
-        (r"\bage\b|\bover.?age\b|\bunder.?age\b",
+        # ── Age / eligibility ─────────────────────────────────────────────
+        (r"\bage limit\b|\bage\b|\bhow old\b|\bover.?age\b|\bunder.?age\b|\bmaximum age\b|\bminimum age\b",
          "required age eligibility"),
         (r"eligibilit|\bam i eligible\b|\bqualif|\bwho can\b",
          "eligibility criteria required age qualification"),
-        (r"selection process|how.*select|recruitment process|steps? to join|joining process",
+        # ── Selection / joining ───────────────────────────────────────────
+        # NOTE: "can i join" removed — after negation strip it matches too broadly
+        (r"selection process|how.*select|recruitment process|how.*join|steps? to join|joining process",
          "registration rally medical merit physical fitness"),
-        (r"how.*join|how.*appl|apply|register|registration",
+        (r"how.*appl|apply|register|registration",
          "registration application"),
-        (r"\bsalary\b|\bpay\b|\bhow much.*earn|\bstipend\b",
-         "customised package in hand seva nidhi monthly"),
+        # ── Documents ─────────────────────────────────────────────────────
+        (r"document|\bcertificate\b|\baadhaar\b|\bdomicile\b|\bmarksheet\b",
+         "documents required matric aadhaar domicile"),
+        # ── Benefits ──────────────────────────────────────────────────────
         (r"\bbonus mark",              "bonus marks ncc sports"),
         (r"\binsurance\b",             "life insurance cover 48 lakhs"),
         (r"\bseva nidhi\b|\bfund\b|\bcorpus\b|\bafter 4 year\b|\bexit\b",
          "seva nidhi corpus fund exit after 4 year lakh"),
+        # ── Training ──────────────────────────────────────────────────────
         (r"\btraining\b|\bhow long.*train\b|\btraining.*duration\b",
          "military training regimental centre"),
-        (r"\bdocument|\bcertificate\b|\baadhaar\b|\bdomicile\b|\bmarksheet\b",
-         "documents required matric aadhaar domicile"),
     )
     for pattern, extra in expansions:
         if re.search(pattern, cleaned):
@@ -1185,24 +1200,33 @@ def _hash_text(text: str) -> str:
 def make_retrieval_cache_key(query: str, top_k: int) -> str:
     return f"{_query_cache_key(query)}|k={top_k}"
 
+_NEGATION_SIGNALS = (
+    "not",
+    "no",
+    "don't",
+    "cant",
+    "can't",
+    "cannot",
+    "didn't",
+    "didnt",
+    "failed",
+    "rejected",
+    "without",
+    "unable to",
+    "if i don't",
+    "if i dont",
+    "if i fail",
+)
 
-def make_response_cache_key(
-    query: str,
-    *,
-    style: str,
-    model: str,
-    context: str,
-    session_id: str = "",
-) -> str:
-    """
-    Cache key is query + style + model only (context excluded).
-    Retrieval is deterministic so same query always yields same context.
-    Excluding context prevents misses from whitespace/path differences.
-    """
+# BEFORE: key = style|model|normalized_query
+# "what is the age limit" and "what if i am over age limit" 
+# normalize to similar embeddings and could share a cache entry
+
+# AFTER: include a negation flag in the key:
+def make_response_cache_key(query, *, style, model, context, session_id=""):
     del session_id
     normalized = _query_cache_key(query)
     q_lower = query.lower()
-    from config import _NEGATION_SIGNALS
     is_conditional = any(sig in q_lower for sig in _NEGATION_SIGNALS)
     payload = f"{style}|{model}|{'neg' if is_conditional else 'pos'}|{normalized}"
     return _hash_text(payload)
@@ -1950,17 +1974,7 @@ def build_strict_messages(
     reasoning: bool = False,
     history: Optional[List[Dict[str, str]]] = None,
 ) -> List[Dict[str, str]]:
-    from config import CONDITIONAL_RAG_PROMPT, _NEGATION_SIGNALS
-    q_lower = query.lower()
-    is_conditional = any(sig in q_lower for sig in _NEGATION_SIGNALS)
-
-    if reasoning:
-        system_content = STRICT_RAG_PROMPT_COMPUTE
-    elif is_conditional:
-        system_content = CONDITIONAL_RAG_PROMPT
-    else:
-        system_content = STRICT_RAG_PROMPT
-
+    system_content = STRICT_RAG_PROMPT_COMPUTE if reasoning else STRICT_RAG_PROMPT
     system_content = f"{system_content}\n\n{style_structure_instruction(style)}"
     messages = [{"role": "system", "content": system_content}]
     if history:

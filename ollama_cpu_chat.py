@@ -76,7 +76,7 @@ TOP_P           = float(os.getenv("OLLAMA_TOP_P",          "0.92"))
 REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
 
 # CHANGED: -1 means keep model loaded forever — never unload on idle
-KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "-1")
+KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "-1")  # was "10m"
 
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "6"))
 MODEL_LIST_CACHE_TTL = float(os.getenv("OLLAMA_MODEL_LIST_CACHE_TTL", "30"))
@@ -166,15 +166,6 @@ def _truncate(text: str, limit: int) -> str:
     head = int(limit * 0.70)
     tail = max(0, limit - head - 20)
     return f"{text[:head].rstrip()}\n\n...[truncated]...\n\n{text[-tail:].lstrip()}"
-
-
-def _sentence_safe_chunks(buffer: str) -> tuple[list[str], str]:
-    matches = list(re.finditer(r"[.!?]\s", buffer))
-    if not matches:
-        return [], buffer
-    end = matches[-1].end()
-    return [buffer[:end]], buffer[end:]
-
 
 def _default_num_thread() -> int:
     """
@@ -287,7 +278,7 @@ def _iter_ndjson(resp: requests.Response) -> Iterable[dict]:
 def _flush_partial_stream(
     buffer: str,
     *,
-    min_chars: int = 120,
+    min_chars: int = 200,   
 ) -> tuple[list[str], str]:
     matches = list(re.finditer(r"[.!?]\s", buffer))
     if matches:
@@ -396,8 +387,8 @@ def _ollama_chat_once(
                     else:
                         sys.stdout.write(stream_buffer)
                         sys.stdout.flush()
-                streamed_text += stream_buffer
-                stream_buffer = ""
+                stream_buffer = ""  
+                streamed_text = "".join(pieces)  
 
     except requests.Timeout as exc:
         partial = trim_to_complete_sentence("".join(pieces) + stream_buffer)
