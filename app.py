@@ -168,10 +168,17 @@ def _require_secret(fn):
         if API_SECRET_KEY:
             provided = request.headers.get("X-Api-Key", "")
             if provided != API_SECRET_KEY:
-                return jsonify(*err("Unauthorized. Provide X-Api-Key header.", 401))
+                return _json_error("Unauthorized. Provide X-Api-Key header.", 401)
         return fn(*args, **kwargs)
 
     return wrapper
+
+
+def _json_error(message: str, status_code: int):
+    payload, code = err(message, status_code)
+    response = jsonify(payload)
+    response.status_code = code
+    return response
 
 
 def _kw_match(query_lower: str, keywords: list) -> bool:
@@ -493,7 +500,7 @@ def chat():
     session_id = _get_session_id(data)
 
     if not message:
-        return jsonify(*err("message field is required and cannot be empty.", 400))
+        return _json_error("message field is required and cannot be empty.", 400)
 
     with _lock:
         if model:
@@ -792,7 +799,7 @@ def chat():
         except PartialResponseError as exc:
             answer = exc.partial_text or REFERENCE_FALLBACK
         except RuntimeError as exc:
-            return jsonify(*err(f"LLM service unavailable: {exc}", 503))
+            return _json_error(f"LLM service unavailable: {exc}", 503)
 
         answer = _finalize_answer(answer) or REFERENCE_FALLBACK
         _memory.add("user", message, session_id=session_id)
@@ -889,7 +896,7 @@ def chat():
     except PartialResponseError as exc:
         answer = exc.partial_text or REFERENCE_FALLBACK
     except RuntimeError as exc:
-        return jsonify(*err(f"LLM service unavailable: {exc}", 503))
+        return _json_error(f"LLM service unavailable: {exc}", 503)
 
     answer = _finalize_answer(answer) or REFERENCE_FALLBACK
     _memory.add("user", message, session_id=session_id)
@@ -906,9 +913,9 @@ def ingest():
     target = (data.get("target") or "").strip()
 
     if not kind:
-        return jsonify(*err("kind field is required (pdf|url|txt|text|docx).", 400))
+        return _json_error("kind field is required (pdf|url|txt|text|docx).", 400)
     if not target:
-        return jsonify(*err("target field is required (file path or URL).", 400))
+        return _json_error("target field is required (file path or URL).", 400)
 
     fn_map = {
         "pdf": ingest_pdf,
@@ -918,18 +925,17 @@ def ingest():
         "docx": ingest_docx,
     }
     if kind not in fn_map:
-        return jsonify(
-            *err(
-                f"Unknown kind '{kind}'. Valid values: pdf, url, txt, text, docx.", 400
-            )
+        return _json_error(
+            f"Unknown kind '{kind}'. Valid values: pdf, url, txt, text, docx.",
+            400,
         )
 
     try:
         count = fn_map[kind](target)
     except FileNotFoundError as exc:
-        return jsonify(*err(f"File not found: {exc}", 404))
+        return _json_error(f"File not found: {exc}", 404)
     except Exception as exc:
-        return jsonify(*err(f"Ingestion failed: {exc}", 500))
+        return _json_error(f"Ingestion failed: {exc}", 500)
 
     if count == 0:
         return jsonify(

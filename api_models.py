@@ -29,10 +29,20 @@ def ok_chat(
             string? SessionId
         );
     """
+    data: dict[str, Any] = {
+        "answer": answer,
+        "style": style,
+    }
+    if session_id:
+        data["session_id"] = session_id
+
     payload: dict[str, Any] = {
         "success": True,
+        "status": "success",
+        "message": "Chat response generated.",
         "answer": answer,
         "style": style,        # "short" | "elaborate" | "detail"
+        "data": data,
     }
     if session_id:
         payload["session_id"] = session_id
@@ -87,7 +97,13 @@ def err(message: str, code: int = 400) -> tuple[dict, int]:
     C# mapping:
         public record ErrorResponse(bool Success, string Error);
     """
-    return {"success": False, "error": message}, code
+    return {
+        "success": False,
+        "status": "error",
+        "message": message,
+        "error": message,
+        "data": None,
+    }, code
 
 
 def ok_sources(sources: list) -> dict:
