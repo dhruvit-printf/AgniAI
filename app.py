@@ -181,6 +181,11 @@ def _json_error(message: str, status_code: int):
     return response
 
 
+def _client_accepts_sse() -> bool:
+    accept = request.headers.get("Accept", "")
+    return "text/event-stream" in accept.lower()
+
+
 def _kw_match(query_lower: str, keywords: list) -> bool:
     for kw in keywords:
         if " " in kw:
@@ -492,11 +497,16 @@ def chat():
     message = (data.get("message") or "").strip()
     model = (data.get("model") or "").strip()
     stream_value = data.get("stream")
-    stream = (
+    requested_stream = (
         str(stream_value).lower() in {"1", "true", "yes", "on"}
         if stream_value is not None
         else False
     )
+    stream = requested_stream and _client_accepts_sse()
+    if requested_stream and not stream:
+        logger.warning(
+            "Ignoring stream=true for JSON client. Send Accept: text/event-stream to use SSE."
+        )
     session_id = _get_session_id(data)
 
     if not message:
