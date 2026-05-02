@@ -804,7 +804,10 @@ def chat():
     # ── Non-RAG (chat / greeting) path ────────────────────────────────────
     # Now uses CHAT_SYSTEM_PROMPT — matches main.py CLI output exactly.
     messages = _build_chat_messages(
-        query=message,
+        query=message,    
+
+
+        
         style=style_name,
         history=history[-6:] if history else None,
     )
