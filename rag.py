@@ -1341,29 +1341,13 @@ def warmup_runtime(*, async_load: bool = False) -> None:
 # =============================================================================
 
 def load_embedding_model() -> SentenceTransformer:
-    """
-    Load embedding model.
-    FIX: tries local_files_only=True first (fast path for subsequent runs),
-    then falls back to local_files_only=False (allows download on first run).
-    Original code used local_files_only=True unconditionally, which crashes
-    on first run before the model is cached by HuggingFace.
-    """
     global _MODEL
     if _MODEL is not None:
         return _MODEL
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        try:
-            _MODEL = SentenceTransformer(EMBEDDING_MODEL, local_files_only=True)
-        except Exception:
-            # Model not cached yet — download it (only happens once)
-            logger.info(
-                "Embedding model not cached locally, downloading '%s'...",
-                EMBEDDING_MODEL,
-            )
-            _MODEL = SentenceTransformer(EMBEDDING_MODEL, local_files_only=False)
+        _MODEL = SentenceTransformer(EMBEDDING_MODEL)
     return _MODEL
-
 
 def embed_texts(texts: Sequence[str]) -> np.ndarray:
     model = load_embedding_model()
