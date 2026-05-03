@@ -2039,9 +2039,13 @@ def _parse_query_age_months(query: str) -> Optional[int]:
 
 def _format_age_months(total_months: int) -> str:
     years, months = divmod(total_months, 12)
+    if years == 0:
+        return f"{months} month" if months == 1 else f"{months} months"
+    year_label = "year" if years == 1 else "years"
+    month_label = "month" if months == 1 else "months"
     if months == 0:
-        return f"{years} years"
-    return f"{years} years {months} months"
+        return f"{years} {year_label}"
+    return f"{years} {year_label} {months} {month_label}"
 
 
 def _age_limit_months_from_context(context: str) -> Optional[tuple[int, int]]:
