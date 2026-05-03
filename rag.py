@@ -2058,6 +2058,43 @@ def deterministic_salary_answer(query: str, context: str) -> Optional[str]:
             )
         return f"The in-hand salary is {_format_percent(pct)} of the gross salary."
     year = _parse_salary_year(query)
+    if year is None and rows:
+        valid_rows = []
+        mismatches = []
+        for row_year in sorted(rows):
+            row = rows[row_year]
+            package = row["package"]
+            in_hand = row["in_hand"]
+            deduction = row["agniveer_corpus"]
+            if package > 0 and in_hand > 0 and deduction > 0:
+                valid_rows.append((row_year, package, in_hand, deduction))
+                expected = package - deduction
+                if expected != in_hand:
+                    mismatches.append(
+                        f"Year {row_year}: {package:,} - {deduction:,} = {expected:,}, "
+                        f"but the table lists {in_hand:,}"
+                    )
+        if not valid_rows:
+            return None
+        if len(valid_rows) < 4:
+            return None
+        row_text = "; ".join(
+            f"Year {row_year}: gross {_format_rupees(package)}, "
+            f"in-hand {_format_rupees(in_hand)}, corpus deduction {_format_rupees(deduction)}"
+            for row_year, package, in_hand, deduction in valid_rows
+        )
+        return (
+            "The Agniveer monthly salary is given year-wise as follows: "
+            f"{row_text}. In-hand salary is 70% of the gross salary; the remaining "
+            "30% is the Agniveer Corpus Fund deduction."
+            + (
+                " Note: the knowledge base has a numerical mismatch in "
+                + "; ".join(mismatches)
+                + "."
+                if mismatches
+                else ""
+            )
+        )
     if year is None:
         return None
     row = rows.get(year)
@@ -2068,10 +2105,17 @@ def deterministic_salary_answer(query: str, context: str) -> Optional[str]:
     in_hand = row["in_hand"]
     deduction = row["agniveer_corpus"]
     goi = row["goi_corpus"]
-    if package - deduction != in_hand:
-        return None
 
     ordinal = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th"}[year]
+    mismatch_note = ""
+    expected = package - deduction
+    if expected != in_hand:
+        mismatch_note = (
+            f" Note: these listed figures do not balance exactly: "
+            f"{_format_rupees(package)} - {_format_rupees(deduction)} = "
+            f"{_format_rupees(expected)}, but the table lists "
+            f"{_format_rupees(in_hand)} as in-hand."
+        )
     return (
         f"In the {ordinal} year, the customised package is {_format_rupees(package)} "
         f"per month. Out of this, {_format_rupees(deduction)} per month is the "
@@ -2083,6 +2127,7 @@ def deterministic_salary_answer(query: str, context: str) -> Optional[str]:
             if goi
             else ""
         )
+        + mismatch_note
     )
 
 
