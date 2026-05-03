@@ -42,6 +42,7 @@ from config import (
     API_SECRET_KEY,
     CHAT_SYSTEM_PROMPT,
     FIRST_TOKEN_TIMEOUT,
+    GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_CHARS_DEFAULT,
     MAX_TOKENS_STYLE,
@@ -79,6 +80,7 @@ from rag import (
     STRICT_TOP_K,
     build_context,
     build_strict_messages,
+    deterministic_policy_answer,
     get_cached_response,
     index_stats,
     is_reasoning_query,
@@ -341,6 +343,13 @@ def _build_general_messages(
     and sets the tone accordingly.
     """
     query_lower = query.lower().strip()
+    style_key = (style or "").strip().lower()
+    if style_key == "short":
+        fallback_style = "Keep the answer concise, usually 1 short paragraph."
+    elif style_key == "detail":
+        fallback_style = "Give a clear, well-organized answer without inventing specifics."
+    else:
+        fallback_style = "Give a clear answer in 1 to 3 short paragraphs."
 
     # Detect factual / subject question
     _FACTUAL_SIGNALS = (
@@ -357,12 +366,15 @@ def _build_general_messages(
     if is_factual:
         system_content = (
             f"{CHAT_SYSTEM_PROMPT}\n\n"
+            f"{GENERAL_KNOWLEDGE_FALLBACK_PROMPT}\n\n"
             "The user is asking a factual or subject-based question outside your "
             "Agniveer knowledge base. Answer it like a knowledgeable teacher or mentor — "
-            "accurate, clear, and complete. Do not restrict yourself to Agniveer topics. "
+            "clear, conservative, and complete only where generic knowledge is enough. "
+            "Do not restrict yourself to Agniveer topics. "
             "If the topic connects to Agniveer or Indian Army, mention that naturally at the end. "
-            "Do not say 'Answer not found in the document.' Just answer the question properly.\n\n"
-            f"{style_structure_instruction(style)}"
+            "Do not say 'Answer not found in the document' in this fallback path, but clearly "
+            "state when exact values are unavailable in the knowledge base.\n\n" +
+            fallback_style
         )
     else:
         # Casual / personal / emotional — reply like a human
@@ -373,8 +385,8 @@ def _build_general_messages(
             "Respond like a warm, caring human — not like a document reader. "
             "Be genuine, encouraging, and natural. Keep it conversational. "
             "Do not use bullet points or structured formatting. "
-            "Do not say 'Answer not found in the document.' Just talk to them.\n\n"
-            f"{style_structure_instruction(style)}"
+            "Do not say 'Answer not found in the document.' Just talk to them.\n\n" +
+            fallback_style
         )
 
     messages: list[dict] = [{"role": "system", "content": system_content}]
@@ -677,6 +689,34 @@ def chat():
     )
 
     # ── Cache check ────────────────────────────────────────────────────────
+    deterministic_answer = (
+        deterministic_policy_answer(message, context) if use_rag else None
+    )
+    if deterministic_answer:
+        _memory.add("user", message, session_id=session_id)
+        _memory.add("assistant", deterministic_answer, session_id=session_id)
+        set_cached_response(response_key, deterministic_answer)
+        if stream:
+            return _stream_answer_response(
+                answer_generator=lambda: iter([deterministic_answer]),
+                status_payload={
+                    "success": True,
+                    "style": style_name,
+                    "session_id": session_id,
+                    "cached": False,
+                    "grounded": True,
+                    "confidence": confidence,
+                    "mode": "deterministic_salary",
+                },
+            )
+        return jsonify(
+            ok_chat(
+                answer=deterministic_answer,
+                style=style_name,
+                session_id=session_id,
+            )
+        )
+
     cached_answer = get_cached_response(response_key)
     if cached_answer is not None:
         _memory.add("user", message, session_id=session_id)

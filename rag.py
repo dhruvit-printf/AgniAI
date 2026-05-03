@@ -1088,6 +1088,8 @@ def _normalize_query_for_retrieval(query: str) -> str:
         (r"\bphysical test\b|\bpft\b|\bfitness\b|\b1\.6 km\b|\brun\b|\bbeam\b",
          "physical fitness test pft 1.6 km run"),
         # ── Age / eligibility ─────────────────────────────────────────────
+        (r"\bmarried\b|\bunmarried\b|\bmarital\b|\bmarriage\b|\bspouse\b|\bwife\b|\bhusband\b",
+         "only unmarried candidates enroll remain unmarried engagement marriage during service release"),
         (r"\bage limit\b|\bage\b|\bhow old\b|\bover.?age\b|\bunder.?age\b|\bmaximum age\b|\bminimum age\b",
          "required age eligibility"),
         (r"eligibilit|\bam i eligible\b|\bqualif|\bwho can\b",
@@ -1623,6 +1625,9 @@ def _min_max_normalize(values: np.ndarray) -> np.ndarray:
 
 
 _DOMAIN_BOOSTS = [
+    (r"married|unmarried|marital|marriage|spouse|wife|husband",
+     r"only unmarried candidates|remain unmarried|marriage during service|unmarried certificate",
+     1.20),
     (r"\bage\b",                r"required age|eligibility",               0.70),
     (r"eligibilit",             r"eligibility criteria|required age",       0.70),
     (r"selection|how.*select",  r"recruitment process|flow chart",          0.90),
@@ -1863,6 +1868,151 @@ def is_reasoning_query(query: str) -> bool:
     return any(term in q for term in reasoning_terms)
 
 
+_SALARY_YEAR_PATTERN = re.compile(
+    r"\b(?P<label>1st|2nd|3rd|4th|first|second|third|fourth|year\s*[1-4]|[1-4])\s+year\b"
+    r"|\byear\s*(?P<num>[1-4])\b",
+    re.IGNORECASE,
+)
+
+_SALARY_ROW_PATTERN = re.compile(
+    r"\b(?P<year>[1-4])(?:st|nd|rd|th)\s+year\s+"
+    r"(?:Rs\.?\s*|₹)?(?P<package>\d[\d,]*)\s*/?-?\s+"
+    r"(?:Rs\.?\s*|₹)?(?P<in_hand>\d[\d,]*)\s*/?-?\s+"
+    r"(?:Rs\.?\s*|₹)?(?P<agniveer_corpus>\d[\d,]*)\s*/?-?"
+    r"(?:\s+(?:Rs\.?\s*|₹)?(?P<goi_corpus>\d[\d,]*)\s*/?-?)?",
+    re.IGNORECASE,
+)
+
+_YEAR_WORD_TO_NUM = {
+    "1": 1,
+    "1st": 1,
+    "first": 1,
+    "year 1": 1,
+    "2": 2,
+    "2nd": 2,
+    "second": 2,
+    "year 2": 2,
+    "3": 3,
+    "3rd": 3,
+    "third": 3,
+    "year 3": 3,
+    "4": 4,
+    "4th": 4,
+    "fourth": 4,
+    "year 4": 4,
+}
+
+
+def _parse_salary_year(query: str) -> Optional[int]:
+    match = _SALARY_YEAR_PATTERN.search(query or "")
+    if not match:
+        return None
+    raw = (match.group("label") or match.group("num") or "").strip().lower()
+    raw = re.sub(r"\s+", " ", raw)
+    return _YEAR_WORD_TO_NUM.get(raw)
+
+
+def _parse_rupee_int(value: str) -> int:
+    return int(re.sub(r"[^\d]", "", value or "0"))
+
+
+def _format_rupees(value: int) -> str:
+    return f"Rs {value:,}"
+
+
+def _salary_rows_from_context(context: str) -> Dict[int, Dict[str, int]]:
+    compact = re.sub(r"\s+", " ", context or "")
+    rows: Dict[int, Dict[str, int]] = {}
+    for match in _SALARY_ROW_PATTERN.finditer(compact):
+        year = int(match.group("year"))
+        rows[year] = {
+            "package": _parse_rupee_int(match.group("package")),
+            "in_hand": _parse_rupee_int(match.group("in_hand")),
+            "agniveer_corpus": _parse_rupee_int(match.group("agniveer_corpus")),
+            "goi_corpus": (
+                _parse_rupee_int(match.group("goi_corpus"))
+                if match.group("goi_corpus")
+                else 0
+            ),
+        }
+    return rows
+
+
+def deterministic_salary_answer(query: str, context: str) -> Optional[str]:
+    """Answer salary-table questions with deterministic arithmetic, not LLM math."""
+    q = (query or "").lower()
+    if not any(term in q for term in ("salary", "package", "pay", "in hand", "in-hand")):
+        return None
+    year = _parse_salary_year(query)
+    if year is None:
+        return None
+    rows = _salary_rows_from_context(context)
+    row = rows.get(year)
+    if not row:
+        return None
+
+    package = row["package"]
+    in_hand = row["in_hand"]
+    deduction = row["agniveer_corpus"]
+    goi = row["goi_corpus"]
+    if package - deduction != in_hand:
+        return None
+
+    ordinal = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th"}[year]
+    return (
+        f"In the {ordinal} year, the customised package is {_format_rupees(package)} "
+        f"per month. Out of this, {_format_rupees(deduction)} per month is the "
+        f"Agniveer Corpus Fund contribution, so the in-hand salary is "
+        f"{_format_rupees(in_hand)} per month."
+        + (
+            f" The Government also contributes {_format_rupees(goi)} per month "
+            "to the corpus fund."
+            if goi
+            else ""
+        )
+    )
+
+
+def deterministic_marital_status_answer(query: str, context: str) -> Optional[str]:
+    """Answer marital-status eligibility from explicit KB rules."""
+    q = (query or "").lower()
+    if not any(
+        term in q
+        for term in ("married", "unmarried", "marital", "marriage", "spouse", "wife", "husband")
+    ):
+        return None
+
+    compact = re.sub(r"\s+", " ", context or "").strip()
+    compact_lower = compact.lower()
+
+    has_enroll_rule = bool(
+        re.search(r"only unmarried candidates (?:can|will|are eligible to)?\s*enroll", compact_lower)
+        or "only unmarried candidates can enroll" in compact_lower
+    )
+    has_remain_rule = "remain unmarried throughout the engagement" in compact_lower
+    has_release_rule = "marriage during service leads to release" in compact_lower
+
+    if not (has_enroll_rule or has_remain_rule):
+        return None
+
+    answer = (
+        "No. As per the knowledge base, only unmarried candidates can enroll for "
+        "Agniveer."
+    )
+    if has_remain_rule:
+        answer += " They must also remain unmarried throughout the engagement."
+    if has_release_rule:
+        answer += " Marriage during service leads to release."
+    return answer
+
+
+def deterministic_policy_answer(query: str, context: str) -> Optional[str]:
+    return (
+        deterministic_salary_answer(query, context)
+        or deterministic_marital_status_answer(query, context)
+    )
+
+
 def decide_answer_mode(
     *,
     query: str,
@@ -1967,7 +2117,12 @@ def build_strict_messages(
             content = msg.get("content", "").strip()
             if role in {"user", "assistant"} and content:
                 messages.append({"role": role, "content": content})
-    user_content = f"Reference information:\n{context}\n\nQuestion: {query}"
+    user_content = (
+        f"Reference information:\n{context}\n\n"
+        f"Question: {query}\n\n"
+        "Using ONLY the reference information above, write a complete answer. "
+        "Do not use any knowledge outside the reference information."
+    )
     messages.append({"role": "user", "content": user_content})
     return messages
 

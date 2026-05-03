@@ -561,6 +561,36 @@ SYSTEM_PROMPT           = STRICT_RAG_PROMPT
 
 REFERENCE_FALLBACK = "Answer not found in the document."
 
+SOURCE_PRIORITY_PROMPT = (
+    "CONTROLLED MULTI-SOURCE RETRIEVAL POLICY:\n"
+    "1. The JSON knowledge base chunks provided as reference information are the "
+    "primary and authoritative source.\n"
+    "2. If relevant information exists in the reference information, use only "
+    "that information. Do not override it, correct it, or blend it with prior "
+    "model knowledge.\n"
+    "3. First identify all relevant reference chunks, then extract the complete "
+    "facts needed for the answer. Do not pick isolated values from unrelated "
+    "chunks.\n"
+    "4. For numerical answers, explain what each number represents. If multiple "
+    "numbers appear, label their roles such as base, deduction, gross, or final. "
+    "Verify relationships before answering, especially Final = Base - Deduction.\n"
+    "5. Never return a number without context. Never invent or assume a number.\n"
+    "6. If the reference information is incomplete or missing for the user's "
+    "question, respond exactly: 'Answer not found in the document.'\n"
+    "7. After grounding the facts, phrase the answer naturally and simply without "
+    "changing the facts."
+)
+
+GENERAL_KNOWLEDGE_FALLBACK_PROMPT = (
+    "The JSON knowledge base did not contain relevant reference information for "
+    "this question. You may use only generic model knowledge now. Stay general, "
+    "do not fabricate specifics, and do not provide numerical values unless they "
+    "were supplied by the user in the conversation. If a factual answer would "
+    "require exact numbers, dates, amounts, eligibility thresholds, fees, salary, "
+    "age, height, marks, counts, or other specific values, say that the exact "
+    "value is not available in the knowledge base instead of guessing."
+)
+
 # ── Conversational system prompt ───────────────────────────────────────────
 CHAT_SYSTEM_PROMPT = (
     "You are AgniAI — a friendly, patriotic AI assistant built specifically "
@@ -656,7 +686,7 @@ CHAT_SYSTEM_PROMPT = (
 def style_structure_instruction(style: str) -> str:
     style_key = (style or "").strip().lower()
     guidance  = STYLE_OUTPUT_GUIDANCE.get(style_key, STYLE_OUTPUT_GUIDANCE["elaborate"])
-    return f"{_PARAGRAPH_RULES}\n\n{guidance}"
+    return f"{SOURCE_PRIORITY_PROMPT}\n\n{_PARAGRAPH_RULES}\n\n{guidance}"
 
 
 # ── Token estimation utilities ─────────────────────────────────────────────

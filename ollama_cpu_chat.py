@@ -211,7 +211,12 @@ def build_messages(query: str, history: List[dict], style: str = "elaborate") ->
     if history:
         messages.extend(history[-MAX_HISTORY_MESSAGES:])
     if context:
-        user_content = f"Reference information:\n{context}\n\nQuestion: {query}"
+        user_content = (
+            f"Reference information:\n{context}\n\n"
+            f"Question: {query}\n\n"
+            "Using ONLY the reference information above, write a complete answer. "
+            "Do not use any knowledge outside the reference information."
+        )
     else:
         user_content = query
     messages.append({"role": "user", "content": user_content})

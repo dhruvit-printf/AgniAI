@@ -46,6 +46,7 @@ from ollama_cpu_chat import PartialResponseError, chat_with_fallback
 from rag import (
     build_context,
     build_strict_messages,
+    deterministic_policy_answer,
     get_cached_response,
     index_stats,
     make_response_cache_key,
@@ -528,6 +529,14 @@ def run_chat() -> None:
                     f"mode={mode} | reasoning={reasoning}"
                 )
             )
+
+            deterministic_answer = deterministic_policy_answer(raw, context_for_cache)
+            if deterministic_answer:
+                print(f"\nAgniAI: {deterministic_answer}\n")
+                memory.add("user", raw)
+                memory.add("assistant", deterministic_answer)
+                set_cached_response(response_key, deterministic_answer)
+                continue
 
             cached_answer = get_cached_response(response_key)
             if cached_answer is not None:
