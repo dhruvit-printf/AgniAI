@@ -90,8 +90,6 @@ MAX_CONTEXT_CHARS = {
 MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "1800"))
 
 # ── Token budgets for completion ───────────────────────────────────────────
-# FIX: raised elaborate 500→700, detail 800→1100, default 500→600
-# so Mistral 7B doesn't hit the limit mid-sentence on longer answers.
 MAX_TOKENS_STYLE = {
     "short":     int(os.getenv("MAX_TOKENS_SHORT",     "250")),
     "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "700")),
@@ -106,11 +104,10 @@ TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "100"))
 # =============================================================================
 
 # ── Negation signals used inside classify_intent ───────────────────────────
-# Defined here as module-level constants so they can be reused elsewhere.
 _NEGATION_SIGNALS = (
     "not", "no ", "can't", "cannot", "don't", "didn't", "failed",
     "rejected", "disqualified", "ineligible", "without", "unable",
-    "if i don't", "if i fail", "what if i", "even if", "despite",
+    "if i don't", "if i fail", "even if", "despite",
     "won't", "wouldn't", "couldn't", "shouldn't",
     "over age", "overage", "under age", "underage",
     "too old", "too young", "too short", "too light", "too heavy",
@@ -263,8 +260,6 @@ AGNIVEER_CASUAL_PHRASES = (
     "i need motivation",
     "inspire me",
     "i feel demotivated",
-    # FIX: "i failed" was too short and matched inside "can i join if i failed medical"
-    # Use more specific phrases that won't substring-match negated domain questions.
     "i failed the exam",
     "i failed the rally",
     "i failed agniveer",
@@ -321,6 +316,12 @@ TRAINING_PROCESS_PHRASES = (
     "training center",
     "regimental training",
     "pass out parade",
+    "passing out parade",
+    "attestation ceremony",
+    "bmt",
+    "amt",
+    "basic military training",
+    "advanced military training",
 )
 
 # ── Joining / selection process → RAG ─────────────────────────────────────
@@ -343,31 +344,222 @@ PROCESS_PHRASES = (
     "what is the procedure",
     "full process",
     "complete process",
+    "recruitment timeline",
+    "recruitment schedule",
+    "recruitment calendar",
+    "when does recruitment",
+    "when will recruitment",
+    "recruitment date",
+    "notification release",
+    "official notification",
+)
+
+# ── Word-boundary regex for short/ambiguous RAG trigger terms ─────────────
+# Used as step 7c in classify_intent to catch salary/pay/earn synonyms and
+# timeline queries that don't appear verbatim in DOMAIN_TERMS entries.
+# Using \b avoids false matches like "display" triggering "pay".
+_WORD_BOUNDARY_RAG_TERMS = re.compile(
+    r"\b(?:"
+    # Salary / pay synonyms
+    r"pay|earn|earning|earnings|income|emolument|wages|remuneration|"
+    r"disburse|take.?home|"
+    # Notification / timeline
+    r"notification|vacancy|vacancies|"
+    # Marital status (common in eligibility questions)
+    r"married|marriage|unmarried|marital|spouse|"
+    # Application / registration (word-boundary safe — "apply" won't match "appliance")
+    r"apply|register|registration|"
+    # Physical measurements
+    r"weight|chest|height|"
+    # Academic / eligibility synonyms
+    r"percentage|marks|aggregate|"
+    # Document synonyms
+    r"document|certificate"
+    r")\b",
+    re.IGNORECASE,
 )
 
 # ── Domain terms — RAG trigger ─────────────────────────────────────────────
+# NOTE: ordering matters for readability only; all are checked via "any()"
 DOMAIN_TERMS = (
+    # ── Age / eligibility ──────────────────────────────────────────────────
     "age limit",
     "eligibility",
+    "eligible",
+    "qualify",
+    "age criteria",
+    "minimum age",
+    "maximum age",
+    "how old",
+    # ── Education / qualification ──────────────────────────────────────────
+    "qualification",
+    "educational qualification",
+    "education",
+    "class 10",
+    "class 12",
+    "class 8",
+    "10th",
+    "12th",
+    "8th",
+    "matric",
+    "minimum marks",
+    "percentage required",
+    "pass percentage",
+    "marks required",
+    "marksheet",
+    "iti",
+    "diploma",
+    "intermediate",
+    "pcm",
+    "physics maths",
+    # ── Salary / pay / earnings ────────────────────────────────────────────
     "salary",
     "pay scale",
     "stipend",
     "in hand",
-    "medical",
+    "in-hand",
+    "gross salary",
+    "monthly salary",
+    "annual salary",
+    "per month",
+    "per year",
+    "how much earn",
+    "how much paid",
+    "how much do",
+    "how much will",
+    "how much is",
+    "total earning",
+    "total salary",
+    "total pay",
+    "monthly pay",
+    "annual pay",
+    "monthly income",
+    "income",
+    "compensation",
+    "emolument",
+    "allowance",
+    "deduction",
+    "corpus",
+    "package",
+    "customised package",
+    "pay structure",
+    "salary structure",
+    "salary breakdown",
+    "pay breakdown",
+    # ── Seva Nidhi / exit package ──────────────────────────────────────────
+    "seva nidhi",
+    "exit package",
+    "lump sum",
+    "11.71",
+    "10.04",
+    "corpus fund",
+    # ── Insurance / compensation ───────────────────────────────────────────
+    "insurance",
+    "death compensation",
+    "disability",
+    "ex gratia",
+    "48 lakh",
+    "compensation",
+    "gratuity",
+    "pension",
+    "family pension",
+    # ── Benefits / leave ──────────────────────────────────────────────────
+    "benefit",
+    "leave",
+    "annual leave",
+    "sick leave",
+    "canteen",
+    "csd",
+    "income tax",
+    "tax exempt",
+    # ── Timeline / dates / notification ───────────────────────────────────
+    "notification",
+    "official notification",
+    "timeline",
+    "recruitment timeline",
+    "schedule",
+    "calendar",
+    "exam date",
+    "rally date",
+    "joining date",
+    "reporting date",
+    "when to apply",
+    "last date",
+    "apply date",
+    "registration date",
+    "application date",
+    "start date",
+    "vacancy",
+    "vacancies",
+    "when is the exam",
+    "when is the rally",
+    "when is the notification",
+    "when does the",
+    "which month",
+    "what date",
+    # ── Physical / PFT / medical ───────────────────────────────────────────
     "pft",
     "physical fitness test",
-    "insurance",
-    "ncc certificate",
-    "document required",
-    "seva nidhi",
-    "benefit",
-    "package",
-    "rally",
     "physical test",
     "fitness test",
+    "medical",
+    "height requirement",
+    "chest measurement",
+    "weight requirement",
+    "1.6 km run",
+    "beam",
+    "long jump",
+    "pull up",
+    "eyesight",
+    "dental",
+    "hearing",
+    "colour vision",
+    "color vision",
+    "vision",
+    "ditch jump",
+    "zig zag",
+    "pmt",
+    "physical measurement",
+    # ── Exam / CEE ────────────────────────────────────────────────────────
     "written exam",
     "cee",
     "common entrance",
+    "syllabus",
+    "exam pattern",
+    "negative marking",
+    "typing test",
+    "admit card",
+    "merit list",
+    "cut off",
+    "cutoff",
+    "exam fee",
+    "examination fee",
+    "250",
+    "online exam",
+    "computer based",
+    "cbt",
+    "question paper",
+    "marking scheme",
+    "exam centre",
+    "exam center",
+    # ── Documents ─────────────────────────────────────────────────────────
+    "document",
+    "domicile",
+    "aadhaar",
+    "character certificate",
+    "caste certificate",
+    "ncc certificate",
+    "document required",
+    "unmarried certificate",
+    "relation certificate",
+    # ── Bonus marks ───────────────────────────────────────────────────────
+    "bonus mark",
+    "ncc",
+    "sports bonus",
+    "sos",
+    "soex",
+    # ── Training ──────────────────────────────────────────────────────────
+    "training",
     "regimental centre",
     "induction",
     "drill",
@@ -380,29 +572,51 @@ DOMAIN_TERMS = (
     "physical conditioning",
     "regiment",
     "battalion",
+    # ── Service / posting ─────────────────────────────────────────────────
     "posting",
     "deployment",
     "pass out",
     "passout",
     "allotment",
     "completion certificate",
-    "domicile",
-    "admit card",
-    "merit list",
-    "cut off",
-    "height requirement",
-    "chest measurement",
-    "weight requirement",
-    "1.6 km run",
-    "beam",
-    "long jump",
-    "matric",
-    "class 10",
-    "marksheet",
-    "aadhaar",
-    "character certificate",
-    "caste certificate",
+    "rally",
     "agnipath",
+    # ── Retention / permanent cadre ───────────────────────────────────────
+    "retention",
+    "permanent",
+    "regular cadre",
+    "25 percent",
+    "25%",
+    "permanent selection",
+    # ── Post-service ──────────────────────────────────────────────────────
+    "ex servicemen",
+    "esm",
+    "capf",
+    "reservation",
+    "government job",
+    "after agniveer",
+    "after service",
+    "after 4 years",
+    "exit",
+    "leaving service",
+    "service duration",
+    "total service",
+    "how many years",
+    "skill certificate",
+    "nios",
+    "class 12 equivalent",
+    # ── Application / registration ────────────────────────────────────────
+    "registration",
+    "apply online",
+    "online application",
+    "join indian army",
+    "jia website",
+    "application fee",
+    "exam fee",
+    "operation sindoor",
+    "discharge",
+    "release from service",
+    "married during service",
 )
 
 # ── Reasoning / calculation terms ─────────────────────────────────────────
@@ -415,6 +629,7 @@ REASONING_TERMS = (
     "combined",
     "after 4 years",
     "over 4 years",
+    "for 4 years",
     "how long",
     "how many weeks",
     "how many months",
@@ -423,8 +638,15 @@ REASONING_TERMS = (
     "length of",
     "when does",
     "when will",
+    "when is",
+    "when are",
+    "what date",
+    "which month",
     "what happens after",
     "what happens during",
+    "in total",
+    "per year total",
+    "4 year total",
 )
 
 REASONING_SALARY_TERMS = (
@@ -436,6 +658,11 @@ REASONING_SALARY_TERMS = (
     "nidhi",
     "year",
     "years",
+    "earn",
+    "income",
+    "package",
+    "stipend",
+    "corpus",
 )
 
 # ── Answer-style keywords ──────────────────────────────────────────────────
@@ -710,7 +937,6 @@ def estimate_message_tokens(messages: list[dict]) -> int:
     return total
 
 
-# config.py — trim_to_complete_sentence
 def trim_to_complete_sentence(text: str) -> str:
     text = (text or "").strip()
     if not text:
@@ -719,18 +945,15 @@ def trim_to_complete_sentence(text: str) -> str:
         return text
     matches = list(re.finditer(r"[.!?](?:\s|$)", text))
     if not matches:
-        # FIX: if no sentence boundary found but text is long enough, return as-is
-        # rather than returning raw mid-token text
         if len(text.split()) >= 10:
-            return text  # ← was: return text (already correct, no change needed here)
+            return text
         return text
     last_end = matches[-1].end()
     trimmed = text[:last_end].strip()
     if trimmed and len(trimmed) >= len(text) * 0.50:
         return trimmed
-    # FIX: if trim would throw away more than half, return original rather than
-    # silently losing the tail — caller sees complete text, not truncated garbage
     return text
+
 
 # =============================================================================
 # INTENT CLASSIFIER
@@ -748,8 +971,8 @@ def classify_intent(query: str) -> str:
       5. Training process phrases                → rag
       6. Joining / process phrases               → rag
       7. Domain terms                            → rag
-      7b. Negated domain questions               → rag   ← NEW
-      8. Reasoning + salary                      → rag
+      7b. Negated domain questions               → rag
+      8. Reasoning + salary/service              → rag
       9. Short unknown (<=10 tokens)             → chat  (friendly fallback)
      10. Long off-topic                          → reject
     """
@@ -790,14 +1013,18 @@ def classify_intent(query: str) -> str:
         return "rag"
 
     # 7b. Negated domain questions → RAG
-    # e.g. "can i join if i failed medical", "what if i don't have ncc certificate"
-    # These were previously falling through to step 9/10 because negation words
-    # prevented any domain term from matching, but the question is still RAG.
     _has_negation = any(sig in q for sig in _NEGATION_SIGNALS)
     if _has_negation and any(term in q for term in _NEGATION_DOMAIN_TERMS):
         return "rag"
 
-    # 8. Reasoning + salary → RAG
+    # 7c. Word-boundary match for short/ambiguous salary and timeline synonyms → RAG
+    # Catches "what is the pay", "how much will i earn", "when is the notification",
+    # "what documents needed" etc. that have no verbatim match in DOMAIN_TERMS.
+    # Uses \b word boundaries to avoid false substring matches (e.g. "display" ≠ "pay").
+    if _WORD_BOUNDARY_RAG_TERMS.search(q):
+        return "rag"
+
+    # 8. Reasoning + salary/service → RAG
     if any(term in q for term in REASONING_TERMS) and any(
         term in q for term in REASONING_SALARY_TERMS
     ):

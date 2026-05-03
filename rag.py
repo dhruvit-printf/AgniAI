@@ -1079,8 +1079,16 @@ def _normalize_query_for_retrieval(query: str) -> str:
     # otherwise "can i ... medical" matches the eligibility pattern first.
     expansions = (
         # ── Salary / pay ──────────────────────────────────────────────────
-        (r"\bsalary\b|\bpay\b|\bhow much.*earn|\bhow much.*paid|\bincome\b|\bstipend\b",
-         "customised package in hand seva nidhi monthly"),
+        (
+            r"\bsalary\b|\bpays?\b|\bearnings?\b|\bearn\b|"
+            r"\bhow much.*(?:earn|paid|get|receive)\b|"
+            r"\bincome\b|\bstipend\b|\bcompensation\b|\bremuneration\b|"
+            r"\bwages?\b|\bemoluments?\b|"
+            r"\btotal (?:salary|pay|earning|income)\b|"
+            r"\b(?:monthly|annual|yearly) (?:pay|salary|income)\b|"
+            r"\bhow much (?:do|will|is|are|does)\b",
+            "customised package in hand seva nidhi monthly",
+        ),
         # ── Medical (before eligibility) ───────────────────────────────────
         (r"\bmedical\b",
          "medical examination army medical standards"),
@@ -1096,6 +1104,14 @@ def _normalize_query_for_retrieval(query: str) -> str:
          "required age eligibility"),
         (r"eligibilit|\bam i eligible\b|\bqualif|\bwho can\b",
          "eligibility criteria required age qualification"),
+        (
+            r"\bnotification\b|\btimeline\b|\bschedule\b"
+            r"|\blast date\b|\bvacancy\b|\bvacancies\b"
+            r"|\bapply date\b|\bregistration date\b"
+            r"|\bexam date\b|\brally date\b|\bstart date\b"
+            r"|\bwhen.*apply\b",
+            "recruitment notification joinindianarmy date rally registration",
+        ),
         # ── Selection / joining ───────────────────────────────────────────
         # NOTE: "can i join" removed — after negation strip it matches too broadly
         (r"selection process|how.*select|recruitment process|how.*join|steps? to join|joining process",
@@ -1103,7 +1119,7 @@ def _normalize_query_for_retrieval(query: str) -> str:
         (r"how.*appl|apply|register|registration",
          "registration application"),
         # ── Documents ─────────────────────────────────────────────────────
-        (r"document|\bcertificate\b|\baadhaar\b|\bdomicile\b|\bmarksheet\b",
+        (r"documents?\b|\bcertificates?\b|\baadhaar\b|\bdomicile\b|\bmarksheet\b",
          "documents required matric aadhaar domicile"),
         # ── Benefits ──────────────────────────────────────────────────────
         (r"\bbonus mark",              "bonus marks ncc sports"),
@@ -1113,6 +1129,10 @@ def _normalize_query_for_retrieval(query: str) -> str:
         # ── Training ──────────────────────────────────────────────────────
         (r"\btraining\b|\bhow long.*train\b|\btraining.*duration\b",
          "military training regimental centre"),
+        (
+            r"\bheight\b|\bweight\b|\bchest\b",
+            "height weight chest physical measurement standards",
+        ),
     )
     for pattern, extra in expansions:
         if re.search(pattern, cleaned):
