@@ -1917,12 +1917,29 @@ def _parse_salary_year(query: str) -> Optional[int]:
     return _YEAR_WORD_TO_NUM.get(raw)
 
 
+def _parse_salary_years(query: str) -> List[int]:
+    years: List[int] = []
+    for match in _SALARY_YEAR_PATTERN.finditer(query or ""):
+        raw = (match.group("label") or match.group("num") or "").strip().lower()
+        raw = re.sub(r"\s+", " ", raw)
+        year = _YEAR_WORD_TO_NUM.get(raw)
+        if year is not None and year not in years:
+            years.append(year)
+    return years
+
+
 def _parse_rupee_int(value: str) -> int:
     return int(re.sub(r"[^\d]", "", value or "0"))
 
 
 def _format_rupees(value: int) -> str:
     return f"Rs {value:,}"
+
+
+def _format_percent(value: float) -> str:
+    if abs(value - round(value)) < 1e-9:
+        return f"{int(round(value))}%"
+    return f"{value:.2f}".rstrip("0").rstrip(".") + "%"
 
 
 def _salary_rows_from_context(context: str) -> Dict[int, Dict[str, int]]:
@@ -1943,15 +1960,106 @@ def _salary_rows_from_context(context: str) -> Dict[int, Dict[str, int]]:
     return rows
 
 
+def _quick_summary_salary_rows_from_context(context: str) -> Dict[int, Dict[str, int]]:
+    compact = re.sub(r"\s+", " ", context or "")
+    gross_matches = re.findall(
+        r"Gross Salary \(Year (?P<year>[1-4])\)\s*(?:Rs\.?\s*|₹)?(?P<gross>\d[\d,]*)",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    in_hand_matches = re.findall(
+        r"In-Hand \(Year (?P<year>[1-4])\)\s*(?:Rs\.?\s*|₹)?(?P<in_hand>\d[\d,]*)",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    gross_by_year = {int(year): _parse_rupee_int(value) for year, value in gross_matches}
+    in_hand_by_year = {int(year): _parse_rupee_int(value) for year, value in in_hand_matches}
+    rows: Dict[int, Dict[str, int]] = {}
+    for year in sorted(set(gross_by_year) & set(in_hand_by_year)):
+        package = gross_by_year[year]
+        in_hand = in_hand_by_year[year]
+        rows[year] = {
+            "package": package,
+            "in_hand": in_hand,
+            "agniveer_corpus": package - in_hand,
+            "goi_corpus": 0,
+        }
+    return rows
+
+
+def _salary_rows_any_format(context: str) -> Dict[int, Dict[str, int]]:
+    rows = _salary_rows_from_context(context)
+    rows.update({year: row for year, row in _quick_summary_salary_rows_from_context(context).items() if year not in rows})
+    return rows
+
+
+def _salary_percentage_from_context(context: str) -> Optional[int]:
+    compact = re.sub(r"\s+", " ", context or "")
+    explicit = re.search(r"\bIn[- ]?Hand\s*\(\s*(?P<pct>\d{1,3})\s*%\s*\)", compact, re.IGNORECASE)
+    if explicit:
+        return int(explicit.group("pct"))
+    rows = _salary_rows_any_format(context)
+    percentages = set()
+    for row in rows.values():
+        package = row.get("package", 0)
+        in_hand = row.get("in_hand", 0)
+        deduction = row.get("agniveer_corpus", 0)
+        if package <= 0 or in_hand <= 0:
+            continue
+        if deduction and package - deduction != in_hand:
+            continue
+        pct = (in_hand / package) * 100
+        if abs(pct - round(pct)) < 1e-9:
+            percentages.add(int(round(pct)))
+    if len(percentages) == 1:
+        return percentages.pop()
+    return None
+
+
 def deterministic_salary_answer(query: str, context: str) -> Optional[str]:
     """Answer salary-table questions with deterministic arithmetic, not LLM math."""
     q = (query or "").lower()
     if not any(term in q for term in ("salary", "package", "pay", "in hand", "in-hand")):
         return None
+    rows = _salary_rows_any_format(context)
+    comparison_terms = ("compare", "difference", "differ", "increase", "more", "between")
+    comparison_years = _parse_salary_years(query)
+    if any(term in q for term in comparison_terms) and len(comparison_years) >= 2:
+        first_year, second_year = comparison_years[0], comparison_years[1]
+        first_row = rows.get(first_year)
+        second_row = rows.get(second_year)
+        if not first_row or not second_row:
+            return None
+        first_in_hand = first_row["in_hand"]
+        second_in_hand = second_row["in_hand"]
+        diff = second_in_hand - first_in_hand
+        direction = "higher" if diff >= 0 else "lower"
+        return (
+            f"In Year {first_year}, the in-hand salary is "
+            f"{_format_rupees(first_in_hand)} per month. In Year {second_year}, "
+            f"the in-hand salary is {_format_rupees(second_in_hand)} per month. "
+            f"So the difference is {_format_rupees(abs(diff))} per month; Year "
+            f"{second_year} is {direction} than Year {first_year}."
+        )
+    asks_percentage = any(term in q for term in ("percentage", "percent", "%"))
+    if asks_percentage and any(term in q for term in ("in hand", "in-hand")):
+        pct = _salary_percentage_from_context(context)
+        if pct is None:
+            return None
+        if rows:
+            example_year = sorted(rows)[0]
+            row = rows[example_year]
+            return (
+                f"The in-hand salary is {_format_percent(pct)} of the gross salary. "
+                f"For example, in Year {example_year}, the gross salary is "
+                f"{_format_rupees(row['package'])} per month and the in-hand salary is "
+                f"{_format_rupees(row['in_hand'])} per month; the remaining "
+                f"{_format_rupees(row['agniveer_corpus'])} per month is the corpus deduction."
+            )
+        return f"The in-hand salary is {_format_percent(pct)} of the gross salary."
     year = _parse_salary_year(query)
     if year is None:
         return None
-    rows = _salary_rows_from_context(context)
     row = rows.get(year)
     if not row:
         return None
@@ -2113,15 +2221,20 @@ def _policy_context_from_docs(query: str, docs: Sequence[Dict[str, str]]) -> str
     q = (query or "").lower()
     if not docs:
         return ""
-    if any(term in q for term in ("year", "yrs", "month", "age", "old", "eligible", "apply")):
+    salary_policy = any(term in q for term in ("salary", "package", "pay", "in hand", "in-hand"))
+    if salary_policy:
+        pattern = re.compile(
+            r"monthly salary structure|service year\s+monthly gross|"
+            r"1st\s+year.*2nd\s+year|2nd\s+year.*3rd\s+year",
+            re.IGNORECASE | re.DOTALL,
+        )
+    elif any(term in q for term in ("year", "yrs", "month", "age", "old", "eligible", "apply")):
         pattern = re.compile(
             r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*(?:21|22)\s*(?:yrs?|years?)",
             re.IGNORECASE,
         )
     elif any(term in q for term in ("married", "unmarried", "marital", "marriage", "spouse", "wife", "husband")):
         pattern = re.compile(r"only unmarried candidates|remain unmarried|marriage during service", re.IGNORECASE)
-    elif any(term in q for term in ("salary", "package", "pay", "in hand", "in-hand")):
-        pattern = re.compile(r"in[- ]?hand|customi[sz]ed package|corpus", re.IGNORECASE)
     else:
         return ""
 
@@ -2130,6 +2243,12 @@ def _policy_context_from_docs(query: str, docs: Sequence[Dict[str, str]]) -> str
         text = (doc.get("text") or "").strip()
         if text and pattern.search(text):
             pieces.append(text)
+    if salary_policy and not pieces:
+        broad_pattern = re.compile(r"in[- ]?hand|customi[sz]ed package|corpus", re.IGNORECASE)
+        for doc in docs:
+            text = (doc.get("text") or "").strip()
+            if text and broad_pattern.search(text):
+                pieces.append(text)
     return "\n\n".join(pieces)
 
 
@@ -2183,9 +2302,12 @@ def prepare_rag_bundle(
     if not deterministic_policy_answer(query, context):
         policy_context = _policy_context_from_docs(query, docs)
         if policy_context:
-            remaining = max(0, context_limit - len(context) - 8)
-            if remaining > 0:
-                context = f"{context}\n\n---\n\n{policy_context[:remaining]}".strip()
+            policy_context = policy_context[:context_limit]
+            remaining = max(0, context_limit - len(policy_context) - 8)
+            suffix = context[:remaining] if remaining > 0 else ""
+            context = (
+                f"{policy_context}\n\n---\n\n{suffix}" if suffix else policy_context
+            ).strip()
     return {
         "query":            query,
         "retrieval_query":  retrieval_query,
