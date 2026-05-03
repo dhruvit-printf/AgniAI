@@ -1088,6 +1088,8 @@ def _normalize_query_for_retrieval(query: str) -> str:
         (r"\bphysical test\b|\bpft\b|\bfitness\b|\b1\.6 km\b|\brun\b|\bbeam\b",
          "physical fitness test pft 1.6 km run"),
         # ── Age / eligibility ─────────────────────────────────────────────
+        (r"\b\d{1,2}\s*(?:years?|yrs?)\b|\b\d{1,2}\s*(?:months?|mos?)\b|\b17\s*(?:½|1/2|\.5)\b",
+         "minimum age criteria eligibility 17 1/2 22 yrs"),
         (r"\bmarried\b|\bunmarried\b|\bmarital\b|\bmarriage\b|\bspouse\b|\bwife\b|\bhusband\b",
          "only unmarried candidates enroll remain unmarried engagement marriage during service release"),
         (r"\bage limit\b|\bage\b|\bhow old\b|\bover.?age\b|\bunder.?age\b|\bmaximum age\b|\bminimum age\b",
@@ -1625,6 +1627,9 @@ def _min_max_normalize(values: np.ndarray) -> np.ndarray:
 
 
 _DOMAIN_BOOSTS = [
+    (r"\d{1,2}\s*(?:years?|yrs?)|\d{1,2}\s*(?:months?|mos?)|age|eligible",
+     r"17\s*(?:½|1/2|\.5)|17\s+1/2|22\s*yrs|required age|age criteria|eligibility criteria",
+     1.00),
     (r"married|unmarried|marital|marriage|spouse|wife|husband",
      r"only unmarried candidates|remain unmarried|marriage during service|unmarried certificate",
      1.20),
@@ -2006,11 +2011,122 @@ def deterministic_marital_status_answer(query: str, context: str) -> Optional[st
     return answer
 
 
+_QUERY_AGE_PATTERN = re.compile(
+    r"\b(?P<years>\d{1,2})\s*(?:years?|yrs?)"
+    r"(?:\s*(?:and)?\s*(?P<months>\d{1,2})\s*(?:months?|mos?))?"
+    r"|\b(?P<decimal>\d{1,2})(?:\.(?P<fraction>5))\s*(?:years?|yrs?)?"
+    r"|\b(?P<half_base>\d{1,2})\s*(?:1/2|\u00bd)\s*(?:years?|yrs?)?",
+    re.IGNORECASE,
+)
+
+
+def _parse_query_age_months(query: str) -> Optional[int]:
+    match = _QUERY_AGE_PATTERN.search(query or "")
+    if not match:
+        return None
+    if match.group("years"):
+        years = int(match.group("years"))
+        months = int(match.group("months") or 0)
+        if months >= 12:
+            return None
+        return years * 12 + months
+    if match.group("decimal"):
+        return int(match.group("decimal")) * 12 + 6
+    if match.group("half_base"):
+        return int(match.group("half_base")) * 12 + 6
+    return None
+
+
+def _format_age_months(total_months: int) -> str:
+    years, months = divmod(total_months, 12)
+    if months == 0:
+        return f"{years} years"
+    return f"{years} years {months} months"
+
+
+def _age_limit_months_from_context(context: str) -> Optional[tuple[int, int]]:
+    compact = re.sub(r"\s+", " ", context or "").lower()
+    if re.search(
+        r"minimum age:\s*17\.5\s*years?.*maximum age:\s*21\s*[-–]\s*22\s*years?",
+        compact,
+    ):
+        return 17 * 12 + 6, 22 * 12
+    if re.search(r"minimum age:\s*17\.5\s*years?.*maximum age:\s*22\s*years?", compact):
+        return 17 * 12 + 6, 22 * 12
+    if re.search(r"minimum age:\s*17\.5\s*years?.*maximum age:\s*21\s*years?", compact):
+        return 17 * 12 + 6, 21 * 12
+    if re.search(r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*22\s*(?:yrs?|years?)", compact):
+        return 17 * 12 + 6, 22 * 12
+    if re.search(r"17\s*(?:1/2|\u00bd|½|\.5)\s*to\s*22\s*(?:yrs?|years?)", compact):
+        return 17 * 12 + 6, 22 * 12
+    if re.search(r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*21\s*(?:yrs?|years?)", compact):
+        return 17 * 12 + 6, 21 * 12
+    return None
+
+
+def deterministic_age_eligibility_answer(query: str, context: str) -> Optional[str]:
+    """Compare user's stated age with age criteria from the retrieved KB."""
+    q = (query or "").lower()
+    if not any(term in q for term in ("year", "yrs", "month", "age", "old", "apply", "eligible")):
+        return None
+    candidate_months = _parse_query_age_months(query)
+    limits = _age_limit_months_from_context(context)
+    if candidate_months is None or limits is None:
+        return None
+
+    min_months, max_months = limits
+    if candidate_months < min_months:
+        return (
+            f"No. The knowledge base lists the age criteria as "
+            f"{_format_age_months(min_months)} to {_format_age_months(max_months)}. "
+            f"You are {_format_age_months(candidate_months)}, which is below the "
+            f"minimum age by {_format_age_months(min_months - candidate_months)}."
+        )
+    if candidate_months > max_months:
+        return (
+            f"No. The knowledge base lists the age criteria as "
+            f"{_format_age_months(min_months)} to {_format_age_months(max_months)}. "
+            f"You are {_format_age_months(candidate_months)}, which is above the "
+            "maximum age."
+        )
+    return (
+        f"Yes, based on age alone. The knowledge base lists the age criteria as "
+        f"{_format_age_months(min_months)} to {_format_age_months(max_months)}, "
+        f"and you are {_format_age_months(candidate_months)}. You still need to "
+        "meet the other eligibility criteria from the relevant Agniveer category."
+    )
+
+
 def deterministic_policy_answer(query: str, context: str) -> Optional[str]:
     return (
         deterministic_salary_answer(query, context)
         or deterministic_marital_status_answer(query, context)
+        or deterministic_age_eligibility_answer(query, context)
     )
+
+
+def _policy_context_from_docs(query: str, docs: Sequence[Dict[str, str]]) -> str:
+    q = (query or "").lower()
+    if not docs:
+        return ""
+    if any(term in q for term in ("year", "yrs", "month", "age", "old", "eligible", "apply")):
+        pattern = re.compile(
+            r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*(?:21|22)\s*(?:yrs?|years?)",
+            re.IGNORECASE,
+        )
+    elif any(term in q for term in ("married", "unmarried", "marital", "marriage", "spouse", "wife", "husband")):
+        pattern = re.compile(r"only unmarried candidates|remain unmarried|marriage during service", re.IGNORECASE)
+    elif any(term in q for term in ("salary", "package", "pay", "in hand", "in-hand")):
+        pattern = re.compile(r"in[- ]?hand|customi[sz]ed package|corpus", re.IGNORECASE)
+    else:
+        return ""
+
+    pieces: List[str] = []
+    for doc in docs:
+        text = (doc.get("text") or "").strip()
+        if text and pattern.search(text):
+            pieces.append(text)
+    return "\n\n".join(pieces)
 
 
 def decide_answer_mode(
@@ -2060,6 +2176,12 @@ def prepare_rag_bundle(
         min_score=context_min_score,
         max_chars=context_limit,
     )
+    if not deterministic_policy_answer(query, context):
+        policy_context = _policy_context_from_docs(query, docs)
+        if policy_context:
+            remaining = max(0, context_limit - len(context) - 8)
+            if remaining > 0:
+                context = f"{context}\n\n---\n\n{policy_context[:remaining]}".strip()
     return {
         "query":            query,
         "retrieval_query":  retrieval_query,
