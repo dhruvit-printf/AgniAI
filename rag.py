@@ -2223,6 +2223,12 @@ def _format_age_months(total_months: int) -> str:
 
 def _age_limit_months_from_context(context: str) -> Optional[tuple[int, int]]:
     compact = re.sub(r"\s+", " ", context or "").lower()
+    if re.search(r"between\s+17\.5\s+and\s+22\s+years", compact):
+        return 17 * 12 + 6, 22 * 12
+    if re.search(r"17\.5\s*[-–]\s*22\s*years?", compact):
+        return 17 * 12 + 6, 22 * 12
+    if re.search(r"17\.5\s*[-–]\s*21\s*years?", compact):
+        return 17 * 12 + 6, 21 * 12
     if re.search(
         r"minimum age:\s*17\.5\s*years?.*maximum age:\s*21\s*[-–]\s*22\s*years?",
         compact,
@@ -2248,10 +2254,15 @@ def deterministic_age_eligibility_answer(query: str, context: str) -> Optional[s
         return None
     candidate_months = _parse_query_age_months(query)
     limits = _age_limit_months_from_context(context)
-    if candidate_months is None or limits is None:
+    if limits is None:
         return None
 
     min_months, max_months = limits
+    if candidate_months is None:
+        return (
+            f"The knowledge base lists the Agniveer age criteria as "
+            f"{_format_age_months(min_months)} to {_format_age_months(max_months)}."
+        )
     if candidate_months < min_months:
         return (
             f"No. The knowledge base lists the age criteria as "
