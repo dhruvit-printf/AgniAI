@@ -1264,13 +1264,17 @@ _NEGATION_SIGNALS = (
 # "what is the age limit" and "what if i am over age limit" 
 # normalize to similar embeddings and could share a cache entry
 
-# AFTER: include a negation flag in the key:
 def make_response_cache_key(query, *, style, model, context, session_id=""):
-    del session_id
     normalized = _query_cache_key(query)
     q_lower = query.lower()
     is_conditional = any(sig in q_lower for sig in _NEGATION_SIGNALS)
-    payload = f"{style}|{model}|{'neg' if is_conditional else 'pos'}|{normalized}"
+    context_marker = (context or "").strip()
+    context_hash = _hash_text(context_marker)[:16] if context_marker else "noctx"
+    session_marker = (session_id or "").strip() or "default"
+    payload = (
+        f"{style}|{model}|{session_marker}|{context_hash}|"
+        f"{'neg' if is_conditional else 'pos'}|{normalized}"
+    )
     return _hash_text(payload)
 
 

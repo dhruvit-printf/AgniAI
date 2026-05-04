@@ -976,6 +976,86 @@ def trim_to_complete_sentence(text: str) -> str:
     return text
 
 
+def _normalize_chat_query(text: str) -> str:
+    text = (text or "").strip().lower()
+    text = re.sub(r"[^\w\s]", " ", text)
+    return " ".join(text.split())
+
+
+def direct_chat_response(query: str) -> str | None:
+    """
+    Return deterministic replies for simple conversational turns so greetings
+    and small talk stay natural even after domain-heavy exchanges.
+    """
+    q = _normalize_chat_query(query)
+    if not q:
+        return None
+
+    if q in {
+        "hi", "hello", "hey", "hii", "hiii", "heyy", "heya",
+        "hola", "howdy", "namaste", "namaskar", "pranam",
+        "good morning", "good afternoon", "good evening",
+    }:
+        return (
+            "Hello! I am AgniAI, your guide for the Agniveer training process. "
+            "What would you like to know today?"
+        )
+
+    if any(
+        phrase in q
+        for phrase in (
+            "how are you",
+            "how r you",
+            "how are u",
+            "how r u",
+            "how do you do",
+            "how is it going",
+            "how s it going",
+            "hows it going",
+            "how are things",
+            "how are you doing",
+            "are you okay",
+            "you okay",
+            "u okay",
+            "what s up",
+            "whats up",
+            "what is up",
+        )
+    ):
+        return (
+            "I am doing well and ready to help you with the Agniveer training "
+            "process. What would you like to know?"
+        )
+
+    if any(
+        phrase in q
+        for phrase in (
+            "who are you",
+            "what are you",
+            "what is your name",
+            "whats your name",
+            "what s your name",
+            "tell me about yourself",
+            "introduce yourself",
+            "what do you do",
+            "what can you do",
+            "what can you help",
+            "what can you help me with",
+            "how can you help",
+            "how can you help me",
+            "what are you capable of",
+        )
+    ):
+        return (
+            "I am AgniAI, an offline AI assistant built to help you understand "
+            "the Agniveer training process. I can help with eligibility, age, "
+            "salary, physical tests, medical standards, documents, training, "
+            "and selection steps."
+        )
+
+    return None
+
+
 # =============================================================================
 # INTENT CLASSIFIER
 # =============================================================================
