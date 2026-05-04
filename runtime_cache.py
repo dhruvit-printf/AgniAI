@@ -16,6 +16,7 @@ class TTLCache(Generic[T]):
         self.ttl = ttl
         self._data: OrderedDict[str, tuple[float, T]] = OrderedDict()
         self._lock = threading.RLock()
+        self._write_count = 0
 
     def _purge_locked(self) -> None:
         now = time.time()
@@ -34,14 +35,15 @@ class TTLCache(Generic[T]):
             if time.time() - ts > self.ttl:
                 self._data.pop(key, None)
                 return None
-            self._data.move_to_end(key)
             return value
 
     def set(self, key: str, value: T) -> None:
         with self._lock:
             self._data[key] = (time.time(), value)
             self._data.move_to_end(key)
-            self._purge_locked()
+            self._write_count += 1
+            if self._write_count % 64 == 0:
+                self._purge_locked()
 
     def clear(self) -> None:
         with self._lock:

@@ -85,12 +85,15 @@ class CpuSampler:
     def __init__(self, interval_s: float = 0.1) -> None:
         self.interval_s = interval_s
         self.samples: list[float] = []
+        self._samples_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            self.samples.append(psutil.cpu_percent(interval=self.interval_s))
+            sample = psutil.cpu_percent(interval=self.interval_s)
+            with self._samples_lock:
+                self.samples.append(sample)
 
     def start(self) -> None:
         self._thread.start()
@@ -100,9 +103,10 @@ class CpuSampler:
         self._thread.join(timeout=self.interval_s * 3)
 
     def average(self) -> Optional[float]:
-        if not self.samples:
-            return None
-        return float(sum(self.samples) / len(self.samples))
+        with self._samples_lock:
+            if not self.samples:
+                return None
+            return float(sum(self.samples) / len(self.samples))
 
 
 # =============================================================================

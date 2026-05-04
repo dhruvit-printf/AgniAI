@@ -50,7 +50,6 @@ from config import (
     STRICT_RAG_PROMPT,
     STRICT_RAG_PROMPT_COMPUTE,
     STRICT_TOP_K,
-    MIN_RETRIEVAL_CONFIDENCE,
     SYSTEM_PROMPT,
     TOP_K,
     USE_HYBRID,
@@ -91,6 +90,7 @@ _BM25_SCORE_CACHE  = TTLCache(maxsize=512, ttl=RETRIEVAL_CACHE_TTL)
 
 _MAX_STRUCTURED_POINTS = int(os.getenv("MAX_STRUCTURED_POINTS", "12"))
 _PRELOAD_THREAD: Optional[threading.Thread] = None
+_WARMUP_READY = threading.Event()
 
 _STEP_TEMPLATE = [
     "Registration & Preparation",
@@ -354,6 +354,11 @@ def _repair_docstore_from_lines(raw: str) -> List[Dict[str, str]]:
         if "text" not in obj and text_lines:
             obj["text"] = "\n".join(text_lines)
         docs.append(obj)
+    try:
+        json.dumps(docs)
+    except (TypeError, ValueError):
+        logger.warning("Docstore line repair produced invalid JSON-serialisable data; falling back to empty docstore.")
+        docs = []
     return docs
 
 
@@ -1324,29 +1329,32 @@ def warmup_runtime(*, async_load: bool = False) -> None:
     global _PRELOAD_THREAD
 
     def _do_warmup() -> None:
-        # Step 1: Load embedding model (local cache first, download if missing)
         try:
-            model = load_embedding_model()
-            model.encode(
-                ["Agniveer age eligibility salary benefits recruitment"],
-                convert_to_numpy=True,
-                show_progress_bar=False,
-            )
-            logger.info("Embedding model ready.")
-        except Exception as exc:
-            logger.debug("Embedding warmup failed: %s", exc)
+            # Step 1: Load embedding model (local cache first, download if missing)
+            try:
+                model = load_embedding_model()
+                model.encode(
+                    ["Agniveer age eligibility salary benefits recruitment"],
+                    convert_to_numpy=True,
+                    show_progress_bar=False,
+                )
+                logger.info("Embedding model ready.")
+            except Exception as exc:
+                logger.debug("Embedding warmup failed: %s", exc)
 
-        # Step 2: Load FAISS + BM25 into RAM
-        try:
-            load_index()
-            if USE_HYBRID:
-                load_bm25()
-            logger.info("FAISS + BM25 index ready.")
-        except Exception as exc:
-            logger.debug("Index warmup failed: %s", exc)
+            # Step 2: Load FAISS + BM25 into RAM
+            try:
+                load_index()
+                if USE_HYBRID:
+                    load_bm25()
+                logger.info("FAISS + BM25 index ready.")
+            except Exception as exc:
+                logger.debug("Index warmup failed: %s", exc)
 
-        # Step 3: Pre-load Ollama LLM into RAM
-        _warmup_ollama()
+            # Step 3: Pre-load Ollama LLM into RAM
+            _warmup_ollama()
+        finally:
+            _WARMUP_READY.set()
 
     if not async_load:
         _do_warmup()
@@ -1358,6 +1366,10 @@ def warmup_runtime(*, async_load: bool = False) -> None:
         target=_do_warmup, daemon=True, name="agniai-warmup"
     )
     _PRELOAD_THREAD.start()
+
+
+def is_ready() -> bool:
+    return _WARMUP_READY.is_set()
 
 
 # =============================================================================
@@ -1520,8 +1532,9 @@ def save_bm25(docs: List[Dict[str, str]]) -> None:
 
 def load_docstore():
     global _DOCSTORE_CACHE
-    if _DOCSTORE_CACHE is not None:
-        return _DOCSTORE_CACHE
+    with _INDEX_LOCK:
+        if _DOCSTORE_CACHE is not None:
+            return list(_DOCSTORE_CACHE)
     if not DOCSTORE_PATH.exists():
         return []
     raw = DOCSTORE_PATH.read_text(encoding="utf-8", errors="replace")
@@ -1529,7 +1542,8 @@ def load_docstore():
         docs = json.loads(raw)
     except Exception:
         docs = _repair_docstore_from_lines(raw)
-    _DOCSTORE_CACHE = docs
+    with _INDEX_LOCK:
+        _DOCSTORE_CACHE = list(docs)
     return docs
 
 
@@ -1622,6 +1636,10 @@ def _bm25_scores(query: str) -> np.ndarray:
     try:
         scores = np.array(bm25.get_scores(_tokenize(query)), dtype="float32")
         if scores.shape[0] != len(docs):
+            logger.warning(
+                "BM25 corpus length %d != docstore length %d; falling back to dense-only retrieval for this query.",
+                scores.shape[0], len(docs)
+            )
             result = np.zeros(len(docs), dtype="float32")
             _BM25_SCORE_CACHE.set(cache_key, result)
             return result
@@ -2079,6 +2097,8 @@ def deterministic_salary_answer(query: str, context: str) -> Optional[str]:
         return f"The in-hand salary is {_format_percent(pct)} of the gross salary."
     year = _parse_salary_year(query)
     if year is None and rows:
+        pct_in_hand = _salary_percentage_from_context(context) or 70
+        pct_corpus = 100 - pct_in_hand
         valid_rows = []
         mismatches = []
         for row_year in sorted(rows):
@@ -2105,8 +2125,8 @@ def deterministic_salary_answer(query: str, context: str) -> Optional[str]:
         )
         return (
             "The Agniveer monthly salary is given year-wise as follows: "
-            f"{row_text}. In-hand salary is 70% of the gross salary; the remaining "
-            "30% is the Agniveer Corpus Fund deduction."
+            f"{row_text}. In-hand salary is {pct_in_hand}% of the gross salary; the remaining "
+            f"{pct_corpus}% is the Agniveer Corpus Fund deduction."
             + (
                 " Note: the knowledge base has a numerical mismatch in "
                 + "; ".join(mismatches)

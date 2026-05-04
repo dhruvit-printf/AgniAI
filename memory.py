@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
 from threading import RLock
 from typing import Deque, Dict, List, Optional
 
 from config import MEMORY_MAX_MESSAGES
+
+MAX_SESSIONS = 500
 
 
 class ConversationMemory:
@@ -14,18 +16,8 @@ class ConversationMemory:
 
     def __init__(self, max_messages: int = MEMORY_MAX_MESSAGES) -> None:
         self.max_messages = max_messages
-        self._sessions: Dict[str, Deque[Dict[str, str]]] = defaultdict(
-            lambda: deque(maxlen=self.max_messages)
-        )
+        self._sessions: "OrderedDict[str, Deque[Dict[str, str]]]" = OrderedDict()
         self._lock = RLock()
-
-    def _bucket(self, session_id: Optional[str]) -> Deque[Dict[str, str]]:
-        key = session_id or "default"
-        bucket = self._sessions.get(key)
-        if bucket is None:
-            bucket = deque(maxlen=self.max_messages)
-            self._sessions[key] = bucket
-        return bucket
 
     def add(self, role: str, content: str, session_id: Optional[str] = None) -> None:
         if role not in {"user", "assistant"}:
@@ -36,7 +28,11 @@ class ConversationMemory:
             if bucket is None:
                 bucket = deque(maxlen=self.max_messages)
                 self._sessions[key] = bucket
+            else:
+                self._sessions.move_to_end(key)
             bucket.append({"role": role, "content": content})
+            while len(self._sessions) > MAX_SESSIONS:
+                self._sessions.popitem(last=False)
 
     def clear(self, session_id: Optional[str] = None) -> None:
         with self._lock:

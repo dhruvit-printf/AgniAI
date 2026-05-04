@@ -27,7 +27,7 @@ USE_RERANKER   = os.getenv("USE_RERANKER", "0") not in {"0", "false", "False"}
 
 # ── Ollama ─────────────────────────────────────────────────────────────────
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-OLLAMA_URL      = os.getenv("OLLAMA_CHAT_URL", f"{OLLAMA_BASE_URL}/api/chat")
+OLLAMA_URL      = f"{OLLAMA_BASE_URL}/api/chat"
 OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", f"{OLLAMA_BASE_URL}/api/tags")
 
 DEFAULT_MODEL            = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct-q4_K_M")
@@ -56,7 +56,6 @@ STRICT_MIN_SCORE          = float(os.getenv("STRICT_MIN_SCORE",        "0.55"))
 STRICT_TOP_K              = int(os.getenv("STRICT_TOP_K",              "4"))
 LOW_RETRIEVAL_CONFIDENCE  = float(os.getenv("LOW_RETRIEVAL_CONFIDENCE",  "0.35"))
 HIGH_RETRIEVAL_CONFIDENCE = float(os.getenv("HIGH_RETRIEVAL_CONFIDENCE", "0.60"))
-MIN_RETRIEVAL_CONFIDENCE  = LOW_RETRIEVAL_CONFIDENCE
 
 DENSE_WEIGHT = float(os.getenv("DENSE_WEIGHT", "0.60"))
 BM25_WEIGHT  = float(os.getenv("BM25_WEIGHT",  "0.40"))
@@ -687,6 +686,27 @@ STYLE_ELABORATE_KEYWORDS = [
     "expand on", "describe", "give more", "more info",
     "more detail", "walk me through", "how does", "how do",
 ]
+
+
+def _style_kw_match(query_lower: str, keywords: list[str]) -> bool:
+    for kw in keywords:
+        if " " in kw:
+            if kw in query_lower:
+                return True
+        elif re.search(rf"\b{re.escape(kw)}\b", query_lower):
+            return True
+    return False
+
+
+def detect_answer_style(query: str) -> tuple[str, str]:
+    q = (query or "").lower()
+    if _style_kw_match(q, STYLE_SHORT_KEYWORDS):
+        return "short", "short"
+    if _style_kw_match(q, STYLE_DETAIL_KEYWORDS):
+        return "detail", "detail"
+    if _style_kw_match(q, STYLE_ELABORATE_KEYWORDS):
+        return "elaborate", "elaborate"
+    return "elaborate", "elaborate"
 
 # ── Style output guidance ──────────────────────────────────────────────────
 STYLE_OUTPUT_GUIDANCE = {

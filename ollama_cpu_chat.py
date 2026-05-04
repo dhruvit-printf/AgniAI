@@ -4,7 +4,7 @@ ollama_cpu_chat.py
 CPU-optimised Ollama streaming client for AgniAI.
 
 Changes vs original:
-  • KEEP_ALIVE = "-1"  — model stays loaded in RAM indefinitely
+  • KEEP_ALIVE = "10m" (set OLLAMA_KEEP_ALIVE=-1 to keep model loaded forever)
   • MODEL_NAME updated to q4_K_M quantized variant
   • _default_num_thread: removed hard cap of 4, uses all physical cores - 1
   • Added _start_keepalive_heartbeat() to ping Ollama periodically so the
@@ -81,6 +81,7 @@ KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m")  # was "10m"
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "6"))
 MODEL_LIST_CACHE_TTL = float(os.getenv("OLLAMA_MODEL_LIST_CACHE_TTL", "30"))
 _MODEL_LIST_CACHE: tuple[float, List[str]] | None = None
+_ACTIVE_MODEL_REF = [MODEL_NAME]
 
 
 # =============================================================================
@@ -116,7 +117,7 @@ class PartialResponseError(OllamaError):
 def _start_keepalive_heartbeat(
     session: requests.Session,
     interval_seconds: int = 240,
-    model: Optional[str] = None,
+    model_ref: Optional[list[str]] = None,
 ) -> None:
     """
     Send a no-op request to Ollama every `interval_seconds` so the LLM model
@@ -128,7 +129,7 @@ def _start_keepalive_heartbeat(
 
     Call once at startup, runs as a daemon thread.
     """
-    target_model = model or MODEL_NAME
+    active_model_ref = model_ref or _ACTIVE_MODEL_REF
 
     def _beat() -> None:
         while True:
@@ -137,7 +138,7 @@ def _start_keepalive_heartbeat(
                 session.post(
                     CHAT_ENDPOINT,
                     json={
-                        "model": target_model,
+                        "model": active_model_ref[0],
                         "messages": [{"role": "user", "content": "."}],
                         "stream": False,
                         "keep_alive": "10m",
@@ -283,7 +284,7 @@ def _iter_ndjson(resp: requests.Response) -> Iterable[dict]:
 def _flush_partial_stream(
     buffer: str,
     *,
-    min_chars: int = 200,   
+    min_chars: int = 60,
 ) -> tuple[list[str], str]:
     matches = list(re.finditer(r"[.!?]\s", buffer))
     if matches:
@@ -392,8 +393,8 @@ def _ollama_chat_once(
                     else:
                         sys.stdout.write(stream_buffer)
                         sys.stdout.flush()
-                stream_buffer = ""  
                 streamed_text = "".join(pieces)  
+            stream_buffer = ""
 
     except requests.Timeout as exc:
         partial = trim_to_complete_sentence("".join(pieces) + stream_buffer)
@@ -525,6 +526,7 @@ def main() -> int:
             continue
         if low.startswith("/model "):
             model = user.split(maxsplit=1)[1].strip()
+            _ACTIVE_MODEL_REF[0] = model
             print(f"Model: {model}")
             continue
         if low.startswith("/"):

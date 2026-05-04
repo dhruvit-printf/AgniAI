@@ -12,6 +12,8 @@ import requests
 from config import (
     CHAT_SYSTEM_PROMPT,
     DATA_DIR,
+    detect_answer_style,
+    GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
     INDEX_DIR,
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_CHARS_DEFAULT,
@@ -22,9 +24,6 @@ from config import (
     STRICT_RAG_PROMPT,
     STRICT_RAG_PROMPT_COMPUTE,
     TOKEN_SAFETY_BUFFER,
-    STYLE_DETAIL_KEYWORDS,
-    STYLE_ELABORATE_KEYWORDS,
-    STYLE_SHORT_KEYWORDS,
     TOP_K,
     classify_intent,
     estimate_message_tokens,
@@ -139,27 +138,6 @@ _STYLE_COLOR = {"short": yellow, "elaborate": cyan, "detail": blue}
 # =============================================================================
 # HELPERS
 # =============================================================================
-
-
-def _kw_match(query_lower: str, keywords: list) -> bool:
-    for kw in keywords:
-        if " " in kw:
-            if kw in query_lower:
-                return True
-        elif re.search(rf"\b{re.escape(kw)}\b", query_lower):
-            return True
-    return False
-
-
-def detect_answer_style(query: str) -> Tuple[str, str]:
-    q = query.lower()
-    if _kw_match(q, STYLE_SHORT_KEYWORDS):
-        return "short", "short"
-    if _kw_match(q, STYLE_DETAIL_KEYWORDS):
-        return "detail", "detail"
-    if _kw_match(q, STYLE_ELABORATE_KEYWORDS):
-        return "elaborate", "elaborate"
-    return "elaborate", "elaborate"
 
 
 def get_context_limit(style: str) -> int:
@@ -283,6 +261,68 @@ def _build_rag_messages(
     return messages, context
 
 
+def _build_general_messages(
+    *,
+    query: str,
+    style: str,
+    history: list[dict] | None,
+) -> list[dict]:
+    query_lower = query.lower().strip()
+    style_key = (style or "").strip().lower()
+    if style_key == "short":
+        fallback_style = "Keep the answer concise, usually 1 short paragraph."
+    elif style_key == "detail":
+        fallback_style = "Give a clear, well-organized answer without inventing specifics."
+    else:
+        fallback_style = "Give a clear answer in 1 to 3 short paragraphs."
+
+    factual_signals = (
+        "what is", "what are", "who is", "who was", "when did", "when was",
+        "where is", "where was", "how does", "how do", "why does", "why do",
+        "explain", "define", "difference between", "full form", "meaning of",
+        "capital of", "president of", "prime minister", "how many", "how much",
+        "which country", "which state", "formula", "equation", "calculate",
+        "theorem", "law of", "principle of", "history of", "founder of",
+        "invented by", "discovered by", "what happens", "why is", "how is",
+    )
+    is_factual = any(signal in query_lower for signal in factual_signals)
+
+    if is_factual:
+        system_content = (
+            f"{CHAT_SYSTEM_PROMPT}\n\n"
+            f"{GENERAL_KNOWLEDGE_FALLBACK_PROMPT}\n\n"
+            "The user is asking a factual or subject-based question outside your "
+            "Agniveer knowledge base. Answer it like a knowledgeable teacher or mentor - "
+            "clear, conservative, and complete only where generic knowledge is enough. "
+            "Do not restrict yourself to Agniveer topics. "
+            "If the topic connects to Agniveer or Indian Army, mention that naturally at the end. "
+            "Do not say 'Answer not found in the document' in this fallback path, but clearly "
+            "state when exact values are unavailable in the knowledge base.\n\n"
+            f"{fallback_style}"
+        )
+    else:
+        system_content = (
+            f"{CHAT_SYSTEM_PROMPT}\n\n"
+            "The user is talking to you naturally - sharing something personal, "
+            "asking for advice, or just having a conversation. "
+            "Respond like a warm, caring human - not like a document reader. "
+            "Be genuine, encouraging, and natural. Keep it conversational. "
+            "Do not use bullet points or structured formatting. "
+            "Do not say 'Answer not found in the document.' Just talk to them.\n\n"
+            f"{fallback_style}"
+        )
+
+    messages: list[dict] = [{"role": "system", "content": system_content}]
+    if history:
+        for msg in history[-6:]:
+            role = msg.get("role")
+            content = (msg.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": query})
+    return messages
+
+
 def _ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
@@ -345,12 +385,13 @@ def _handle_stats() -> None:
     print(f"\n  Index stats: {stats['vectors']} vectors / {stats['chunks']} chunks")
 
 
-def _handle_reset() -> None:
+def _handle_reset(memory: ConversationMemory) -> None:
     confirm = input(
         yellow("  This will DELETE the entire knowledge base. Type YES to confirm: ")
     ).strip()
     if confirm == "YES":
         clear_index()
+        memory.clear()
         print(green("  Knowledge base cleared."))
     else:
         print(dim("  Reset cancelled."))
@@ -413,12 +454,15 @@ def run_chat() -> None:
             print(green("  Conversation memory cleared."))
             continue
         if low == "/reset":
-            _handle_reset()
+            _handle_reset(memory)
             continue
         if low.startswith("/model"):
             parts = raw.split(maxsplit=1)
             if len(parts) == 2 and parts[1].strip():
                 active_model = parts[1].strip()
+                from ollama_cpu_chat import _ACTIVE_MODEL_REF
+
+                _ACTIVE_MODEL_REF[0] = active_model
                 print(green(f"  Model switched to '{active_model}'."))
             else:
                 print(yellow("  Usage: /model <model-name>"))
@@ -450,8 +494,28 @@ def run_chat() -> None:
 
         # ── Reject out-of-domain queries ───────────────────────────────────
         if intent == "reject":
-            answer = REFERENCE_FALLBACK
-            print(f"\nAgniAI: {answer}\n")
+            messages = _build_general_messages(
+                query=raw,
+                style=style_name,
+                history=history[-6:] if history else None,
+            )
+            try:
+                print("\nAgniAI: ", end="", flush=True)
+                result = chat_with_fallback(
+                    session,
+                    active_model or DEFAULT_MODEL_NAME,
+                    messages,
+                    stream_tokens=True,
+                    max_tokens_override=get_token_limit(style_name),
+                )
+                print()
+                answer = _finalize_answer(result.text)
+            except PartialResponseError as exc:
+                print(f"\n  Partial response: {exc}\n")
+                answer = _finalize_answer(exc.partial_text or REFERENCE_FALLBACK)
+            except RuntimeError as exc:
+                print(f"\n  LLM Error: {exc}\n")
+                continue
             memory.add("user", raw)
             memory.add("assistant", answer)
             continue
@@ -465,15 +529,14 @@ def run_chat() -> None:
             use_rag=use_rag,
         )
 
-        # ── Cache check (pre-retrieval for non-RAG) ────────────────────────
-        response_key = make_response_cache_key(
-            raw,
-            style=style_name,
-            model=active_model or DEFAULT_MODEL_NAME,
-            context="",
-            session_id="cli",
-        )
         if not use_rag:
+            response_key = make_response_cache_key(
+                raw,
+                style=style_name,
+                model=active_model or DEFAULT_MODEL_NAME,
+                context="chat",
+                session_id="cli",
+            )
             cached_answer = get_cached_response(response_key)
             if cached_answer is not None:
                 print(dim("  [cache hit]"))
@@ -545,6 +608,14 @@ def run_chat() -> None:
                 memory.add("user", raw)
                 memory.add("assistant", cached_answer)
                 continue
+        else:
+            response_key = make_response_cache_key(
+                raw,
+                style=style_name,
+                model=active_model or DEFAULT_MODEL_NAME,
+                context="chat",
+                session_id="cli",
+            )
 
         docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
         confidence = (

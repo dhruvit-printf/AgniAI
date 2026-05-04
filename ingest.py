@@ -141,6 +141,9 @@ def chunk_text_semantic(
             else:
                 chunks.append(chunk)
 
+        if end == start:
+            end = start + 1
+
         if end >= len(sentences):
             break
 
@@ -348,9 +351,12 @@ def ingest_url(url: str, force: bool = False) -> int:
     if not force and _source_already_ingested(url):
         return 0
 
-    response = requests.get(
+    session = requests.Session()
+    session.max_redirects = 5
+    response = session.get(
         url,
-        timeout=30,
+        allow_redirects=True,
+        timeout=(20, 30),
         headers={"User-Agent": "AgniAI/1.0 (offline-chatbot)"},
     )
     response.raise_for_status()
@@ -377,7 +383,7 @@ def ingest_text(text: str, label: str = "manual_text") -> int:
             if d.get("source", "").startswith("manual_text")
         )
         if existing_count > 0:
-            label = f"manual_text_{existing_count + 1}_{int(time.time())}"
+            label = f"manual_text_{existing_count + 1}_{time.time_ns()}"
 
     if _source_already_ingested(label):
         return 0

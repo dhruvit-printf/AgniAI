@@ -41,6 +41,7 @@ from config import (
     ALLOWED_ORIGINS,
     API_SECRET_KEY,
     CHAT_SYSTEM_PROMPT,
+    detect_answer_style,
     FIRST_TOKEN_TIMEOUT,
     GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
     MAX_CONTEXT_CHARS,
@@ -54,9 +55,6 @@ from config import (
     STRICT_RAG_PROMPT,
     STRICT_RAG_PROMPT_COMPUTE,
     TOKEN_SAFETY_BUFFER,
-    STYLE_DETAIL_KEYWORDS,
-    STYLE_ELABORATE_KEYWORDS,
-    STYLE_SHORT_KEYWORDS,
     TOP_K,
     classify_intent,
     estimate_message_tokens,
@@ -83,6 +81,7 @@ from rag import (
     deterministic_policy_answer,
     get_cached_response,
     index_stats,
+    is_ready,
     is_reasoning_query,
     make_response_cache_key,
     prepare_rag_bundle,
@@ -108,6 +107,7 @@ _memory = ConversationMemory()
 _session = _requests.Session()
 _active_model = DEFAULT_MODEL
 _lock = threading.Lock()
+_STREAM_SEMAPHORE = threading.Semaphore(10)
 
 _STYLE_MIN_WORDS = {
     "short": 50,
@@ -186,27 +186,6 @@ def _json_error(message: str, status_code: int):
 def _client_accepts_sse() -> bool:
     accept = request.headers.get("Accept", "")
     return "text/event-stream" in accept.lower()
-
-
-def _kw_match(query_lower: str, keywords: list) -> bool:
-    for kw in keywords:
-        if " " in kw:
-            if kw in query_lower:
-                return True
-        elif f" {kw} " in f" {query_lower} ":
-            return True
-    return False
-
-
-def detect_answer_style(query: str) -> tuple[str, str]:
-    q = query.lower()
-    if _kw_match(q, STYLE_SHORT_KEYWORDS):
-        return "short", "short"
-    if _kw_match(q, STYLE_DETAIL_KEYWORDS):
-        return "detail", "detail"
-    if _kw_match(q, STYLE_ELABORATE_KEYWORDS):
-        return "elaborate", "elaborate"
-    return "elaborate", "elaborate"
 
 
 def _get_session_id(data: dict) -> str:
@@ -467,6 +446,18 @@ def _stream_answer_response(answer_generator, status_payload: dict) -> Response:
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
 
 
+def _start_stream_worker(target) -> None:
+    _STREAM_SEMAPHORE.acquire()
+
+    def _wrapped_target() -> None:
+        try:
+            target()
+        finally:
+            _STREAM_SEMAPHORE.release()
+
+    threading.Thread(target=_wrapped_target, daemon=True).start()
+
+
 # =============================================================================
 # ROUTES
 # =============================================================================
@@ -501,6 +492,13 @@ def health():
     )
 
 
+@app.route("/api/ready")
+def ready():
+    if not is_ready():
+        return jsonify({"success": False, "status": "warming_up"}), 503
+    return jsonify({"success": True, "status": "ready"})
+
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     global _active_model
@@ -527,6 +525,9 @@ def chat():
     with _lock:
         if model:
             _active_model = model
+            from ollama_cpu_chat import _ACTIVE_MODEL_REF
+
+            _ACTIVE_MODEL_REF[0] = model
         current_model = _active_model
 
     style_name, _ = detect_answer_style(message)
@@ -591,9 +592,13 @@ def chat():
                 finally:
                     token_queue.put(None)
 
-            threading.Thread(target=_gen_worker, daemon=True).start()
+            _start_stream_worker(_gen_worker)
 
-            def _gen_generator():
+            def _gen_generator(
+                _message=message,
+                _session_id=session_id,
+                _response_key=response_key,
+            ):
                 pieces: list[str] = []
                 while True:
                     try:
@@ -613,9 +618,9 @@ def chat():
                     "".join(pieces).strip() or str(outcome.get("answer", "")).strip()
                 )
                 answer = _finalize_answer(answer) or REFERENCE_FALLBACK
-                _memory.add("user", message, session_id=session_id)
-                _memory.add("assistant", answer, session_id=session_id)
-                set_cached_response(response_key, answer)
+                _memory.add("user", _message, session_id=_session_id)
+                _memory.add("assistant", answer, session_id=_session_id)
+                set_cached_response(_response_key, answer)
 
             return _stream_answer_response(
                 answer_generator=_gen_generator,
@@ -676,7 +681,7 @@ def chat():
             bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
         )
     else:
-        context = ""
+        context = "chat"
         confidence = 0.0
         mode = "chat"
 
@@ -789,9 +794,14 @@ def chat():
                 finally:
                     token_queue2.put(None)
 
-            threading.Thread(target=_rag_worker, daemon=True).start()
+            _start_stream_worker(_rag_worker)
 
-            def _rag_generator():
+            def _rag_generator(
+                _message=message,
+                _session_id=session_id,
+                _response_key=response_key,
+                _style_name=style_name,
+            ):
                 pieces: list[str] = []
                 while True:
                     try:
@@ -820,10 +830,10 @@ def chat():
                 answer = _finalize_answer(answer) or REFERENCE_FALLBACK
                 if not pieces and answer:
                     yield answer
-                _memory.add("user", message, session_id=session_id)
-                _memory.add("assistant", answer, session_id=session_id)
-                _log_answer_quality(answer, style_name)
-                set_cached_response(response_key, answer)
+                _memory.add("user", _message, session_id=_session_id)
+                _memory.add("assistant", answer, session_id=_session_id)
+                _log_answer_quality(answer, _style_name)
+                set_cached_response(_response_key, answer)
 
             return _stream_answer_response(
                 answer_generator=_rag_generator,
@@ -861,10 +871,7 @@ def chat():
     # ── Non-RAG (chat / greeting) path ────────────────────────────────────
     # Now uses CHAT_SYSTEM_PROMPT — matches main.py CLI output exactly.
     messages = _build_chat_messages(
-        query=message,    
-
-
-        
+        query=message,
         style=style_name,
         history=history[-6:] if history else None,
     )
@@ -889,9 +896,14 @@ def chat():
             finally:
                 _token_queue.put(None)
 
-        threading.Thread(target=_chat_worker, daemon=True).start()
+        _start_stream_worker(_chat_worker)
 
-        def _chat_generator():
+        def _chat_generator(
+            _message=message,
+            _session_id=session_id,
+            _response_key=response_key,
+            _style_name=style_name,
+        ):
             pieces: list[str] = []
             while True:
                 try:
@@ -918,10 +930,10 @@ def chat():
             answer = _finalize_answer(answer) or REFERENCE_FALLBACK
             if not pieces and answer:
                 yield answer
-            _memory.add("user", message, session_id=session_id)
-            _memory.add("assistant", answer, session_id=session_id)
-            _log_answer_quality(answer, style_name)
-            set_cached_response(response_key, answer)
+            _memory.add("user", _message, session_id=_session_id)
+            _memory.add("assistant", answer, session_id=_session_id)
+            _log_answer_quality(answer, _style_name)
+            set_cached_response(_response_key, answer)
 
         return _stream_answer_response(
             answer_generator=_chat_generator,
@@ -1070,4 +1082,6 @@ if __name__ == "__main__":
     else:
         print(f"  Knowledge base ready: {stats_data['vectors']} vectors.\n")
 
+    # Warning: Flask's built-in server is for development only.
+    # Production: gunicorn -w 4 -k gthread --threads 4 -b 0.0.0.0:7257 app:app
     app.run(host="0.0.0.0", port=7257, debug=False, threaded=True)
