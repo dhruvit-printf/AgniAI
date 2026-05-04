@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -303,6 +304,28 @@ PATRIOTIC_PHRASES = (
     "soldiers are heroes", "our army is the best",
     "indian army is best", "love indian army",
     "support our troops", "army rocks", "army is life",
+)
+
+# ── Date/Time queries — hardcoded response ─────────────────────────────────
+# Only include phrases that unambiguously ask for the current date/time,
+# not recruitment dates (e.g., "exam date", "rally date").
+DATE_QUERY_PHRASES = (
+    "what is today's date",
+    "what's today's date",
+    "current date",
+    "today's date",
+    "date today",
+    "what day is it",
+    "what day",
+    "today date",
+    "tell me the date",
+    "date please",
+    "today",
+    "what is the time",
+    "what's the time",
+    "current time",
+    "what time is it",
+    "time now",
 )
 
 # ── Agniveer aspirant casual talk ──────────────────────────────────────────
@@ -1218,6 +1241,21 @@ def _is_small_talk(q: str) -> bool:
 def _is_patriotic(q: str) -> bool:
     """Return True for patriotic or army-pride phrasing."""
     return any(phrase in q for phrase in PATRIOTIC_PHRASES)
+
+
+def _is_date_query(q: str) -> bool:
+    """Return True for date/time queries that should get hardcoded current date/time."""
+    for phrase in DATE_QUERY_PHRASES:
+        # Use word boundaries to avoid matching phrases like "exam date"
+        if re.search(r'\b' + re.escape(phrase) + r'\b', q):
+            return True
+    return False
+
+
+def _get_current_date_response() -> str:
+    """Return a hardcoded current date/time response."""
+    now = datetime.now()
+    return now.strftime("Today is %A, %B %d, %Y. Current time is %I:%M %p.")
 
 
 def _is_agniveer_casual(q: str) -> bool:

@@ -14,6 +14,8 @@ from config import (
     DATA_DIR,
     detect_answer_style,
     _fuzzy_normalize_query,
+    _get_current_date_response,
+    _is_date_query,
     GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
     INDEX_DIR,
     MAX_CONTEXT_CHARS,
@@ -438,6 +440,14 @@ def run_chat() -> None:
         raw = _fuzzy_normalize_query(raw)
 
         low = raw.lower()
+
+        # ── Hardcoded date/time response ─────────────────────────────────────
+        if _is_date_query(raw):
+            answer = _get_current_date_response()
+            print(f"\nAgniAI: {answer}\n")
+            memory.add("user", raw)
+            memory.add("assistant", answer)
+            continue
 
         # ── Built-in commands ──────────────────────────────────────────────
         if low in {"/exit", "/quit"}:

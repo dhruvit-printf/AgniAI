@@ -53,6 +53,8 @@ from config import (
     CHAT_SYSTEM_PROMPT,
     detect_answer_style,
     _fuzzy_normalize_query,
+    _get_current_date_response,
+    _is_date_query,
     GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_CHARS_DEFAULT,
@@ -602,6 +604,28 @@ def chat():
 
             _ACTIVE_MODEL_REF[0] = model
         current_model = _active_model
+
+    # ── Hardcoded date/time response ───────────────────────────────────────
+    if _is_date_query(message):
+        answer = _get_current_date_response()
+        _memory.add("user", message, session_id=session_id)
+        _memory.add("assistant", answer, session_id=session_id)
+        if stream:
+            def _gen():
+                yield answer
+            return _stream_answer_response(
+                answer_generator=_gen,
+                status_payload={
+                    "success": True,
+                    "style": "elaborate",
+                    "session_id": session_id,
+                    "cached": False,
+                    "grounded": False,
+                    "confidence": 0.0,
+                    "mode": "hardcoded_date",
+                },
+            )
+        return jsonify(ok_chat(answer=answer, style="elaborate", session_id=session_id))
 
     style_name, _ = detect_answer_style(message)
     intent = classify_intent(message)
