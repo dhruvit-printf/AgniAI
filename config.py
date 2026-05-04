@@ -56,13 +56,18 @@ STRICT_MIN_SCORE          = float(os.getenv("STRICT_MIN_SCORE",        "0.55"))
 STRICT_TOP_K              = int(os.getenv("STRICT_TOP_K",              "4"))
 LOW_RETRIEVAL_CONFIDENCE  = float(os.getenv("LOW_RETRIEVAL_CONFIDENCE",  "0.35"))
 HIGH_RETRIEVAL_CONFIDENCE = float(os.getenv("HIGH_RETRIEVAL_CONFIDENCE", "0.60"))
+DEDUP_SIMILARITY_THRESHOLD = float(os.getenv("DEDUP_SIMILARITY_THRESHOLD", "0.88"))
+DOMAIN_BOOST_MAX = float(os.getenv("DOMAIN_BOOST_MAX", "1.20"))
+ANSWER_GROUNDING_OVERLAP_THRESHOLD = float(
+    os.getenv("ANSWER_GROUNDING_OVERLAP_THRESHOLD", "0.75")
+)
 
 DENSE_WEIGHT = float(os.getenv("DENSE_WEIGHT", "0.60"))
 BM25_WEIGHT  = float(os.getenv("BM25_WEIGHT",  "0.40"))
 USE_HYBRID   = os.getenv("USE_HYBRID", "1") not in {"0", "false", "False"}
 
 # ── Memory ─────────────────────────────────────────────────────────────────
-MEMORY_MAX_MESSAGES = int(os.getenv("MEMORY_MAX_MESSAGES", "10"))
+MEMORY_MAX_MESSAGES = int(os.getenv("MEMORY_MAX_MESSAGES", "20"))
 
 # ── Network and cache ──────────────────────────────────────────────────────
 REQUEST_TIMEOUT          = int(os.getenv("REQUEST_TIMEOUT", "120"))
@@ -97,6 +102,11 @@ MAX_TOKENS_STYLE = {
 }
 MAX_TOKENS_DEFAULT  = int(os.getenv("MAX_TOKENS_DEFAULT",  "600"))
 TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "100"))
+STYLE_MIN_WORDS = {
+    "short": int(os.getenv("STYLE_MIN_WORDS_SHORT", "50")),
+    "elaborate": int(os.getenv("STYLE_MIN_WORDS_ELABORATE", "120")),
+    "detail": int(os.getenv("STYLE_MIN_WORDS_DETAIL", "250")),
+}
 
 
 # =============================================================================
@@ -1195,33 +1205,53 @@ def trim_to_complete_sentence(text: str) -> str:
     return text
 
 
-def _is_casual_message(query: str) -> bool:
-    """
-    Returns True for short conversational messages that need no RAG lookup.
-    The LLM handles the actual response — this only routes the request.
-    """
-    q = _fuzzy_normalize_query(query).strip().lower()
-    tokens = q.split()
+def _is_greeting(q: str) -> bool:
+    """Return True for exact-match greetings."""
+    return q in GREETING_PHRASES
 
-    if len(tokens) <= 1:
-        return True
 
-    if len(tokens) <= 5:
-        has_domain = any(term in q for term in DOMAIN_TERMS)
-        has_process = any(phrase in q for phrase in PROCESS_PHRASES)
-        has_training = any(phrase in q for phrase in TRAINING_PROCESS_PHRASES)
-        if not (has_domain or has_process or has_training):
-            return True
+def _is_small_talk(q: str) -> bool:
+    """Return True for substring-based small talk."""
+    return any(phrase in q for phrase in SMALL_TALK_PHRASES)
 
-    casual_signals = (
-        "how are you", "how r u", "who are you", "what are you",
-        "tell me about yourself", "what can you do",
-        "are you a bot", "are you human", "who made you",
-        "motivate me", "i am nervous", "i am scared", "i feel",
-        "i need motivation", "wish me luck", "pray for me",
-        "have a good day", "good luck", "all the best",
+
+def _is_patriotic(q: str) -> bool:
+    """Return True for patriotic or army-pride phrasing."""
+    return any(phrase in q for phrase in PATRIOTIC_PHRASES)
+
+
+def _is_agniveer_casual(q: str) -> bool:
+    """Return True for Agniveer-aspirant casual talk."""
+    return any(phrase in q for phrase in AGNIVEER_CASUAL_PHRASES)
+
+
+def _is_training_rag(q: str) -> bool:
+    """Return True for training-process questions."""
+    return any(phrase in q for phrase in TRAINING_PROCESS_PHRASES)
+
+
+def _is_process_rag(q: str) -> bool:
+    """Return True for joining or selection-process questions."""
+    return any(phrase in q for phrase in PROCESS_PHRASES)
+
+
+def _is_domain_rag(q: str) -> bool:
+    """Return True for domain-specific Agniveer questions."""
+    return any(term in q for term in DOMAIN_TERMS) or bool(_WORD_BOUNDARY_RAG_TERMS.search(q))
+
+
+def _is_negated_domain_rag(q: str) -> bool:
+    """Return True for negated domain questions."""
+    return any(sig in q for sig in _NEGATION_SIGNALS) and any(
+        term in q for term in _NEGATION_DOMAIN_TERMS
     )
-    return any(signal in q for signal in casual_signals)
+
+
+def _is_reasoning_rag(q: str) -> bool:
+    """Return True for reasoning-heavy salary or service questions."""
+    return any(term in q for term in REASONING_TERMS) and any(
+        term in q for term in REASONING_SALARY_TERMS
+    )
 
 
 # =============================================================================
@@ -1232,73 +1262,33 @@ def classify_intent(query: str) -> str:
     """
     Classify query intent as 'chat', 'rag', or 'reject'.
 
-    Priority order (do NOT reorder — order matters):
-      1. Exact greeting match                    → chat
-      2. Small talk substring match              → chat
-      3. Patriotic phrases                       → chat
-      4. Agniveer casual talk                    → chat  (before domain terms!)
-      5. Training process phrases                → rag
-      6. Joining / process phrases               → rag
-      7. Domain terms                            → rag
-      7b. Negated domain questions               → rag
-      8. Reasoning + salary/service              → rag
-      9. Short unknown (<=10 tokens)             → chat  (friendly fallback)
-     10. Long off-topic                          → reject
+    Priority order: greeting, small talk, patriotic, Agniveer casual,
+    training RAG, process RAG, domain RAG, negated domain RAG,
+    reasoning RAG, short-chat fallback, then reject.
     """
     query = _fuzzy_normalize_query(query)
     q = query.strip().lower()
-    # Normalize punctuation so "Jay Hind!" == "jay hind"
     q = q.replace("!", "").replace("?", "").replace("।", "").replace(",", "").strip()
     tokens = [t for t in q.split() if t]
 
     if not tokens:
         return "chat"
 
-    # 1. Lightweight casual-message routing
-    if _is_casual_message(query):
+    checks = (
+        (_is_greeting, "chat"),
+        (_is_small_talk, "chat"),
+        (_is_patriotic, "chat"),
+        (_is_agniveer_casual, "chat"),
+        (_is_training_rag, "rag"),
+        (_is_process_rag, "rag"),
+        (_is_domain_rag, "rag"),
+        (_is_negated_domain_rag, "rag"),
+        (_is_reasoning_rag, "rag"),
+    )
+    for predicate, result in checks:
+        if predicate(q):
+            return result
+
+    if len(tokens) <= 3:
         return "chat"
-
-    # 3. Patriotic / army pride
-    if any(phrase in q for phrase in PATRIOTIC_PHRASES):
-        return "chat"
-
-    # 4. Agniveer aspirant casual talk (MUST be before domain terms)
-    if any(phrase in q for phrase in AGNIVEER_CASUAL_PHRASES):
-        return "chat"
-
-    # 5. Training process → RAG
-    if any(phrase in q for phrase in TRAINING_PROCESS_PHRASES):
-        return "rag"
-
-    # 6. Joining / selection process → RAG
-    if any(phrase in q for phrase in PROCESS_PHRASES):
-        return "rag"
-
-    # 7. Domain terms → RAG
-    if any(term in q for term in DOMAIN_TERMS):
-        return "rag"
-
-    # 7b. Negated domain questions → RAG
-    _has_negation = any(sig in q for sig in _NEGATION_SIGNALS)
-    if _has_negation and any(term in q for term in _NEGATION_DOMAIN_TERMS):
-        return "rag"
-
-    # 7c. Word-boundary match for short/ambiguous salary and timeline synonyms → RAG
-    # Catches "what is the pay", "how much will i earn", "when is the notification",
-    # "what documents needed" etc. that have no verbatim match in DOMAIN_TERMS.
-    # Uses \b word boundaries to avoid false substring matches (e.g. "display" ≠ "pay").
-    if _WORD_BOUNDARY_RAG_TERMS.search(q):
-        return "rag"
-
-    # 8. Reasoning + salary/service → RAG
-    if any(term in q for term in REASONING_TERMS) and any(
-        term in q for term in REASONING_SALARY_TERMS
-    ):
-        return "rag"
-
-    # 9. Short unknown → chat (never reject short inputs)
-    if len(tokens) <= 10:
-        return "chat"
-
-    # 10. Long off-topic → reject
     return "reject"

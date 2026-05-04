@@ -14,6 +14,8 @@ Fixes in this version:
     so concurrent ingests don't collide
 """
 
+import json
+import logging
 import re
 import time
 from html.parser import HTMLParser
@@ -39,6 +41,15 @@ from config import (
 )
 from rag import embed_texts, load_docstore, load_index, save_index
 
+logger = logging.getLogger(__name__)
+
+try:
+    import fitz  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    fitz = None
+
+_FITZ_EMPTY_FILE_ERROR = getattr(fitz, "EmptyFileError", ValueError)
+
 
 # ── Directory helpers ──────────────────────────────────────────────────────
 
@@ -53,6 +64,7 @@ def clean_text(text: str) -> str:
     """Strip null bytes and collapse whitespace."""
     text = text.replace("\x00", " ")
     text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
@@ -105,62 +117,81 @@ def chunk_text_semantic(
     overlap: int = CHUNK_OVERLAP,
 ) -> List[str]:
     """Split text into sentence-bounded chunks with light overlap."""
-    cleaned = clean_text(text)
-    sentences = [
-        part.strip()
-        for part in re.split(r"(?<=[.!?])\s+|\n{2,}", cleaned)
-        if part and part.strip()
-    ]
-    if not sentences:
-        return []
+    try:
+        cleaned = clean_text(text)
+        sentences = [
+            part.strip()
+            for part in re.split(r"(?<=[.!?])\s+|\n{2,}", cleaned)
+            if part and part.strip()
+        ]
+        if not sentences:
+            return []
 
-    sentence_words = [len(sentence.split()) for sentence in sentences]
-    chunks: List[str] = []
-    start = 0
-    max_words = max(chunk_words, CHUNK_MIN_WORDS)
+        sentence_words = [len(sentence.split()) for sentence in sentences]
+        chunks: List[str] = []
+        start = 0
+        max_words = max(chunk_words, CHUNK_MIN_WORDS)
 
-    while start < len(sentences):
-        end = start
-        total = 0
-        window: List[str] = []
-        while end < len(sentences):
-            sentence = sentences[end]
-            count = sentence_words[end]
-            if window and total + count > max_words:
+        while start < len(sentences):
+            end = start
+            total = 0
+            window: List[str] = []
+            while end < len(sentences):
+                sentence = sentences[end]
+                count = sentence_words[end]
+                if window and total + count > max_words:
+                    break
+                window.append(sentence)
+                total += count
+                end += 1
+                if total >= max_words:
+                    break
+
+            chunk = " ".join(window).strip()
+            if chunk:
+                if len(chunk.split()) < CHUNK_MIN_WORDS and chunks:
+                    chunks[-1] = f"{chunks[-1]} {chunk}".strip()
+                else:
+                    chunks.append(chunk)
+
+            if end == start:
+                end = start + 1
+
+            if end >= len(sentences):
                 break
-            window.append(sentence)
-            total += count
-            end += 1
-            if total >= max_words:
-                break
 
-        chunk = " ".join(window).strip()
-        if chunk:
-            if len(chunk.split()) < CHUNK_MIN_WORDS and chunks:
-                chunks[-1] = f"{chunks[-1]} {chunk}".strip()
-            else:
-                chunks.append(chunk)
+            overlap_words = 0
+            new_start = end
+            while new_start > start and overlap_words < overlap:
+                new_start -= 1
+                overlap_words += sentence_words[new_start]
+            start = max(new_start, start + 1)
 
-        if end == start:
-            end = start + 1
-
-        if end >= len(sentences):
-            break
-
-        overlap_words = 0
-        new_start = end
-        while new_start > start and overlap_words < overlap:
-            new_start -= 1
-            overlap_words += sentence_words[new_start]
-        start = max(new_start, start + 1)
-
-    return chunks
+        return chunks
+    except ValueError as exc:
+        logger.warning("Semantic chunking failed with ValueError: %s", exc)
+        raise
+    except OSError as exc:
+        logger.warning("Semantic chunking failed with OSError: %s", exc)
+        raise
+    except _FITZ_EMPTY_FILE_ERROR as exc:
+        logger.warning("Semantic chunking failed with EmptyFileError: %s", exc)
+        raise
 
 
 def _normalise_source(source: str) -> str:
     """Normalise a source path/URL for deduplication comparisons."""
-    # Convert backslashes to forward slashes for cross-platform consistency
-    return source.replace("\\", "/").strip().rstrip("/")
+    source = (source or "").strip()
+    if "://" in source:
+        return source.rstrip("/")
+    if source.startswith("manual_text"):
+        return source.rstrip("/")
+    return str(Path(source).as_posix()).rstrip("/")
+
+
+def _path_source(path: Path) -> str:
+    """Return a resolved path as a POSIX source string."""
+    return str(path.expanduser().resolve().as_posix())
 
 
 def _source_already_ingested(source: str) -> bool:
@@ -184,35 +215,49 @@ def _append_documents(
     if not chunks:
         return 0
 
-    _ensure_dirs()
-    index = load_index()
-    docs = load_docstore()
+    try:
+        _ensure_dirs()
+        normalized_source = _normalise_source(source)
+        index = load_index()
+        docs = load_docstore()
 
-    vectors = embed_texts(chunks)
-    if vectors.size == 0:
-        return 0
+        vectors = embed_texts(chunks)
+        if vectors.size == 0:
+            return 0
 
-    if index.ntotal == 0 and vectors.shape[1] != EMBEDDING_DIM:
-        raise ValueError(
-            f"Embedding dimension mismatch: expected {EMBEDDING_DIM}, "
-            f"got {vectors.shape[1]}"
-        )
+        if index.ntotal == 0 and vectors.shape[1] != EMBEDDING_DIM:
+            raise ValueError(
+                f"Embedding dimension mismatch: expected {EMBEDDING_DIM}, "
+                f"got {vectors.shape[1]}"
+            )
 
-    index.add(vectors)
+        index.add(vectors)
 
-    start_id = len(docs) + 1
-    for i, chunk in enumerate(chunks, start=start_id):
-        docs.append(
-            {
-                "source":   source,
-                "doc_type": doc_type,
-                "chunk_id": str(i),
-                "text":     chunk,
-            }
-        )
+        start_id = len(docs) + 1
+        for i, chunk in enumerate(chunks, start=start_id):
+            docs.append(
+                {
+                    "source": normalized_source,
+                    "doc_type": doc_type,
+                    "chunk_id": str(i),
+                    "text": chunk,
+                }
+            )
 
-    save_index(index, docs)
-    return len(chunks)
+        save_index(index, docs)
+        return len(chunks)
+    except ValueError as exc:
+        logger.warning("Appending documents failed with ValueError: %s", exc)
+        raise
+    except OSError as exc:
+        logger.warning("Appending documents failed with OSError: %s", exc)
+        raise
+    except json.JSONDecodeError as exc:
+        logger.warning("Appending documents failed with JSONDecodeError: %s", exc)
+        raise
+    except _FITZ_EMPTY_FILE_ERROR as exc:
+        logger.warning("Appending documents failed with EmptyFileError: %s", exc)
+        raise
 
 
 # ── HTML extractor ─────────────────────────────────────────────────────────
@@ -273,14 +318,12 @@ def ingest_pdf(file_path: str, force: bool = False) -> int:
     if path.suffix.lower() != ".pdf":
         raise ValueError(f"Expected a .pdf file, got: {path.suffix}")
 
-    try:
-        import fitz  # type: ignore
-    except ModuleNotFoundError as exc:
+    if fitz is None:
         raise RuntimeError(
             "PyMuPDF is not installed. Run: pip install PyMuPDF"
-        ) from exc
+        )
 
-    source = str(path)
+    source = _path_source(path)
     if not force and _source_already_ingested(source):
         return 0
 
@@ -308,7 +351,7 @@ def ingest_txt(file_path: str, force: bool = False) -> int:
     if not path.exists():
         raise FileNotFoundError(f"Text file not found: {path}")
 
-    source = str(path)
+    source = _path_source(path)
     if not force and _source_already_ingested(source):
         return 0
 
@@ -332,7 +375,7 @@ def ingest_docx(file_path: str, force: bool = False) -> int:
             "python-docx is not installed. Run: pip install python-docx"
         ) from exc
 
-    source = str(path)
+    source = _path_source(path)
     if not force and _source_already_ingested(source):
         return 0
 
@@ -409,7 +452,7 @@ def list_sources() -> List[Dict]:
 
 
 def clear_index() -> None:
-    """Delete all indexed data (FAISS + docstore + BM25)."""
+    """Delete indexed data and clear FAISS/docstore plus query, retrieval, response, and BM25 caches."""
     import rag
 
     with rag._INDEX_LOCK:
@@ -427,3 +470,4 @@ def clear_index() -> None:
     rag._QUERY_EMBED_CACHE.clear()
     rag._RETRIEVAL_CACHE.clear()
     rag._RESPONSE_CACHE.clear()
+    rag._BM25_SCORE_CACHE.clear()

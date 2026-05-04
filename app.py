@@ -62,6 +62,7 @@ from config import (
     OLLAMA_TAGS_URL,
     REFERENCE_FALLBACK,
     SESSION_HEADER,
+    STYLE_MIN_WORDS,
     STRICT_RAG_PROMPT,
     STRICT_RAG_PROMPT_COMPUTE,
     TOKEN_SAFETY_BUFFER,
@@ -126,13 +127,6 @@ RATE_LIMIT_CHAT = os.getenv("RATE_LIMIT_CHAT", "30 per minute")
 RATE_LIMIT_INGEST = os.getenv("RATE_LIMIT_INGEST", "10 per minute")
 RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "60 per minute")
 
-_STYLE_MIN_WORDS = {
-    "short": 50,
-    "elaborate": 120,
-    "detail": 250,
-}
-
-
 def _proxy_aware_remote_address() -> str:
     # ProxyFix normalizes remote_addr, and access_route preserves the original client IP chain.
     if request.access_route:
@@ -175,7 +169,7 @@ def _limit_route(limit_value: str):
 
 
 def _validate_answer_length(answer: str, style: str) -> bool:
-    min_words = _STYLE_MIN_WORDS.get((style or "").strip().lower(), 0)
+    min_words = STYLE_MIN_WORDS.get((style or "").strip().lower(), 0)
     if min_words == 0:
         return True
     return len((answer or "").split()) >= min_words
@@ -183,7 +177,7 @@ def _validate_answer_length(answer: str, style: str) -> bool:
 
 def _log_answer_quality(answer: str, style: str) -> None:
     word_count = len((answer or "").split())
-    min_words = _STYLE_MIN_WORDS.get((style or "").strip().lower(), 0)
+    min_words = STYLE_MIN_WORDS.get((style or "").strip().lower(), 0)
     if not _validate_answer_length(answer, style):
         logger.warning(
             "Answer below minimum length: style=%s words=%d min=%d",
@@ -1160,16 +1154,16 @@ if __name__ == "__main__":
 
     stats_data = index_stats()
 
-    print("\n  AgniAI REST API")
-    print("  Listening on  http://0.0.0.0:7257")
-    print("  Health check  http://localhost:7257/api/health")
-    print("  Chat endpoint http://localhost:7257/api/chat  [POST]")
+    logger.info("AgniAI REST API")
+    logger.info("Listening on  http://0.0.0.0:7257")
+    logger.info("Health check  http://localhost:7257/api/health")
+    logger.info("Chat endpoint http://localhost:7257/api/chat  [POST]")
     if API_SECRET_KEY:
-        print("  Auth  X-Api-Key header required for /api/reset_index")
+        logger.info("Auth  X-Api-Key header required for /api/reset_index")
     if stats_data["vectors"] == 0:
-        print("  Warning: Knowledge base is empty.\n")
+        logger.warning("Knowledge base is empty.")
     else:
-        print(f"  Knowledge base ready: {stats_data['vectors']} vectors.\n")
+        logger.info("Knowledge base ready: %s vectors.", stats_data["vectors"])
 
     # Warning: Flask's built-in server is for development only.
     # Production: gunicorn -w 4 -k gthread --threads 4 -b 0.0.0.0:7257 app:app

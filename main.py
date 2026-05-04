@@ -58,6 +58,8 @@ from rag import (
     LOW_RETRIEVAL_CONFIDENCE,
 )
 
+logger = logging.getLogger(__name__)
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):

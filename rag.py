@@ -30,11 +30,14 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 _DOCSTORE_CACHE = None
 
 from config import (
+    ANSWER_GROUNDING_OVERLAP_THRESHOLD,
     BM25_INDEX_PATH,
     BM25_WEIGHT,
     DEFAULT_MODEL,
+    DEDUP_SIMILARITY_THRESHOLD,
     DENSE_WEIGHT,
     DOCSTORE_PATH,
+    DOMAIN_BOOST_MAX,
     EMBEDDING_DIM,
     EMBEDDING_MODEL,
     FAISS_INDEX_PATH,
@@ -309,6 +312,22 @@ def _extract_json_scalar(line: str) -> str:
     return value
 
 
+def _normalise_docstore_source(source: str) -> str:
+    source = (source or "").strip()
+    if not source or "://" in source or source.startswith("manual_text"):
+        return source.rstrip("/")
+    return str(Path(source).as_posix()).rstrip("/")
+
+
+def _normalise_docstore_docs(docs: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    normalized: List[Dict[str, str]] = []
+    for doc in docs or []:
+        item = dict(doc)
+        item["source"] = _normalise_docstore_source(str(item.get("source", "")))
+        normalized.append(item)
+    return normalized
+
+
 def _repair_docstore_from_lines(raw: str) -> List[Dict[str, str]]:
     docs: List[Dict[str, str]] = []
     obj: Dict[str, str] = {}
@@ -380,7 +399,7 @@ def _repair_docstore_from_lines(raw: str) -> List[Dict[str, str]]:
     except (TypeError, ValueError):
         logger.warning("Docstore line repair produced invalid JSON-serialisable data; falling back to empty docstore.")
         docs = []
-    return docs
+    return _normalise_docstore_docs(docs)
 
 
 def _normalise_text(text: str) -> str:
@@ -419,7 +438,10 @@ def _chunk_similarity(a: str, b: str) -> float:
     return max(ratio, jaccard)
 
 
-def _dedupe_docs(docs: List[Dict[str, str]], similarity_threshold: float = 0.88):
+def _dedupe_docs(
+    docs: List[Dict[str, str]],
+    similarity_threshold: float = DEDUP_SIMILARITY_THRESHOLD,
+):
     deduped = []
     seen_hashes = set()
     for doc in docs:
@@ -1490,6 +1512,14 @@ def load_reranker():
             warnings.simplefilter("ignore")
             _RERANKER = CrossEncoder(RERANKER_MODEL, local_files_only=True)
         return _RERANKER
+    except ImportError as exc:
+        _RERANKER_FAILED = True
+        logger.warning(
+            "Could not load reranker because sentence-transformers dependencies are missing. "
+            "Install with: pip install sentence-transformers. Details: %s",
+            exc,
+        )
+        return None
     except Exception as exc:
         _RERANKER_FAILED = True
         logger.warning("Could not load reranker: %s", exc)
@@ -1576,8 +1606,9 @@ def load_docstore():
     raw = DOCSTORE_PATH.read_text(encoding="utf-8", errors="replace")
     try:
         docs = json.loads(raw)
-    except Exception:
+    except json.JSONDecodeError:
         docs = _repair_docstore_from_lines(raw)
+    docs = _normalise_docstore_docs(docs)
     with _INDEX_LOCK:
         _DOCSTORE_CACHE = list(docs)
     return docs
@@ -1627,7 +1658,7 @@ def load_index() -> faiss.Index:
         if _INDEX.d != EMBEDDING_DIM:
             _INDEX = _rebuild_index_from_docs(_DOCS)
         if _INDEX.ntotal > 0 and len(_DOCS) == 0:
-            logger.warning("FAISS index has vectors but docstore is empty.")
+            logger.error("FAISS index has vectors but docstore is empty.")
         return _INDEX
 
 
@@ -1673,7 +1704,7 @@ def _bm25_scores(query: str) -> np.ndarray:
     try:
         scores = np.array(bm25.get_scores(_tokenize(query)), dtype="float32")
         if scores.shape[0] != len(docs):
-            logger.warning(
+            logger.error(
                 "BM25 corpus length %d != docstore length %d; falling back to dense-only retrieval for this query.",
                 scores.shape[0], len(docs)
             )
@@ -1683,7 +1714,21 @@ def _bm25_scores(query: str) -> np.ndarray:
             scores = (scores / max_s).astype("float32")
         _BM25_SCORE_CACHE.set(cache_key, scores)
         return scores
-    except Exception:
+    except IndexError as exc:
+        logger.error(
+            "BM25 scoring shape mismatch (IndexError) for query=%r docs=%d: %s",
+            query,
+            len(docs),
+            exc,
+        )
+        return np.zeros(len(docs), dtype="float32")
+    except ValueError as exc:
+        logger.error(
+            "BM25 scoring shape mismatch (ValueError) for query=%r docs=%d: %s",
+            query,
+            len(docs),
+            exc,
+        )
         return np.zeros(len(docs), dtype="float32")
 
 
@@ -1724,7 +1769,7 @@ def _apply_domain_boosts(query_lower: str, doc_text_lower: str) -> float:
     for q_pat, d_pat, boost in _DOMAIN_BOOSTS:
         if re.search(q_pat, query_lower) and re.search(d_pat, doc_text_lower):
             best = max(best, boost)
-    return best
+    return min(best, DOMAIN_BOOST_MAX)
 
 
 def search(
@@ -2524,7 +2569,7 @@ def answer_is_grounded(answer: str, context: str) -> bool:
     if not tokens:
         return True
     supported = sum(1 for tok in tokens if tok in context_norm)
-    return supported / max(1, len(tokens)) >= 0.75
+    return supported / max(1, len(tokens)) >= ANSWER_GROUNDING_OVERLAP_THRESHOLD
 
 
 # =============================================================================

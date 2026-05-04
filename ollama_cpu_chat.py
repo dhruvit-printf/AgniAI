@@ -15,6 +15,7 @@ Changes vs original:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import time
@@ -35,6 +36,8 @@ from config import (
     style_structure_instruction,
     trim_to_complete_sentence,
 )
+
+logger = logging.getLogger(__name__)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -161,8 +164,8 @@ def _start_keepalive_heartbeat(
                     json=payload,
                     timeout=(5, 15),
                 )
-            except Exception:
-                pass  # Ollama briefly busy or restarting — silently retry next cycle
+            except Exception as exc:
+                logger.debug("Ollama heartbeat failed: %s", exc)
 
     thread = threading.Thread(target=_beat, daemon=True, name="ollama-heartbeat")
     thread.start()
@@ -501,6 +504,7 @@ def chat_with_fallback(
         )
 
     last_error: Optional[str] = None
+    last_error_type: Optional[str] = None
     for model in candidates:
         for attempt in range(1, MAX_RETRIES + 1):
             try:
@@ -516,13 +520,15 @@ def chat_with_fallback(
                 raise
             except OllamaError as exc:
                 last_error = str(exc)
+                last_error_type = exc.__class__.__name__
                 if attempt < MAX_RETRIES:
                     time.sleep(0.5 * attempt)
                     continue
                 break
 
     raise OllamaError(
-        f"All models failed. Last error: {last_error}\n"
+        f"All models failed. Last error type: {last_error_type or 'OllamaError'}. "
+        f"Last error: {last_error}\n"
         f"Tried: {', '.join(candidates)}\n"
         "Fix: try a smaller model such as mistral:7b-instruct-q4_K_M, gemma2:2b, or llama3.2:3b."
     )
