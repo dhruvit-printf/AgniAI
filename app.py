@@ -240,6 +240,16 @@ def _handle_rate_limit(_exc):
     return _json_error("Rate limit exceeded. Please retry later.", 429)
 
 
+@app.errorhandler(404)
+def _handle_not_found(_exc):
+    return _json_error("Route not found.", 404)
+
+
+@app.errorhandler(405)
+def _handle_method_not_allowed(_exc):
+    return _json_error("Method not allowed for this route.", 405)
+
+
 def _client_accepts_sse() -> bool:
     accept = request.headers.get("Accept", "")
     return "text/event-stream" in accept.lower()
@@ -565,6 +575,9 @@ def ready():
 
 
 @app.route("/api/chat", methods=["POST"])
+@app.route("/api/chat/", methods=["POST"])
+@app.route("/chat", methods=["POST"])
+@app.route("/chat/", methods=["POST"])
 @_limit_route(RATE_LIMIT_CHAT)
 def chat():
     global _active_model
