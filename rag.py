@@ -72,6 +72,13 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+_SALARY_SOURCE_CONFLICT_NOTE = (
+    " Note: the knowledge base contains two different figures for Year 3 "
+    "in-hand salary — ₹25,550 (official Army e-book, primary source) and "
+    "₹25,580 (2026 lifecycle analysis document). The official Army e-book "
+    "figure (₹25,550) is used here. Please verify at joinindianarmy.nic.in."
+)
+
 # Shared requests session — exported so app.py / main.py can import it
 _session = requests.Session()
 
@@ -2182,6 +2189,10 @@ def deterministic_salary_answer(query: str, context: str) -> Optional[str]:
             f"{_format_rupees(expected)}, but the table lists "
             f"{_format_rupees(in_hand)} as in-hand."
         )
+    if year == 3 and in_hand in (25550, 25580):
+        # Conflict between official e-book (₹25,550) and lifecycle doc (₹25,580)
+        if not mismatch_note:
+            mismatch_note = _SALARY_SOURCE_CONFLICT_NOTE
     return (
         f"In the {ordinal} year, the customised package is {_format_rupees(package)} "
         f"per month. Out of this, {_format_rupees(deduction)} per month is the "
@@ -2267,29 +2278,78 @@ def _format_age_months(total_months: int) -> str:
     return f"{years} {year_label} {months} {month_label}"
 
 
-def _age_limit_months_from_context(context: str) -> Optional[tuple[int, int]]:
-    compact = re.sub(r"\s+", " ", context or "").lower()
-    if re.search(r"between\s+17\.5\s+and\s+22\s+years", compact):
+def _age_limit_months_from_context(context: str):
+    """
+    Extract (min_months, max_months) from retrieved context.
+    Returns None if no age limit can be parsed.
+
+    Sources in KB:
+    - Agniveer.pdf: 17½–22 yrs (GD, Tech, Clerk, Women MP); 17½–21 (Tradesman)
+    - Agniveer_Complete_Guide_2025.pdf: 17.5–21–22 yrs (age relaxations noted)
+    - Agniveer Lifecycle PDF (2026): 17.5–22 for most; 17.5–21 for Tradesman;
+      17.5–23 for Nursing Assistant Technical
+    """
+    import re as _re
+
+    compact = _re.sub(r"\s+", " ", context or "").lower()
+
+    # ── Explicit range patterns — most specific first ──────────────────────
+
+    # "between 17.5 and 23 years" (Nursing Assistant Technical, 2026)
+    if _re.search(r"between\s+17\.5\s+and\s+23\s+years?", compact):
+        return 17 * 12 + 6, 23 * 12
+
+    # "17.5 – 23 years" or "17½ – 23 yrs"
+    if _re.search(r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*23\s*(?:yrs?|years?)", compact):
+        return 17 * 12 + 6, 23 * 12
+
+    # "17.5 – 22 years" (2026 notification for GD / Tech / Clerk / Women MP)
+    if _re.search(r"17\.5\s*[-–]\s*22\s*years?", compact):
         return 17 * 12 + 6, 22 * 12
-    if re.search(r"17\.5\s*[-–]\s*22\s*years?", compact):
+
+    # "between 17.5 and 22 years"
+    if _re.search(r"between\s+17\.5\s+and\s+22\s+years?", compact):
         return 17 * 12 + 6, 22 * 12
-    if re.search(r"17\.5\s*[-–]\s*21\s*years?", compact):
-        return 17 * 12 + 6, 21 * 12
-    if re.search(
+
+    # "minimum age: 17.5 … maximum age: 22"
+    if _re.search(
         r"minimum age:\s*17\.5\s*years?.*maximum age:\s*21\s*[-–]\s*22\s*years?",
         compact,
     ):
         return 17 * 12 + 6, 22 * 12
-    if re.search(r"minimum age:\s*17\.5\s*years?.*maximum age:\s*22\s*years?", compact):
+    if _re.search(
+        r"minimum age:\s*17\.5\s*years?.*maximum age:\s*22\s*years?", compact
+    ):
         return 17 * 12 + 6, 22 * 12
-    if re.search(r"minimum age:\s*17\.5\s*years?.*maximum age:\s*21\s*years?", compact):
+
+    # "17½ – 22 yrs" (standard pattern in official e-book)
+    if _re.search(
+        r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*22\s*(?:yrs?|years?)", compact
+    ):
+        return 17 * 12 + 6, 22 * 12
+    if _re.search(
+        r"17\s*(?:1/2|\u00bd|½|\.5)\s*to\s*22\s*(?:yrs?|years?)", compact
+    ):
+        return 17 * 12 + 6, 22 * 12
+
+    # "minimum age: 17.5 … maximum age: 21"
+    if _re.search(
+        r"minimum age:\s*17\.5\s*years?.*maximum age:\s*21\s*years?", compact
+    ):
         return 17 * 12 + 6, 21 * 12
-    if re.search(r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*22\s*(?:yrs?|years?)", compact):
-        return 17 * 12 + 6, 22 * 12
-    if re.search(r"17\s*(?:1/2|\u00bd|½|\.5)\s*to\s*22\s*(?:yrs?|years?)", compact):
-        return 17 * 12 + 6, 22 * 12
-    if re.search(r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*21\s*(?:yrs?|years?)", compact):
+
+    # "17.5 – 21 years" (Tradesman / older notifications)
+    if _re.search(r"17\.5\s*[-–]\s*21\s*years?", compact):
         return 17 * 12 + 6, 21 * 12
+    if _re.search(
+        r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*21\s*(?:yrs?|years?)", compact
+    ):
+        return 17 * 12 + 6, 21 * 12
+
+    # Fallback: "17.5 to 21-22 years" — use 22 as the upper bound when ambiguous
+    if _re.search(r"17\.5\s*to\s*21\s*[-–]\s*22\s*years?", compact):
+        return 17 * 12 + 6, 22 * 12
+
     return None
 
 
