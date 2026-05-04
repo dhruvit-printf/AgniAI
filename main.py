@@ -13,7 +13,7 @@ from config import (
     CHAT_SYSTEM_PROMPT,
     DATA_DIR,
     detect_answer_style,
-    direct_chat_response,
+    _fuzzy_normalize_query,
     GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
     INDEX_DIR,
     MAX_CONTEXT_CHARS,
@@ -433,6 +433,8 @@ def run_chat() -> None:
         if not raw:
             continue
 
+        raw = _fuzzy_normalize_query(raw)
+
         low = raw.lower()
 
         # ── Built-in commands ──────────────────────────────────────────────
@@ -484,7 +486,6 @@ def run_chat() -> None:
         intent = classify_intent(raw)
         use_rag = intent == "rag"
         reasoning = is_reasoning_query(raw) if use_rag else False
-        direct_reply = direct_chat_response(raw) if intent == "chat" else None
 
         print(
             dim("  Answer style: ")
@@ -528,20 +529,6 @@ def run_chat() -> None:
             reasoning=reasoning,
             use_rag=use_rag,
         )
-
-        if direct_reply:
-            response_key = make_response_cache_key(
-                raw,
-                style=style_name,
-                model=active_model or DEFAULT_MODEL_NAME,
-                context="chat:direct",
-                session_id="cli",
-            )
-            print(f"\nAgniAI: {direct_reply}\n")
-            memory.add("user", raw)
-            memory.add("assistant", direct_reply)
-            set_cached_response(response_key, direct_reply)
-            continue
 
         if not use_rag:
             response_key = make_response_cache_key(

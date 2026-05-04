@@ -52,7 +52,7 @@ from config import (
     API_SECRET_KEY,
     CHAT_SYSTEM_PROMPT,
     detect_answer_style,
-    direct_chat_response,
+    _fuzzy_normalize_query,
     GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_CHARS_DEFAULT,
@@ -583,6 +583,7 @@ def chat():
 
     data = request.get_json(force=True, silent=True) or {}
     message = (data.get("message") or "").strip()
+    message = _fuzzy_normalize_query(message)
     model = (data.get("model") or "").strip()
     stream_value = data.get("stream")
     requested_stream = (
@@ -613,33 +614,6 @@ def chat():
     use_rag = intent == "rag"
     history = _memory.history(session_id)
     reasoning = is_reasoning_query(message) if use_rag else False
-
-    direct_reply = direct_chat_response(message) if intent == "chat" else None
-    if direct_reply:
-        response_key = make_response_cache_key(
-            message,
-            style=style_name,
-            model=current_model,
-            context="chat:direct",
-            session_id=session_id,
-        )
-        _memory.add("user", message, session_id=session_id)
-        _memory.add("assistant", direct_reply, session_id=session_id)
-        set_cached_response(response_key, direct_reply)
-        if stream:
-            return _stream_answer_response(
-                answer_generator=lambda: iter([direct_reply]),
-                status_payload={
-                    "success": True,
-                    "style": style_name,
-                    "session_id": session_id,
-                    "cached": False,
-                    "grounded": False,
-                    "confidence": 0.0,
-                    "mode": "chat_direct",
-                },
-            )
-        return jsonify(ok_chat(answer=direct_reply, style=style_name, session_id=session_id))
 
     # ── Reject / out-of-domain ─────────────────────────────────────────────
     if intent == "reject":

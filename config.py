@@ -121,6 +121,77 @@ _NEGATION_DOMAIN_TERMS = (
     "weight", "chest", "run", "beam", "agniveer", "agnipath",
 )
 
+# ─── Fuzzy intent vocabulary ────────────────────────────────────────────────
+FUZZY_VOCAB: dict[str, str] = {
+    "salar": "salary",
+    "slary": "salary",
+    "salry": "salary",
+    "slaary": "salary",
+    "salay": "salary",
+    "sallary": "salary",
+    "pakage": "package",
+    "pacakge": "package",
+    "packge": "package",
+    "stipand": "stipend",
+    "stipend": "stipend",
+    "inhand": "in hand",
+    "in-hand": "in hand",
+    "elgiible": "eligible",
+    "eligble": "eligible",
+    "eligiblity": "eligibility",
+    "eligibilty": "eligibility",
+    "eigibility": "eligibility",
+    "qualifcation": "qualification",
+    "qualifiction": "qualification",
+    "qulification": "qualification",
+    "phyiscal": "physical",
+    "physial": "physical",
+    "fitnees": "fitness",
+    "fittness": "fitness",
+    "heigth": "height",
+    "hieght": "height",
+    "wieght": "weight",
+    "trainng": "training",
+    "trainnig": "training",
+    "trianing": "training",
+    "documnet": "document",
+    "documant": "document",
+    "certifcate": "certificate",
+    "certifiate": "certificate",
+    "agniver": "agniveer",
+    "agniverr": "agniveer",
+    "agnipath": "agnipath",
+    "agnieer": "agniveer",
+    "medicla": "medical",
+    "mediacl": "medical",
+    "mdeical": "medical",
+    "writen": "written",
+    "examn": "exam",
+    "exma": "exam",
+    "sevanidhi": "seva nidhi",
+    "sevanidh": "seva nidhi",
+    "sevnidhi": "seva nidhi",
+    "corpous": "corpus",
+    "corupus": "corpus",
+}
+
+
+def _fuzzy_normalize_query(query: str) -> str:
+    """
+    Replace known misspellings with canonical terms before classification
+    and before RAG retrieval query expansion.
+    """
+    words = query.split()
+    corrected = []
+    for word in words:
+        suffix = ""
+        while word and word[-1] in "?.,!:;":
+            suffix = word[-1] + suffix
+            word = word[:-1]
+        canonical = FUZZY_VOCAB.get(word.lower())
+        corrected.append((canonical or word) + suffix)
+    return " ".join(corrected)
+
 # ── Greetings — exact match ────────────────────────────────────────────────
 GREETING_PHRASES = {
     "hi", "hello", "hey", "hii", "hiii", "heyy", "heya",
@@ -834,13 +905,15 @@ SOURCE_PRIORITY_PROMPT = (
 )
 
 GENERAL_KNOWLEDGE_FALLBACK_PROMPT = (
-    "The knowledge base did not contain a reliable answer for this question. "
-    "You may now use general model knowledge, but keep it realistic and commonly known. "
-    "Do not fabricate specifics. Avoid exact numbers, dates, thresholds, fees, "
-    "salary figures, age limits, marks, counts, or measurements unless you are truly sure. "
-    "Do not mix partial reference facts with your own knowledge. "
-    "If you still do not know, say clearly that you do not have that information and advise "
-    "the user to contact the appropriate authority or official source."
+    "The knowledge base does not have a reliable answer for this question. "
+    "You may use your general knowledge, but only if you are genuinely confident. "
+    "Do not guess specific numbers, dates, salary figures, age limits, marks, "
+    "counts, or measurements. "
+    "If you are not sure, say clearly that you don't have that information "
+    "and suggest the user contact joinindianarmy.nic.in or their nearest "
+    "Army Recruitment Office. "
+    "Do not mix KB facts with your own guesses. "
+    "Do not pretend to know something you don't."
 )
 
 # ── Conversational system prompt ───────────────────────────────────────────
@@ -934,6 +1007,37 @@ CHAT_SYSTEM_PROMPT = (
     "- ALWAYS say 'Agniveer training process' — NEVER 'recruitment scheme'\n"
 )
 
+CHAT_SYSTEM_PROMPT = (
+    "You are AgniAI - a friendly, knowledgeable assistant who helps young Indians "
+    "understand and prepare for the Agniveer / Agnipath training process of the "
+    "Indian Armed Forces.\n\n"
+    "YOUR PERSONALITY:\n"
+    "You are warm and encouraging, like a senior who has been through it. "
+    "You love India and you genuinely want the person in front of you to succeed. "
+    "You talk like a real person - not like a helpdesk bot. "
+    "When someone says hi, you just say hi back naturally. "
+    "When someone is nervous, you reassure them like a friend would. "
+    "When someone asks about salary or eligibility, you give them accurate facts. "
+    "You never sound scripted.\n\n"
+    "CONVERSATION STYLE:\n"
+    "- Casual messages get casual replies. Short, warm, human.\n"
+    "- Factual questions get accurate, well-organized answers.\n"
+    "- Never use bullet points for small talk or greetings.\n"
+    "- Never open with 'Certainly!' or 'Great question!' or 'Of course!'.\n"
+    "- Always say 'Agniveer training process' - never 'recruitment scheme'.\n\n"
+    "ANSWER PRIORITY - follow this order every time:\n"
+    "1. If reference information is provided, use ONLY that. Do not mix in your own knowledge.\n"
+    "2. If no reference is provided but you know the answer confidently, answer from "
+    "general knowledge. Flag it naturally: 'From what I know...' or 'Generally speaking...'\n"
+    "3. If you genuinely don't know, say so honestly and suggest they check "
+    "joinindianarmy.nic.in or contact their nearest Army Recruitment Office.\n\n"
+    "NEVER guess specific numbers - salary figures, age limits, marks cutoffs, fees, "
+    "dates - unless they come from the reference or you are completely certain. "
+    "A wrong number is worse than saying you don't know.\n\n"
+    "NEVER say 'Answer not found in the document' to someone making casual conversation. "
+    "That is a technical error message, not a human response."
+)
+
 
 def style_structure_instruction(style: str) -> str:
     style_key = (style or "").strip().lower()
@@ -980,84 +1084,33 @@ def trim_to_complete_sentence(text: str) -> str:
     return text
 
 
-def _normalize_chat_query(text: str) -> str:
-    text = (text or "").strip().lower()
-    text = re.sub(r"[^\w\s]", " ", text)
-    return " ".join(text.split())
-
-
-def direct_chat_response(query: str) -> str | None:
+def _is_casual_message(query: str) -> bool:
     """
-    Return deterministic replies for simple conversational turns so greetings
-    and small talk stay natural even after domain-heavy exchanges.
+    Returns True for short conversational messages that need no RAG lookup.
+    The LLM handles the actual response — this only routes the request.
     """
-    q = _normalize_chat_query(query)
-    if not q:
-        return None
+    q = _fuzzy_normalize_query(query).strip().lower()
+    tokens = q.split()
 
-    if q in {
-        "hi", "hello", "hey", "hii", "hiii", "heyy", "heya",
-        "hola", "howdy", "namaste", "namaskar", "pranam",
-        "good morning", "good afternoon", "good evening",
-    }:
-        return (
-            "Hello! I am AgniAI, your guide for the Agniveer training process. "
-            "What would you like to know today?"
-        )
+    if len(tokens) <= 1:
+        return True
 
-    if any(
-        phrase in q
-        for phrase in (
-            "how are you",
-            "how r you",
-            "how are u",
-            "how r u",
-            "how do you do",
-            "how is it going",
-            "how s it going",
-            "hows it going",
-            "how are things",
-            "how are you doing",
-            "are you okay",
-            "you okay",
-            "u okay",
-            "what s up",
-            "whats up",
-            "what is up",
-        )
-    ):
-        return (
-            "I am doing well and ready to help you with the Agniveer training "
-            "process. What would you like to know?"
-        )
+    if len(tokens) <= 5:
+        has_domain = any(term in q for term in DOMAIN_TERMS)
+        has_process = any(phrase in q for phrase in PROCESS_PHRASES)
+        has_training = any(phrase in q for phrase in TRAINING_PROCESS_PHRASES)
+        if not (has_domain or has_process or has_training):
+            return True
 
-    if any(
-        phrase in q
-        for phrase in (
-            "who are you",
-            "what are you",
-            "what is your name",
-            "whats your name",
-            "what s your name",
-            "tell me about yourself",
-            "introduce yourself",
-            "what do you do",
-            "what can you do",
-            "what can you help",
-            "what can you help me with",
-            "how can you help",
-            "how can you help me",
-            "what are you capable of",
-        )
-    ):
-        return (
-            "I am AgniAI, an offline AI assistant built to help you understand "
-            "the Agniveer training process. I can help with eligibility, age, "
-            "salary, physical tests, medical standards, documents, training, "
-            "and selection steps."
-        )
-
-    return None
+    casual_signals = (
+        "how are you", "how r u", "who are you", "what are you",
+        "tell me about yourself", "what can you do",
+        "are you a bot", "are you human", "who made you",
+        "motivate me", "i am nervous", "i am scared", "i feel",
+        "i need motivation", "wish me luck", "pray for me",
+        "have a good day", "good luck", "all the best",
+    )
+    return any(signal in q for signal in casual_signals)
 
 
 # =============================================================================
@@ -1081,6 +1134,7 @@ def classify_intent(query: str) -> str:
       9. Short unknown (<=10 tokens)             → chat  (friendly fallback)
      10. Long off-topic                          → reject
     """
+    query = _fuzzy_normalize_query(query)
     q = query.strip().lower()
     # Normalize punctuation so "Jay Hind!" == "jay hind"
     q = q.replace("!", "").replace("?", "").replace("।", "").replace(",", "").strip()
@@ -1089,12 +1143,8 @@ def classify_intent(query: str) -> str:
     if not tokens:
         return "chat"
 
-    # 1. Exact greeting
-    if q in GREETING_PHRASES:
-        return "chat"
-
-    # 2. Small talk
-    if any(phrase in q for phrase in SMALL_TALK_PHRASES):
+    # 1. Lightweight casual-message routing
+    if _is_casual_message(query):
         return "chat"
 
     # 3. Patriotic / army pride

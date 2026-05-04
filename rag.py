@@ -65,6 +65,7 @@ from config import (
     HIGH_RETRIEVAL_CONFIDENCE,
     LOW_RETRIEVAL_CONFIDENCE,
     STYLE_POINT_TOKEN_BUDGET,
+    _fuzzy_normalize_query,
     style_structure_instruction,
     trim_to_complete_sentence,
 )
@@ -2400,6 +2401,7 @@ def prepare_rag_bundle(
     max_context_chars: Optional[int] = None,
     include_points: bool = False,
 ) -> Dict[str, object]:
+    query = _fuzzy_normalize_query(query)
     retrieval_query = _normalize_query_for_retrieval(query)
     docs            = search(retrieval_query, top_k=top_k, normalized=True)
     context_limit   = (
