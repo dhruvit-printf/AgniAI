@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from queue import Empty, Queue
@@ -27,6 +28,14 @@ from queue import Empty, Queue
 import requests as _requests
 from flask import Flask, Response, g, jsonify, request, stream_with_context
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+except Exception:  # pragma: no cover - fail-safe when optional dependency is unavailable
+    Limiter = None
+    get_remote_address = None
 
 from api_models import (
     err,
@@ -39,10 +48,10 @@ from api_models import (
 )
 from config import (
     ALLOWED_ORIGINS,
+    API_FIRST_TOKEN_TIMEOUT,
     API_SECRET_KEY,
     CHAT_SYSTEM_PROMPT,
     detect_answer_style,
-    FIRST_TOKEN_TIMEOUT,
     GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_CHARS_DEFAULT,
@@ -93,6 +102,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 _cors_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
 
 CORS(
@@ -108,12 +118,54 @@ _session = _requests.Session()
 _active_model = DEFAULT_MODEL
 _lock = threading.Lock()
 _STREAM_SEMAPHORE = threading.Semaphore(10)
+_STREAM_WORKER_ACQUIRE_TIMEOUT = float(os.getenv("STREAM_WORKER_ACQUIRE_TIMEOUT", "5"))
+
+# Rate-limit configuration is env-driven and stays backward compatible with existing route names.
+RATE_LIMIT_CHAT = os.getenv("RATE_LIMIT_CHAT", "30 per minute")
+RATE_LIMIT_INGEST = os.getenv("RATE_LIMIT_INGEST", "10 per minute")
+RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "60 per minute")
 
 _STYLE_MIN_WORDS = {
     "short": 50,
     "elaborate": 120,
     "detail": 250,
 }
+
+
+def _proxy_aware_remote_address() -> str:
+    # ProxyFix normalizes remote_addr, and access_route preserves the original client IP chain.
+    if request.access_route:
+        return request.access_route[0]
+    if callable(get_remote_address):
+        return get_remote_address()
+    return request.remote_addr or "127.0.0.1"
+
+
+_limiter = None
+if Limiter is not None:
+    try:
+        # In-memory storage keeps startup fail-safe even when Redis/etc. is unavailable.
+        _limiter = Limiter(
+            key_func=_proxy_aware_remote_address,
+            default_limits=[RATE_LIMIT_DEFAULT],
+            storage_uri="memory://",
+            headers_enabled=True,
+        )
+        _limiter.init_app(app)
+    except Exception as exc:  # pragma: no cover - startup should continue without limiter
+        logger.warning("Rate limiter disabled due to initialization failure: %s", exc)
+        _limiter = None
+else:  # pragma: no cover - depends on optional install state at runtime
+    logger.warning("Flask-Limiter is not installed; rate limiting is disabled.")
+
+
+def _limit_route(limit_value: str):
+    def _decorator(fn):
+        return fn
+
+    if _limiter is None:
+        return _decorator
+    return _limiter.limit(limit_value, override_defaults=True)
 
 
 # =============================================================================
@@ -181,6 +233,11 @@ def _json_error(message: str, status_code: int):
     response = jsonify(payload)
     response.status_code = code
     return response
+
+
+@app.errorhandler(429)
+def _handle_rate_limit(_exc):
+    return _json_error("Rate limit exceeded. Please retry later.", 429)
 
 
 def _client_accepts_sse() -> bool:
@@ -447,7 +504,9 @@ def _stream_answer_response(answer_generator, status_payload: dict) -> Response:
 
 
 def _start_stream_worker(target) -> None:
-    _STREAM_SEMAPHORE.acquire()
+    acquired = _STREAM_SEMAPHORE.acquire(timeout=_STREAM_WORKER_ACQUIRE_TIMEOUT)
+    if not acquired:
+        raise RuntimeError("Too many concurrent streaming requests. Please retry shortly.")
 
     def _wrapped_target() -> None:
         try:
@@ -455,7 +514,13 @@ def _start_stream_worker(target) -> None:
         finally:
             _STREAM_SEMAPHORE.release()
 
-    threading.Thread(target=_wrapped_target, daemon=True).start()
+    try:
+        worker = threading.Thread(target=_wrapped_target, daemon=True)
+        worker.start()
+    except Exception:
+        # Release in the caller thread as well so a start() failure cannot leak the semaphore.
+        _STREAM_SEMAPHORE.release()
+        raise
 
 
 # =============================================================================
@@ -500,6 +565,7 @@ def ready():
 
 
 @app.route("/api/chat", methods=["POST"])
+@_limit_route(RATE_LIMIT_CHAT)
 def chat():
     global _active_model
 
@@ -592,7 +658,10 @@ def chat():
                 finally:
                     token_queue.put(None)
 
-            _start_stream_worker(_gen_worker)
+            try:
+                _start_stream_worker(_gen_worker)
+            except RuntimeError as exc:
+                return _json_error(str(exc), 429)
 
             def _gen_generator(
                 _message=message,
@@ -602,7 +671,7 @@ def chat():
                 pieces: list[str] = []
                 while True:
                     try:
-                        token = token_queue.get(timeout=FIRST_TOKEN_TIMEOUT)
+                        token = token_queue.get(timeout=API_FIRST_TOKEN_TIMEOUT)
                     except Empty:
                         yield (
                             f"event: error\ndata: "
@@ -794,7 +863,10 @@ def chat():
                 finally:
                     token_queue2.put(None)
 
-            _start_stream_worker(_rag_worker)
+            try:
+                _start_stream_worker(_rag_worker)
+            except RuntimeError as exc:
+                return _json_error(str(exc), 429)
 
             def _rag_generator(
                 _message=message,
@@ -805,7 +877,7 @@ def chat():
                 pieces: list[str] = []
                 while True:
                     try:
-                        token = token_queue2.get(timeout=FIRST_TOKEN_TIMEOUT)
+                        token = token_queue2.get(timeout=API_FIRST_TOKEN_TIMEOUT)
                     except Empty:
                         yield (
                             f"event: error\ndata: "
@@ -896,7 +968,10 @@ def chat():
             finally:
                 _token_queue.put(None)
 
-        _start_stream_worker(_chat_worker)
+        try:
+            _start_stream_worker(_chat_worker)
+        except RuntimeError as exc:
+            return _json_error(str(exc), 429)
 
         def _chat_generator(
             _message=message,
@@ -907,7 +982,7 @@ def chat():
             pieces: list[str] = []
             while True:
                 try:
-                    token = _token_queue.get(timeout=FIRST_TOKEN_TIMEOUT)
+                    token = _token_queue.get(timeout=API_FIRST_TOKEN_TIMEOUT)
                 except Empty:
                     yield (
                         f"event: error\ndata: "
@@ -969,6 +1044,7 @@ def chat():
 
 
 @app.route("/api/ingest", methods=["POST"])
+@_limit_route(RATE_LIMIT_INGEST)
 def ingest():
     data = request.get_json(force=True, silent=True) or {}
     kind = (data.get("kind") or "").strip().lower()
@@ -1055,7 +1131,7 @@ if __name__ == "__main__":
         handlers=[
             logging.StreamHandler(),
             RotatingFileHandler(
-                "agniai.log",
+                os.getenv("AGNI_LOG_FILE", "agniai.log"),
                 maxBytes=5 * 1024 * 1024,
                 backupCount=10,
                 encoding="utf-8",

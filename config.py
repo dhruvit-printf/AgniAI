@@ -65,9 +65,10 @@ USE_HYBRID   = os.getenv("USE_HYBRID", "1") not in {"0", "false", "False"}
 MEMORY_MAX_MESSAGES = int(os.getenv("MEMORY_MAX_MESSAGES", "10"))
 
 # ── Network and cache ──────────────────────────────────────────────────────
-REQUEST_TIMEOUT     = int(os.getenv("REQUEST_TIMEOUT",     "120"))
-FIRST_TOKEN_TIMEOUT = int(os.getenv("FIRST_TOKEN_TIMEOUT", "30"))
-STREAM_TIMEOUT      = int(os.getenv("STREAM_TIMEOUT",      "300"))
+REQUEST_TIMEOUT          = int(os.getenv("REQUEST_TIMEOUT", "120"))
+# Backward-compatible rename: prefer API_FIRST_TOKEN_TIMEOUT, fall back to legacy FIRST_TOKEN_TIMEOUT.
+API_FIRST_TOKEN_TIMEOUT  = int(os.getenv("API_FIRST_TOKEN_TIMEOUT", os.getenv("FIRST_TOKEN_TIMEOUT", "30")))
+STREAM_TIMEOUT           = int(os.getenv("STREAM_TIMEOUT", "300"))
 
 RETRIEVAL_CACHE_TTL = int(os.getenv("RETRIEVAL_CACHE_TTL", "3600"))
 RESPONSE_CACHE_TTL  = int(os.getenv("RESPONSE_CACHE_TTL",  "86400"))

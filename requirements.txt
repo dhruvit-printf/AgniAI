@@ -5,6 +5,7 @@
 # Web framework + CORS (for .NET and React integration)
 flask>=3.0.0
 flask-cors>=4.0.0
+flask-limiter>=3.8.0
 
 # Vector search
 faiss-cpu>=1.7.4

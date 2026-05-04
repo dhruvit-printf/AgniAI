@@ -92,6 +92,19 @@ _MAX_STRUCTURED_POINTS = int(os.getenv("MAX_STRUCTURED_POINTS", "12"))
 _PRELOAD_THREAD: Optional[threading.Thread] = None
 _WARMUP_READY = threading.Event()
 
+
+def _normalized_ollama_keep_alive() -> Optional[str]:
+    # Treat "-1" as "omit the parameter" because some Ollama builds reject it.
+    keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "10m").strip()
+    if keep_alive == "-1":
+        return None
+    return keep_alive or "10m"
+
+
+def _invalidate_bm25_score_cache() -> None:
+    # Clear per-query BM25 scores immediately when corpus/BM25 readiness changes.
+    _BM25_SCORE_CACHE.clear()
+
 _STEP_TEMPLATE = [
     "Registration & Preparation",
     "Online CEE (Written Exam)",
@@ -1286,24 +1299,33 @@ def set_cached_response(key: str, value: str) -> None:
 def _warmup_ollama() -> None:
     """
     Send a minimal 1-token request to force Ollama to load the LLM into RAM.
-    keep_alive=-1 ensures the model stays loaded after warmup.
+    Default is "10m". Set OLLAMA_KEEP_ALIVE=-1 to keep model loaded indefinitely.
+    NOTE: Some Ollama versions may reject "-1", so AgniAI falls back gracefully.
     """
     try:
-        _session.post(
-            OLLAMA_URL,
-            json={
-                "model": DEFAULT_MODEL,
-                "messages": [{"role": "user", "content": "hi"}],
-                "stream": False,
-                "keep_alive": "10m",
-                "options": {
-                    "num_predict": 1,
-                    "temperature": 0.0,
-                    "num_ctx": 512,
-                },
+        payload = {
+            "model": DEFAULT_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+            "options": {
+                "num_predict": 1,
+                "temperature": 0.0,
+                "num_ctx": 512,
             },
-            timeout=(10, 180),
-        )
+        }
+        keep_alive = _normalized_ollama_keep_alive()
+        if keep_alive is not None:
+            payload["keep_alive"] = keep_alive
+        try:
+            response = _session.post(OLLAMA_URL, json=payload, timeout=(10, 180))
+            response.raise_for_status()
+        except Exception:
+            if "keep_alive" not in payload:
+                raise
+            retry_payload = dict(payload)
+            retry_payload.pop("keep_alive", None)
+            response = _session.post(OLLAMA_URL, json=retry_payload, timeout=(10, 180))
+            response.raise_for_status()
         logger.info("Ollama model '%s' pre-loaded and ready.", DEFAULT_MODEL)
     except Exception as exc:
         logger.warning(
@@ -1506,6 +1528,7 @@ def save_bm25(docs: List[Dict[str, str]]) -> None:
     if not USE_HYBRID:
         return
     docs_snapshot = list(docs or [])
+    _invalidate_bm25_score_cache()
 
     def _build() -> None:
         global _BM25
@@ -1518,6 +1541,7 @@ def save_bm25(docs: List[Dict[str, str]]) -> None:
                 pickle.dump(bm25, f)
             with _INDEX_LOCK:
                 _BM25 = bm25
+            _invalidate_bm25_score_cache()
         except ModuleNotFoundError:
             return
         except Exception as exc:
@@ -1629,10 +1653,11 @@ def _bm25_scores(query: str) -> np.ndarray:
 
     bm25 = load_bm25()
     _, docs = _index_snapshot()
-    if bm25 is None or not docs:
-        result = np.zeros(len(docs), dtype="float32")
-        _BM25_SCORE_CACHE.set(cache_key, result)
-        return result
+    if not docs:
+        return np.zeros(0, dtype="float32")
+    if bm25 is None:
+        # Never cache placeholder zeros before BM25 is ready, or queries get poisoned for the TTL window.
+        return np.zeros(len(docs), dtype="float32")
     try:
         scores = np.array(bm25.get_scores(_tokenize(query)), dtype="float32")
         if scores.shape[0] != len(docs):
@@ -1640,18 +1665,14 @@ def _bm25_scores(query: str) -> np.ndarray:
                 "BM25 corpus length %d != docstore length %d; falling back to dense-only retrieval for this query.",
                 scores.shape[0], len(docs)
             )
-            result = np.zeros(len(docs), dtype="float32")
-            _BM25_SCORE_CACHE.set(cache_key, result)
-            return result
+            return np.zeros(len(docs), dtype="float32")
         max_s = scores.max()
         if max_s > 0:
             scores = (scores / max_s).astype("float32")
         _BM25_SCORE_CACHE.set(cache_key, scores)
         return scores
     except Exception:
-        result = np.zeros(len(docs), dtype="float32")
-        _BM25_SCORE_CACHE.set(cache_key, result)
-        return result
+        return np.zeros(len(docs), dtype="float32")
 
 
 def _min_max_normalize(values: np.ndarray) -> np.ndarray:

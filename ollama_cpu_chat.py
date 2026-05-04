@@ -4,7 +4,8 @@ ollama_cpu_chat.py
 CPU-optimised Ollama streaming client for AgniAI.
 
 Changes vs original:
-  • KEEP_ALIVE = "10m" (set OLLAMA_KEEP_ALIVE=-1 to keep model loaded forever)
+  • Default is "10m". Set OLLAMA_KEEP_ALIVE=-1 to keep model loaded indefinitely.
+    NOTE: Some Ollama versions may reject "-1", so AgniAI falls back gracefully.
   • MODEL_NAME updated to q4_K_M quantized variant
   • _default_num_thread: removed hard cap of 4, uses all physical cores - 1
   • Added _start_keepalive_heartbeat() to ping Ollama periodically so the
@@ -63,10 +64,10 @@ FALLBACK_MODELS: List[str] = [
 ]
 
 # ── Timeouts ────────────────────────────────────────────────────────────────
-TIMEOUT_CONNECT     = float(os.getenv("OLLAMA_CONNECT_TIMEOUT",    "8"))
-FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "180"))
-STREAM_TIMEOUT      = float(os.getenv("OLLAMA_STREAM_TIMEOUT",     "300"))
-MAX_RETRIES         = int(os.getenv("OLLAMA_MAX_RETRIES",           "2"))
+TIMEOUT_CONNECT = float(os.getenv("OLLAMA_CONNECT_TIMEOUT", "8"))
+OLLAMA_FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "180"))
+STREAM_TIMEOUT = float(os.getenv("OLLAMA_STREAM_TIMEOUT", "300"))
+MAX_RETRIES = int(os.getenv("OLLAMA_MAX_RETRIES", "2"))
 
 MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "1200"))
 NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",          "8192"))
@@ -76,7 +77,16 @@ TOP_P           = float(os.getenv("OLLAMA_TOP_P",          "0.92"))
 REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
 
 # CHANGED: -1 means keep model loaded forever — never unload on idle
-KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m")  # was "10m"
+def _normalized_keep_alive(raw_value: Optional[str]) -> Optional[str]:
+    # Default is "10m". Set OLLAMA_KEEP_ALIVE=-1 to keep model loaded indefinitely.
+    # NOTE: Some Ollama versions may reject "-1", so AgniAI omits the parameter instead.
+    keep_alive = (raw_value or "").strip()
+    if keep_alive == "-1":
+        return None
+    return keep_alive or "10m"
+
+
+KEEP_ALIVE = _normalized_keep_alive(os.getenv("OLLAMA_KEEP_ALIVE", "10m"))
 
 MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "6"))
 MODEL_LIST_CACHE_TTL = float(os.getenv("OLLAMA_MODEL_LIST_CACHE_TTL", "30"))
@@ -135,18 +145,20 @@ def _start_keepalive_heartbeat(
         while True:
             time.sleep(interval_seconds)
             try:
+                payload = {
+                    "model": active_model_ref[0],
+                    "messages": [{"role": "user", "content": "."}],
+                    "stream": False,
+                    "options": {
+                        "num_predict": 0,   # generate nothing
+                        "num_ctx": 64,      # tiny context for heartbeat
+                    },
+                }
+                if KEEP_ALIVE is not None:
+                    payload["keep_alive"] = KEEP_ALIVE
                 session.post(
                     CHAT_ENDPOINT,
-                    json={
-                        "model": active_model_ref[0],
-                        "messages": [{"role": "user", "content": "."}],
-                        "stream": False,
-                        "keep_alive": "10m",
-                        "options": {
-                            "num_predict": 0,   # generate nothing
-                            "num_ctx": 64,      # tiny context for heartbeat
-                        },
-                    },
+                    json=payload,
                     timeout=(5, 15),
                 )
             except Exception:
@@ -297,6 +309,39 @@ def _flush_partial_stream(
     return [], buffer
 
 
+def _open_chat_stream(session: requests.Session, payload: dict):
+    try:
+        response = session.post(
+            CHAT_ENDPOINT,
+            json=payload,
+            stream=True,
+            timeout=(TIMEOUT_CONNECT, STREAM_TIMEOUT),
+        )
+    except requests.RequestException:
+        if "keep_alive" not in payload:
+            raise
+        fallback_payload = dict(payload)
+        fallback_payload.pop("keep_alive", None)
+        return session.post(
+            CHAT_ENDPOINT,
+            json=fallback_payload,
+            stream=True,
+            timeout=(TIMEOUT_CONNECT, STREAM_TIMEOUT),
+        )
+
+    if response.status_code >= 400 and "keep_alive" in payload:
+        response.close()
+        fallback_payload = dict(payload)
+        fallback_payload.pop("keep_alive", None)
+        return session.post(
+            CHAT_ENDPOINT,
+            json=fallback_payload,
+            stream=True,
+            timeout=(TIMEOUT_CONNECT, STREAM_TIMEOUT),
+        )
+    return response
+
+
 def _ollama_chat_once(
     session: requests.Session,
     model: str,
@@ -318,7 +363,7 @@ def _ollama_chat_once(
         "model": model,
         "messages": messages,
         "stream": True,
-        "keep_alive": KEEP_ALIVE,   # "-1" — stays loaded forever
+        "keep_alive": KEEP_ALIVE,
         "options": {
             "temperature":    TEMPERATURE,
             "num_ctx":        NUM_CTX,
@@ -329,6 +374,8 @@ def _ollama_chat_once(
             "num_thread":     _default_num_thread(),
         },
     }
+    if KEEP_ALIVE is None:
+        payload.pop("keep_alive", None)
 
     pieces: List[str] = []
     streamed_text = ""
@@ -337,15 +384,10 @@ def _ollama_chat_once(
     completion_tokens: Optional[int] = None
     first_token_received = False
     start = time.time()
-    deadline_first_token = start + FIRST_TOKEN_TIMEOUT
+    deadline_first_token = start + OLLAMA_FIRST_TOKEN_TIMEOUT
 
     try:
-        with session.post(
-            CHAT_ENDPOINT,
-            json=payload,
-            stream=True,
-            timeout=(TIMEOUT_CONNECT, STREAM_TIMEOUT),
-        ) as resp:
+        with _open_chat_stream(session, payload) as resp:
             if resp.status_code == 404:
                 raise OllamaError(
                     f"Model '{model}' not found. Run:  ollama pull {MODEL_NAME}"
@@ -381,7 +423,7 @@ def _ollama_chat_once(
 
                 if not first_token_received and time.time() > deadline_first_token:
                     raise OllamaError(
-                        f"Model '{model}' no first token in {FIRST_TOKEN_TIMEOUT:.0f}s. "
+                        f"Model '{model}' no first token in {OLLAMA_FIRST_TOKEN_TIMEOUT:.0f}s. "
                         "Too large for this CPU. Try:  ollama pull mistral:7b-instruct-q4_K_M"
                     )
 
