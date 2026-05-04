@@ -716,8 +716,8 @@ STYLE_OUTPUT_GUIDANCE = {
         "Write exactly ONE concise paragraph of 60-90 words.\n"
         "State only the key facts. No elaboration, no repetition.\n"
         "Use ONLY the provided reference information.\n"
-        "If the answer is not in the reference, respond exactly: "
-        "'Answer not found in the document.'"
+        "If the answer is not in the reference, respond exactly with the configured "
+        "reference fallback message."
     ),
     "elaborate": (
         "OUTPUT FORMAT — ELABORATE (strict):\n"
@@ -726,8 +726,8 @@ STYLE_OUTPUT_GUIDANCE = {
         "Third paragraph (optional): practical implications or exceptions.\n"
         "Use ONLY the provided reference information. "
         "No bullet points unless listing more than 4 items.\n"
-        "If the answer is not in the reference, respond exactly: "
-        "'Answer not found in the document.'"
+        "If the answer is not in the reference, respond exactly with the configured "
+        "reference fallback message."
     ),
     "detail": (
         "OUTPUT FORMAT — DETAIL (strict):\n"
@@ -737,8 +737,8 @@ STYLE_OUTPUT_GUIDANCE = {
         "(5) important notes or warnings.\n"
         "Use ONLY the provided reference information. "
         "Be thorough but do not invent information.\n"
-        "If the answer is not in the reference, respond exactly: "
-        "'Answer not found in the document.'"
+        "If the answer is not in the reference, respond exactly with the configured "
+        "reference fallback message."
     ),
 }
 
@@ -755,8 +755,8 @@ _PARAGRAPH_RULES = (
     "2. Do NOT use prior knowledge.\n"
     "3. Do NOT add explanations, tips, assumptions, or examples not in the context.\n"
     "4. Do NOT infer missing information.\n"
-    "5. If the answer is incomplete or missing, respond exactly: "
-    "'Answer not found in the document.'\n"
+    "5. If the answer is incomplete or missing, respond exactly with the configured "
+    "reference fallback message.\n"
     "6. Do NOT repeat the question.\n"
     "7. Do NOT include generic filler sentences.\n"
     "8. Write in clear structured paragraphs only. Avoid bullet overload.\n"
@@ -764,28 +764,29 @@ _PARAGRAPH_RULES = (
     "10. Every sentence must be grammatically complete and end cleanly."
 )
 STRICT_RAG_PROMPT = (
-    "You are a strict document-based QA system for the Agniveer / Agnipath "
-    "training process of the Indian Armed Forces. "
-    "Use ONLY the provided context. Do NOT use prior knowledge. "
-    "Do NOT infer missing information. "
-    "Do NOT add explanations, tips, assumptions, or generic filler. "
-    "Deliver all key facts first, keep the answer compact, avoid unnecessary repetition. "
-    "If the answer is incomplete or missing, respond exactly with: "
-    "'Answer not found in the document.' "
-    "Write in clear structured paragraphs only. Do not repeat the question."
+    "You are a strict production QA system for the Agniveer / Agnipath training "
+    "process of the Indian Armed Forces. "
+    "Follow this order exactly: "
+    "1. If the answer exists in the provided context, use ONLY that context. "
+    "2. Do NOT use prior knowledge in this mode. "
+    "3. Do NOT infer, guess, hallucinate, or override the reference. "
+    "4. Do NOT mix reference facts with outside knowledge. "
+    "5. If the answer is incomplete or missing, respond exactly with the configured "
+    "reference fallback message. "
+    "Keep the answer compact, accurate, and in clear paragraphs. Do not repeat the question."
 )
 
 STRICT_RAG_PROMPT_COMPUTE = (
-    "You are a strict document-based QA system for the Agniveer / Agnipath "
-    "training process of the Indian Armed Forces. "
-    "Use ONLY the provided context. You may compute or aggregate values only "
-    "from figures explicitly present in the context. "
+    "You are a strict production QA system for the Agniveer / Agnipath training "
+    "process of the Indian Armed Forces. "
+    "Use ONLY the provided context. You may compute or aggregate values only from "
+    "figures explicitly present in the context. "
     "Do NOT use prior knowledge. Do NOT infer missing information. "
-    "Do NOT add explanations, tips, assumptions, or generic filler. "
-    "Deliver all key facts first, keep the answer compact, avoid unnecessary repetition. "
-    "If the answer is incomplete or missing, respond exactly with: "
-    "'Answer not found in the document.' "
-    "Write in clear structured paragraphs only. Do not repeat the question."
+    "Do NOT guess, hallucinate, or override trusted data. "
+    "Do NOT mix reference facts with outside knowledge. "
+    "If the answer is incomplete or missing, respond exactly with the configured "
+    "reference fallback message. "
+    "Keep the answer compact, accurate, and in clear paragraphs. Do not repeat the question."
 )
 
 CONDITIONAL_RAG_PROMPT = (
@@ -798,8 +799,8 @@ CONDITIONAL_RAG_PROMPT = (
     "below 170cm would not meet that requirement. "
     "Do NOT invent facts not present in the context. "
     "Be direct and helpful. Do not repeat the question. "
-    "If the context truly contains no relevant information, respond: "
-    "'Answer not found in the document.'"
+    "If the context truly contains no relevant information, respond with the configured "
+    "reference fallback message."
 )
 
 SYSTEM_PROMPT_SHORT     = STRICT_RAG_PROMPT
@@ -807,7 +808,10 @@ SYSTEM_PROMPT_ELABORATE = STRICT_RAG_PROMPT
 SYSTEM_PROMPT_DETAIL    = STRICT_RAG_PROMPT
 SYSTEM_PROMPT           = STRICT_RAG_PROMPT
 
-REFERENCE_FALLBACK = "Answer not found in the document."
+REFERENCE_FALLBACK = (
+    "I'm sorry, this information is not available in my reference. "
+    "Please contact your authority or official source."
+)
 
 SOURCE_PRIORITY_PROMPT = (
     "CONTROLLED MULTI-SOURCE RETRIEVAL POLICY:\n"
@@ -824,19 +828,19 @@ SOURCE_PRIORITY_PROMPT = (
     "Verify relationships before answering, especially Final = Base - Deduction.\n"
     "5. Never return a number without context. Never invent or assume a number.\n"
     "6. If the reference information is incomplete or missing for the user's "
-    "question, respond exactly: 'Answer not found in the document.'\n"
+    "question, respond exactly with the configured reference fallback message.\n"
     "7. After grounding the facts, phrase the answer naturally and simply without "
     "changing the facts."
 )
 
 GENERAL_KNOWLEDGE_FALLBACK_PROMPT = (
-    "The JSON knowledge base did not contain relevant reference information for "
-    "this question. You may use only generic model knowledge now. Stay general, "
-    "do not fabricate specifics, and do not provide numerical values unless they "
-    "were supplied by the user in the conversation. If a factual answer would "
-    "require exact numbers, dates, amounts, eligibility thresholds, fees, salary, "
-    "age, height, marks, counts, or other specific values, say that the exact "
-    "value is not available in the knowledge base instead of guessing."
+    "The knowledge base did not contain a reliable answer for this question. "
+    "You may now use general model knowledge, but keep it realistic and commonly known. "
+    "Do not fabricate specifics. Avoid exact numbers, dates, thresholds, fees, "
+    "salary figures, age limits, marks, counts, or measurements unless you are truly sure. "
+    "Do not mix partial reference facts with your own knowledge. "
+    "If you still do not know, say clearly that you do not have that information and advise "
+    "the user to contact the appropriate authority or official source."
 )
 
 # ── Conversational system prompt ───────────────────────────────────────────

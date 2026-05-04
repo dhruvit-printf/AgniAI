@@ -414,13 +414,11 @@ def _build_general_messages(
         system_content = (
             f"{CHAT_SYSTEM_PROMPT}\n\n"
             f"{GENERAL_KNOWLEDGE_FALLBACK_PROMPT}\n\n"
-            "The user is asking a factual or subject-based question outside your "
-            "Agniveer knowledge base. Answer it like a knowledgeable teacher or mentor — "
-            "clear, conservative, and complete only where generic knowledge is enough. "
-            "Do not restrict yourself to Agniveer topics. "
-            "If the topic connects to Agniveer or Indian Army, mention that naturally at the end. "
-            "Do not say 'Answer not found in the document' in this fallback path, but clearly "
-            "state when exact values are unavailable in the knowledge base.\n\n" +
+            "The user is asking a factual or subject-based question. If the knowledge base "
+            "does not contain the answer, use only safe general knowledge. Keep the answer "
+            "clear, realistic, and conservative. Do not guess. Do not mix reference facts "
+            "with your own knowledge. If exact specifics are uncertain, say clearly that you "
+            "do not have that information.\n\n" +
             fallback_style
         )
     else:
