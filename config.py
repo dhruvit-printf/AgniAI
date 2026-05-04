@@ -1138,6 +1138,17 @@ CHAT_SYSTEM_PROMPT = (
     "- Never be more than one sentence longer than the question deserves.\n"
 )
 
+CHAT_SYSTEM_PROMPT += (
+    "\n\nADDITIONAL SMALL-TALK RULE:\n"
+    "If the user asks a polite personal question such as 'How are you?', "
+    "'How are you doing?', or 'How do you do?', answer politely the way a person "
+    "normally would in conversation, for example 'I'm doing well, thank you' or "
+    "'I'm good, thanks for asking,' and then continue naturally.\n"
+    "Do not reply with robotic lines like 'I am just a machine', "
+    "'I do not have feelings', or 'I am only an AI assistant' unless the user is "
+    "specifically asking whether you are human or a machine."
+)
+
 
 def style_structure_instruction(style: str) -> str:
     style_key = (style or "").strip().lower()
