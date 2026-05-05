@@ -31,3 +31,5 @@ rank-bm25>=0.2.2
 
 # System monitoring (used by benchmark_test.py)
 psutil>=5.9.0
+
+python-dotenv>=1.0.0

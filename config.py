@@ -1,7 +1,8 @@
 """Central configuration for AgniAI."""
 
 from __future__ import annotations
-
+from dotenv import load_dotenv
+load_dotenv()
 import os
 import re
 from datetime import datetime
