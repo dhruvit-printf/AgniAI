@@ -14,6 +14,9 @@ Key changes vs original:
     helpful reply instead of "Answer not found in the document."
   - build_strict_messages in rag.py is monkey-patched locally via a wrapper
     so we don't have to touch rag.py.
+  - /api/upload: accepts multipart/form-data file uploads from .NET backend,
+    saves to a temp file, ingests into FAISS + docstore, then deletes the
+    temp file. Supports pdf, txt, docx.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 import threading
 import time
 from queue import Empty, Queue
@@ -29,6 +33,7 @@ import requests as _requests
 from flask import Flask, Response, g, jsonify, request, stream_with_context
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.utils import secure_filename
 
 try:
     from flask_limiter import Limiter
@@ -128,6 +133,14 @@ _STREAM_WORKER_ACQUIRE_TIMEOUT = float(os.getenv("STREAM_WORKER_ACQUIRE_TIMEOUT"
 RATE_LIMIT_CHAT = os.getenv("RATE_LIMIT_CHAT", "30 per minute")
 RATE_LIMIT_INGEST = os.getenv("RATE_LIMIT_INGEST", "10 per minute")
 RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "60 per minute")
+
+# ── File Upload Helpers ────────────────────────────────────────────────────
+ALLOWED_EXTENSIONS = {"pdf", "txt", "docx"}
+
+
+def _allowed_file(filename: str) -> bool:
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 def _proxy_aware_remote_address() -> str:
     # ProxyFix normalizes remote_addr, and access_route preserves the original client IP chain.
@@ -1123,6 +1136,133 @@ def ingest():
     )
 
 
+@app.route("/api/upload", methods=["POST"])
+@_limit_route(RATE_LIMIT_INGEST)
+def upload_file():
+    """
+    Accepts a file upload from the .NET backend and ingests it into the
+    FAISS index + docstore.
+
+    Expected request: multipart/form-data
+      - Field "file"  : the file binary (required)
+      - Field "kind"  : optional override — "pdf", "txt", or "docx".
+                        When omitted, the extension of the uploaded filename
+                        is used for type detection.
+
+    Deduplication note: the current ingest.py uses the resolved temp-file
+    path as the docstore source key, so uploading the same file twice in
+    two separate requests will NOT be deduplicated automatically. This is
+    acceptable for the .NET → Flask streaming workflow because the .NET side
+    controls when to call this endpoint.
+
+    Response (success):
+      { "success": true, "message": "...", "chunks": <int>, "source": "<filename>" }
+
+    Response (already ingested / 0 new chunks):
+      { "success": true, "message": "File was already ingested...", "chunks": 0, ... }
+    """
+    # ── Validate file presence ─────────────────────────────────────────────
+    if "file" not in request.files:
+        return _json_error(
+            "No file part in request. Send multipart/form-data with field name 'file'.",
+            400,
+        )
+
+    uploaded = request.files["file"]
+
+    if not uploaded.filename:
+        return _json_error("No filename provided. The 'file' field appears to be empty.", 400)
+
+    filename = secure_filename(uploaded.filename)
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+    if not _allowed_file(filename):
+        return _json_error(
+            f"Unsupported file type '.{ext}'. Allowed types: pdf, txt, docx.",
+            415,
+        )
+
+    # ── Resolve ingestion function ─────────────────────────────────────────
+    kind_override = (request.form.get("kind") or "").strip().lower()
+    kind = kind_override if kind_override in {"pdf", "txt", "docx"} else ext
+
+    fn_map = {
+        "pdf":  ingest_pdf,
+        "txt":  ingest_txt,
+        "docx": ingest_docx,
+    }
+
+    if kind not in fn_map:
+        return _json_error(
+            f"Cannot determine how to process file type '.{ext}'. "
+            f"Pass 'kind' as one of: pdf, txt, docx.",
+            415,
+        )
+
+    # ── Write to temp file, ingest, then delete ────────────────────────────
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=f".{ext}",
+            delete=False,
+            dir=tempfile.gettempdir(),
+        ) as tmp:
+            uploaded.save(tmp.name)
+            tmp_path = tmp.name
+
+        logger.info(
+            "Ingesting uploaded file: filename=%s kind=%s tmp=%s",
+            filename,
+            kind,
+            tmp_path,
+        )
+
+        count = fn_map[kind](tmp_path)
+
+    except FileNotFoundError as exc:
+        logger.error("Temp file missing during upload ingestion: %s", exc)
+        return _json_error(f"File handling error: {exc}", 500)
+    except ValueError as exc:
+        # e.g. "No extractable text found" or "Expected a .pdf file"
+        logger.warning("Content error for uploaded file %s: %s", filename, exc)
+        return _json_error(f"Content error: {exc}", 422)
+    except RuntimeError as exc:
+        # e.g. PyMuPDF or python-docx not installed
+        logger.error("Runtime error ingesting %s: %s", filename, exc)
+        return _json_error(f"Ingestion runtime error: {exc}", 500)
+    except Exception as exc:
+        logger.exception("Unexpected error ingesting uploaded file %s", filename)
+        return _json_error(f"Ingestion failed: {exc}", 500)
+    finally:
+        # Always clean up the temp file regardless of success or failure.
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError as cleanup_err:
+                logger.warning("Could not delete temp file %s: %s", tmp_path, cleanup_err)
+
+    # ── Build response ─────────────────────────────────────────────────────
+    if count == 0:
+        return jsonify(
+            ok_ingest(
+                message=(
+                    f"'{filename}' was already ingested or contained no new content. "
+                    "No new chunks were added."
+                ),
+                chunks=0,
+                source=filename,
+            )
+        )
+
+    return jsonify(
+        ok_ingest(
+            message=f"Successfully ingested '{filename}' — {count} chunk(s) added.",
+            chunks=count,
+            source=filename,
+        )
+    )
+
+
 @app.route("/api/sources")
 def sources():
     return jsonify(ok_sources(list_sources()))
@@ -1182,6 +1322,7 @@ if __name__ == "__main__":
     logger.info("Listening on  http://0.0.0.0:7257")
     logger.info("Health check  http://localhost:7257/api/health")
     logger.info("Chat endpoint http://localhost:7257/api/chat  [POST]")
+    logger.info("Upload endpoint http://localhost:7257/api/upload  [POST multipart]")
     if API_SECRET_KEY:
         logger.info("Auth  X-Api-Key header required for /api/reset_index")
     if stats_data["vectors"] == 0:

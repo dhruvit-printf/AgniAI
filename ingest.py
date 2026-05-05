@@ -12,6 +12,14 @@ Fixes in this version:
     Windows path variants don't cause double-ingestion
   • ingest_text: unique label generation uses a timestamp suffix as tiebreaker
     so concurrent ingests don't collide
+
+Upload additions (merged from updated version):
+  • _append_documents: accepts optional original_filename param — stored in
+    docstore so uploaded files record their real name, not the temp path.
+  • _append_documents: stores ingested_at timestamp in every docstore entry.
+  • _source_already_ingested: early-return guard when source is empty.
+  • ingest_pdf / ingest_txt / ingest_docx: accept optional original_filename
+    param forwarded from the /api/upload route in app.py.
 """
 
 import json
@@ -20,7 +28,7 @@ import re
 import time
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import requests
 
@@ -196,6 +204,9 @@ def _path_source(path: Path) -> str:
 
 def _source_already_ingested(source: str) -> bool:
     """Return True if *source* is already in the docstore."""
+    # UPLOAD ADDITION: guard against empty source
+    if not source:
+        return False
     docs = load_docstore()
     normalised = _normalise_source(source)
     return any(_normalise_source(d.get("source", "")) == normalised for d in docs)
@@ -207,10 +218,16 @@ def _append_documents(
     chunks: Sequence[str],
     source: str,
     doc_type: str,
+    # UPLOAD ADDITION: real filename from the browser upload (e.g. "agniveer.pdf")
+    # When provided, this is stored in docstore instead of the temp-file path.
+    original_filename: Optional[str] = None,
 ) -> int:
     """
     Embed *chunks* and append them to the FAISS index + docstore.
     Returns number of chunks actually added.
+
+    original_filename — pass the browser-supplied filename when ingesting an
+    uploaded file so docstore records "agniveer.pdf" and not "/tmp/tmpXYZ.pdf".
     """
     if not chunks:
         return 0
@@ -235,14 +252,18 @@ def _append_documents(
 
         start_id = len(docs) + 1
         for i, chunk in enumerate(chunks, start=start_id):
-            docs.append(
-                {
-                    "source": normalized_source,
-                    "doc_type": doc_type,
-                    "chunk_id": str(i),
-                    "text": chunk,
-                }
-            )
+            entry: Dict = {
+                "source":    normalized_source,
+                "doc_type":  doc_type,
+                "chunk_id":  str(i),
+                "text":      chunk,
+                # UPLOAD ADDITION: timestamp every ingested chunk
+                "ingested_at": time.time(),
+            }
+            # UPLOAD ADDITION: store real filename when ingesting via upload API
+            if original_filename:
+                entry["original_filename"] = original_filename
+            docs.append(entry)
 
         save_index(index, docs)
         return len(chunks)
@@ -310,7 +331,12 @@ def _extract_visible_text(html: str) -> str:
 
 # ── Public ingest functions ────────────────────────────────────────────────
 
-def ingest_pdf(file_path: str, force: bool = False) -> int:
+def ingest_pdf(
+    file_path: str,
+    force: bool = False,
+    # UPLOAD ADDITION: real browser filename e.g. "agniveer_2025.pdf"
+    original_filename: Optional[str] = None,
+) -> int:
     """Extract text from a PDF and add it to the knowledge base."""
     path = Path(file_path).expanduser().resolve()
     if not path.exists():
@@ -323,8 +349,10 @@ def ingest_pdf(file_path: str, force: bool = False) -> int:
             "PyMuPDF is not installed. Run: pip install PyMuPDF"
         )
 
+    # Use original_filename for dedup check when uploading so temp path is ignored
     source = _path_source(path)
-    if not force and _source_already_ingested(source):
+    dedup_source = original_filename if original_filename else source
+    if not force and _source_already_ingested(dedup_source):
         return 0
 
     pages: List[str] = []
@@ -342,25 +370,46 @@ def ingest_pdf(file_path: str, force: bool = False) -> int:
 
     text   = clean_text("\n".join(pages))
     chunks = chunk_text_semantic(text)
-    return _append_documents(chunks, source=source, doc_type="pdf")
+    return _append_documents(
+        chunks,
+        source=dedup_source,
+        doc_type="pdf",
+        original_filename=original_filename,
+    )
 
 
-def ingest_txt(file_path: str, force: bool = False) -> int:
+def ingest_txt(
+    file_path: str,
+    force: bool = False,
+    # UPLOAD ADDITION
+    original_filename: Optional[str] = None,
+) -> int:
     """Ingest a plain .txt file."""
     path = Path(file_path).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"Text file not found: {path}")
 
     source = _path_source(path)
-    if not force and _source_already_ingested(source):
+    dedup_source = original_filename if original_filename else source
+    if not force and _source_already_ingested(dedup_source):
         return 0
 
     text   = path.read_text(encoding="utf-8", errors="replace")
     chunks = chunk_text_semantic(text)
-    return _append_documents(chunks, source=source, doc_type="txt")
+    return _append_documents(
+        chunks,
+        source=dedup_source,
+        doc_type="txt",
+        original_filename=original_filename,
+    )
 
 
-def ingest_docx(file_path: str, force: bool = False) -> int:
+def ingest_docx(
+    file_path: str,
+    force: bool = False,
+    # UPLOAD ADDITION
+    original_filename: Optional[str] = None,
+) -> int:
     """Ingest a Microsoft Word (.docx) file."""
     path = Path(file_path).expanduser().resolve()
     if not path.exists():
@@ -376,7 +425,8 @@ def ingest_docx(file_path: str, force: bool = False) -> int:
         ) from exc
 
     source = _path_source(path)
-    if not force and _source_already_ingested(source):
+    dedup_source = original_filename if original_filename else source
+    if not force and _source_already_ingested(dedup_source):
         return 0
 
     doc = DocxDocument(str(path))
@@ -386,7 +436,12 @@ def ingest_docx(file_path: str, force: bool = False) -> int:
         raise ValueError("No extractable text found in the Word document.")
 
     chunks = chunk_text_semantic(text)
-    return _append_documents(chunks, source=source, doc_type="docx")
+    return _append_documents(
+        chunks,
+        source=dedup_source,
+        doc_type="docx",
+        original_filename=original_filename,
+    )
 
 
 def ingest_url(url: str, force: bool = False) -> int:
@@ -443,9 +498,11 @@ def list_sources() -> List[Dict]:
         src = d.get("source", "unknown")
         if src not in counts:
             counts[src] = {
-                "source":      src,
-                "doc_type":    d.get("doc_type", "?"),
-                "chunk_count": 0,
+                "source":            src,
+                # UPLOAD ADDITION: show original_filename in sources list if present
+                "original_filename": d.get("original_filename", ""),
+                "doc_type":          d.get("doc_type", "?"),
+                "chunk_count":       0,
             }
         counts[src]["chunk_count"] += 1
     return list(counts.values())
