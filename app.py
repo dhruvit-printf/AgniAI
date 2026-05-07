@@ -1,21 +1,14 @@
 """Flask REST API for AgniAI.
 
 Key changes vs original:
-  - Non-RAG (chat) path now uses CHAT_SYSTEM_PROMPT from config.py so
-    greetings, patriotic slogans and aspirant motivation replies match
+  - Non-RAG (chat) path now uses CHAT_SYSTEM_PROMPT from config.py so greetings, patriotic slogans and aspirant motivation replies match
     what main.py CLI produces.
-  - RAG user message now includes the explicit "Using ONLY the reference
-    information above …" instruction (matches main.py's _build_rag_messages).
-  - Non-streaming RAG now calls chat_with_fallback directly (same path as
-    main.py) instead of going through generate_structured_answer.
-  - New FALLBACK_GENERAL path: when RAG retrieval finds nothing relevant
-    (mode == "strict_answer" with empty context) the bot answers from its
-    own general knowledge via CHAT_SYSTEM_PROMPT so the user always gets a
+  - RAG user message now includes the explicit "Using ONLY the reference information above …" instruction (matches main.py's _build_rag_messages).
+  - Non-streaming RAG now calls chat_with_fallback directly (same path as main.py) instead of going through generate_structured_answer.
+  - New FALLBACK_GENERAL path: when RAG retrieval finds nothing relevant (mode == "strict_answer" with empty context) the bot answers from its  own general knowledge via CHAT_SYSTEM_PROMPT so the user always gets a
     helpful reply instead of "Answer not found in the document."
-  - build_strict_messages in rag.py is monkey-patched locally via a wrapper
-    so we don't have to touch rag.py.
-  - /api/upload: accepts multipart/form-data file uploads from .NET backend,
-    saves to a temp file, ingests into FAISS + docstore, then deletes the
+  - build_strict_messages in rag.py is monkey-patched locally via a wrapper so we don't have to touch rag.py.
+  - /api/upload: accepts multipart/form-data file uploads from .NET backend, saves to a temp file, ingests into FAISS + docstore, then deletes the
     temp file. Supports pdf, txt, docx.
 """
 
@@ -181,7 +174,6 @@ def _limit_route(limit_value: str):
 # =============================================================================
 # HELPERS
 # =============================================================================
-
 
 def _validate_answer_length(answer: str, style: str) -> bool:
     min_words = STYLE_MIN_WORDS.get((style or "").strip().lower(), 0)
@@ -1217,7 +1209,7 @@ def upload_file():
             tmp_path,
         )
 
-        count = fn_map[kind](tmp_path)
+        count = fn_map[kind](tmp_path, original_filename=filename)
 
     except FileNotFoundError as exc:
         logger.error("Temp file missing during upload ingestion: %s", exc)
