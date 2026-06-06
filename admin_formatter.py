@@ -13,6 +13,7 @@ The .NET API returns structured JSON. This module:
 from __future__ import annotations
 
 import json
+import re as _re
 from typing import Any, Dict, List, Optional
 
 
@@ -47,12 +48,9 @@ def _key_value_block(data: Dict, keys: List[str]) -> str:
     for key in keys:
         value = data.get(key) or data.get(key.lower()) or data.get(key.upper())
         if value is not None:
-            label = re.sub(r"(?<!^)(?=[A-Z])", " ", key).title()
+            label = _re.sub(r"(?<!^)(?=[A-Z])", " ", key).title()
             lines.append(f"**{label}:** {value}")
     return "\n".join(lines) if lines else ""
-
-
-import re as _re
 
 
 def _camel_to_words(key: str) -> str:

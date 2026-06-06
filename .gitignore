@@ -14,7 +14,7 @@ __pycache__/
 venv/
 env/
 ENV/
-
+agniai-env/
 # =========================
 # Build / Packaging
 # =========================
@@ -96,3 +96,9 @@ ngrok.exe
 # Application Logs
 # =========================
 agni.log
+
+requirements-lock.txt
+index/*
+!index/.gitkeep
+data/*
+!data/.gitkeep
