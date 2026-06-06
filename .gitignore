@@ -68,3 +68,6 @@ index/
 *.index
 *.pkl
 *.json
+
+ngrok.exe
+ngrok.exe.old 
