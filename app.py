@@ -10,6 +10,8 @@ Key changes vs original:
   - build_strict_messages in rag.py is monkey-patched locally via a wrapper so we don't have to touch rag.py.
   - /api/upload: accepts multipart/form-data file uploads from .NET backend, saves to a temp file, ingests into FAISS + docstore, then deletes the
     temp file. Supports pdf, txt, docx.
+  - Admin chatbot blueprint registered at /api/admin/* for admin-facing queries
+    that route through the .NET AiCommand/execute endpoint.
 """
 
 from __future__ import annotations
@@ -100,6 +102,9 @@ from rag import (
     warmup_runtime,
 )
 
+# ── Admin chatbot blueprint ────────────────────────────────────────────────
+from admin_routes import admin_bp
+
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -114,6 +119,9 @@ CORS(
     methods=["GET", "POST", "OPTIONS"],
     supports_credentials=True,
 )
+
+# ── Register admin blueprint ───────────────────────────────────────────────
+app.register_blueprint(admin_bp)
 
 _memory = ConversationMemory()
 _session = _requests.Session()
@@ -1315,6 +1323,7 @@ if __name__ == "__main__":
     logger.info("Health check  http://localhost:7257/api/health")
     logger.info("Chat endpoint http://localhost:7257/api/chat  [POST]")
     logger.info("Upload endpoint http://localhost:7257/api/upload  [POST multipart]")
+    logger.info("Admin chat    http://localhost:7257/api/admin/chat  [POST]")
     if API_SECRET_KEY:
         logger.info("Auth  X-Api-Key header required for /api/reset_index")
     if stats_data["vectors"] == 0:

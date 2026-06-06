@@ -1,24 +1,32 @@
+# =========================
 # Python
+# =========================
 __pycache__/
 *.py[cod]
 *.pyd
 *.so
 .Python
 
-# Virtual environments
+# =========================
+# Virtual Environments
+# =========================
 .venv/
 venv/
 env/
 ENV/
 
-# Packaging / build artifacts
+# =========================
+# Build / Packaging
+# =========================
 build/
 dist/
 *.egg-info/
 .eggs/
 pip-wheel-metadata/
 
-# Test / lint / type-check caches
+# =========================
+# Testing / Linting
+# =========================
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -27,49 +35,64 @@ pip-wheel-metadata/
 .coverage.*
 htmlcov/
 
-# Local environment files
+# =========================
+# Environment Files
+# =========================
 .env
 .env.*
 !.env.example
 
-# Runtime logs and temp files
+# =========================
+# Logs / Temporary Files
+# =========================
 *.log
 *.tmp
 *.temp
+*.bak
 *.swp
 *.swo
-*.bak
 
-# OS noise
+# =========================
+# Operating System Files
+# =========================
 .DS_Store
 Thumbs.db
 Desktop.ini
 
-# AgniAI generated runtime data — keep folder structure, ignore contents
-data/*
-!data/.gitkeep
-
-# FAISS index and docstore — generated at runtime, never commit
-index/agni.index
-index/docstore.json
-index/bm25.pkl
-
-# Benchmark outputs — generated at runtime
-benchmark_results/
-
-# IDE settings
+# =========================
+# IDE / Editor
+# =========================
 .vscode/
 .idea/
 
-# Flask / local server artifacts
+# =========================
+# Flask
+# =========================
 instance/
 
-index/
+# =========================
+# Runtime Data
+# =========================
+data/*
+!data/.gitkeep
+
+# =========================
+# Vector Indexes
+# =========================
+index/*
+!index/.gitkeep
+
+# FAISS / Search Artifacts
 *.index
 *.pkl
-*.json
 
+# =========================
+# Local Executables
+# =========================
 ngrok.exe
-ngrok.exe.old 
+.ngrok.exe.old
 
-index/
+# =========================
+# Application Logs
+# =========================
+agni.log
