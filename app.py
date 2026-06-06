@@ -12,6 +12,7 @@ Key changes vs original:
     temp file. Supports pdf, txt, docx.
   - Admin chatbot blueprint registered at /api/admin/* for admin-facing queries
     that route through the .NET AiCommand/execute endpoint.
+  - Swagger UI blueprint registered at /docs for interactive API documentation.
 """
 
 from __future__ import annotations
@@ -102,16 +103,18 @@ from rag import (
     warmup_runtime,
 )
 
-# ── Admin chatbot blueprint ────────────────────────────────────────────────
+# ── Blueprints ─────────────────────────────────────────────────────────────
 from admin_routes import admin_bp
+from swagger_ui import swagger_bp
 
 logger = logging.getLogger(__name__)
 
+# ── App creation (must come before any blueprint registration) ─────────────
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-_cors_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
 
+_cors_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
 CORS(
     app,
     origins=_cors_origins if _cors_origins != ["*"] else "*",
@@ -120,8 +123,9 @@ CORS(
     supports_credentials=True,
 )
 
-# ── Register admin blueprint ───────────────────────────────────────────────
+# ── Register blueprints (after app is created) ─────────────────────────────
 app.register_blueprint(admin_bp)
+app.register_blueprint(swagger_bp)
 
 _memory = ConversationMemory()
 _session = _requests.Session()
@@ -1148,20 +1152,7 @@ def upload_file():
       - Field "kind"  : optional override — "pdf", "txt", or "docx".
                         When omitted, the extension of the uploaded filename
                         is used for type detection.
-
-    Deduplication note: the current ingest.py uses the resolved temp-file
-    path as the docstore source key, so uploading the same file twice in
-    two separate requests will NOT be deduplicated automatically. This is
-    acceptable for the .NET → Flask streaming workflow because the .NET side
-    controls when to call this endpoint.
-
-    Response (success):
-      { "success": true, "message": "...", "chunks": <int>, "source": "<filename>" }
-
-    Response (already ingested / 0 new chunks):
-      { "success": true, "message": "File was already ingested...", "chunks": 0, ... }
     """
-    # ── Validate file presence ─────────────────────────────────────────────
     if "file" not in request.files:
         return _json_error(
             "No file part in request. Send multipart/form-data with field name 'file'.",
@@ -1182,7 +1173,6 @@ def upload_file():
             415,
         )
 
-    # ── Resolve ingestion function ─────────────────────────────────────────
     kind_override = (request.form.get("kind") or "").strip().lower()
     kind = kind_override if kind_override in {"pdf", "txt", "docx"} else ext
 
@@ -1199,7 +1189,6 @@ def upload_file():
             415,
         )
 
-    # ── Write to temp file, ingest, then delete ────────────────────────────
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -1223,25 +1212,21 @@ def upload_file():
         logger.error("Temp file missing during upload ingestion: %s", exc)
         return _json_error(f"File handling error: {exc}", 500)
     except ValueError as exc:
-        # e.g. "No extractable text found" or "Expected a .pdf file"
         logger.warning("Content error for uploaded file %s: %s", filename, exc)
         return _json_error(f"Content error: {exc}", 422)
     except RuntimeError as exc:
-        # e.g. PyMuPDF or python-docx not installed
         logger.error("Runtime error ingesting %s: %s", filename, exc)
         return _json_error(f"Ingestion runtime error: {exc}", 500)
     except Exception as exc:
         logger.exception("Unexpected error ingesting uploaded file %s", filename)
         return _json_error(f"Ingestion failed: {exc}", 500)
     finally:
-        # Always clean up the temp file regardless of success or failure.
         if tmp_path and os.path.exists(tmp_path):
             try:
                 os.unlink(tmp_path)
             except OSError as cleanup_err:
                 logger.warning("Could not delete temp file %s: %s", tmp_path, cleanup_err)
 
-    # ── Build response ─────────────────────────────────────────────────────
     if count == 0:
         return jsonify(
             ok_ingest(
@@ -1322,8 +1307,9 @@ if __name__ == "__main__":
     logger.info("Listening on  http://0.0.0.0:7257")
     logger.info("Health check  http://localhost:7257/api/health")
     logger.info("Chat endpoint http://localhost:7257/api/chat  [POST]")
-    logger.info("Upload endpoint http://localhost:7257/api/upload  [POST multipart]")
+    logger.info("Upload        http://localhost:7257/api/upload  [POST multipart]")
     logger.info("Admin chat    http://localhost:7257/api/admin/chat  [POST]")
+    logger.info("Swagger UI    http://localhost:7257/docs")
     if API_SECRET_KEY:
         logger.info("Auth  X-Api-Key header required for /api/reset_index")
     if stats_data["vectors"] == 0:
@@ -1331,6 +1317,5 @@ if __name__ == "__main__":
     else:
         logger.info("Knowledge base ready: %s vectors.", stats_data["vectors"])
 
-    # Warning: Flask's built-in server is for development only.
     # Production: gunicorn -w 4 -k gthread --threads 4 -b 0.0.0.0:7257 app:app
     app.run(host="0.0.0.0", port=7257, debug=False, threaded=True)
