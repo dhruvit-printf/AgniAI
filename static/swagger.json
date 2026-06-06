@@ -9,15 +9,16 @@
       }
     },
     "servers": [
-      {
-        "url": "http://localhost:7257",
-        "description": "Local development server"
-      },
-      {
-        "url": "http://localhost:5000",
-        "description": "Flask default port"
-      }
-    ],
+  {
+    "url": "http://localhost:5000",
+    "description": "Flask / Python API (default)"
+  },
+  {
+    "url": "http://localhost:7257",
+    "description": ".NET AiCommand backend (admin only)"
+  }
+]
+    ,
     "tags": [
       { "name": "System",         "description": "Health and readiness checks" },
       { "name": "Chat",           "description": "User-facing RAG chatbot" },

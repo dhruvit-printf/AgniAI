@@ -229,7 +229,7 @@ _SWAGGER_HTML = """<!DOCTYPE html>
   <!-- ── Server selector ── -->
   <div class="server-bar">
     <label>Base URL:</label>
-    <input id="server-url" type="text" value="http://localhost:7257" placeholder="http://localhost:7257" />
+    <input id="server-url" type="text" value="http://localhost:5000" placeholder="http://localhost:5000" />
     <div class="preset-btns">
       <button class="preset-btn" onclick="setServer('http://localhost:7257')">:7257</button>
       <button class="preset-btn" onclick="setServer('http://localhost:5000')">:5000</button>
@@ -293,7 +293,7 @@ _SWAGGER_HTML = """<!DOCTYPE html>
     }
 
     function applyServer() {
-      const url = document.getElementById('server-url').value.replace(/\\/$/, '') || 'http://localhost:7257';
+    const url = document.getElementById('server-url').value.replace(/\/$/, '') || 'http://localhost:5000';
       loadUI(url);
     }
 
