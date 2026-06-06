@@ -8,6 +8,13 @@ The .NET API returns structured JSON. This module:
   1. Detects the response shape based on category/subcategory
   2. Converts numbers, lists and tables into clear prose or markdown
   3. Returns a formatted string ready to send to the admin frontend
+
+NOTE on intent_result keys:
+  This formatter receives the original intent_result dict from
+  classify_admin_intent(), which still uses snake_case internally:
+    intent_result["leave_type"]  ← snake_case (Python internal)
+  format_admin_payload() converts to camelCase only for the .NET payload.
+  So all .get() calls here use the snake_case key "leave_type".
 """
 
 from __future__ import annotations
@@ -179,6 +186,7 @@ def _format_performance(subcategory: str, data: Any, intent_result: Dict) -> str
 def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
     if subcategory in ("MostLeaveTaken", "LeastLeaveTaken"):
         label = "most" if subcategory == "MostLeaveTaken" else "least"
+        # FIX: read from snake_case key "leave_type" (internal intent_result format)
         leave_type = intent_result.get("leave_type", "")
         leave_str = f" ({leave_type})" if leave_type else ""
         if isinstance(data, list):
@@ -456,7 +464,8 @@ def format_dotnet_response(
 ) -> str:
     """
     Take the raw .NET response (dict, list, or primitive) and the original
-    intent_result dict, and return a human-readable answer string.
+    intent_result dict (Python snake_case keys), and return a human-readable
+    answer string.
     """
     category    = intent_result.get("category", "")
     subcategory = intent_result.get("subcategory", "")

@@ -11,6 +11,15 @@ Given a natural-language question from an admin, this module:
 
 Flow:
   Admin question → classify_admin_intent() → dict payload → POST to .NET
+
+FIX — camelCase keys in format_admin_payload():
+  The .NET JSON deserializer expects camelCase property names by default
+  (standard ASP.NET Core behaviour with System.Text.Json).
+  Internal Python keys use snake_case for readability; format_admin_payload()
+  converts them to camelCase before sending to .NET:
+    leave_type → leaveType
+  All other keys (category, subcategory, number, operation, section, grading)
+  are already single-word or naturally camelCase-compatible.
 """
 
 from __future__ import annotations
@@ -256,10 +265,14 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         "operation":   "Top",                   # extracted operation (or null)
         "section":     "BEPT",                  # section filter (or null)
         "grading":     "Excellent",             # grading filter (or null)
-        "leave_type":  null,                    # leave type (or null)
+        "leave_type":  null,                    # leave type (or null) — snake_case internally
         "raw_query":   "Who are the top 5 ...", # original question
         "confidence":  "high" | "medium" | "low"
     }
+
+    Note: leave_type is stored in snake_case here for readability.
+    format_admin_payload() converts it to leaveType (camelCase) when
+    building the JSON payload sent to .NET.
     """
     raw_query = (query or "").strip()
     q = _normalise(raw_query)
@@ -271,7 +284,7 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         "operation":   None,
         "section":     None,
         "grading":     None,
-        "leave_type":  None,
+        "leave_type":  None,   # internal snake_case; converted to leaveType for .NET
         "raw_query":   raw_query,
         "confidence":  "low",
     }
@@ -301,7 +314,6 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     if intent_match:
         intent_name, intent_code = intent_match
         result["subcategory"] = intent_code
-        # Confidence based on whether both module AND intent matched well
         result["confidence"] = "high"
     else:
         # Module matched but intent is ambiguous — use first intent as default
@@ -327,11 +339,33 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
 def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     """
     Build the exact payload that gets sent to the .NET AiCommand/execute endpoint.
-    Strips None values and raw_query / confidence (internal fields).
+
+    KEY FIX: .NET's default JSON deserializer (System.Text.Json) expects
+    camelCase property names. This function maps Python snake_case keys to
+    their camelCase equivalents for the outgoing request:
+
+        leave_type  →  leaveType
+
+    All other keys (category, subcategory, number, operation, section, grading)
+    are single-word and already camelCase-compatible.
+
+    Strips None values and internal-only fields (raw_query, confidence).
     """
+    # Mapping: Python internal key → .NET JSON key
+    _KEY_MAP = {
+        "category":    "category",
+        "subcategory": "subcategory",
+        "number":      "number",
+        "operation":   "operation",
+        "section":     "section",
+        "grading":     "grading",
+        "leave_type":  "leaveType",   # FIX: snake_case → camelCase for .NET
+    }
+
     payload: Dict[str, Any] = {}
-    for key in ("category", "subcategory", "number", "operation", "section", "grading", "leave_type"):
-        value = intent_result.get(key)
+    for python_key, dotnet_key in _KEY_MAP.items():
+        value = intent_result.get(python_key)
         if value is not None:
-            payload[key] = value
+            payload[dotnet_key] = value
+
     return payload

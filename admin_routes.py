@@ -15,10 +15,17 @@ Flow for /api/admin/chat:
   4. format_dotnet_response() → human-readable answer
   5. Return answer to frontend
 
+IMPORTANT PORT SEPARATION:
+  - Python / Flask runs on port 5000  (python app.py  OR  gunicorn ... :5000)
+  - .NET AiCommand API runs on port 7257 (or whatever DOTNET_API_BASE_URL is set to)
+  These MUST be different ports. If they are the same, admin chat calls itself
+  and fails with a connection error or wrong-route response.
+
 Configuration (via environment variables):
-  DOTNET_API_BASE_URL   — default: https://localhost:7257
+  DOTNET_API_BASE_URL   — default: https://localhost:7257  (.NET app port)
   DOTNET_API_KEY        — optional X-Api-Key header for .NET endpoint
-  DOTNET_VERIFY_SSL     — "0" to disable SSL verify (for self-signed certs on localhost)
+  DOTNET_SKIP_SSL_VERIFY— "1" to skip SSL verification (self-signed localhost cert)
+                          "0" (default) to verify SSL normally
   ADMIN_RATE_LIMIT      — default: "20 per minute"
 """
 
@@ -39,22 +46,62 @@ from admin_formatter import format_dotnet_response
 logger = logging.getLogger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────
+# Python runs on 5000, .NET runs on 7257 — these MUST differ.
 DOTNET_API_BASE_URL = os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257")
 DOTNET_EXECUTE_URL  = f"{DOTNET_API_BASE_URL}/api/AiCommand/execute"
 DOTNET_API_KEY      = os.getenv("DOTNET_API_KEY", "")
-DOTNET_VERIFY_SSL   = os.getenv("DOTNET_VERIFY_SSL", "0") not in {"0", "false", "False"}
 DOTNET_TIMEOUT      = int(os.getenv("DOTNET_TIMEOUT", "30"))
 ADMIN_RATE_LIMIT    = os.getenv("ADMIN_RATE_LIMIT", "20 per minute")
+
+# FIX: Renamed from DOTNET_VERIFY_SSL to DOTNET_SKIP_SSL_VERIFY for clarity.
+# Set DOTNET_SKIP_SSL_VERIFY=1 in .env to skip SSL verification (self-signed
+# localhost cert). Default is "0" (verify SSL normally).
+# Old env var DOTNET_VERIFY_SSL is also accepted for backward compatibility.
+_skip_raw = os.getenv("DOTNET_SKIP_SSL_VERIFY", os.getenv("DOTNET_VERIFY_SSL", "0"))
+DOTNET_VERIFY_SSL = _skip_raw.strip() not in {"1", "true", "True"}
+# DOTNET_VERIFY_SSL=True  → requests verifies the cert (production)
+# DOTNET_VERIFY_SSL=False → requests skips verification (localhost self-signed)
 
 # ── Blueprint ──────────────────────────────────────────────────────────────
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
 _dotnet_session = _requests.Session()
 
-# Disable SSL warnings for self-signed localhost cert
+# Disable SSL warnings for self-signed localhost cert when verification is off
 if not DOTNET_VERIFY_SSL:
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+# =============================================================================
+# RATE LIMITER — imported from app.py's shared limiter
+# =============================================================================
+
+def _get_limiter():
+    """
+    Import the shared Flask-Limiter instance from app.py at call time to avoid
+    circular imports at module load. Returns None if limiter is unavailable.
+    """
+    try:
+        from app import _limiter
+        return _limiter
+    except (ImportError, AttributeError):
+        return None
+
+
+def _apply_admin_rate_limit(fn):
+    """
+    Decorator that applies ADMIN_RATE_LIMIT using the shared limiter from app.py.
+    Falls back silently if the limiter is not initialised.
+    """
+    limiter = _get_limiter()
+    if limiter is None:
+        return fn
+    try:
+        return limiter.limit(ADMIN_RATE_LIMIT, override_defaults=True)(fn)
+    except Exception as exc:
+        logger.warning("Could not apply admin rate limit: %s", exc)
+        return fn
 
 
 # =============================================================================
@@ -97,7 +144,12 @@ def _call_dotnet(payload: Dict) -> tuple[Any, Optional[str]]:
             return None, f"Backend returned HTTP {resp.status_code}: {err_body}"
         return resp.json(), None
     except _requests.ConnectionError as exc:
-        return None, f"Cannot connect to backend at {DOTNET_EXECUTE_URL}. Is the .NET service running? ({exc})"
+        return None, (
+            f"Cannot connect to .NET backend at {DOTNET_EXECUTE_URL}. "
+            f"Is the .NET service running on the correct port? ({exc})\n"
+            f"Tip: Python runs on port 5000, .NET should run on a different port "
+            f"(set DOTNET_API_BASE_URL in .env)."
+        )
     except _requests.Timeout:
         return None, f"Backend timed out after {DOTNET_TIMEOUT}s."
     except _requests.RequestException as exc:
@@ -129,10 +181,11 @@ def admin_health():
         dotnet_ok = False
 
     return jsonify({
-        "success": True,
-        "status": "ok",
-        "dotnet_backend": "reachable" if dotnet_ok else "unreachable",
-        "dotnet_url": DOTNET_EXECUTE_URL,
+        "success":         True,
+        "status":          "ok",
+        "dotnet_backend":  "reachable" if dotnet_ok else "unreachable",
+        "dotnet_url":      DOTNET_EXECUTE_URL,
+        "python_port":     5000,
     })
 
 
@@ -150,8 +203,8 @@ def admin_classify():
 
     intent_result = classify_admin_intent(message)
     return jsonify({
-        "success": True,
-        "intent": intent_result,
+        "success":        True,
+        "intent":         intent_result,
         "dotnet_payload": format_admin_payload(intent_result),
     })
 
@@ -211,11 +264,11 @@ def admin_chat():
                 "For example: *\"Show me the top 10 performers in BEPT\"* or "
                 "*\"How many personnel are on leave today?\"*"
             ),
-            "intent": intent_result,
-            "session_id": session_id,
+            "intent":      intent_result,
+            "session_id":  session_id,
         })
 
-    # Low-confidence: ask for clarification but still try
+    # Low-confidence: still try but attach a clarification note
     clarification_note = ""
     if intent_result.get("confidence") == "low":
         clarification_note = (
@@ -235,9 +288,9 @@ def admin_chat():
     if dotnet_error:
         logger.warning("Admin .NET call failed: %s", dotnet_error)
         return jsonify({
-            "success": False,
-            "error": dotnet_error,
-            "intent": intent_result,
+            "success":    False,
+            "error":      dotnet_error,
+            "intent":     intent_result,
             "session_id": session_id,
         }), 502
 
@@ -265,3 +318,28 @@ def admin_chat():
         "session_id": session_id,
         "elapsed_ms": elapsed_ms,
     })
+
+
+# Apply rate limiting to the chat route after it is defined.
+# This is done post-definition to avoid circular import issues with app.py's
+# shared _limiter instance. The decorator pattern used in app.py cannot be
+# replicated directly in a blueprint without importing app at module level.
+def _register_rate_limits(app):
+    """
+    Called from app.py after the blueprint is registered:
+        from admin_routes import _register_rate_limits
+        _register_rate_limits(app)
+
+    This wires ADMIN_RATE_LIMIT to the /api/admin/chat route using the
+    already-initialised Flask-Limiter from app.py.
+    """
+    try:
+        from app import _limiter
+        if _limiter is not None:
+            _limiter.limit(
+                ADMIN_RATE_LIMIT,
+                override_defaults=True,
+            )(admin_chat)
+            logger.info("Admin rate limit applied: %s", ADMIN_RATE_LIMIT)
+    except Exception as exc:
+        logger.warning("Could not register admin rate limit: %s", exc)

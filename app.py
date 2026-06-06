@@ -1,15 +1,29 @@
 """Flask REST API for AgniAI.
 
+PORT CONFIGURATION:
+  Python / Flask listens on port 5000  (this file — app.run port=5000)
+  .NET AiCommand API runs on port 7257 (set via DOTNET_API_BASE_URL in .env)
+  These MUST be different ports. Never point DOTNET_API_BASE_URL at 5000.
+
 Key changes vs original:
-  - Non-RAG (chat) path now uses CHAT_SYSTEM_PROMPT from config.py so greetings, patriotic slogans and aspirant motivation replies match
-    what main.py CLI produces.
-  - RAG user message now includes the explicit "Using ONLY the reference information above …" instruction (matches main.py's _build_rag_messages).
-  - Non-streaming RAG now calls chat_with_fallback directly (same path as main.py) instead of going through generate_structured_answer.
-  - New FALLBACK_GENERAL path: when RAG retrieval finds nothing relevant (mode == "strict_answer" with empty context) the bot answers from its  own general knowledge via CHAT_SYSTEM_PROMPT so the user always gets a
-    helpful reply instead of "Answer not found in the document."
-  - build_strict_messages in rag.py is monkey-patched locally via a wrapper so we don't have to touch rag.py.
-  - /api/upload: accepts multipart/form-data file uploads from .NET backend, saves to a temp file, ingests into FAISS + docstore, then deletes the
-    temp file. Supports pdf, txt, docx.
+  - Flask runs on port 5000 (not 7257 — that is the .NET port).
+  - _register_rate_limits(app) called after blueprint registration so
+    ADMIN_RATE_LIMIT is actually wired to /api/admin/chat.
+  - Non-RAG (chat) path now uses CHAT_SYSTEM_PROMPT from config.py so greetings,
+    patriotic slogans and aspirant motivation replies match what main.py CLI produces.
+  - RAG user message now includes the explicit "Using ONLY the reference information
+    above …" instruction (matches main.py's _build_rag_messages).
+  - Non-streaming RAG now calls chat_with_fallback directly (same path as main.py)
+    instead of going through generate_structured_answer.
+  - New FALLBACK_GENERAL path: when RAG retrieval finds nothing relevant
+    (mode == "strict_answer" with empty context) the bot answers from its own
+    general knowledge via CHAT_SYSTEM_PROMPT so the user always gets a helpful
+    reply instead of "Answer not found in the document."
+  - build_strict_messages in rag.py is monkey-patched locally via a wrapper so
+    we don't have to touch rag.py.
+  - /api/upload: accepts multipart/form-data file uploads from .NET backend,
+    saves to a temp file, ingests into FAISS + docstore, then deletes the temp
+    file. Supports pdf, txt, docx.
   - Admin chatbot blueprint registered at /api/admin/* for admin-facing queries
     that route through the .NET AiCommand/execute endpoint.
   - Swagger UI blueprint registered at /docs for interactive API documentation.
@@ -34,7 +48,7 @@ from werkzeug.utils import secure_filename
 try:
     from flask_limiter import Limiter
     from flask_limiter.util import get_remote_address
-except Exception:  # pragma: no cover - fail-safe when optional dependency is unavailable
+except Exception:  # pragma: no cover
     Limiter = None
     get_remote_address = None
 
@@ -104,7 +118,7 @@ from rag import (
 )
 
 # ── Blueprints ─────────────────────────────────────────────────────────────
-from admin_routes import admin_bp
+from admin_routes import admin_bp, _register_rate_limits
 from swagger_ui import swagger_bp
 
 logger = logging.getLogger(__name__)
@@ -134,9 +148,9 @@ _lock = threading.Lock()
 _STREAM_SEMAPHORE = threading.Semaphore(10)
 _STREAM_WORKER_ACQUIRE_TIMEOUT = float(os.getenv("STREAM_WORKER_ACQUIRE_TIMEOUT", "5"))
 
-# Rate-limit configuration is env-driven and stays backward compatible with existing route names.
-RATE_LIMIT_CHAT = os.getenv("RATE_LIMIT_CHAT", "30 per minute")
-RATE_LIMIT_INGEST = os.getenv("RATE_LIMIT_INGEST", "10 per minute")
+# Rate-limit configuration
+RATE_LIMIT_CHAT    = os.getenv("RATE_LIMIT_CHAT",    "30 per minute")
+RATE_LIMIT_INGEST  = os.getenv("RATE_LIMIT_INGEST",  "10 per minute")
 RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "60 per minute")
 
 # ── File Upload Helpers ────────────────────────────────────────────────────
@@ -148,7 +162,6 @@ def _allowed_file(filename: str) -> bool:
 
 
 def _proxy_aware_remote_address() -> str:
-    # ProxyFix normalizes remote_addr, and access_route preserves the original client IP chain.
     if request.access_route:
         return request.access_route[0]
     if callable(get_remote_address):
@@ -159,7 +172,6 @@ def _proxy_aware_remote_address() -> str:
 _limiter = None
 if Limiter is not None:
     try:
-        # In-memory storage keeps startup fail-safe even when Redis/etc. is unavailable.
         _limiter = Limiter(
             key_func=_proxy_aware_remote_address,
             default_limits=[RATE_LIMIT_DEFAULT],
@@ -167,10 +179,10 @@ if Limiter is not None:
             headers_enabled=True,
         )
         _limiter.init_app(app)
-    except Exception as exc:  # pragma: no cover - startup should continue without limiter
+    except Exception as exc:  # pragma: no cover
         logger.warning("Rate limiter disabled due to initialization failure: %s", exc)
         _limiter = None
-else:  # pragma: no cover - depends on optional install state at runtime
+else:  # pragma: no cover
     logger.warning("Flask-Limiter is not installed; rate limiting is disabled.")
 
 
@@ -181,6 +193,11 @@ def _limit_route(limit_value: str):
     if _limiter is None:
         return _decorator
     return _limiter.limit(limit_value, override_defaults=True)
+
+
+# ── Wire admin rate limits AFTER limiter is initialised ───────────────────
+# This must happen after _limiter is created above, not at import time.
+_register_rate_limits(app)
 
 
 # =============================================================================
@@ -411,7 +428,6 @@ def _build_general_messages(
     else:
         fallback_style = "Give a clear answer in 1 to 3 short paragraphs."
 
-    # Detect factual / subject question
     _FACTUAL_SIGNALS = (
         "what is", "what are", "who is", "who was", "when did", "when was",
         "where is", "where was", "how does", "how do", "why does", "why do",
@@ -435,7 +451,6 @@ def _build_general_messages(
             fallback_style
         )
     else:
-        # Casual / personal / emotional — reply like a human
         system_content = (
             f"{CHAT_SYSTEM_PROMPT}\n\n"
             "The user is talking to you naturally — sharing something personal, "
@@ -466,7 +481,7 @@ def _build_chat_messages(
 ) -> list[dict]:
     """
     Build messages for non-RAG (chat / greeting) path.
-    Uses CHAT_SYSTEM_PROMPT — matches main.py exactly now.
+    Uses CHAT_SYSTEM_PROMPT — matches main.py exactly.
     """
     messages: list[dict] = [
         {
@@ -540,7 +555,6 @@ def _start_stream_worker(target) -> None:
         worker = threading.Thread(target=_wrapped_target, daemon=True)
         worker.start()
     except Exception:
-        # Release in the caller thread as well so a start() failure cannot leak the semaphore.
         _STREAM_SEMAPHORE.release()
         raise
 
@@ -618,7 +632,6 @@ def chat():
         if model:
             _active_model = model
             from ollama_cpu_chat import _ACTIVE_MODEL_REF
-
             _ACTIVE_MODEL_REF[0] = model
         current_model = _active_model
 
@@ -652,7 +665,6 @@ def chat():
 
     # ── Reject / out-of-domain ─────────────────────────────────────────────
     if intent == "reject":
-        # Instead of a hard fallback, attempt a general-knowledge answer
         gen_messages = _build_general_messages(
             query=message,
             style=style_name,
@@ -869,9 +881,6 @@ def chat():
         structured_history = history[-6:] if history else None
         docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
 
-        # ── Determine if we should fall through to general knowledge ──────
-        # If context is empty (nothing retrieved) go to general knowledge
-        # so the user gets a helpful answer instead of the fallback string.
         use_general_fallback = not context.strip()
 
         if use_general_fallback:
@@ -968,7 +977,6 @@ def chat():
                 },
             )
 
-        # Non-streaming RAG — use chat_with_fallback directly (matches main.py)
         try:
             answer = _answer_via_llm(
                 messages=rag_messages,
@@ -989,7 +997,6 @@ def chat():
         return jsonify(ok_chat(answer=answer, style=style_name, session_id=session_id))
 
     # ── Non-RAG (chat / greeting) path ────────────────────────────────────
-    # Now uses CHAT_SYSTEM_PROMPT — matches main.py CLI output exactly.
     messages = _build_chat_messages(
         query=message,
         style=style_name,
@@ -1104,9 +1111,9 @@ def ingest():
         return _json_error("target field is required (file path or URL).", 400)
 
     fn_map = {
-        "pdf": ingest_pdf,
-        "url": ingest_url,
-        "txt": ingest_txt,
+        "pdf":  ingest_pdf,
+        "url":  ingest_url,
+        "txt":  ingest_txt,
         "text": ingest_text,
         "docx": ingest_docx,
     }
@@ -1146,12 +1153,6 @@ def upload_file():
     """
     Accepts a file upload from the .NET backend and ingests it into the
     FAISS index + docstore.
-
-    Expected request: multipart/form-data
-      - Field "file"  : the file binary (required)
-      - Field "kind"  : optional override — "pdf", "txt", or "docx".
-                        When omitted, the extension of the uploaded filename
-                        is used for type detection.
     """
     if "file" not in request.files:
         return _json_error(
@@ -1298,18 +1299,21 @@ if __name__ == "__main__":
     warmup_runtime(async_load=False)
 
     from ollama_cpu_chat import _start_keepalive_heartbeat
-
     _start_keepalive_heartbeat(_session, interval_seconds=300)
 
     stats_data = index_stats()
 
     logger.info("AgniAI REST API")
-    logger.info("Listening on  http://0.0.0.0:7257")
-    logger.info("Health check  http://localhost:7257/api/health")
-    logger.info("Chat endpoint http://localhost:7257/api/chat  [POST]")
-    logger.info("Upload        http://localhost:7257/api/upload  [POST multipart]")
-    logger.info("Admin chat    http://localhost:7257/api/admin/chat  [POST]")
-    logger.info("Swagger UI    http://localhost:7257/docs")
+    logger.info("=" * 50)
+    logger.info("Python / Flask listens on  http://0.0.0.0:5000")
+    logger.info(".NET AiCommand runs on     %s  (set DOTNET_API_BASE_URL in .env)",
+                os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257"))
+    logger.info("=" * 50)
+    logger.info("Health check  http://localhost:5000/api/health")
+    logger.info("Chat endpoint http://localhost:5000/api/chat  [POST]")
+    logger.info("Upload        http://localhost:5000/api/upload  [POST multipart]")
+    logger.info("Admin chat    http://localhost:5000/api/admin/chat  [POST]")
+    logger.info("Swagger UI    http://localhost:5000/docs")
     if API_SECRET_KEY:
         logger.info("Auth  X-Api-Key header required for /api/reset_index")
     if stats_data["vectors"] == 0:
@@ -1317,5 +1321,5 @@ if __name__ == "__main__":
     else:
         logger.info("Knowledge base ready: %s vectors.", stats_data["vectors"])
 
-    # Production: gunicorn -w 4 -k gthread --threads 4 -b 0.0.0.0:7257 app:app
-    app.run(host="0.0.0.0", port=7257, debug=False, threaded=True)
+    # Production: gunicorn -w 4 -k gthread --threads 4 -b 0.0.0.0:5000 app:app
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
