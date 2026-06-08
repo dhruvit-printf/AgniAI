@@ -10,10 +10,15 @@ Registers:
 
 Flow for /api/admin/chat:
   1. Receive admin question from frontend
-  2. classify_admin_intent() → structured JSON payload
-  3. POST payload to .NET  https://localhost:7257/api/AiCommand/execute
-  4. format_dotnet_response() → human-readable answer
-  5. Return answer to frontend
+  2. classify_admin_intent() → structured intent dict (Python internal)
+  3. format_admin_payload()  → camelCase JSON payload for .NET
+  4. POST payload to .NET  https://<DOTNET_API_BASE_URL>/api/AiCommand/execute
+  5. Forward raw .NET JSON response directly to frontend (no formatting)
+
+NOTE — NO FORMATTER:
+  The raw JSON from .NET is forwarded to the frontend as-is under the "data"
+  key. The frontend is responsible for rendering the structured data.
+  admin_formatter.py is NOT used in this pipeline.
 
 IMPORTANT PORT SEPARATION:
   - Python / Flask runs on port 5000  (python app.py  OR  gunicorn ... :5000)
@@ -38,10 +43,9 @@ import time
 from typing import Any, Dict, Optional
 
 import requests as _requests
-from flask import Blueprint, Response, g, jsonify, request, stream_with_context
+from flask import Blueprint, jsonify, request
 
 from admin_intent import classify_admin_intent, format_admin_payload
-from admin_formatter import format_dotnet_response
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +57,8 @@ DOTNET_API_KEY      = os.getenv("DOTNET_API_KEY", "")
 DOTNET_TIMEOUT      = int(os.getenv("DOTNET_TIMEOUT", "30"))
 ADMIN_RATE_LIMIT    = os.getenv("ADMIN_RATE_LIMIT", "20 per minute")
 
-# FIX: Renamed from DOTNET_VERIFY_SSL to DOTNET_SKIP_SSL_VERIFY for clarity.
 # Set DOTNET_SKIP_SSL_VERIFY=1 in .env to skip SSL verification (self-signed
 # localhost cert). Default is "0" (verify SSL normally).
-# Old env var DOTNET_VERIFY_SSL is also accepted for backward compatibility.
 _skip_raw = os.getenv("DOTNET_SKIP_SSL_VERIFY", os.getenv("DOTNET_VERIFY_SSL", "0"))
 DOTNET_VERIFY_SSL = _skip_raw.strip() not in {"1", "true", "True"}
 # DOTNET_VERIFY_SSL=True  → requests verifies the cert (production)
@@ -89,19 +91,25 @@ def _get_limiter():
         return None
 
 
-def _apply_admin_rate_limit(fn):
+def _register_rate_limits(app):
     """
-    Decorator that applies ADMIN_RATE_LIMIT using the shared limiter from app.py.
-    Falls back silently if the limiter is not initialised.
+    Called from app.py after the blueprint is registered:
+        from admin_routes import _register_rate_limits
+        _register_rate_limits(app)
+
+    This wires ADMIN_RATE_LIMIT to the /api/admin/chat route using the
+    already-initialised Flask-Limiter from app.py.
     """
-    limiter = _get_limiter()
-    if limiter is None:
-        return fn
     try:
-        return limiter.limit(ADMIN_RATE_LIMIT, override_defaults=True)(fn)
+        from app import _limiter
+        if _limiter is not None:
+            _limiter.limit(
+                ADMIN_RATE_LIMIT,
+                override_defaults=True,
+            )(admin_chat)
+            logger.info("Admin rate limit applied: %s", ADMIN_RATE_LIMIT)
     except Exception as exc:
-        logger.warning("Could not apply admin rate limit: %s", exc)
-        return fn
+        logger.warning("Could not register admin rate limit: %s", exc)
 
 
 # =============================================================================
@@ -127,6 +135,12 @@ def _call_dotnet(payload: Dict) -> tuple[Any, Optional[str]]:
     headers = {"Content-Type": "application/json"}
     if DOTNET_API_KEY:
         headers["X-Api-Key"] = DOTNET_API_KEY
+
+    logger.debug(
+        "Calling .NET: URL=%s payload=%s",
+        DOTNET_EXECUTE_URL,
+        json.dumps(payload),
+    )
 
     try:
         resp = _dotnet_session.post(
@@ -192,8 +206,30 @@ def admin_health():
 @admin_bp.route("/classify", methods=["POST"])
 def admin_classify():
     """
-    Classify-only endpoint — returns the intent JSON without calling .NET.
-    Useful for debugging the classifier from the frontend.
+    Classify-only endpoint — returns the intent JSON and the exact .NET payload
+    without actually calling .NET. Useful for debugging the classifier.
+
+    Request JSON:
+      { "message": "Who are the top 5 performers in BEPT?" }
+
+    Response JSON:
+      {
+        "success": true,
+        "intent": {
+          "category": "Performance",
+          "subcategory": "TopPerformers",
+          "number": 5,
+          "section": "BEPT",
+          "confidence": "high",
+          ...
+        },
+        "dotnet_payload": {
+          "category": "Performance",
+          "operation": "Top",
+          "section": "BEPT",
+          "n": 5
+        }
+      }
     """
     data = request.get_json(force=True, silent=True) or {}
     message = (data.get("message") or "").strip()
@@ -201,11 +237,13 @@ def admin_classify():
     if not message:
         return _json_error("message field is required.", 400)
 
-    intent_result = classify_admin_intent(message)
+    intent_result  = classify_admin_intent(message)
+    dotnet_payload = format_admin_payload(intent_result)
+
     return jsonify({
         "success":        True,
         "intent":         intent_result,
-        "dotnet_payload": format_admin_payload(intent_result),
+        "dotnet_payload": dotnet_payload,
     })
 
 
@@ -213,6 +251,10 @@ def admin_classify():
 def admin_chat():
     """
     Main admin chat endpoint.
+
+    Receives a natural-language question, classifies intent, builds the .NET
+    payload, calls .NET, and forwards the raw .NET response to the frontend.
+    No formatting is applied — the frontend receives the structured JSON as-is.
 
     Request JSON:
       {
@@ -222,21 +264,36 @@ def admin_chat():
 
     Response JSON (success):
       {
-        "success":     true,
-        "answer":      "Here are the Top 5 performers in BEPT...",
-        "intent":      { "category": "Performance", "subcategory": "TopPerformers", ... },
-        "session_id":  "admin-user-1"
+        "success":        true,
+        "intent":         { "category": "Performance", "subcategory": "TopPerformers", ... },
+        "dotnet_payload": { "category": "Performance", "operation": "Top", "n": 5, "section": "BEPT" },
+        "data":           { ...raw JSON from .NET... },
+        "session_id":     "admin-user-1",
+        "elapsed_ms":     142
       }
 
-    Response JSON (error):
+    Response JSON (.NET error):
       {
-        "success": false,
-        "error":   "..."
+        "success":        false,
+        "error":          "Backend returned HTTP 404: ...",
+        "intent":         { ... },
+        "dotnet_payload": { ... },
+        "session_id":     "admin-user-1",
+        "elapsed_ms":     30
+      }
+
+    Response JSON (unrecognised query):
+      {
+        "success":    true,
+        "recognised": false,
+        "message":    "I'm not sure what you're asking about...",
+        "intent":     { "category": null, ... },
+        "session_id": "admin-user-1"
       }
     """
     start_time = time.time()
-    data = request.get_json(force=True, silent=True) or {}
-    message = (data.get("message") or "").strip()
+    data       = request.get_json(force=True, silent=True) or {}
+    message    = (data.get("message") or "").strip()
     session_id = _get_session_id(data)
 
     if not message:
@@ -254,57 +311,45 @@ def admin_chat():
 
     # ── Handle unrecognised queries ────────────────────────────────────────
     if intent_result.get("category") is None:
+        elapsed_ms = round((time.time() - start_time) * 1000)
         return jsonify({
-            "success": True,
-            "answer": (
+            "success":    True,
+            "recognised": False,
+            "message": (
                 "I'm not sure what you're asking about. "
-                "You can ask me about **Performance**, **Leave**, **Medical**, "
-                "**Attendance**, **Verification**, **Equipment**, **Distribution**, "
-                "or **Skills/Roster** data.\n\n"
-                "For example: *\"Show me the top 10 performers in BEPT\"* or "
-                "*\"How many personnel are on leave today?\"*"
+                "You can ask me about Performance, Leave, Medical, "
+                "Attendance, Verification, Equipment, Distribution, "
+                "or Skills/Roster data.\n\n"
+                "For example: \"Show me the top 10 performers in BEPT\" or "
+                "\"How many personnel are on leave today?\""
             ),
-            "intent":      intent_result,
-            "session_id":  session_id,
+            "intent":     intent_result,
+            "session_id": session_id,
+            "elapsed_ms": elapsed_ms,
         })
-
-    # Low-confidence: still try but attach a clarification note
-    clarification_note = ""
-    if intent_result.get("confidence") == "low":
-        clarification_note = (
-            f"\n\n*(Note: I wasn't fully certain about your question. "
-            f"I interpreted it as a **{intent_result.get('category')} — "
-            f"{intent_result.get('subcategory')}** query. "
-            f"If this is wrong, please rephrase.)*"
-        )
 
     # ── Step 2: Build .NET payload ─────────────────────────────────────────
     dotnet_payload = format_admin_payload(intent_result)
-    logger.debug("Sending to .NET: %s", json.dumps(dotnet_payload))
+    logger.info("Sending to .NET: %s", json.dumps(dotnet_payload))
 
     # ── Step 3: Call .NET backend ──────────────────────────────────────────
     dotnet_data, dotnet_error = _call_dotnet(dotnet_payload)
+    elapsed_ms = round((time.time() - start_time) * 1000)
 
     if dotnet_error:
         logger.warning("Admin .NET call failed: %s", dotnet_error)
         return jsonify({
-            "success":    False,
-            "error":      dotnet_error,
-            "intent":     intent_result,
-            "session_id": session_id,
+            "success":        False,
+            "error":          dotnet_error,
+            "intent":         intent_result,
+            "dotnet_payload": dotnet_payload,
+            "session_id":     session_id,
+            "elapsed_ms":     elapsed_ms,
         }), 502
 
-    # ── Step 4: Format the response ────────────────────────────────────────
-    try:
-        answer = format_dotnet_response(dotnet_data, intent_result)
-    except Exception as exc:
-        logger.exception("Formatter failed for admin response")
-        answer = f"Data received from backend but could not be formatted: {exc}"
-
-    if clarification_note:
-        answer += clarification_note
-
-    elapsed_ms = round((time.time() - start_time) * 1000)
+    # ── Step 4: Forward raw .NET response to frontend ──────────────────────
+    # No formatting is applied. The frontend receives the .NET JSON as-is
+    # under the "data" key, along with intent metadata for context.
     logger.info(
         "Admin chat complete: session=%s elapsed=%dms",
         session_id,
@@ -312,34 +357,11 @@ def admin_chat():
     )
 
     return jsonify({
-        "success":    True,
-        "answer":     answer,
-        "intent":     intent_result,
-        "session_id": session_id,
-        "elapsed_ms": elapsed_ms,
+        "success":        True,
+        "recognised":     True,
+        "intent":         intent_result,
+        "dotnet_payload": dotnet_payload,
+        "data":           dotnet_data,       # raw .NET response, untouched
+        "session_id":     session_id,
+        "elapsed_ms":     elapsed_ms,
     })
-
-
-# Apply rate limiting to the chat route after it is defined.
-# This is done post-definition to avoid circular import issues with app.py's
-# shared _limiter instance. The decorator pattern used in app.py cannot be
-# replicated directly in a blueprint without importing app at module level.
-def _register_rate_limits(app):
-    """
-    Called from app.py after the blueprint is registered:
-        from admin_routes import _register_rate_limits
-        _register_rate_limits(app)
-
-    This wires ADMIN_RATE_LIMIT to the /api/admin/chat route using the
-    already-initialised Flask-Limiter from app.py.
-    """
-    try:
-        from app import _limiter
-        if _limiter is not None:
-            _limiter.limit(
-                ADMIN_RATE_LIMIT,
-                override_defaults=True,
-            )(admin_chat)
-            logger.info("Admin rate limit applied: %s", ADMIN_RATE_LIMIT)
-    except Exception as exc:
-        logger.warning("Could not register admin rate limit: %s", exc)
