@@ -67,6 +67,7 @@ import requests as _requests
 from flask import Blueprint, jsonify, request
 
 from admin_intent import classify_admin_intent, format_admin_payload
+from config import _is_greeting 
 
 logger = logging.getLogger(__name__)
 
@@ -644,6 +645,53 @@ def admin_classify():
 
     if not message:
         return _error_response("message field is required.", 400)
+
+    # ── Greeting short-circuit ─────────────────────────────────────────────────
+    session_id = _get_session_id(body)
+
+    # ── Greeting short-circuit ─────────────────────────────────────────────────
+    if _is_greeting(message.lower().strip().rstrip("!?.,")):
+        commander_name = (
+            body.get("commanderName") or body.get("commander_name") or body.get("name") or "Officer"
+        ).strip().title()
+        commander_rank = (
+            body.get("commanderRank") or body.get("commander_rank") or body.get("rank") or ""
+        ).strip()
+
+        import datetime as _dt
+        hour = _dt.datetime.now().hour
+        time_greeting = (
+            "Good Morning" if 5 <= hour < 12 else
+            "Good Afternoon" if 12 <= hour < 17 else
+            "Good Evening"
+        )
+
+        _RANK_SHORT = {
+            "colonel": "Col", "lieutenant colonel": "Lt Col", "major": "Maj",
+            "captain": "Capt", "brigadier": "Brig", "general": "Gen",
+            "major general": "Maj Gen", "lieutenant general": "Lt Gen",
+            "platoon commander": "Plt Cdr", "commanding officer": "CO",
+            "wing commander": "Wg Cdr", "squadron leader": "Sqn Ldr",
+        }
+        short_rank = _RANK_SHORT.get(commander_rank.lower(), commander_rank)
+        salutation = f"{short_rank} {commander_name}".strip() if short_rank else commander_name
+
+        welcome = (
+            f"{time_greeting}, {salutation}. "
+            f"Welcome to AgniAI Command Intelligence. "
+            f"I'm ready to assist you with personnel performance, attendance, "
+            f"leave records, medical data, equipment status, and more. "
+            f"How can I help you today?"
+        )
+
+        response_data: Dict[str, Any] = {"type": "greeting"}
+        if session_id and session_id != "admin-default":
+            response_data["sessionId"] = session_id
+
+        return _success_response(response_data, message=welcome)
+
+    # ── Step 1: Classify intent ────────────────────────────────────────────────
+    intent_result = classify_admin_intent(message)
 
     id_filters     = _get_id_filters(body)
     intent_result  = classify_admin_intent(message)
