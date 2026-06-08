@@ -415,6 +415,231 @@ def _error_response(message: str, http_status: int = 400, data: Optional[Dict] =
     }), http_status
 
 
+def _handle_general_question(
+    *,
+    message: str,
+    session_id: str,
+    elapsed_ms_fn,
+):
+    """
+    Handle questions that are not admin data queries (greetings, Agniveer
+    knowledge questions, general conversation).
+
+    Reuses the same classify_intent → RAG/chat pipeline from app.py so the
+    admin gets the same quality answers as the regular /api/chat endpoint.
+
+    Response shape (matches the unified admin envelope):
+      {
+        "status":     true,
+        "httpStatus": 200,
+        "message":    "<answer from LLM>",
+        "data":       { "type": "general", "sessionId": "..." }
+      }
+    """
+    try:
+        from config import (
+            classify_intent,
+            detect_answer_style,
+            _fuzzy_normalize_query,
+            _is_date_query,
+            _get_current_date_response,
+            CHAT_SYSTEM_PROMPT,
+            GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
+            MAX_TOKENS_STYLE,
+            MAX_TOKENS_DEFAULT,
+            REFERENCE_FALLBACK,
+            TOP_K,
+        )
+        from rag import (
+            prepare_rag_bundle,
+            is_reasoning_query,
+            deterministic_policy_answer,
+            get_cached_response,
+            set_cached_response,
+            make_response_cache_key,
+            LOW_RETRIEVAL_CONFIDENCE,
+            STRICT_TOP_K,
+            build_context,
+        )
+        from ollama_cpu_chat import (
+            MODEL_NAME as DEFAULT_MODEL,
+            chat_with_fallback,
+            PartialResponseError,
+        )
+        from config import (
+            STRICT_RAG_PROMPT,
+            STRICT_RAG_PROMPT_COMPUTE,
+            style_structure_instruction,
+            trim_to_complete_sentence,
+        )
+        import requests as _req
+    except ImportError as exc:
+        logger.warning("Could not import chat pipeline for general question: %s", exc)
+        return _error_response(
+            "I can answer general questions too, but the chat module is currently unavailable.",
+            503,
+        )
+
+    # Normalise and check for hardcoded date query
+    q = _fuzzy_normalize_query(message)
+    cache_key = make_response_cache_key(
+        q, style="elaborate", model=DEFAULT_MODEL,
+        context="admin_general", session_id=session_id,
+    )
+
+    if _is_date_query(q):
+        answer = _get_current_date_response()
+        response_data: Dict[str, Any] = {"type": "general"}
+        if session_id and session_id != "admin-default":
+            response_data["sessionId"] = session_id
+        return _success_response(response_data, message=answer)
+
+    style_name, _ = detect_answer_style(q)
+    intent        = classify_intent(q)
+    token_limit   = MAX_TOKENS_STYLE.get(style_name, MAX_TOKENS_DEFAULT)
+    session       = _req.Session()
+
+    def _finalize(text: str) -> str:
+        final = trim_to_complete_sentence(text or "")
+        return final or REFERENCE_FALLBACK
+
+    def _build_rag_messages(query, context, reasoning):
+        system = STRICT_RAG_PROMPT_COMPUTE if reasoning else STRICT_RAG_PROMPT
+        system = f"{system}\n\n{style_structure_instruction(style_name)}"
+        msgs = [{"role": "system", "content": system}]
+        if context.strip():
+            user_content = (
+                f"Reference information:\n{context}\n\n"
+                f"Question: {query}\n\n"
+                "Using ONLY the reference information above, write a complete answer. "
+                "Do not use any knowledge outside the reference information."
+            )
+        else:
+            user_content = query
+        msgs.append({"role": "user", "content": user_content})
+        return msgs
+
+    def _build_chat_messages(query):
+        return [
+            {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+            {"role": "user",   "content": query},
+        ]
+
+    def _build_general_messages(query):
+        q_lower = query.lower()
+        factual_signals = (
+            "what is", "what are", "who is", "who was", "when did", "how does",
+            "explain", "define", "how many", "how much", "capital of",
+        )
+        is_factual = any(s in q_lower for s in factual_signals)
+        if is_factual:
+            system = (
+                f"{CHAT_SYSTEM_PROMPT}\n\n{GENERAL_KNOWLEDGE_FALLBACK_PROMPT}\n\n"
+                "Answer from general knowledge if confident. Be conservative with numbers."
+            )
+        else:
+            system = (
+                f"{CHAT_SYSTEM_PROMPT}\n\n"
+                "Respond naturally like a warm, knowledgeable assistant. "
+                "No bullet points for casual replies."
+            )
+        return [
+            {"role": "system", "content": system},
+            {"role": "user",   "content": query},
+        ]
+
+    # Build messages based on intent
+    try:
+        if intent == "rag":
+            bundle = prepare_rag_bundle(
+                q,
+                top_k=TOP_K,
+                style=style_name,
+                include_points=False,
+            )
+            context   = bundle.get("context", "") if isinstance(bundle, dict) else ""
+            reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
+
+            # Check deterministic policy answer first (salary, age, marital)
+            det_answer = deterministic_policy_answer(q, context)
+            if det_answer:
+                response_data = {"type": "general"}
+                if session_id and session_id != "admin-default":
+                    response_data["sessionId"] = session_id
+                return _success_response(response_data, message=det_answer)
+
+            # Check response cache
+            cache_key = make_response_cache_key(
+                q, style=style_name, model=DEFAULT_MODEL,
+                context=context, session_id=session_id,
+            )
+            cached = get_cached_response(cache_key)
+            if cached:
+                response_data = {"type": "general"}
+                if session_id and session_id != "admin-default":
+                    response_data["sessionId"] = session_id
+                return _success_response(response_data, message=cached)
+
+            if context.strip():
+                messages = _build_rag_messages(q, context, reasoning)
+            else:
+                messages = _build_general_messages(q)
+
+        elif intent == "chat":
+            messages  = _build_chat_messages(q)
+            cache_key = make_response_cache_key(
+                q, style=style_name, model=DEFAULT_MODEL,
+                context="chat", session_id=session_id,
+            )
+            cached = get_cached_response(cache_key)
+            if cached:
+                response_data = {"type": "general"}
+                if session_id and session_id != "admin-default":
+                    response_data["sessionId"] = session_id
+                return _success_response(response_data, message=cached)
+
+        else:  # reject or unknown
+            messages  = _build_general_messages(q)
+            cache_key = make_response_cache_key(
+                q, style=style_name, model=DEFAULT_MODEL,
+                context="general", session_id=session_id,
+            )
+            cached = get_cached_response(cache_key)
+            if cached:
+                response_data = {"type": "general"}
+                if session_id and session_id != "admin-default":
+                    response_data["sessionId"] = session_id
+                return _success_response(response_data, message=cached)
+
+        # Generate answer
+        result = chat_with_fallback(
+            session,
+            DEFAULT_MODEL,
+            messages,
+            stream_tokens=False,
+            max_tokens_override=token_limit,
+        )
+        answer = _finalize(result.text)
+
+    except PartialResponseError as exc:
+        answer = _finalize(exc.partial_text or REFERENCE_FALLBACK)
+    except Exception as exc:
+        logger.warning("General question LLM call failed: %s", exc)
+        answer = REFERENCE_FALLBACK
+
+    # Cache and return
+    try:
+        set_cached_response(cache_key, answer)
+    except Exception:
+        pass
+
+    response_data = {"type": "general"}
+    if session_id and session_id != "admin-default":
+        response_data["sessionId"] = session_id
+
+    return _success_response(response_data, message=answer)
+
+
 # =============================================================================
 # ROUTES
 # =============================================================================
@@ -562,23 +787,15 @@ def admin_chat():
 
     elapsed_ms = lambda: round((time.time() - start_time) * 1000)
 
-    # ── Handle unrecognised queries ────────────────────────────────────────
+    # ── Handle unrecognised admin queries → fall through to RAG/chat ──────────
+    # If the question is not an admin data query (Performance/Leave/Medical etc.)
+    # we forward it to the same RAG + chat pipeline used by /api/chat so the
+    # admin can also ask general Agniveer questions or have a conversation.
     if intent_result.get("category") is None:
-        return _error_response(
-            "Query not recognised.",
-            422,
-            data={
-                "message": (
-                    "I'm not sure what you're asking about. "
-                    "You can ask me about Performance, Leave, Medical, "
-                    "Attendance, Verification, Equipment, Distribution, "
-                    "or Skills/Roster data.\n\n"
-                    "For example:\n"
-                    "• \"Show me the top 10 performers in BEPT\"\n"
-                    "• \"How many personnel are on leave today?\"\n"
-                    "• \"What equipment is overdue?\""
-                ),
-            },
+        return _handle_general_question(
+            message=message,
+            session_id=session_id,
+            elapsed_ms_fn=elapsed_ms,
         )
 
     # ── Step 2: Build .NET payload ─────────────────────────────────────────
@@ -595,11 +812,8 @@ def admin_chat():
     if dotnet_error:
         logger.warning("Admin .NET call failed: %s", dotnet_error)
         return _error_response(
-            "Backend error.",
+            "Unable to fetch data at the moment. Please try again shortly.",
             502,
-            data={
-                "message": "Unable to fetch data at the moment. Please try again shortly.",
-            },
         )
 
     # ── Step 4: Generate natural-language intro ────────────────────────────

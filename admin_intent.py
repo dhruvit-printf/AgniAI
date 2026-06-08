@@ -104,6 +104,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "top scorer", "highest scorer", "best scorer",
         "top scoring", "highest scoring", "best scoring",
         "rank 1", "first rank", "topper", "leading performer",
+        "top agniveer", "top agniveers", "highest agniveer",
+        "best agniveer", "agniveers in performance",
         "top", "highest", "best",
     )),
     # Aliases: Bottom, Lowest, Worst
@@ -112,6 +114,7 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "bottom scorer", "lowest scorer", "worst scorer",
         "bottom scoring", "lowest scoring", "worst scoring",
         "last rank", "poor performer", "weakest performer",
+        "bottom agniveer", "lowest agniveer", "worst agniveer",
         "bottom", "lowest", "worst",
     )),
     # Aliases: Improvement, Improve, Improved
@@ -223,7 +226,7 @@ _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "on leave today", "current leave status",
         "leave today", "leave now",
         "current leave", "leave status",
-        "current", "today",
+        "on leave now",
     )),
     # Aliases: Absconded, Abscond
     ("Absconded Personnel", "AbscondedPersonnel", (
@@ -253,6 +256,7 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "top diagnoses", "disease statistics",
         "top disease", "common disease",
         "disease analysis", "illness statistics",
+        "most common disease", "frequent disease",
         "diagnoses", "diagnosis",
         "disease", "ailment",
     )),
@@ -349,6 +353,8 @@ _DISTRIBUTION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
     ("Top Unit", "TopUnit", (
         "unit with most agniveers", "top unit",
         "highest unit", "most agniveers in unit",
+        "unit with highest", "highest distribution unit",
+        "which unit has the highest", "which unit has most",
         "topunit", "highestunit",
     )),
 ]
@@ -390,6 +396,9 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "bept", "ppt", "firing", "drill",
             "top", "bottom", "average", "improvement", "decline", "drop",
             "overall", "compare", "comparison",
+            "agniveer", "agniveers", "performer", "performers",
+            "who scored", "who passed", "who failed", "highest score",
+            "lowest score", "best score", "worst score",
         ),
         _PERFORMANCE_INTENTS,
     ),
@@ -397,7 +406,9 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         (
             "leave", "absent", "absconded", "awol", "off duty",
             "sick leave", "annual leave", "medical leave", "on leave",
-            "leave taken", "leave status",
+            "leave taken", "leave status", "who is on leave",
+            "currently on leave", "on leave today",
+            "agniveer", "agniveers",
         ),
         _LEAVE_INTENTS,
     ),
@@ -406,6 +417,7 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "medical", "bmi", "disease", "health", "hospital",
             "patient", "diagnosis", "diagnoses", "fitness", "weight",
             "body mass", "ward", "admitted", "ailment", "illness",
+            "agniveer", "agniveers",
         ),
         _MEDICAL_INTENTS,
     ),
@@ -413,7 +425,7 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         (
             "attendance", "present", "campus", "strength",
             "headcount", "muster", "monthly attendance",
-            "on campus",
+            "on campus", "agniveer", "agniveers",
         ),
         _ATTENDANCE_INTENTS,
     ),
@@ -439,7 +451,7 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "distribution", "distributed", "issued to",
             "unit distribution", "item distribution",
             "unassigned", "latest distribution",
-            "agniveers in unit",
+            "agniveers in unit", "agniveer", "agniveers",
         ),
         _DISTRIBUTION_INTENTS,
     ),
@@ -449,6 +461,7 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "class skill", "sports skill",
             "blood group", "blood",
             "by sport", "by class",
+            "agniveer", "agniveers",
         ),
         _SKILLS_INTENTS,
     ),
@@ -620,7 +633,11 @@ def _extract_from_attempt(text_lower: str) -> Optional[int]:
 
 
 def _extract_to_attempt(text_lower: str) -> Optional[int]:
-    match = re.search(r"\bto\s*attempt\s*(\d+)\b", text_lower)
+    # Matches: "to attempt 4" OR "attempt 1 to 4" (bare number after 'to')
+    match = (
+        re.search(r"\bto\s*attempt\s*(\d+)\b", text_lower) or
+        re.search(r"\battempt\s*\d+\s+to\s+(\d+)\b", text_lower)
+    )
     return int(match.group(1)) if match else None
 
 
@@ -641,14 +658,38 @@ def _score_intent(query_lower: str, keywords: Tuple[str, ...]) -> int:
 
 
 def _match_module(query_lower: str) -> Optional[str]:
-    best_module = None
-    best_score  = 0
+    """
+    Score each module by its trigger keywords.
+    When two modules tie (e.g. 'top' matches both Performance and Medical
+    intent keywords), break the tie by also scoring the intent-level keywords
+    within each module — the module whose intents match more specifically wins.
+    """
+    scores: Dict[str, int] = {}
     for module, (triggers, _) in _MODULES.items():
-        score = _score_intent(query_lower, triggers)
-        if score > best_score:
-            best_score  = score
+        scores[module] = _score_intent(query_lower, triggers)
+
+    best_score = max(scores.values(), default=0)
+    if best_score == 0:
+        return None
+
+    # All modules that tied at the top score
+    tied = [m for m, s in scores.items() if s == best_score]
+    if len(tied) == 1:
+        return tied[0]
+
+    # Tiebreak: score each tied module's intent keywords directly
+    best_module = None
+    best_intent_score = -1
+    for module in tied:
+        _, intent_list = _MODULES[module]
+        intent_score = 0
+        for _, _, kws in intent_list:
+            intent_score += _score_intent(query_lower, kws)
+        if intent_score > best_intent_score:
+            best_intent_score = intent_score
             best_module = module
-    return best_module if best_score > 0 else None
+
+    return best_module
 
 
 def _match_intent(
