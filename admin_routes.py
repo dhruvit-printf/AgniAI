@@ -15,22 +15,27 @@ Flow for /api/admin/chat:
      └─ includes commandId, batchId, platoonId from the frontend request
   4. POST payload to .NET     → https://<DOTNET_API_BASE_URL>/api/AiCommand/execute
   5. generate_intro_message() → LLM generates a natural-language intro sentence
-  6. Return unified response  → { status, httpStatus, data: { message, intent, dotnetPayload, result }, message }
+  6. Return unified response  → { status, httpStatus, message: "<LLM intro>", data: { intent, dotnetPayload, result } }
 
-RESPONSE ENVELOPE (matches agreed contract):
+RESPONSE ENVELOPE (single message field — the LLM intro sentence):
   {
     "status": true,
     "httpStatus": 200,
-    "message": "Request processed successfully.",
+    "message": "The top 5 BEPT performers have been retrieved, ranked by their scores.",
     "data": {
-      "message":       "<LLM-generated natural language intro>",
       "intent":        { ...classified intent fields... },
       "dotnetPayload": { ...what was sent to .NET, including commandId/batchId/platoonId... },
-      "result":        { ...raw .NET response... },
+      "data":          [ ...raw .NET response records... ],
+      "commandLabel":  "...",
+      "success":       true,
       "sessionId":     "...",
       "elapsedMs":     142
     }
   }
+
+NOTE: There is only ONE "message" field — at the top level — containing the
+LLM-generated intro sentence. The "data" object never contains its own
+"message" key. This prevents the frontend from ever seeing two messages.
 
 FRONTEND REQUEST FIELDS:
   message     — (required) natural-language admin question
@@ -114,53 +119,51 @@ def _register_rate_limits(app):
 # NATURAL LANGUAGE INTRO GENERATOR
 # =============================================================================
 
-# Static templates used as fallback when Ollama is unavailable.
-# Keys are (category, subcategory) tuples.
 _INTRO_TEMPLATES: Dict[tuple, str] = {
     # Performance
-    ("Performance", "TopPerformers"):      "Here are the top performers as requested:",
-    ("Performance", "LowestPerformers"):   "Here are the lowest performers as requested:",
-    ("Performance", "AverageScore"):       "Here is the average score data:",
-    ("Performance", "PassPercentage"):     "Here is the pass percentage breakdown:",
-    ("Performance", "FailPercentage"):     "Here is the fail percentage breakdown:",
-    ("Performance", "GradeDistribution"):  "Here is the grade distribution:",
-    ("Performance", "GradingSummary"):     "Here is the grading summary:",
-    ("Performance", "OverallPerformance"): "Here is the overall performance report:",
-    ("Performance", "Improvement"):        "Here are the improvement details:",
-    ("Performance", "Decline"):            "Here are the decline details:",
-    ("Performance", "SectionSummary"):     "Here is the section-wise summary:",
-    ("Performance", "AttemptWise"):        "Here is the attempt-wise analysis:",
-    ("Performance", "BestAttempt"):        "Here is the best attempt data:",
-    ("Performance", "Comparison"):         "Here is the performance comparison:",
+    ("Performance", "TopPerformers"):      "Here are the top performers as requested.",
+    ("Performance", "LowestPerformers"):   "Here are the lowest performers as requested.",
+    ("Performance", "AverageScore"):       "Here is the average score data.",
+    ("Performance", "PassPercentage"):     "Here is the pass percentage breakdown.",
+    ("Performance", "FailPercentage"):     "Here is the fail percentage breakdown.",
+    ("Performance", "GradeDistribution"):  "Here is the grade distribution.",
+    ("Performance", "GradingSummary"):     "Here is the grading summary.",
+    ("Performance", "OverallPerformance"): "Here is the overall performance report.",
+    ("Performance", "Improvement"):        "Here are the improvement details.",
+    ("Performance", "Decline"):            "Here are the decline details.",
+    ("Performance", "SectionSummary"):     "Here is the section-wise summary.",
+    ("Performance", "AttemptWise"):        "Here is the attempt-wise analysis.",
+    ("Performance", "BestAttempt"):        "Here is the best attempt data.",
+    ("Performance", "Comparison"):         "Here is the performance comparison.",
     # Leave
-    ("Leave", "MostLeaveTaken"):           "Here are the personnel who have taken the most leave:",
-    ("Leave", "LeastLeaveTaken"):          "Here are the personnel who have taken the least leave:",
-    ("Leave", "CurrentLeaveStatus"):       "Here is the current leave status:",
-    ("Leave", "AbscondedPersonnel"):       "Here is the list of absconded personnel:",
+    ("Leave", "MostLeaveTaken"):           "Here are the personnel who have taken the most leave.",
+    ("Leave", "LeastLeaveTaken"):          "Here are the personnel who have taken the least leave.",
+    ("Leave", "CurrentLeaveStatus"):       "Here is the current leave status.",
+    ("Leave", "AbscondedPersonnel"):       "Here is the list of absconded personnel.",
     # Medical
-    ("Medical", "ActiveCases"):            "Here are the active medical cases:",
-    ("Medical", "BMIAnalysis"):            "Here is the BMI and fitness analysis:",
-    ("Medical", "DiseaseStatistics"):      "Here are the top disease statistics:",
+    ("Medical", "ActiveCases"):            "Here are the active medical cases.",
+    ("Medical", "BMIAnalysis"):            "Here is the BMI and fitness analysis.",
+    ("Medical", "DiseaseStatistics"):      "Here are the top disease statistics.",
     # Attendance
-    ("Attendance", "MonthlyAttendance"):   "Here is the monthly attendance summary:",
-    ("Attendance", "PresentToday"):        "Here is today's attendance status:",
-    ("Attendance", "StrengthBreakdown"):   "Here is the strength breakdown:",
+    ("Attendance", "MonthlyAttendance"):   "Here is the monthly attendance summary.",
+    ("Attendance", "PresentToday"):        "Here is today's attendance status.",
+    ("Attendance", "StrengthBreakdown"):   "Here is the strength breakdown.",
     # Verification
-    ("Verification", "PendingVerification"):   "Here are the pending verifications:",
-    ("Verification", "CompletedVerification"): "Here are the completed verifications:",
+    ("Verification", "PendingVerification"):   "Here are the pending verifications.",
+    ("Verification", "CompletedVerification"): "Here are the completed verifications.",
     # Equipment
-    ("Equipment", "EquipmentSummary"):         "Here is the equipment summary:",
-    ("Equipment", "OverdueEquipment"):         "Here is the list of overdue equipment:",
-    ("Equipment", "PoorConditionEquipment"):   "Here is the equipment returned in poor condition:",
+    ("Equipment", "EquipmentSummary"):         "Here is the equipment summary.",
+    ("Equipment", "OverdueEquipment"):         "Here is the list of overdue equipment.",
+    ("Equipment", "PoorConditionEquipment"):   "Here is the equipment returned in poor condition.",
     # Distribution
-    ("Distribution", "LatestDistribution"):    "Here is the latest distribution data:",
-    ("Distribution", "DistributionByUnit"):    "Here is the distribution broken down by unit:",
-    ("Distribution", "UnassignedItems"):       "Here are the unassigned items:",
-    ("Distribution", "TopUnit"):               "Here is the top unit for distribution:",
+    ("Distribution", "LatestDistribution"):    "Here is the latest distribution data.",
+    ("Distribution", "DistributionByUnit"):    "Here is the distribution broken down by unit.",
+    ("Distribution", "UnassignedItems"):       "Here are the unassigned items.",
+    ("Distribution", "TopUnit"):               "Here is the top unit for distribution.",
     # Skills
-    ("Skills", "BySport"):                     "Here is the roster grouped by sport:",
-    ("Skills", "ByClass"):                     "Here is the roster grouped by class:",
-    ("Skills", "BloodGroup"):                  "Here is the blood group distribution:",
+    ("Skills", "BySport"):                     "Here is the roster grouped by sport.",
+    ("Skills", "ByClass"):                     "Here is the roster grouped by class.",
+    ("Skills", "BloodGroup"):                  "Here is the blood group distribution.",
 }
 
 
@@ -169,13 +172,6 @@ def _build_intro_prompt(
     intent: Dict[str, Any],
     dotnet_data: Any,
 ) -> str:
-    """
-    Build a prompt that asks the LLM to write a single natural-language
-    introductory sentence before the data is shown to the admin.
-
-    The LLM is given the question, the classified intent, and a small
-    preview of the data so it can produce a contextually accurate sentence.
-    """
     category    = intent.get("category", "")
     subcategory = intent.get("subcategory", "")
     number      = intent.get("number")
@@ -186,13 +182,11 @@ def _build_intro_prompt(
     sport       = intent.get("sport", "")
     class_name  = intent.get("class", "")
 
-    # Build a short data summary for context
     data_summary = ""
     try:
         if isinstance(dotnet_data, list) and dotnet_data:
             data_summary = f"The data contains {len(dotnet_data)} record(s)."
         elif isinstance(dotnet_data, dict):
-            # Try to extract a count or top-level value
             count = (
                 dotnet_data.get("total") or
                 dotnet_data.get("count") or
@@ -209,7 +203,6 @@ def _build_intro_prompt(
     except Exception:
         pass
 
-    # Build context string for the prompt
     context_parts = []
     if category:
         context_parts.append(f"Module: {category}")
@@ -260,11 +253,11 @@ def _generate_intro_message(
     """
     Generate a natural-language intro sentence using Ollama.
     Falls back to a static template if Ollama is unavailable.
+    Returns a single sentence string — no wrapping, no extra keys.
     """
     category    = intent.get("category", "")
     subcategory = intent.get("subcategory", "")
 
-    # Try LLM first
     try:
         import requests as _req
         from config import OLLAMA_URL, DEFAULT_MODEL
@@ -289,7 +282,6 @@ def _generate_intro_message(
             .get("content", "")
             .strip()
         )
-        # Strip any leading/trailing quotes the model might add
         text = text.strip('"\'')
         if text and len(text) > 10:
             logger.debug("LLM intro generated: %s", text[:80])
@@ -297,12 +289,10 @@ def _generate_intro_message(
     except Exception as exc:
         logger.debug("Ollama intro generation failed, using template: %s", exc)
 
-    # Fallback: static template
     key = (category, subcategory)
     if key in _INTRO_TEMPLATES:
         return _INTRO_TEMPLATES[key]
 
-    # Ultimate fallback
     category_label = category or "the requested"
     return f"Here is the {category_label.lower()} data retrieved for your query."
 
@@ -323,10 +313,6 @@ def _get_session_id(data: Dict) -> str:
 
 
 def _get_id_filters(data: Dict) -> Dict[str, int]:
-    """
-    Extract commandId, batchId, platoonId from the frontend request body.
-    Only included in the .NET payload if the frontend actually sends them.
-    """
     def _safe_int(value) -> int:
         try:
             return int(value)
@@ -350,10 +336,6 @@ def _get_id_filters(data: Dict) -> Dict[str, int]:
 
 
 def _call_dotnet(payload: Dict) -> tuple[Any, Optional[str]]:
-    """
-    POST payload to .NET AiCommand/execute.
-    Returns (response_data, error_message).
-    """
     headers = {"Content-Type": "application/json"}
     if DOTNET_API_KEY:
         headers["X-Api-Key"] = DOTNET_API_KEY
@@ -395,8 +377,15 @@ def _call_dotnet(payload: Dict) -> tuple[Any, Optional[str]]:
         return None, f"Backend returned invalid JSON: {exc}"
 
 
-def _success_response(data: Dict, http_status: int = 200, message: str = "Request processed successfully."):
-    """Build the unified success envelope."""
+def _success_response(data: Dict, http_status: int = 200, message: str = ""):
+    """
+    Build the unified success envelope.
+
+    IMPORTANT: `message` is the ONLY message field in the entire response.
+    It should always be the LLM-generated intro sentence (or a meaningful
+    one-liner for health/classify endpoints).
+    The `data` dict must NEVER contain its own 'message' key.
+    """
     return jsonify({
         "status":     True,
         "httpStatus": http_status,
@@ -425,14 +414,11 @@ def _handle_general_question(
     Handle questions that are not admin data queries (greetings, Agniveer
     knowledge questions, general conversation).
 
-    Reuses the same classify_intent → RAG/chat pipeline from app.py so the
-    admin gets the same quality answers as the regular /api/chat endpoint.
-
-    Response shape (matches the unified admin envelope):
+    Response shape:
       {
         "status":     true,
         "httpStatus": 200,
-        "message":    "<answer from LLM>",
+        "message":    "<answer from LLM>",   ← single message, the LLM answer
         "data":       { "type": "general", "sessionId": "..." }
       }
     """
@@ -480,19 +466,23 @@ def _handle_general_question(
             503,
         )
 
-    # Normalise and check for hardcoded date query
     q = _fuzzy_normalize_query(message)
     cache_key = make_response_cache_key(
         q, style="elaborate", model=DEFAULT_MODEL,
         context="admin_general", session_id=session_id,
     )
 
+    # ── Build response_data WITHOUT a "message" key ────────────────────────
+    def _make_data() -> Dict[str, Any]:
+        d: Dict[str, Any] = {"type": "general"}
+        if session_id and session_id != "admin-default":
+            d["sessionId"] = session_id
+        return d
+
     if _is_date_query(q):
         answer = _get_current_date_response()
-        response_data: Dict[str, Any] = {"type": "general"}
-        if session_id and session_id != "admin-default":
-            response_data["sessionId"] = session_id
-        return _success_response(response_data, message=answer)
+        # single message at outer level only
+        return _success_response(_make_data(), message=answer)
 
     style_name, _ = detect_answer_style(q)
     intent        = classify_intent(q)
@@ -548,37 +538,25 @@ def _handle_general_question(
             {"role": "user",   "content": query},
         ]
 
-    # Build messages based on intent
     try:
         if intent == "rag":
             bundle = prepare_rag_bundle(
-                q,
-                top_k=TOP_K,
-                style=style_name,
-                include_points=False,
+                q, top_k=TOP_K, style=style_name, include_points=False,
             )
             context   = bundle.get("context", "") if isinstance(bundle, dict) else ""
             reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
 
-            # Check deterministic policy answer first (salary, age, marital)
             det_answer = deterministic_policy_answer(q, context)
             if det_answer:
-                response_data = {"type": "general"}
-                if session_id and session_id != "admin-default":
-                    response_data["sessionId"] = session_id
-                return _success_response(response_data, message=det_answer)
+                return _success_response(_make_data(), message=det_answer)
 
-            # Check response cache
             cache_key = make_response_cache_key(
                 q, style=style_name, model=DEFAULT_MODEL,
                 context=context, session_id=session_id,
             )
             cached = get_cached_response(cache_key)
             if cached:
-                response_data = {"type": "general"}
-                if session_id and session_id != "admin-default":
-                    response_data["sessionId"] = session_id
-                return _success_response(response_data, message=cached)
+                return _success_response(_make_data(), message=cached)
 
             if context.strip():
                 messages = _build_rag_messages(q, context, reasoning)
@@ -593,12 +571,9 @@ def _handle_general_question(
             )
             cached = get_cached_response(cache_key)
             if cached:
-                response_data = {"type": "general"}
-                if session_id and session_id != "admin-default":
-                    response_data["sessionId"] = session_id
-                return _success_response(response_data, message=cached)
+                return _success_response(_make_data(), message=cached)
 
-        else:  # reject or unknown
+        else:
             messages  = _build_general_messages(q)
             cache_key = make_response_cache_key(
                 q, style=style_name, model=DEFAULT_MODEL,
@@ -606,18 +581,11 @@ def _handle_general_question(
             )
             cached = get_cached_response(cache_key)
             if cached:
-                response_data = {"type": "general"}
-                if session_id and session_id != "admin-default":
-                    response_data["sessionId"] = session_id
-                return _success_response(response_data, message=cached)
+                return _success_response(_make_data(), message=cached)
 
-        # Generate answer
         result = chat_with_fallback(
-            session,
-            DEFAULT_MODEL,
-            messages,
-            stream_tokens=False,
-            max_tokens_override=token_limit,
+            session, DEFAULT_MODEL, messages,
+            stream_tokens=False, max_tokens_override=token_limit,
         )
         answer = _finalize(result.text)
 
@@ -627,17 +595,13 @@ def _handle_general_question(
         logger.warning("General question LLM call failed: %s", exc)
         answer = REFERENCE_FALLBACK
 
-    # Cache and return
     try:
         set_cached_response(cache_key, answer)
     except Exception:
         pass
 
-    response_data = {"type": "general"}
-    if session_id and session_id != "admin-default":
-        response_data["sessionId"] = session_id
-
-    return _success_response(response_data, message=answer)
+    # single message at outer level only — _make_data() has NO "message" key
+    return _success_response(_make_data(), message=answer)
 
 
 # =============================================================================
@@ -658,12 +622,15 @@ def admin_health():
     except Exception:
         dotnet_ok = False
 
-    return _success_response({
-        "pythonStatus": "ok",
-        "dotnetBackend": "reachable" if dotnet_ok else "unreachable",
-        "dotnetUrl":     DOTNET_EXECUTE_URL,
-        "pythonPort":    5000,
-    }, message="Admin health check complete.")
+    return _success_response(
+        {
+            "pythonStatus": "ok",
+            "dotnetBackend": "reachable" if dotnet_ok else "unreachable",
+            "dotnetUrl":     DOTNET_EXECUTE_URL,
+            "pythonPort":    5000,
+        },
+        message="Admin health check complete.",
+    )
 
 
 @admin_bp.route("/classify", methods=["POST"])
@@ -671,20 +638,6 @@ def admin_classify():
     """
     Classify-only endpoint — returns intent JSON and .NET payload
     without calling .NET. Useful for debugging.
-
-    Request JSON:
-      { "message": "Who are the top 5 performers in BEPT?" }
-
-    Response (unified envelope):
-      {
-        "status": true,
-        "httpStatus": 200,
-        "message": "Intent classified successfully.",
-        "data": {
-          "intent": { "category": "Performance", "subcategory": "TopPerformers", ... },
-          "dotnetPayload": { "category": "Performance", "operation": "Top", "n": 5, "section": "BEPT" }
-        }
-      }
     """
     body       = request.get_json(force=True, silent=True) or {}
     message    = (body.get("message") or "").strip()
@@ -718,51 +671,18 @@ def admin_chat():
       4. Generate natural-language intro via LLM
       5. Return unified structured response
 
-    Request JSON:
-      {
-        "message":    "Who are the top 5 performers in BEPT?",
-        "session_id": "admin-user-1"   (optional)
-      }
-
-    Success Response:
+    RESPONSE SHAPE — single message field:
       {
         "status":     true,
         "httpStatus": 200,
-        "message":    "Request processed successfully.",
+        "message":    "<LLM intro sentence>",   ← THE only message
         "data": {
-          "message":       "The top 5 performers in BEPT section have been retrieved, ranked by their scores.",
-          "intent":        { "category": "Performance", "subcategory": "TopPerformers", "number": 5, "section": "BEPT", ... },
-          "dotnetPayload": { "category": "Performance", "operation": "Top", "n": 5, "section": "BEPT" },
-          "result":        { ...raw .NET response data... },
-          "sessionId":     "admin-user-1",
-          "elapsedMs":     142
-        }
-      }
-
-    Unrecognised query:
-      {
-        "status":     false,
-        "httpStatus": 422,
-        "message":    "Query not recognised.",
-        "data": {
-          "message":    "I'm not sure what you're asking about...",
-          "intent":     { "category": null, ... },
-          "sessionId":  "admin-user-1",
-          "elapsedMs":  10
-        }
-      }
-
-    .NET error:
-      {
-        "status":     false,
-        "httpStatus": 502,
-        "message":    "Backend error.",
-        "data": {
-          "error":         "Backend returned HTTP 404: ...",
           "intent":        { ... },
           "dotnetPayload": { ... },
-          "sessionId":     "admin-user-1",
-          "elapsedMs":     30
+          "data":          [ ... ],
+          "commandLabel":  "...",
+          "success":       true,
+          "sessionId":     "..."                 ← only if sent by frontend
         }
       }
     """
@@ -770,7 +690,7 @@ def admin_chat():
     body       = request.get_json(force=True, silent=True) or {}
     message    = (body.get("message") or "").strip()
     session_id = _get_session_id(body)
-    id_filters = _get_id_filters(body)   # commandId, batchId, platoonId
+    id_filters = _get_id_filters(body)
 
     if not message:
         return _error_response("message field is required and cannot be empty.", 400)
@@ -787,10 +707,7 @@ def admin_chat():
 
     elapsed_ms = lambda: round((time.time() - start_time) * 1000)
 
-    # ── Handle unrecognised admin queries → fall through to RAG/chat ──────────
-    # If the question is not an admin data query (Performance/Leave/Medical etc.)
-    # we forward it to the same RAG + chat pipeline used by /api/chat so the
-    # admin can also ask general Agniveer questions or have a conversation.
+    # ── Unrecognised query → RAG / general chat ───────────────────────────
     if intent_result.get("category") is None:
         return _handle_general_question(
             message=message,
@@ -800,8 +717,6 @@ def admin_chat():
 
     # ── Step 2: Build .NET payload ─────────────────────────────────────────
     dotnet_payload = format_admin_payload(intent_result)
-
-    # Merge commandId, batchId, platoonId — always present, default 0
     dotnet_payload.update(id_filters)
 
     logger.info("Sending to .NET: %s", json.dumps(dotnet_payload))
@@ -816,47 +731,34 @@ def admin_chat():
             502,
         )
 
-    # ── Step 4: Generate natural-language intro ────────────────────────────
-    # Pass the original question, intent, and a preview of the data
-    # so the LLM can craft a contextually accurate intro sentence.
+    # ── Step 4: Generate natural-language intro (single message) ──────────
     intro_message = _generate_intro_message(
         question=message,
         intent=intent_result,
         dotnet_data=dotnet_data,
     )
 
-    # ── Step 5: Build and return unified response ──────────────────────────
+    # ── Step 5: Build response_data ───────────────────────────────────────
+    # Shape:
+    # {
+    #   "dotnetPayload": { ...what was sent to .NET... },
+    #   "result":        { ...raw .NET response... },
+    #   "sessionId":     "..." (only if frontend sent one)
+    # }
+    response_data: Dict[str, Any] = {
+        "dotnetPayload": dotnet_payload,
+        "result":        dotnet_data if dotnet_data is not None else {},
+    }
+
+    # Include sessionId only if the frontend sent one
+    if session_id and session_id != "admin-default":
+        response_data["sessionId"] = session_id
+
     logger.info(
         "Admin chat complete: session=%s elapsed=%dms",
         session_id,
         elapsed_ms(),
     )
 
-    response_data = {
-        "dotnetPayload": dotnet_payload,
-    }
-
-    # ── Unwrap .NET response ───────────────────────────────────────────────
-    # .NET returns: { "success": true, "data": [...], "message": null, "commandLabel": "..." }
-    # We surface "data" directly so frontend gets the actual records, not the wrapper.
-    if isinstance(dotnet_data, dict):
-        inner = (
-            dotnet_data.get("data") or
-            dotnet_data.get("Data") or
-            dotnet_data.get("result") or
-            dotnet_data.get("Result")
-        )
-        response_data["data"]         = inner if inner is not None else dotnet_data
-        response_data["commandLabel"] = dotnet_data.get("commandLabel") or dotnet_data.get("CommandLabel")
-        response_data["success"]      = dotnet_data.get("success", dotnet_data.get("Success", True))
-    else:
-        response_data["data"] = dotnet_data
-
-    # Only include sessionId if frontend sent it
-    if session_id and session_id != "admin-default":
-        response_data["sessionId"] = session_id
-
-    return _success_response(
-        response_data,
-        message=intro_message,
-    )
+    # Single message at the top level — intro_message is the LLM sentence
+    return _success_response(response_data, message=intro_message)
