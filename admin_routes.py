@@ -404,207 +404,6 @@ def _error_response(message: str, http_status: int = 400, data: Optional[Dict] =
         "data":       data or {},
     }), http_status
 
-
-def _handle_general_question(
-    *,
-    message: str,
-    session_id: str,
-    elapsed_ms_fn,
-):
-    """
-    Handle questions that are not admin data queries (greetings, Agniveer
-    knowledge questions, general conversation).
-
-    Response shape:
-      {
-        "status":     true,
-        "httpStatus": 200,
-        "message":    "<answer from LLM>",   ← single message, the LLM answer
-        "data":       { "type": "general", "sessionId": "..." }
-      }
-    """
-    try:
-        from config import (
-            classify_intent,
-            detect_answer_style,
-            _fuzzy_normalize_query,
-            _is_date_query,
-            _get_current_date_response,
-            CHAT_SYSTEM_PROMPT,
-            GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
-            MAX_TOKENS_STYLE,
-            MAX_TOKENS_DEFAULT,
-            REFERENCE_FALLBACK,
-            TOP_K,
-        )
-        from rag import (
-            prepare_rag_bundle,
-            is_reasoning_query,
-            deterministic_policy_answer,
-            get_cached_response,
-            set_cached_response,
-            make_response_cache_key,
-            LOW_RETRIEVAL_CONFIDENCE,
-            STRICT_TOP_K,
-            build_context,
-        )
-        from ollama_cpu_chat import (
-            MODEL_NAME as DEFAULT_MODEL,
-            chat_with_fallback,
-            PartialResponseError,
-        )
-        from config import (
-            STRICT_RAG_PROMPT,
-            STRICT_RAG_PROMPT_COMPUTE,
-            style_structure_instruction,
-            trim_to_complete_sentence,
-        )
-        import requests as _req
-    except ImportError as exc:
-        logger.warning("Could not import chat pipeline for general question: %s", exc)
-        return _error_response(
-            "I can answer general questions too, but the chat module is currently unavailable.",
-            503,
-        )
-
-    q = _fuzzy_normalize_query(message)
-    cache_key = make_response_cache_key(
-        q, style="elaborate", model=DEFAULT_MODEL,
-        context="admin_general", session_id=session_id,
-    )
-
-    # ── Build response_data WITHOUT a "message" key ────────────────────────
-    def _make_data() -> Dict[str, Any]:
-        d: Dict[str, Any] = {"type": "general"}
-        if session_id and session_id != "admin-default":
-            d["sessionId"] = session_id
-        return d
-
-    if _is_date_query(q):
-        answer = _get_current_date_response()
-        # single message at outer level only
-        return _success_response(_make_data(), message=answer)
-
-    style_name, _ = detect_answer_style(q)
-    intent        = classify_intent(q)
-    token_limit   = MAX_TOKENS_STYLE.get(style_name, MAX_TOKENS_DEFAULT)
-    session       = _req.Session()
-
-    def _finalize(text: str) -> str:
-        final = trim_to_complete_sentence(text or "")
-        return final or REFERENCE_FALLBACK
-
-    def _build_rag_messages(query, context, reasoning):
-        system = STRICT_RAG_PROMPT_COMPUTE if reasoning else STRICT_RAG_PROMPT
-        system = f"{system}\n\n{style_structure_instruction(style_name)}"
-        msgs = [{"role": "system", "content": system}]
-        if context.strip():
-            user_content = (
-                f"Reference information:\n{context}\n\n"
-                f"Question: {query}\n\n"
-                "Using ONLY the reference information above, write a complete answer. "
-                "Do not use any knowledge outside the reference information."
-            )
-        else:
-            user_content = query
-        msgs.append({"role": "user", "content": user_content})
-        return msgs
-
-    def _build_chat_messages(query):
-        return [
-            {"role": "system", "content": CHAT_SYSTEM_PROMPT},
-            {"role": "user",   "content": query},
-        ]
-
-    def _build_general_messages(query):
-        q_lower = query.lower()
-        factual_signals = (
-            "what is", "what are", "who is", "who was", "when did", "how does",
-            "explain", "define", "how many", "how much", "capital of",
-        )
-        is_factual = any(s in q_lower for s in factual_signals)
-        if is_factual:
-            system = (
-                f"{CHAT_SYSTEM_PROMPT}\n\n{GENERAL_KNOWLEDGE_FALLBACK_PROMPT}\n\n"
-                "Answer from general knowledge if confident. Be conservative with numbers."
-            )
-        else:
-            system = (
-                f"{CHAT_SYSTEM_PROMPT}\n\n"
-                "Respond naturally like a warm, knowledgeable assistant. "
-                "No bullet points for casual replies."
-            )
-        return [
-            {"role": "system", "content": system},
-            {"role": "user",   "content": query},
-        ]
-
-    try:
-        if intent == "rag":
-            bundle = prepare_rag_bundle(
-                q, top_k=TOP_K, style=style_name, include_points=False,
-            )
-            context   = bundle.get("context", "") if isinstance(bundle, dict) else ""
-            reasoning = bool(bundle.get("reasoning", False)) if isinstance(bundle, dict) else False
-
-            det_answer = deterministic_policy_answer(q, context)
-            if det_answer:
-                return _success_response(_make_data(), message=det_answer)
-
-            cache_key = make_response_cache_key(
-                q, style=style_name, model=DEFAULT_MODEL,
-                context=context, session_id=session_id,
-            )
-            cached = get_cached_response(cache_key)
-            if cached:
-                return _success_response(_make_data(), message=cached)
-
-            if context.strip():
-                messages = _build_rag_messages(q, context, reasoning)
-            else:
-                messages = _build_general_messages(q)
-
-        elif intent == "chat":
-            messages  = _build_chat_messages(q)
-            cache_key = make_response_cache_key(
-                q, style=style_name, model=DEFAULT_MODEL,
-                context="chat", session_id=session_id,
-            )
-            cached = get_cached_response(cache_key)
-            if cached:
-                return _success_response(_make_data(), message=cached)
-
-        else:
-            messages  = _build_general_messages(q)
-            cache_key = make_response_cache_key(
-                q, style=style_name, model=DEFAULT_MODEL,
-                context="general", session_id=session_id,
-            )
-            cached = get_cached_response(cache_key)
-            if cached:
-                return _success_response(_make_data(), message=cached)
-
-        result = chat_with_fallback(
-            session, DEFAULT_MODEL, messages,
-            stream_tokens=False, max_tokens_override=token_limit,
-        )
-        answer = _finalize(result.text)
-
-    except PartialResponseError as exc:
-        answer = _finalize(exc.partial_text or REFERENCE_FALLBACK)
-    except Exception as exc:
-        logger.warning("General question LLM call failed: %s", exc)
-        answer = REFERENCE_FALLBACK
-
-    try:
-        set_cached_response(cache_key, answer)
-    except Exception:
-        pass
-
-    # single message at outer level only — _make_data() has NO "message" key
-    return _success_response(_make_data(), message=answer)
-
-
 # =============================================================================
 # ROUTES
 # =============================================================================
@@ -690,8 +489,7 @@ def admin_classify():
 
         return _success_response(response_data, message=welcome)
 
-    # ── Step 1: Classify intent ────────────────────────────────────────────────
-    intent_result = classify_admin_intent(message)
+    # ── Step 1: Classify intent ───────────────────────────────────────────────
 
     id_filters     = _get_id_filters(body)
     intent_result  = classify_admin_intent(message)
@@ -740,6 +538,48 @@ def admin_chat():
     session_id = _get_session_id(body)
     id_filters = _get_id_filters(body)
 
+
+    if _is_greeting(message.lower().strip().rstrip("!?.,;")):
+
+        admin_name = (
+            body.get("adminName")
+            or body.get("userName")
+            or body.get("name")
+            or "Admin"
+        ).strip()
+
+        import datetime as dt
+        hour = dt.datetime.now().hour
+
+        if 5 <= hour < 12:
+            greeting = "Good Morning"
+        elif 12 <= hour < 17:
+            greeting = "Good Afternoon"
+        else:
+            greeting = "Good Evening"
+
+        greetings = [
+            f"{greeting}, {admin_name}. Welcome back to AgniAI Admin Console. What would you like to review today?",
+            f"{greeting}, {admin_name}. Ready to assist with performance, attendance, leave, medical, and operational reports.",
+            f"Hello {admin_name}. AgniAI Admin Dashboard is ready. How may I assist you today?",
+            f"Welcome back, {admin_name}. I'm ready to help you analyze personnel and operational data.",
+            f"{greeting}, {admin_name}. What insights would you like to explore today?"
+        ]
+
+        import random
+
+        response_data = {
+            "type": "greeting"
+        }
+
+        if session_id and session_id != "admin-default":
+            response_data["sessionId"] = session_id
+
+        return _success_response(
+            response_data,
+            message=random.choice(greetings)
+        )
+
     if not message:
         return _error_response("message field is required and cannot be empty.", 400)
 
@@ -757,11 +597,10 @@ def admin_chat():
 
     # ── Unrecognised query → RAG / general chat ───────────────────────────
     if intent_result.get("category") is None:
-        return _handle_general_question(
-            message=message,
-            session_id=session_id,
-            elapsed_ms_fn=elapsed_ms,
-        )
+        return _success_response(
+             {"type": "unknown"},
+             message="Please ask a performance, leave, attendance, medical, equipment, verification, distribution, or skills related question."
+    )
 
     # ── Step 2: Build .NET payload ─────────────────────────────────────────
     dotnet_payload = format_admin_payload(intent_result)
