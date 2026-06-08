@@ -27,6 +27,13 @@ Key changes vs original:
   - Admin chatbot blueprint registered at /api/admin/* for admin-facing queries
     that route through the .NET AiCommand/execute endpoint.
   - Swagger UI blueprint registered at /docs for interactive API documentation.
+
+CORS FIX:
+  - ALLOWED_ORIGINS=* in .env allows any frontend origin (any port, any domain).
+  - supports_credentials=False is required when origins="*"; browsers reject
+    supports_credentials=True with wildcard origins as a security rule.
+  - Session tracking uses X-Session-Id header (not cookies), so credentials
+    mode is not needed.
 """
 
 from __future__ import annotations
@@ -128,13 +135,18 @@ app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
-_cors_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+# ── CORS — allow all origins ───────────────────────────────────────────────
+# supports_credentials MUST be False when origins="*".
+# Browsers enforce this as a hard security rule: a wildcard origin +
+# credentials=True is rejected at the browser level, not the server level.
+# We use X-Session-Id header for session tracking (not cookies), so
+# credentials mode is not needed.
 CORS(
     app,
-    origins=_cors_origins if _cors_origins != ["*"] else "*",
+    origins="*",
     allow_headers=["Content-Type", "X-Api-Key", "X-Session-Id", "ngrok-skip-browser-warning"],
     methods=["GET", "POST", "OPTIONS"],
-    supports_credentials=True,
+    supports_credentials=False,
 )
 
 # ── Register blueprints (after app is created) ─────────────────────────────
@@ -1314,6 +1326,7 @@ if __name__ == "__main__":
     logger.info("Upload        http://localhost:5000/api/upload  [POST multipart]")
     logger.info("Admin chat    http://localhost:5000/api/admin/chat  [POST]")
     logger.info("Swagger UI    http://localhost:5000/docs")
+    logger.info("CORS          origins=* (all frontends allowed)")
     if API_SECRET_KEY:
         logger.info("Auth  X-Api-Key header required for /api/reset_index")
     if stats_data["vectors"] == 0:
