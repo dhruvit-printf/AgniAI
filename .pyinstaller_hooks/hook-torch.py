@@ -1,8 +1,28 @@
-# .pyinstaller_hooks/hook-torch.py
-# Torch has many dynamic imports — collect all submodules
+# hook-torch.py
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
-
-datas = collect_data_files("torch")
-hiddenimports = collect_submodules("torch")
 binaries = collect_dynamic_libs("torch")
+
+datas = collect_data_files("torch", excludes=[
+    "test",
+    "tests",
+    "distributed",
+    "utils/tensorboard",
+])
+
+hiddenimports = [
+    "torch",
+    "torch.nn",
+    "torch.nn.functional",
+    "torch.nn.modules",
+    "torch.nn.modules.linear",
+    "torch.nn.modules.normalization",
+    "torch.nn.modules.activation",
+    "torch.nn.modules.pooling",
+    "torch.cuda",
+    "torch.jit",
+    "torch._C",
+    "torch._tensor",
+    "torch.storage",
+    "torch.serialization",
+]
