@@ -10,32 +10,30 @@ Registers:
 
 Flow for /api/admin/chat:
   1. Receive admin question from frontend
-  2. classify_admin_intent()  → structured intent dict (Python internal)
-  3. format_admin_payload()   → camelCase JSON payload for .NET
+  2. classify_admin_intent()    → structured intent dict (Python internal)
+  3. format_admin_payload()     → camelCase JSON payload for .NET
      └─ includes commandId, batchId, platoonId, fullName from the frontend request
-  4. POST payload to .NET     → https://<DOTNET_API_BASE_URL>/api/AiCommand/execute
-  5. generate_intro_message() → LLM generates a natural-language intro sentence
-  6. Return unified response  → { status, httpStatus, message: "<LLM intro>", data: { intent, dotnetPayload, result } }
+  4. POST payload to .NET       → https://<DOTNET_API_BASE_URL>/api/AiCommand/execute
+  5. generate_intro_message()   → LLM generates a single clean intro sentence
+  6. Return unified response
 
-RESPONSE ENVELOPE (single message field — the LLM intro sentence):
+RESPONSE SHAPE:
   {
-    "status": true,
+    "status":     true,
     "httpStatus": 200,
-    "message": "The top 5 BEPT performers have been retrieved, ranked by their scores.",
+    "message":    "<single LLM intro sentence — no notes, no extra text>",
     "data": {
       "intent":        { ...classified intent fields... },
-      "dotnetPayload": { ...what was sent to .NET, including commandId/batchId/platoonId/fullName... },
-      "data":          [ ...raw .NET response records... ],
-      "commandLabel":  "...",
-      "success":       true,
-      "sessionId":     "...",
-      "elapsedMs":     142
+      "dotnetPayload": { ...sent to .NET... },
+      "result":        <raw .NET response — frontend renders this>,
+      "sessionId":     "..."   (only if not admin-default)
     }
   }
 
-NOTE: There is only ONE "message" field — at the top level — containing the
-LLM-generated intro sentence. The "data" object never contains its own
-"message" key. This prevents the frontend from ever seeing two messages.
+  message  → one clean sentence, e.g. "Top 5 BEPT performers retrieved."
+  data.result → raw .NET JSON for frontend to render as needed
+  data.intent → full intent classification (category, subcategory, filters, confidence)
+  data.dotnetPayload → exact payload sent to .NET
 
 FRONTEND REQUEST FIELDS:
   message     — (required) natural-language admin question
@@ -48,12 +46,6 @@ FRONTEND REQUEST FIELDS:
 PORT SEPARATION:
   - Python / Flask  → port 5000  (python app.py)
   - .NET AiCommand  → port 7257  (set DOTNET_API_BASE_URL in .env)
-
-Configuration (via environment variables):
-  DOTNET_API_BASE_URL    — default: https://localhost:7257
-  DOTNET_API_KEY         — optional X-Api-Key header
-  DOTNET_SKIP_SSL_VERIFY — "1" to skip SSL verification (self-signed cert)
-  ADMIN_RATE_LIMIT       — default: "20 per minute"
 """
 
 from __future__ import annotations
@@ -118,21 +110,17 @@ def _register_rate_limits(app):
 
 
 # =============================================================================
-# SHARED GREETING BUILDER
+# GREETING BUILDER
 # =============================================================================
 
 def _build_greeting_response(body: Dict, session_id: str) -> tuple:
     """
     Single source of truth for all admin greeting responses.
-    Used by both admin_chat() and admin_classify() so the greeting
-    is NEVER overwritten or duplicated by a second block.
-
     Priority for name: fullName → adminName → userName → commanderName → name → "Officer"
     """
     import datetime as _dt
     import random
 
-    # ── Resolve name (fullName takes priority) ────────────────────────────
     admin_name = (
         body.get("fullName")
         or body.get("adminName")
@@ -143,7 +131,6 @@ def _build_greeting_response(body: Dict, session_id: str) -> tuple:
         or "Officer"
     ).strip()
 
-    # ── Time-based greeting ───────────────────────────────────────────────
     hour = _dt.datetime.now().hour
     if 5 <= hour < 12:
         time_greeting = "Good Morning"
@@ -152,7 +139,6 @@ def _build_greeting_response(body: Dict, session_id: str) -> tuple:
     else:
         time_greeting = "Good Evening"
 
-    # ── Greeting variants ─────────────────────────────────────────────────
     greetings = [
         f"{time_greeting}, {admin_name}! Welcome back to AgniAI Command Console. What would you like to review today?",
         f"{time_greeting}, {admin_name}. All systems are ready. How can I assist you today?",
@@ -169,54 +155,57 @@ def _build_greeting_response(body: Dict, session_id: str) -> tuple:
 
 
 # =============================================================================
-# NATURAL LANGUAGE INTRO GENERATOR
+# INTRO MESSAGE GENERATOR
 # =============================================================================
 
+# Static fallback templates — used when Ollama is unavailable.
+# One clean sentence per (category, subcategory) pair.
+# No "Note:", no qualifiers, no follow-up questions.
 _INTRO_TEMPLATES: Dict[tuple, str] = {
     # Performance
-    ("Performance", "TopPerformers"):      "Here are the top performers as requested.",
-    ("Performance", "LowestPerformers"):   "Here are the lowest performers as requested.",
-    ("Performance", "AverageScore"):       "Here is the average score data.",
-    ("Performance", "PassPercentage"):     "Here is the pass percentage breakdown.",
-    ("Performance", "FailPercentage"):     "Here is the fail percentage breakdown.",
-    ("Performance", "GradeDistribution"):  "Here is the grade distribution.",
-    ("Performance", "GradingSummary"):     "Here is the grading summary.",
-    ("Performance", "OverallPerformance"): "Here is the overall performance report.",
-    ("Performance", "Improvement"):        "Here are the improvement details.",
-    ("Performance", "Decline"):            "Here are the decline details.",
-    ("Performance", "SectionSummary"):     "Here is the section-wise summary.",
-    ("Performance", "AttemptWise"):        "Here is the attempt-wise analysis.",
-    ("Performance", "BestAttempt"):        "Here is the best attempt data.",
-    ("Performance", "Comparison"):         "Here is the performance comparison.",
+    ("Performance", "TopPerformers"):      "Top performers have been retrieved.",
+    ("Performance", "LowestPerformers"):   "Lowest performers have been retrieved.",
+    ("Performance", "AverageScore"):       "Average score data has been retrieved.",
+    ("Performance", "PassPercentage"):     "Pass percentage data has been retrieved.",
+    ("Performance", "FailPercentage"):     "Fail percentage data has been retrieved.",
+    ("Performance", "GradeDistribution"):  "Grade distribution data has been retrieved.",
+    ("Performance", "GradingSummary"):     "Grading summary has been retrieved.",
+    ("Performance", "OverallPerformance"): "Overall performance report has been retrieved.",
+    ("Performance", "Improvement"):        "Improvement data has been retrieved.",
+    ("Performance", "Drop"):               "Score drop data has been retrieved.",
+    ("Performance", "SectionSummary"):     "Section summary has been retrieved.",
+    ("Performance", "AttemptWise"):        "Attempt-wise analysis has been retrieved.",
+    ("Performance", "BestAttempt"):        "Best attempt data has been retrieved.",
+    ("Performance", "Comparison"):         "Performance comparison has been retrieved.",
     # Leave
-    ("Leave", "MostLeaveTaken"):           "Here are the personnel who have taken the most leave.",
-    ("Leave", "LeastLeaveTaken"):          "Here are the personnel who have taken the least leave.",
-    ("Leave", "CurrentLeaveStatus"):       "Here is the current leave status.",
-    ("Leave", "AbscondedPersonnel"):       "Here is the list of absconded personnel.",
+    ("Leave", "MostLeaveTaken"):           "Personnel with most leave have been retrieved.",
+    ("Leave", "LeastLeaveTaken"):          "Personnel with least leave have been retrieved.",
+    ("Leave", "CurrentLeaveStatus"):       "Current leave status has been retrieved.",
+    ("Leave", "AbscondedPersonnel"):       "Absconded personnel list has been retrieved.",
     # Medical
-    ("Medical", "ActiveCases"):            "Here are the active medical cases.",
-    ("Medical", "BMIAnalysis"):            "Here is the BMI and fitness analysis.",
-    ("Medical", "DiseaseStatistics"):      "Here are the top disease statistics.",
+    ("Medical", "ActiveCases"):            "Active medical cases have been retrieved.",
+    ("Medical", "BMIAnalysis"):            "BMI and fitness analysis has been retrieved.",
+    ("Medical", "DiseaseStatistics"):      "Disease statistics have been retrieved.",
     # Attendance
-    ("Attendance", "MonthlyAttendance"):   "Here is the monthly attendance summary.",
-    ("Attendance", "PresentToday"):        "Here is today's attendance status.",
-    ("Attendance", "StrengthBreakdown"):   "Here is the strength breakdown.",
+    ("Attendance", "MonthlyAttendance"):   "Monthly attendance summary has been retrieved.",
+    ("Attendance", "PresentToday"):        "Today's attendance status has been retrieved.",
+    ("Attendance", "StrengthBreakdown"):   "Strength breakdown has been retrieved.",
     # Verification
-    ("Verification", "PendingVerification"):   "Here are the pending verifications.",
-    ("Verification", "CompletedVerification"): "Here are the completed verifications.",
+    ("Verification", "PendingVerification"):   "Pending verifications have been retrieved.",
+    ("Verification", "CompletedVerification"): "Completed verifications have been retrieved.",
     # Equipment
-    ("Equipment", "EquipmentSummary"):         "Here is the equipment summary.",
-    ("Equipment", "OverdueEquipment"):         "Here is the list of overdue equipment.",
-    ("Equipment", "PoorConditionEquipment"):   "Here is the equipment returned in poor condition.",
+    ("Equipment", "EquipmentSummary"):         "Equipment summary has been retrieved.",
+    ("Equipment", "OverdueEquipment"):         "Overdue equipment list has been retrieved.",
+    ("Equipment", "PoorConditionEquipment"):   "Equipment returned in poor condition has been retrieved.",
     # Distribution
-    ("Distribution", "LatestDistribution"):    "Here is the latest distribution data.",
-    ("Distribution", "DistributionByUnit"):    "Here is the distribution broken down by unit.",
-    ("Distribution", "UnassignedItems"):       "Here are the unassigned items.",
-    ("Distribution", "TopUnit"):               "Here is the top unit for distribution.",
+    ("Distribution", "LatestDistribution"):    "Latest distribution data has been retrieved.",
+    ("Distribution", "DistributionByUnit"):    "Distribution by unit has been retrieved.",
+    ("Distribution", "UnassignedItems"):       "Unassigned items have been retrieved.",
+    ("Distribution", "TopUnit"):               "Top unit for distribution has been retrieved.",
     # Skills
-    ("Skills", "BySport"):                     "Here is the roster grouped by sport.",
-    ("Skills", "ByClass"):                     "Here is the roster grouped by class.",
-    ("Skills", "BloodGroup"):                  "Here is the blood group distribution.",
+    ("Skills", "BySport"):                     "Roster grouped by sport has been retrieved.",
+    ("Skills", "ByClass"):                     "Roster grouped by class has been retrieved.",
+    ("Skills", "BloodGroup"):                  "Blood group distribution has been retrieved.",
 }
 
 
@@ -225,6 +214,16 @@ def _build_intro_prompt(
     intent: Dict[str, Any],
     dotnet_data: Any,
 ) -> str:
+    """
+    Build the LLM prompt for generating a single clean intro sentence.
+
+    Rules enforced in the prompt:
+    - Exactly ONE sentence, ending with a period.
+    - No "Note:", no "Please note", no qualifiers, no follow-up questions.
+    - No markdown, no bullet points, no JSON.
+    - Specific: mention count, section, or filter when present.
+    - Do NOT start with "Here is" or "Here are".
+    """
     category    = intent.get("category", "")
     subcategory = intent.get("subcategory", "")
     number      = intent.get("number")
@@ -235,24 +234,30 @@ def _build_intro_prompt(
     sport       = intent.get("sport", "")
     class_name  = intent.get("class", "")
 
+    # Build a compact data summary for context
     data_summary = ""
     try:
-        if isinstance(dotnet_data, list) and dotnet_data:
-            data_summary = f"The data contains {len(dotnet_data)} record(s)."
-        elif isinstance(dotnet_data, dict):
+        actual_data = dotnet_data
+        if isinstance(dotnet_data, dict):
+            actual_data = (
+                dotnet_data.get("data") or
+                dotnet_data.get("Data") or
+                dotnet_data.get("result") or
+                dotnet_data
+            )
+        if isinstance(actual_data, list) and actual_data:
+            data_summary = f"{len(actual_data)} record(s) returned."
+        elif isinstance(actual_data, dict):
             count = (
-                dotnet_data.get("total") or
-                dotnet_data.get("count") or
-                dotnet_data.get("Count") or
-                dotnet_data.get("Total")
+                actual_data.get("total") or
+                actual_data.get("count") or
+                actual_data.get("Count") or
+                actual_data.get("Total")
             )
             if count is not None:
-                data_summary = f"The data shows a total/count of {count}."
-            else:
-                keys = list(dotnet_data.keys())[:5]
-                data_summary = f"The data contains fields: {', '.join(str(k) for k in keys)}."
-        elif isinstance(dotnet_data, (int, float)):
-            data_summary = f"The result is: {dotnet_data}."
+                data_summary = f"Total count: {count}."
+        elif isinstance(actual_data, (int, float)):
+            data_summary = f"Result value: {actual_data}."
     except Exception:
         pass
 
@@ -264,38 +269,77 @@ def _build_intro_prompt(
     if number:
         context_parts.append(f"Requested count: {number}")
     if section:
-        context_parts.append(f"Section: {section}")
+        context_parts.append(f"Section filter: {section}")
     if leave_type:
-        context_parts.append(f"Leave type: {leave_type}")
+        context_parts.append(f"Leave type filter: {leave_type}")
     if grading:
         context_parts.append(f"Grading filter: {grading}")
     if unit_name:
-        context_parts.append(f"Unit: {unit_name}")
+        context_parts.append(f"Unit filter: {unit_name}")
     if sport:
-        context_parts.append(f"Sport: {sport}")
+        context_parts.append(f"Sport filter: {sport}")
     if class_name:
-        context_parts.append(f"Class: {class_name}")
+        context_parts.append(f"Class filter: {class_name}")
     if data_summary:
         context_parts.append(data_summary)
 
     context_str = "\n".join(context_parts)
 
     return (
-        "You are an assistant for a military training management system. "
-        "An admin just asked a question and the system has retrieved the relevant data. "
-        "Your job is to write ONE short, natural, professional introductory sentence "
-        "that will appear above the data before the admin sees it.\n\n"
-        "Rules:\n"
-        "1. Write exactly ONE sentence — no more.\n"
-        "2. Be specific: mention the module, count, section, or filter if relevant.\n"
-        "3. Sound natural and professional — not robotic or template-like.\n"
-        "4. Do NOT say 'Here is the data' or 'Here are the results' — be descriptive.\n"
-        "5. Do NOT include any JSON, bullet points, or markdown.\n"
-        "6. Do NOT ask questions or add follow-ups.\n\n"
+        "You are a military training management system assistant.\n\n"
+        "Write ONE short introductory sentence that will appear above retrieved data.\n\n"
+        "STRICT RULES — follow every rule, no exceptions:\n"
+        "1. Output EXACTLY one sentence. No more.\n"
+        "2. End with a period.\n"
+        "3. Be specific — include the count, section, or filter if available.\n"
+        "4. Do NOT start with 'Here is' or 'Here are'.\n"
+        "5. Do NOT include 'Note:', 'Please note', or any qualification.\n"
+        "6. Do NOT include any follow-up question.\n"
+        "7. Do NOT include markdown, bullet points, or JSON.\n"
+        "8. Do NOT explain what the data contains.\n"
+        "9. Use past tense — the data has already been retrieved.\n\n"
+        "GOOD examples:\n"
+        "- \"Top 5 BEPT performers have been retrieved.\"\n"
+        "- \"Monthly attendance summary for Platoon 3 has been retrieved.\"\n"
+        "- \"12 active medical cases have been retrieved.\"\n\n"
+        "BAD examples (do NOT produce these):\n"
+        "- \"Here are the top performers as requested.\"\n"
+        "- \"The data has been retrieved. Note: results may vary.\"\n"
+        "- \"Top performers retrieved! Would you like more details?\"\n\n"
         f"Admin question: {question}\n\n"
         f"Context:\n{context_str}\n\n"
-        "Write the introductory sentence now:"
+        "Write the single introductory sentence now:"
     )
+
+
+def _sanitize_intro(text: str) -> str:
+    """
+    Post-process the LLM output to enforce clean single-sentence output.
+    Strips notes, qualifiers, follow-up questions, and extra sentences.
+    """
+    import re
+
+    text = text.strip().strip('"\'')
+
+    # Remove anything after "Note:", "Please note", "Note —", etc.
+    text = re.sub(r"\s*[Nn]ote\s*[:—–-].*$", "", text, flags=re.DOTALL).strip()
+    text = re.sub(r"\s*[Pp]lease note.*$", "", text, flags=re.DOTALL).strip()
+
+    # Keep only the first sentence
+    # Split on sentence-ending punctuation followed by space or end
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    if sentences:
+        text = sentences[0].strip()
+
+    # Remove trailing question marks (we don't want follow-up questions)
+    if text.endswith("?"):
+        text = text.rstrip("?").rstrip() + "."
+
+    # Ensure ends with a period
+    if text and not text[-1] in ".!":
+        text += "."
+
+    return text
 
 
 def _generate_intro_message(
@@ -304,9 +348,9 @@ def _generate_intro_message(
     dotnet_data: Any,
 ) -> str:
     """
-    Generate a natural-language intro sentence using Ollama.
-    Falls back to a static template if Ollama is unavailable.
-    Returns a single sentence string — no wrapping, no extra keys.
+    Generate a clean single-sentence intro using Ollama.
+    Falls back to static template if Ollama is unavailable or returns bad output.
+    Output is always exactly one sentence with no notes, qualifiers, or questions.
     """
     category    = intent.get("category", "")
     subcategory = intent.get("subcategory", "")
@@ -318,36 +362,45 @@ def _generate_intro_message(
         prompt   = _build_intro_prompt(question, intent, dotnet_data)
         messages = [{"role": "user", "content": prompt}]
         payload  = {
-            "model":   DEFAULT_MODEL,
+            "model":    DEFAULT_MODEL,
             "messages": messages,
-            "stream":  False,
+            "stream":   False,
             "options": {
-                "temperature": 0.4,
-                "num_predict": 80,
-                "num_ctx":     1024,
+                "temperature": 0.2,   # Lower temp = more deterministic / less creative
+                "num_predict": 60,    # Hard cap — one sentence needs at most ~20 tokens
+                "num_ctx":     512,
+                "stop": ["Note:", "Please note", "\n", "?"],  # Stop tokens
             },
         }
         resp = _req.post(OLLAMA_URL, json=payload, timeout=(8, 30))
         resp.raise_for_status()
-        text = (
+        raw_text = (
             resp.json()
             .get("message", {})
             .get("content", "")
             .strip()
         )
-        text = text.strip('"\'')
-        if text and len(text) > 10:
-            logger.debug("LLM intro generated: %s", text[:80])
-            return text
+
+        # Sanitize the output
+        clean_text = _sanitize_intro(raw_text)
+
+        # Accept only if it's a valid single sentence of reasonable length
+        if clean_text and 10 <= len(clean_text) <= 200:
+            logger.debug("LLM intro (sanitized): %s", clean_text)
+            return clean_text
+
+        logger.debug("LLM intro rejected after sanitize (raw=%r clean=%r), using template", raw_text, clean_text)
+
     except Exception as exc:
         logger.debug("Ollama intro generation failed, using template: %s", exc)
 
+    # Static fallback
     key = (category, subcategory)
     if key in _INTRO_TEMPLATES:
         return _INTRO_TEMPLATES[key]
 
-    category_label = category or "the requested"
-    return f"Here is the {category_label.lower()} data retrieved for your query."
+    category_label = category or "requested"
+    return f"{category_label} data has been retrieved."
 
 
 # =============================================================================
@@ -366,7 +419,7 @@ def _get_session_id(data: Dict) -> str:
 
 
 def _get_id_filters(data: Dict) -> Dict[str, int]:
-    def _safe_int(value) -> int:
+    def _safe_int(value) -> Optional[int]:
         try:
             return int(value)
         except (TypeError, ValueError):
@@ -389,7 +442,6 @@ def _get_id_filters(data: Dict) -> Dict[str, int]:
 
 
 def _get_full_name(data: Dict) -> str:
-    """Extract fullName from the request body (supports both camelCase and snake_case keys)."""
     return (
         data.get("fullName") or
         data.get("full_name") or
@@ -441,12 +493,20 @@ def _call_dotnet(payload: Dict) -> tuple[Any, Optional[str]]:
 
 def _success_response(data: Dict, http_status: int = 200, message: str = ""):
     """
-    Build the unified success envelope.
+    Unified success envelope.
 
-    IMPORTANT: `message` is the ONLY message field in the entire response.
-    It should always be the LLM-generated intro sentence (or a meaningful
-    one-liner for health/classify endpoints).
-    The `data` dict must NEVER contain its own 'message' key.
+    Shape:
+      {
+        "status":     true,
+        "httpStatus": 200,
+        "message":    "<single clean sentence>",
+        "data": {
+          "intent":        {...},
+          "dotnetPayload": {...},
+          "result":        <raw .NET response>,
+          "sessionId":     "..."
+        }
+      }
     """
     return jsonify({
         "status":     True,
@@ -457,7 +517,6 @@ def _success_response(data: Dict, http_status: int = 200, message: str = ""):
 
 
 def _error_response(message: str, http_status: int = 400, data: Optional[Dict] = None):
-    """Build the unified error envelope."""
     return jsonify({
         "status":     False,
         "httpStatus": http_status,
@@ -472,7 +531,6 @@ def _error_response(message: str, http_status: int = 400, data: Optional[Dict] =
 
 @admin_bp.route("/health")
 def admin_health():
-    """Quick health check for the admin chatbot subsystem."""
     dotnet_ok = True
     try:
         resp = _dotnet_session.get(
@@ -486,7 +544,7 @@ def admin_health():
 
     return _success_response(
         {
-            "pythonStatus": "ok",
+            "pythonStatus":  "ok",
             "dotnetBackend": "reachable" if dotnet_ok else "unreachable",
             "dotnetUrl":     DOTNET_EXECUTE_URL,
             "pythonPort":    5000,
@@ -510,14 +568,12 @@ def admin_classify():
     session_id = _get_session_id(body)
 
     # ── Greeting short-circuit ─────────────────────────────────────────────
-    # Uses _build_greeting_response — single source of truth, reads fullName first
     if _is_greeting(message.lower().strip().rstrip("!?.,;")):
         response_data, greeting_message = _build_greeting_response(body, session_id)
         return _success_response(response_data, message=greeting_message)
 
-    # ── Classify intent ────────────────────────────────────────────────────
-    id_filters     = _get_id_filters(body)
-    full_name      = _get_full_name(body)
+    id_filters    = _get_id_filters(body)
+    full_name     = _get_full_name(body)
 
     intent_result  = classify_admin_intent(message)
     dotnet_payload = format_admin_payload(intent_result)
@@ -526,11 +582,15 @@ def admin_classify():
     if full_name:
         dotnet_payload["fullName"] = full_name
 
+    response_data: Dict[str, Any] = {
+        "intent":        intent_result,
+        "dotnetPayload": dotnet_payload,
+    }
+    if session_id and session_id != "admin-default":
+        response_data["sessionId"] = session_id
+
     return _success_response(
-        {
-            "intent":        intent_result,
-            "dotnetPayload": dotnet_payload,
-        },
+        response_data,
         message="Intent classified successfully.",
     )
 
@@ -544,19 +604,23 @@ def admin_chat():
       1. Classify intent from admin's natural-language question
       2. Build .NET payload (camelCase), including fullName if provided
       3. POST to .NET AiCommand/execute
-      4. Generate natural-language intro via LLM
-      5. Return unified structured response
+      4. Generate clean single-sentence intro via LLM (or static template)
+      5. Return unified JSON response
 
-    RESPONSE SHAPE — single message field:
+    RESPONSE SHAPE:
       {
         "status":     true,
         "httpStatus": 200,
-        "message":    "<LLM intro sentence>",   <- THE only message
+        "message":    "<single sentence — no notes, no questions>",
         "data": {
-          "intent":        { ... },
-          "dotnetPayload": { ... },
-          "result":        [ ... ],
-          "sessionId":     "..."                 <- only if sent by frontend
+          "dotnetPayload": {
+            "category":  "Performance",
+            "operation": "Top",
+            "n":         5,
+            "section":   "BEPT"
+          },
+          "result":    <raw .NET response object>,
+          "sessionId": "..."    (only present if provided by frontend)
         }
       }
     """
@@ -568,14 +632,14 @@ def admin_chat():
     full_name  = _get_full_name(body)
 
     # ── Greeting short-circuit ─────────────────────────────────────────────
-    # Uses _build_greeting_response — single source of truth, reads fullName first.
-    # This is the ONLY greeting block. No second block exists below.
     if _is_greeting(message.lower().strip().rstrip("!?.,;")):
         response_data, greeting_message = _build_greeting_response(body, session_id)
         return _success_response(response_data, message=greeting_message)
 
     if not message:
         return _error_response("message field is required and cannot be empty.", 400)
+
+    elapsed_ms = lambda: round((time.time() - start_time) * 1000)
 
     # ── Step 1: Classify intent ────────────────────────────────────────────
     intent_result = classify_admin_intent(message)
@@ -587,13 +651,17 @@ def admin_chat():
         intent_result.get("confidence"),
     )
 
-    elapsed_ms = lambda: round((time.time() - start_time) * 1000)
-
     # ── Unrecognised query ─────────────────────────────────────────────────
     if intent_result.get("category") is None:
         return _success_response(
-            {"type": "unknown"},
-            message="Please ask a performance, leave, attendance, medical, equipment, verification, distribution, or skills related question."
+            {
+                "dotnetPayload": {},
+                "result":        None,
+            },
+            message=(
+                "Please ask a performance, leave, attendance, medical, equipment, "
+                "verification, distribution, or skills related question."
+            ),
         )
 
     # ── Step 2: Build .NET payload ─────────────────────────────────────────
@@ -615,14 +683,14 @@ def admin_chat():
             502,
         )
 
-    # ── Step 4: Generate natural-language intro (single message) ──────────
+    # ── Step 4: Generate clean single-sentence intro ───────────────────────
     intro_message = _generate_intro_message(
         question=message,
         intent=intent_result,
         dotnet_data=dotnet_data,
     )
 
-    # ── Step 5: Build response_data ───────────────────────────────────────
+    # ── Step 5: Build response ─────────────────────────────────────────────
     response_data: Dict[str, Any] = {
         "dotnetPayload": dotnet_payload,
         "result":        dotnet_data if dotnet_data is not None else {},
