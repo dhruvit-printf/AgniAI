@@ -287,57 +287,83 @@ def _build_intro_prompt(
 
     return (
         "You are a military training management system assistant.\n\n"
-        "Write ONE short introductory sentence that will appear above retrieved data.\n\n"
-        "STRICT RULES — follow every rule, no exceptions:\n"
-        "1. Output EXACTLY one sentence. No more.\n"
-        "2. End with a period.\n"
-        "3. Be specific — include the count, section, or filter if available.\n"
-        "4. Do NOT start with 'Here is' or 'Here are'.\n"
-        "5. Do NOT include 'Note:', 'Please note', or any qualification.\n"
-        "6. Do NOT include any follow-up question.\n"
-        "7. Do NOT include markdown, bullet points, or JSON.\n"
-        "8. Do NOT explain what the data contains.\n"
-        "9. Use past tense — the data has already been retrieved.\n\n"
-        "GOOD examples:\n"
-        "- \"Top 5 BEPT performers have been retrieved.\"\n"
-        "- \"Monthly attendance summary for Platoon 3 has been retrieved.\"\n"
-        "- \"12 active medical cases have been retrieved.\"\n\n"
-        "BAD examples (do NOT produce these):\n"
-        "- \"Here are the top performers as requested.\"\n"
-        "- \"The data has been retrieved. Note: results may vary.\"\n"
-        "- \"Top performers retrieved! Would you like more details?\"\n\n"
+        "OUTPUT EXACTLY ONE SENTENCE. Nothing else. No preamble. No explanation.\n"
+        "Your ENTIRE output is the sentence itself — do not introduce it.\n\n"
+        "ABSOLUTE RULES:\n"
+        "1. ONE sentence. End with a period.\n"
+        "2. Do NOT start with 'Here is', 'Here are', 'Based on', or 'I'.\n"
+        "3. Do NOT include 'Note:', 'Please note', or any parenthetical.\n"
+        "4. Do NOT write 'Here is a possible introduction:' or anything like it.\n"
+        "5. Do NOT explain what you are doing. Just write the sentence.\n"
+        "6. Be specific — include count, section, or filter if available.\n"
+        "7. Use past tense — the data has already been retrieved.\n\n"
+        "CORRECT examples (your output should look exactly like these):\n"
+        "Top 5 BEPT performers have been retrieved.\n"
+        "12 active medical cases have been retrieved.\n"
+        "Monthly attendance summary for Platoon 3 has been retrieved.\n\n"
+        "WRONG — never output anything like this:\n"
+        "Here is the introductory sentence: Top 5 performers retrieved.\n"
+        "(Note: I kept this concise.)\n"
+        "Here's a possible intro: ...\n\n"
         f"Admin question: {question}\n\n"
         f"Context:\n{context_str}\n\n"
-        "Write the single introductory sentence now:"
+        "Your one sentence:"
     )
 
 
 def _sanitize_intro(text: str) -> str:
     """
     Post-process the LLM output to enforce clean single-sentence output.
-    Strips notes, qualifiers, follow-up questions, and extra sentences.
+    Strips notes, qualifiers, follow-up questions, and LLM meta-commentary.
     """
     import re
 
     text = text.strip().strip('"\'')
 
-    # Remove anything after "Note:", "Please note", "Note —", etc.
+    # --- Strip common LLM meta-commentary prefixes ---
+    # Catches: "Here is a possible introduction:", "Here's the intro:",
+    # "Here is the introductory sentence:", "Introduction:", etc.
+    meta_prefixes = re.compile(
+        r"^(?:"
+        r"here(?:'s| is)(?: a| the| my)?(?: possible| suggested?)?(?: introductory?| intro)?(?: sentence| line| message| response)?[:\s]*|"
+        r"(?:introductory?|intro|opening|response)\s+(?:sentence|line|message)[:\s]*|"
+        r"(?:a possible|suggested?) introduction[:\s]*|"
+        r"introduction[:\s]*|"
+        r"answer[:\s]*|"
+        r"response[:\s]*"
+        r")",
+        re.IGNORECASE,
+    )
+    text = meta_prefixes.sub("", text).strip()
+
+    # --- Strip parenthetical notes at end ---
+    # Catches: "(Note: I've written...)", "(I made this concise)"
+    text = re.sub(r"\s*\([^)]{0,200}\)\s*$", "", text).strip()
+
+    # --- Strip "Note:" lines anywhere ---
     text = re.sub(r"\s*[Nn]ote\s*[:—–-].*$", "", text, flags=re.DOTALL).strip()
     text = re.sub(r"\s*[Pp]lease note.*$", "", text, flags=re.DOTALL).strip()
 
-    # Keep only the first sentence
-    # Split on sentence-ending punctuation followed by space or end
+    # --- Keep only the first sentence ---
     sentences = re.split(r"(?<=[.!?])\s+", text)
     if sentences:
         text = sentences[0].strip()
 
-    # Remove trailing question marks (we don't want follow-up questions)
+    # --- Remove trailing question marks ---
     if text.endswith("?"):
         text = text.rstrip("?").rstrip() + "."
 
-    # Ensure ends with a period
+    # --- Ensure ends with a period ---
     if text and not text[-1] in ".!":
         text += "."
+
+    # --- Final cleanup: if result still looks like meta-commentary, discard it ---
+    meta_check = re.compile(
+        r"^(?:here(?:'s| is)|i(?:'ve| have)|based on|the following|as requested)",
+        re.IGNORECASE,
+    )
+    if meta_check.match(text):
+        return ""
 
     return text
 
