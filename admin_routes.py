@@ -163,51 +163,51 @@ def _build_greeting_response(body: Dict, session_id: str) -> tuple:
 # No "Note:", no qualifiers, no follow-up questions.
 _INTRO_TEMPLATES: Dict[tuple, str] = {
     # Performance
-    ("Performance", "TopPerformers"):      "The top performers are listed below.",
-    ("Performance", "LowestPerformers"):   "The lowest performers are listed below.",
-    ("Performance", "AverageScore"):       "The average score data is shown below.",
-    ("Performance", "PassPercentage"):     "The pass percentage data is shown below.",
-    ("Performance", "FailPercentage"):     "The fail percentage data is shown below.",
-    ("Performance", "GradeDistribution"):  "The grade distribution is shown below.",
-    ("Performance", "GradingSummary"):     "The grading summary is shown below.",
-    ("Performance", "OverallPerformance"): "The overall performance report is shown below.",
-    ("Performance", "Improvement"):        "Trainees showing score improvements are listed below.",
-    ("Performance", "Drop"):               "Trainees with score declines are listed below.",
-    ("Performance", "SectionSummary"):     "The section summary is shown below.",
-    ("Performance", "AttemptWise"):        "The attempt-wise analysis is shown below.",
-    ("Performance", "BestAttempt"):        "The best attempt data is shown below.",
-    ("Performance", "Comparison"):         "The performance comparison is shown below.",
+    ("Performance", "TopPerformers"):      "These assessment results highlight the strongest performers in the evaluation.",
+    ("Performance", "LowestPerformers"):   "These results identify the individuals requiring additional training support.",
+    ("Performance", "AverageScore"):       "The average scores outline overall achievement levels across the group.",
+    ("Performance", "PassPercentage"):     "Pass rates reflect the percentage of trainees meeting the assessment standards.",
+    ("Performance", "FailPercentage"):     "Fail rates identify the proportion of trainees currently below standard.",
+    ("Performance", "GradeDistribution"):  "The grade distribution shows overall qualification levels across the group.",
+    ("Performance", "GradingSummary"):     "The grading summary provides a breakdown of performance achievements.",
+    ("Performance", "OverallPerformance"): "Overall performance metrics highlight trainee progress and evaluation outcomes.",
+    ("Performance", "Improvement"):        "These records highlight the trainees showing positive performance growth.",
+    ("Performance", "Drop"):               "These trends identify trainees experiencing a decline in assessment scores.",
+    ("Performance", "SectionSummary"):     "The section summary provides a clear view of performance across individual modules.",
+    ("Performance", "AttemptWise"):        "Attempt-wise statistics track trainee progress across successive evaluation cycles.",
+    ("Performance", "BestAttempt"):        "Best attempt outcomes reflect peak trainee achievements in this evaluation.",
+    ("Performance", "Comparison"):         "This comparison highlights achievement differences across the selected categories.",
     # Leave
-    ("Leave", "MostLeaveTaken"):           "Personnel with the most leave taken are listed below.",
-    ("Leave", "LeastLeaveTaken"):          "Personnel with the least leave taken are listed below.",
-    ("Leave", "CurrentLeaveStatus"):       "The current leave status is shown below.",
-    ("Leave", "AbscondedPersonnel"):       "The list of absconded personnel is shown below.",
+    ("Leave", "MostLeaveTaken"):           "Leave patterns highlight the personnel with the highest absence rate.",
+    ("Leave", "LeastLeaveTaken"):          "Leave summaries identify the personnel with the highest duty presence.",
+    ("Leave", "CurrentLeaveStatus"):       "Current leave records outline personnel availability across the unit.",
+    ("Leave", "AbscondedPersonnel"):       "These records flag personnel currently absent without official leave.",
     # Medical
-    ("Medical", "ActiveCases"):            "Active medical cases are listed below.",
-    ("Medical", "BMIAnalysis"):            "The BMI and fitness analysis is shown below.",
-    ("Medical", "DiseaseStatistics"):      "The disease statistics are shown below.",
+    ("Medical", "ActiveCases"):            "This summary captures current active cases undergoing medical attention.",
+    ("Medical", "BMIAnalysis"):            "BMI records outline fitness levels and weight distribution across personnel.",
+    ("Medical", "DiseaseStatistics"):      "Health records highlight the most common medical cases reported recently.",
     # Attendance
-    ("Attendance", "MonthlyAttendance"):   "The monthly attendance statistics are shown below.",
-    ("Attendance", "PresentToday"):        "Today's attendance status is shown below.",
-    ("Attendance", "StrengthBreakdown"):   "The strength breakdown is shown below.",
+    ("Attendance", "MonthlyAttendance"):   "Monthly attendance trends provide a clear view of personnel participation.",
+    ("Attendance", "PresentToday"):        "Today's attendance records outline current personnel presence on campus.",
+    ("Attendance", "StrengthBreakdown"):   "The strength breakdown captures unit headcount and active personnel counts.",
     # Verification
-    ("Verification", "PendingVerification"):   "Pending verifications are listed below.",
-    ("Verification", "CompletedVerification"): "Completed verifications are listed below.",
+    ("Verification", "PendingVerification"):   "Verification files track documents currently awaiting official review.",
+    ("Verification", "CompletedVerification"): "These records confirm files that have cleared the verification process.",
     # Equipment
-    ("Equipment", "EquipmentSummary"):         "The equipment summary is shown below.",
-    ("Equipment", "OverdueEquipment"):         "The overdue equipment list is shown below.",
-    ("Equipment", "PoorConditionEquipment"):   "Equipment returned in poor condition is listed below.",
+    ("Equipment", "EquipmentSummary"):         "This inventory summary reflects current equipment counts and status.",
+    ("Equipment", "OverdueEquipment"):         "These records flag issued gear currently overdue for return.",
+    ("Equipment", "PoorConditionEquipment"):   "This quality review highlights equipment returned in sub-standard condition.",
     # Distribution
-    ("Distribution", "LatestDistribution"):    "The latest distribution data is shown below.",
-    ("Distribution", "DistributionByUnit"):    "The distribution by unit is shown below.",
-    ("Distribution", "UnassignedItems"):       "Unassigned items are listed below.",
-    ("Distribution", "TopUnit"):               "The top unit for distribution is shown below.",
+    ("Distribution", "LatestDistribution"):    "Recent distribution logs track the latest issue of supplies and gear.",
+    ("Distribution", "DistributionByUnit"):    "Distribution logs trace supply allocation across different units.",
+    ("Distribution", "UnassignedItems"):       "Supply records outline items currently unassigned to any unit.",
+    ("Distribution", "TopUnit"):               "This summary highlights the unit receiving the largest supply allocation.",
     # Skills
-    ("Skills", "BySport"):                     "The roster grouped by sport is shown below.",
-    ("Skills", "ByClass"):                     "The roster grouped by class is shown below.",
-    ("Skills", "BloodGroup"):                  "The blood group distribution is shown below.",
+    ("Skills", "BySport"):                     "Sport rosters track athletic participation and team assignments.",
+    ("Skills", "ByClass"):                     "Class rosters group personnel by their administrative designations.",
+    ("Skills", "BloodGroup"):                  "Medical profiles outline the blood group distribution across the group.",
     # Overall
-    ("Overall", "OverallRanking"):             "The overall composite ranking is shown below.",
+    ("Overall", "OverallRanking"):             "The overall rankings reflect those leading the composite evaluations.",
 }
 
 
@@ -288,29 +288,49 @@ def _build_intro_prompt(
     context_str = "\n".join(context_parts)
 
     return (
-        "You are a military training management system assistant.\n\n"
-        "OUTPUT EXACTLY ONE SENTENCE. Nothing else. No preamble. No explanation.\n"
-        "Your ENTIRE output is the sentence itself — do not introduce it.\n\n"
-        "ABSOLUTE RULES:\n"
-        "1. ONE sentence. End with a period.\n"
-        "2. Do NOT start with 'Here is', 'Here are', 'Based on', or 'I'.\n"
-        "3. Do NOT include 'Note:', 'Please note', or any parenthetical.\n"
-        "4. Do NOT write 'Here is a possible introduction:' or anything like it.\n"
-        "5. Do NOT explain what you are doing. Just write the sentence.\n"
-        "6. Be specific — include count, section, or filter if available.\n"
-        "7. Use an active, professional, and helpful tone to present the data (e.g. using 'Showing...', '...are shown below', or '...is listed below'). Avoid passive or robotic phrasing like 'has been retrieved' or 'have been retrieved'.\n\n"
-        "CORRECT examples (your output should look exactly like these):\n"
-        "The top 5 BEPT performers are listed below.\n"
-        "Showing 12 active medical cases.\n"
-        "Below are the monthly attendance statistics for the current month.\n"
-        "The monthly attendance summary for Platoon 3 is shown below.\n\n"
-        "WRONG — never output anything like this:\n"
-        "Here is the introductory sentence: Top 5 performers retrieved.\n"
-        "(Note: I kept this concise.)\n"
-        "Here's a possible intro: ...\n\n"
+        "You are AgniAI, an intelligent military training and administration assistant.\n\n"
+        "Your task is to generate a short introductory sentence for the requested data.\n\n"
+        "IMPORTANT RULES:\n"
+        "1. Return EXACTLY ONE sentence.\n"
+        "2. Maximum 8-20 words.\n"
+        "3. Sound like a professional assistant speaking to a human administrator.\n"
+        "4. Never sound like a database, API, report generator, or system log.\n"
+        "5. Never use:\n"
+        "   - retrieved\n"
+        "   - fetched\n"
+        "   - generated\n"
+        "   - extracted\n"
+        "   - pulled from database\n"
+        "   - shown below\n"
+        "   - listed below\n"
+        "   - available below\n"
+        "   - successfully\n"
+        "6. Do not mention technical operations.\n"
+        "7. Do not ask questions.\n"
+        "8. Do not use markdown, bullets, quotes, or explanations.\n"
+        "9. Each response should feel natural and conversational.\n"
+        "10. Use different phrasing every time while keeping the same meaning.\n"
+        "11. Acknowledge the user's request and provide context about what they are viewing.\n"
+        "12. Be confident, concise, and executive in tone.\n\n"
+        "GOOD EXAMPLES:\n"
+        "The latest attendance trends provide a clear view of personnel participation this month.\n"
+        "These assessment results highlight the strongest performers in BEPT.\n"
+        "Current leave patterns offer insight into personnel availability across the unit.\n"
+        "Recent performance data reveals the trainees making the most significant progress.\n"
+        "This overview captures the current medical status across affected personnel.\n"
+        "The latest rankings reflect those leading the selected evaluation.\n"
+        "Attendance records paint a clear picture of unit readiness this month.\n"
+        "Performance outcomes highlight the individuals setting the standard in this assessment cycle.\n"
+        "Current statistics offer a concise snapshot of activity across the selected group.\n\n"
+        "BAD EXAMPLES:\n"
+        "Data retrieved successfully.\n"
+        "Monthly attendance statistics have been retrieved.\n"
+        "The report is shown below.\n"
+        "Here are the results.\n"
+        "I have fetched the requested data.\n\n"
         f"Admin question: {question}\n\n"
         f"Context:\n{context_str}\n\n"
-        "Your one sentence:"
+        "Generate only the sentence and nothing else."
     )
 
 
@@ -429,7 +449,7 @@ def _generate_intro_message(
         return _INTRO_TEMPLATES[key]
 
     category_label = category or "requested"
-    return f"Showing the {category_label.lower()} data below."
+    return f"These records outline the current {category_label.lower()} status across the unit."
 
 
 # =============================================================================
