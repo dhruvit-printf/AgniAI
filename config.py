@@ -110,7 +110,6 @@ STYLE_MIN_WORDS = {
     "detail": int(os.getenv("STYLE_MIN_WORDS_DETAIL", "250")),
 }
 
-
 # =============================================================================
 # INTENT CLASSIFICATION PHRASE LISTS
 # =============================================================================
@@ -463,6 +462,7 @@ PROCESS_PHRASES = (
 # Used as step 7c in classify_intent to catch salary/pay/earn synonyms and
 # timeline queries that don't appear verbatim in DOMAIN_TERMS entries.
 # Using \b avoids false matches like "display" triggering "pay".
+
 _WORD_BOUNDARY_RAG_TERMS = re.compile(
     r"\b(?:"
     # Salary / pay synonyms
@@ -979,17 +979,20 @@ STRICT_RAG_PROMPT_COMPUTE = (
     "Use ONLY the provided reference. Do not use prior knowledge. "
     "Do not guess missing values. Do not extrapolate.\n\n"
     "HANDLING CONFLICTING SOURCES:\n"
+
     "If two retrieved chunks give different values for the same figure "
     "(for example, Year 3 in-hand salary is ₹25,550 in the official Army e-book "
     "and ₹25,580 in a 2026 lifecycle report), do NOT silently pick one. "
     "Report both, show which source says what, and note the discrepancy. "
     "Use the official Army e-book figure as primary but flag the conflict.\n\n"
+
     "COMPUTATION RULES:\n"
     "1. Before computing, identify every relevant row and figure in the reference.\n"
     "2. Only add, subtract, or multiply values explicitly present in the reference.\n"
     "3. Show your working transparently when summing across years or categories:\n"
     "   'Year 1: Rs X + Year 2: Rs Y + Year 3: Rs Z + Year 4: Rs W = Rs Total'\n"
     "   This lets the user verify your arithmetic.\n"
+
     "4. If the reference contains a numerical inconsistency "
     "   (Gross minus Deduction does not equal stated In-hand), "
     "   report it: 'Note: these figures do not balance — [show mismatch]. "

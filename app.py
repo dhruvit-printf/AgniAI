@@ -4,36 +4,6 @@ PORT CONFIGURATION:
   Python / Flask listens on port 5000  (this file — app.run port=5000)
   .NET AiCommand API runs on port 7257 (set via DOTNET_API_BASE_URL in .env)
   These MUST be different ports. Never point DOTNET_API_BASE_URL at 5000.
-
-Key changes vs original:
-  - Flask runs on port 5000 (not 7257 — that is the .NET port).
-  - _register_rate_limits(app) called after blueprint registration so
-    ADMIN_RATE_LIMIT is actually wired to /api/admin/chat.
-  - Non-RAG (chat) path now uses CHAT_SYSTEM_PROMPT from config.py so greetings,
-    patriotic slogans and aspirant motivation replies match what main.py CLI produces.
-  - RAG user message now includes the explicit "Using ONLY the reference information
-    above …" instruction (matches main.py's _build_rag_messages).
-  - Non-streaming RAG now calls chat_with_fallback directly (same path as main.py)
-    instead of going through generate_structured_answer.
-  - New FALLBACK_GENERAL path: when RAG retrieval finds nothing relevant
-    (mode == "strict_answer" with empty context) the bot answers from its own
-    general knowledge via CHAT_SYSTEM_PROMPT so the user always gets a helpful
-    reply instead of "Answer not found in the document."
-  - build_strict_messages in rag.py is monkey-patched locally via a wrapper so
-    we don't have to touch rag.py.
-  - /api/upload: accepts multipart/form-data file uploads from .NET backend,
-    saves to a temp file, ingests into FAISS + docstore, then deletes the temp
-    file. Supports pdf, txt, docx.
-  - Admin chatbot blueprint registered at /api/admin/* for admin-facing queries
-    that route through the .NET AiCommand/execute endpoint.
-  - Swagger UI blueprint registered at /docs for interactive API documentation.
-
-CORS FIX:
-  - ALLOWED_ORIGINS=* in .env allows any frontend origin (any port, any domain).
-  - supports_credentials=False is required when origins="*"; browsers reject
-    supports_credentials=True with wildcard origins as a security rule.
-  - Session tracking uses X-Session-Id header (not cookies), so credentials
-    mode is not needed.
 """
 
 from __future__ import annotations

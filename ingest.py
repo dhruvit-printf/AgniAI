@@ -4,22 +4,6 @@ ingest.py
 Ingestion pipeline for AgniAI.
 Supports: PDF files, web URLs, raw text strings, .txt files, and .docx files.
 
-Fixes in this version:
-  • chunk_text: start index can never go negative (edge case in overlap calc)
-  • CHUNK_MIN_WORDS merge: only merges into previous chunk if it's not already
-    over CHUNK_WORDS * 2 words (prevents runaway chunk growth)
-  • _source_already_ingested: normalises path strings before comparing so
-    Windows path variants don't cause double-ingestion
-  • ingest_text: unique label generation uses a timestamp suffix as tiebreaker
-    so concurrent ingests don't collide
-
-Upload additions (merged from updated version):
-  • _append_documents: accepts optional original_filename param — stored in
-    docstore so uploaded files record their real name, not the temp path.
-  • _append_documents: stores ingested_at timestamp in every docstore entry.
-  • _source_already_ingested: early-return guard when source is empty.
-  • ingest_pdf / ingest_txt / ingest_docx: accept optional original_filename
-    param forwarded from the /api/upload route in app.py.
 """
 
 import json

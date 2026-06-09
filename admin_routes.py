@@ -12,7 +12,7 @@ Flow for /api/admin/chat:
   1. Receive admin question from frontend
   2. classify_admin_intent()  → structured intent dict (Python internal)
   3. format_admin_payload()   → camelCase JSON payload for .NET
-     └─ includes commandId, batchId, platoonId from the frontend request
+     └─ includes commandId, batchId, platoonId, fullName from the frontend request
   4. POST payload to .NET     → https://<DOTNET_API_BASE_URL>/api/AiCommand/execute
   5. generate_intro_message() → LLM generates a natural-language intro sentence
   6. Return unified response  → { status, httpStatus, message: "<LLM intro>", data: { intent, dotnetPayload, result } }
@@ -24,7 +24,7 @@ RESPONSE ENVELOPE (single message field — the LLM intro sentence):
     "message": "The top 5 BEPT performers have been retrieved, ranked by their scores.",
     "data": {
       "intent":        { ...classified intent fields... },
-      "dotnetPayload": { ...what was sent to .NET, including commandId/batchId/platoonId... },
+      "dotnetPayload": { ...what was sent to .NET, including commandId/batchId/platoonId/fullName... },
       "data":          [ ...raw .NET response records... ],
       "commandLabel":  "...",
       "success":       true,
@@ -43,6 +43,7 @@ FRONTEND REQUEST FIELDS:
   commandId   — (optional, default 0) command ID filter for .NET
   batchId     — (optional, default 0) batch ID filter for .NET
   platoonId   — (optional, default 0) platoon ID filter for .NET
+  fullName    — (optional) full name of the commanding officer / user
 
 PORT SEPARATION:
   - Python / Flask  → port 5000  (python app.py)
@@ -67,7 +68,7 @@ import requests as _requests
 from flask import Blueprint, jsonify, request
 
 from admin_intent import classify_admin_intent, format_admin_payload
-from config import _is_greeting 
+from config import _is_greeting
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,57 @@ def _register_rate_limits(app):
             logger.info("Admin rate limit applied: %s", ADMIN_RATE_LIMIT)
     except Exception as exc:
         logger.warning("Could not register admin rate limit: %s", exc)
+
+
+# =============================================================================
+# SHARED GREETING BUILDER
+# =============================================================================
+
+def _build_greeting_response(body: Dict, session_id: str) -> tuple:
+    """
+    Single source of truth for all admin greeting responses.
+    Used by both admin_chat() and admin_classify() so the greeting
+    is NEVER overwritten or duplicated by a second block.
+
+    Priority for name: fullName → adminName → userName → commanderName → name → "Officer"
+    """
+    import datetime as _dt
+    import random
+
+    # ── Resolve name (fullName takes priority) ────────────────────────────
+    admin_name = (
+        body.get("fullName")
+        or body.get("adminName")
+        or body.get("userName")
+        or body.get("commanderName")
+        or body.get("commander_name")
+        or body.get("name")
+        or "Officer"
+    ).strip()
+
+    # ── Time-based greeting ───────────────────────────────────────────────
+    hour = _dt.datetime.now().hour
+    if 5 <= hour < 12:
+        time_greeting = "Good Morning"
+    elif 12 <= hour < 17:
+        time_greeting = "Good Afternoon"
+    else:
+        time_greeting = "Good Evening"
+
+    # ── Greeting variants ─────────────────────────────────────────────────
+    greetings = [
+        f"{time_greeting}, {admin_name}! Welcome back to AgniAI Command Console. What would you like to review today?",
+        f"{time_greeting}, {admin_name}. All systems are ready. How can I assist you today?",
+        f"{time_greeting}, {admin_name}. AgniAI is at your service. What would you like to analyze today?",
+        f"{time_greeting}, {admin_name}! Good to have you back. What insights can I pull up for you?",
+        f"{time_greeting}, {admin_name}. Ready for duty. What would you like to review today?",
+    ]
+
+    response_data: Dict[str, Any] = {"type": "greeting"}
+    if session_id and session_id != "admin-default":
+        response_data["sessionId"] = session_id
+
+    return response_data, random.choice(greetings)
 
 
 # =============================================================================
@@ -336,6 +388,15 @@ def _get_id_filters(data: Dict) -> Dict[str, int]:
     return filters
 
 
+def _get_full_name(data: Dict) -> str:
+    """Extract fullName from the request body (supports both camelCase and snake_case keys)."""
+    return (
+        data.get("fullName") or
+        data.get("full_name") or
+        ""
+    ).strip()
+
+
 def _call_dotnet(payload: Dict) -> tuple[Any, Optional[str]]:
     headers = {"Content-Type": "application/json"}
     if DOTNET_API_KEY:
@@ -404,6 +465,7 @@ def _error_response(message: str, http_status: int = 400, data: Optional[Dict] =
         "data":       data or {},
     }), http_status
 
+
 # =============================================================================
 # ROUTES
 # =============================================================================
@@ -445,56 +507,24 @@ def admin_classify():
     if not message:
         return _error_response("message field is required.", 400)
 
-    # ── Greeting short-circuit ─────────────────────────────────────────────────
     session_id = _get_session_id(body)
 
-    # ── Greeting short-circuit ─────────────────────────────────────────────────
-    if _is_greeting(message.lower().strip().rstrip("!?.,")):
-        commander_name = (
-            body.get("commanderName") or body.get("commander_name") or body.get("name") or "Officer"
-        ).strip().title()
-        commander_rank = (
-            body.get("commanderRank") or body.get("commander_rank") or body.get("rank") or ""
-        ).strip()
+    # ── Greeting short-circuit ─────────────────────────────────────────────
+    # Uses _build_greeting_response — single source of truth, reads fullName first
+    if _is_greeting(message.lower().strip().rstrip("!?.,;")):
+        response_data, greeting_message = _build_greeting_response(body, session_id)
+        return _success_response(response_data, message=greeting_message)
 
-        import datetime as _dt
-        hour = _dt.datetime.now().hour
-        time_greeting = (
-            "Good Morning" if 5 <= hour < 12 else
-            "Good Afternoon" if 12 <= hour < 17 else
-            "Good Evening"
-        )
-
-        _RANK_SHORT = {
-            "colonel": "Col", "lieutenant colonel": "Lt Col", "major": "Maj",
-            "captain": "Capt", "brigadier": "Brig", "general": "Gen",
-            "major general": "Maj Gen", "lieutenant general": "Lt Gen",
-            "platoon commander": "Plt Cdr", "commanding officer": "CO",
-            "wing commander": "Wg Cdr", "squadron leader": "Sqn Ldr",
-        }
-        short_rank = _RANK_SHORT.get(commander_rank.lower(), commander_rank)
-        salutation = f"{short_rank} {commander_name}".strip() if short_rank else commander_name
-
-        welcome = (
-            f"{time_greeting}, {salutation}. "
-            f"Welcome to AgniAI Command Intelligence. "
-            f"I'm ready to assist you with personnel performance, attendance, "
-            f"leave records, medical data, equipment status, and more. "
-            f"How can I help you today?"
-        )
-
-        response_data: Dict[str, Any] = {"type": "greeting"}
-        if session_id and session_id != "admin-default":
-            response_data["sessionId"] = session_id
-
-        return _success_response(response_data, message=welcome)
-
-    # ── Step 1: Classify intent ───────────────────────────────────────────────
-
+    # ── Classify intent ────────────────────────────────────────────────────
     id_filters     = _get_id_filters(body)
+    full_name      = _get_full_name(body)
+
     intent_result  = classify_admin_intent(message)
     dotnet_payload = format_admin_payload(intent_result)
     dotnet_payload.update(id_filters)
+
+    if full_name:
+        dotnet_payload["fullName"] = full_name
 
     return _success_response(
         {
@@ -512,7 +542,7 @@ def admin_chat():
 
     Full pipeline:
       1. Classify intent from admin's natural-language question
-      2. Build .NET payload (camelCase)
+      2. Build .NET payload (camelCase), including fullName if provided
       3. POST to .NET AiCommand/execute
       4. Generate natural-language intro via LLM
       5. Return unified structured response
@@ -521,14 +551,12 @@ def admin_chat():
       {
         "status":     true,
         "httpStatus": 200,
-        "message":    "<LLM intro sentence>",   ← THE only message
+        "message":    "<LLM intro sentence>",   <- THE only message
         "data": {
           "intent":        { ... },
           "dotnetPayload": { ... },
-          "data":          [ ... ],
-          "commandLabel":  "...",
-          "success":       true,
-          "sessionId":     "..."                 ← only if sent by frontend
+          "result":        [ ... ],
+          "sessionId":     "..."                 <- only if sent by frontend
         }
       }
     """
@@ -537,48 +565,14 @@ def admin_chat():
     message    = (body.get("message") or "").strip()
     session_id = _get_session_id(body)
     id_filters = _get_id_filters(body)
+    full_name  = _get_full_name(body)
 
-
+    # ── Greeting short-circuit ─────────────────────────────────────────────
+    # Uses _build_greeting_response — single source of truth, reads fullName first.
+    # This is the ONLY greeting block. No second block exists below.
     if _is_greeting(message.lower().strip().rstrip("!?.,;")):
-
-        admin_name = (
-            body.get("adminName")
-            or body.get("userName")
-            or body.get("name")
-            or "Admin"
-        ).strip()
-
-        import datetime as dt
-        hour = dt.datetime.now().hour
-
-        if 5 <= hour < 12:
-            greeting = "Good Morning"
-        elif 12 <= hour < 17:
-            greeting = "Good Afternoon"
-        else:
-            greeting = "Good Evening"
-
-        greetings = [
-            f"{greeting}, {admin_name}. Welcome back to AgniAI Admin Console. What would you like to review today?",
-            f"{greeting}, {admin_name}. Ready to assist with performance, attendance, leave, medical, and operational reports.",
-            f"Hello {admin_name}. AgniAI Admin Dashboard is ready. How may I assist you today?",
-            f"Welcome back, {admin_name}. I'm ready to help you analyze personnel and operational data.",
-            f"{greeting}, {admin_name}. What insights would you like to explore today?"
-        ]
-
-        import random
-
-        response_data = {
-            "type": "greeting"
-        }
-
-        if session_id and session_id != "admin-default":
-            response_data["sessionId"] = session_id
-
-        return _success_response(
-            response_data,
-            message=random.choice(greetings)
-        )
+        response_data, greeting_message = _build_greeting_response(body, session_id)
+        return _success_response(response_data, message=greeting_message)
 
     if not message:
         return _error_response("message field is required and cannot be empty.", 400)
@@ -595,16 +589,19 @@ def admin_chat():
 
     elapsed_ms = lambda: round((time.time() - start_time) * 1000)
 
-    # ── Unrecognised query → RAG / general chat ───────────────────────────
+    # ── Unrecognised query ─────────────────────────────────────────────────
     if intent_result.get("category") is None:
         return _success_response(
-             {"type": "unknown"},
-             message="Please ask a performance, leave, attendance, medical, equipment, verification, distribution, or skills related question."
-    )
+            {"type": "unknown"},
+            message="Please ask a performance, leave, attendance, medical, equipment, verification, distribution, or skills related question."
+        )
 
     # ── Step 2: Build .NET payload ─────────────────────────────────────────
     dotnet_payload = format_admin_payload(intent_result)
     dotnet_payload.update(id_filters)
+
+    if full_name:
+        dotnet_payload["fullName"] = full_name
 
     logger.info("Sending to .NET: %s", json.dumps(dotnet_payload))
 
@@ -626,18 +623,11 @@ def admin_chat():
     )
 
     # ── Step 5: Build response_data ───────────────────────────────────────
-    # Shape:
-    # {
-    #   "dotnetPayload": { ...what was sent to .NET... },
-    #   "result":        { ...raw .NET response... },
-    #   "sessionId":     "..." (only if frontend sent one)
-    # }
     response_data: Dict[str, Any] = {
         "dotnetPayload": dotnet_payload,
         "result":        dotnet_data if dotnet_data is not None else {},
     }
 
-    # Include sessionId only if the frontend sent one
     if session_id and session_id != "admin-default":
         response_data["sessionId"] = session_id
 
@@ -647,5 +637,4 @@ def admin_chat():
         elapsed_ms(),
     )
 
-    # Single message at the top level — intro_message is the LLM sentence
     return _success_response(response_data, message=intro_message)

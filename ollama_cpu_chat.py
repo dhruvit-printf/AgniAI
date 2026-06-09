@@ -3,13 +3,6 @@ ollama_cpu_chat.py
 ==================
 CPU-optimised Ollama streaming client for AgniAI.
 
-Changes vs original:
-  • Default is "10m". Set OLLAMA_KEEP_ALIVE=-1 to keep model loaded indefinitely.
-    NOTE: Some Ollama versions may reject "-1", so AgniAI falls back gracefully.
-  • MODEL_NAME updated to q4_K_M quantized variant
-  • _default_num_thread: removed hard cap of 4, uses all physical cores - 1
-  • Added _start_keepalive_heartbeat() to ping Ollama periodically so the
-    model is never evicted even if keep_alive is overridden externally
 """
 
 from __future__ import annotations
