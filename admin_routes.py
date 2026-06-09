@@ -163,49 +163,51 @@ def _build_greeting_response(body: Dict, session_id: str) -> tuple:
 # No "Note:", no qualifiers, no follow-up questions.
 _INTRO_TEMPLATES: Dict[tuple, str] = {
     # Performance
-    ("Performance", "TopPerformers"):      "Top performers have been retrieved.",
-    ("Performance", "LowestPerformers"):   "Lowest performers have been retrieved.",
-    ("Performance", "AverageScore"):       "Average score data has been retrieved.",
-    ("Performance", "PassPercentage"):     "Pass percentage data has been retrieved.",
-    ("Performance", "FailPercentage"):     "Fail percentage data has been retrieved.",
-    ("Performance", "GradeDistribution"):  "Grade distribution data has been retrieved.",
-    ("Performance", "GradingSummary"):     "Grading summary has been retrieved.",
-    ("Performance", "OverallPerformance"): "Overall performance report has been retrieved.",
-    ("Performance", "Improvement"):        "Improvement data has been retrieved.",
-    ("Performance", "Drop"):               "Score drop data has been retrieved.",
-    ("Performance", "SectionSummary"):     "Section summary has been retrieved.",
-    ("Performance", "AttemptWise"):        "Attempt-wise analysis has been retrieved.",
-    ("Performance", "BestAttempt"):        "Best attempt data has been retrieved.",
-    ("Performance", "Comparison"):         "Performance comparison has been retrieved.",
+    ("Performance", "TopPerformers"):      "The top performers are listed below.",
+    ("Performance", "LowestPerformers"):   "The lowest performers are listed below.",
+    ("Performance", "AverageScore"):       "The average score data is shown below.",
+    ("Performance", "PassPercentage"):     "The pass percentage data is shown below.",
+    ("Performance", "FailPercentage"):     "The fail percentage data is shown below.",
+    ("Performance", "GradeDistribution"):  "The grade distribution is shown below.",
+    ("Performance", "GradingSummary"):     "The grading summary is shown below.",
+    ("Performance", "OverallPerformance"): "The overall performance report is shown below.",
+    ("Performance", "Improvement"):        "Trainees showing score improvements are listed below.",
+    ("Performance", "Drop"):               "Trainees with score declines are listed below.",
+    ("Performance", "SectionSummary"):     "The section summary is shown below.",
+    ("Performance", "AttemptWise"):        "The attempt-wise analysis is shown below.",
+    ("Performance", "BestAttempt"):        "The best attempt data is shown below.",
+    ("Performance", "Comparison"):         "The performance comparison is shown below.",
     # Leave
-    ("Leave", "MostLeaveTaken"):           "Personnel with most leave have been retrieved.",
-    ("Leave", "LeastLeaveTaken"):          "Personnel with least leave have been retrieved.",
-    ("Leave", "CurrentLeaveStatus"):       "Current leave status has been retrieved.",
-    ("Leave", "AbscondedPersonnel"):       "Absconded personnel list has been retrieved.",
+    ("Leave", "MostLeaveTaken"):           "Personnel with the most leave taken are listed below.",
+    ("Leave", "LeastLeaveTaken"):          "Personnel with the least leave taken are listed below.",
+    ("Leave", "CurrentLeaveStatus"):       "The current leave status is shown below.",
+    ("Leave", "AbscondedPersonnel"):       "The list of absconded personnel is shown below.",
     # Medical
-    ("Medical", "ActiveCases"):            "Active medical cases have been retrieved.",
-    ("Medical", "BMIAnalysis"):            "BMI and fitness analysis has been retrieved.",
-    ("Medical", "DiseaseStatistics"):      "Disease statistics have been retrieved.",
+    ("Medical", "ActiveCases"):            "Active medical cases are listed below.",
+    ("Medical", "BMIAnalysis"):            "The BMI and fitness analysis is shown below.",
+    ("Medical", "DiseaseStatistics"):      "The disease statistics are shown below.",
     # Attendance
-    ("Attendance", "MonthlyAttendance"):   "Monthly attendance summary has been retrieved.",
-    ("Attendance", "PresentToday"):        "Today's attendance status has been retrieved.",
-    ("Attendance", "StrengthBreakdown"):   "Strength breakdown has been retrieved.",
+    ("Attendance", "MonthlyAttendance"):   "The monthly attendance statistics are shown below.",
+    ("Attendance", "PresentToday"):        "Today's attendance status is shown below.",
+    ("Attendance", "StrengthBreakdown"):   "The strength breakdown is shown below.",
     # Verification
-    ("Verification", "PendingVerification"):   "Pending verifications have been retrieved.",
-    ("Verification", "CompletedVerification"): "Completed verifications have been retrieved.",
+    ("Verification", "PendingVerification"):   "Pending verifications are listed below.",
+    ("Verification", "CompletedVerification"): "Completed verifications are listed below.",
     # Equipment
-    ("Equipment", "EquipmentSummary"):         "Equipment summary has been retrieved.",
-    ("Equipment", "OverdueEquipment"):         "Overdue equipment list has been retrieved.",
-    ("Equipment", "PoorConditionEquipment"):   "Equipment returned in poor condition has been retrieved.",
+    ("Equipment", "EquipmentSummary"):         "The equipment summary is shown below.",
+    ("Equipment", "OverdueEquipment"):         "The overdue equipment list is shown below.",
+    ("Equipment", "PoorConditionEquipment"):   "Equipment returned in poor condition is listed below.",
     # Distribution
-    ("Distribution", "LatestDistribution"):    "Latest distribution data has been retrieved.",
-    ("Distribution", "DistributionByUnit"):    "Distribution by unit has been retrieved.",
-    ("Distribution", "UnassignedItems"):       "Unassigned items have been retrieved.",
-    ("Distribution", "TopUnit"):               "Top unit for distribution has been retrieved.",
+    ("Distribution", "LatestDistribution"):    "The latest distribution data is shown below.",
+    ("Distribution", "DistributionByUnit"):    "The distribution by unit is shown below.",
+    ("Distribution", "UnassignedItems"):       "Unassigned items are listed below.",
+    ("Distribution", "TopUnit"):               "The top unit for distribution is shown below.",
     # Skills
-    ("Skills", "BySport"):                     "Roster grouped by sport has been retrieved.",
-    ("Skills", "ByClass"):                     "Roster grouped by class has been retrieved.",
-    ("Skills", "BloodGroup"):                  "Blood group distribution has been retrieved.",
+    ("Skills", "BySport"):                     "The roster grouped by sport is shown below.",
+    ("Skills", "ByClass"):                     "The roster grouped by class is shown below.",
+    ("Skills", "BloodGroup"):                  "The blood group distribution is shown below.",
+    # Overall
+    ("Overall", "OverallRanking"):             "The overall composite ranking is shown below.",
 }
 
 
@@ -296,11 +298,12 @@ def _build_intro_prompt(
         "4. Do NOT write 'Here is a possible introduction:' or anything like it.\n"
         "5. Do NOT explain what you are doing. Just write the sentence.\n"
         "6. Be specific — include count, section, or filter if available.\n"
-        "7. Use past tense — the data has already been retrieved.\n\n"
+        "7. Use an active, professional, and helpful tone to present the data (e.g. using 'Showing...', '...are shown below', or '...is listed below'). Avoid passive or robotic phrasing like 'has been retrieved' or 'have been retrieved'.\n\n"
         "CORRECT examples (your output should look exactly like these):\n"
-        "Top 5 BEPT performers have been retrieved.\n"
-        "12 active medical cases have been retrieved.\n"
-        "Monthly attendance summary for Platoon 3 has been retrieved.\n\n"
+        "The top 5 BEPT performers are listed below.\n"
+        "Showing 12 active medical cases.\n"
+        "Below are the monthly attendance statistics for the current month.\n"
+        "The monthly attendance summary for Platoon 3 is shown below.\n\n"
         "WRONG — never output anything like this:\n"
         "Here is the introductory sentence: Top 5 performers retrieved.\n"
         "(Note: I kept this concise.)\n"
@@ -426,7 +429,7 @@ def _generate_intro_message(
         return _INTRO_TEMPLATES[key]
 
     category_label = category or "requested"
-    return f"{category_label} data has been retrieved."
+    return f"Showing the {category_label.lower()} data below."
 
 
 # =============================================================================
