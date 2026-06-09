@@ -216,16 +216,6 @@ def _build_intro_prompt(
     intent: Dict[str, Any],
     dotnet_data: Any,
 ) -> str:
-    """
-    Build the LLM prompt for generating a single clean intro sentence.
-
-    Rules enforced in the prompt:
-    - Exactly ONE sentence, ending with a period.
-    - No "Note:", no "Please note", no qualifiers, no follow-up questions.
-    - No markdown, no bullet points, no JSON.
-    - Specific: mention count, section, or filter when present.
-    - Do NOT start with "Here is" or "Here are".
-    """
     category    = intent.get("category", "")
     subcategory = intent.get("subcategory", "")
     number      = intent.get("number")
@@ -235,33 +225,6 @@ def _build_intro_prompt(
     unit_name   = intent.get("unit_name", "")
     sport       = intent.get("sport", "")
     class_name  = intent.get("class", "")
-
-    # Build a compact data summary for context
-    data_summary = ""
-    try:
-        actual_data = dotnet_data
-        if isinstance(dotnet_data, dict):
-            actual_data = (
-                dotnet_data.get("data") or
-                dotnet_data.get("Data") or
-                dotnet_data.get("result") or
-                dotnet_data
-            )
-        if isinstance(actual_data, list) and actual_data:
-            data_summary = f"{len(actual_data)} record(s) returned."
-        elif isinstance(actual_data, dict):
-            count = (
-                actual_data.get("total") or
-                actual_data.get("count") or
-                actual_data.get("Count") or
-                actual_data.get("Total")
-            )
-            if count is not None:
-                data_summary = f"Total count: {count}."
-        elif isinstance(actual_data, (int, float)):
-            data_summary = f"Result value: {actual_data}."
-    except Exception:
-        pass
 
     context_parts = []
     if category:
@@ -273,7 +236,7 @@ def _build_intro_prompt(
     if section:
         context_parts.append(f"Section filter: {section}")
     if leave_type:
-        context_parts.append(f"Leave type filter: {leave_type}")
+        context_parts.append(f"Leave type: {leave_type}")
     if grading:
         context_parts.append(f"Grading filter: {grading}")
     if unit_name:
@@ -282,70 +245,46 @@ def _build_intro_prompt(
         context_parts.append(f"Sport filter: {sport}")
     if class_name:
         context_parts.append(f"Class filter: {class_name}")
-    if data_summary:
-        context_parts.append(data_summary)
 
     context_str = "\n".join(context_parts)
 
     return (
-        "You are AgniAI, an intelligent military training and administration assistant.\n\n"
-        "Your task is to generate a short introductory sentence for the requested data.\n\n"
-        "IMPORTANT RULES:\n"
-        "1. Return EXACTLY ONE sentence.\n"
-        "2. Maximum 8-20 words.\n"
-        "3. Sound like a professional assistant speaking to a human administrator.\n"
-        "4. Never sound like a database, API, report generator, or system log.\n"
-        "5. Never use:\n"
-        "   - retrieved\n"
-        "   - fetched\n"
-        "   - generated\n"
-        "   - extracted\n"
-        "   - pulled from database\n"
-        "   - shown below\n"
-        "   - listed below\n"
-        "   - available below\n"
-        "   - successfully\n"
-        "6. Do not mention technical operations.\n"
+        "You are AgniAI, an intelligent military training assistant.\n\n"
+        "Generate ONE short introductory sentence for the data being shown to the admin.\n\n"
+        "STRICT RULES — violating any rule makes the response useless:\n"
+        "1. ONE sentence only. End with a period.\n"
+        "2. 10 to 20 words maximum.\n"
+        "3. NEVER mention any person's name, rank, or ID.\n"
+        "4. NEVER mention any score, number, percentage, or statistic.\n"
+        "5. NEVER say what the result is — only describe what type of data is shown.\n"
+        "6. NEVER use: retrieved, fetched, generated, extracted, shown below, listed below.\n"
         "7. Do not ask questions.\n"
-        "8. Do not use markdown, bullets, quotes, or explanations.\n"
-        "9. Each response should feel natural and conversational.\n"
-        "10. Use different phrasing every time while keeping the same meaning.\n"
-        "11. Acknowledge the user's request and provide context about what they are viewing.\n"
-        "12. Be confident, concise, and executive in tone.\n\n"
+        "8. No markdown, no bullets, no quotes.\n"
+        "9. Sound like a professional assistant introducing a report, not a database.\n\n"
         "GOOD EXAMPLES:\n"
-        "The latest attendance trends provide a clear view of personnel participation this month.\n"
-        "These assessment results highlight the strongest performers in BEPT.\n"
-        "Current leave patterns offer insight into personnel availability across the unit.\n"
-        "Recent performance data reveals the trainees making the most significant progress.\n"
-        "This overview captures the current medical status across affected personnel.\n"
-        "The latest rankings reflect those leading the selected evaluation.\n"
-        "Attendance records paint a clear picture of unit readiness this month.\n"
-        "Performance outcomes highlight the individuals setting the standard in this assessment cycle.\n"
-        "Current statistics offer a concise snapshot of activity across the selected group.\n\n"
-        "BAD EXAMPLES:\n"
-        "Data retrieved successfully.\n"
-        "Monthly attendance statistics have been retrieved.\n"
-        "The report is shown below.\n"
-        "Here are the results.\n"
-        "I have fetched the requested data.\n\n"
+        "Attempt-wise improvement data is ready for your review.\n"
+        "Here is the leave status across personnel for the current period.\n"
+        "Performance rankings for the selected section are available below.\n"
+        "Medical case details for the unit are outlined here.\n"
+        "Equipment status across the inventory is summarised below.\n\n"
+        "BAD EXAMPLES (never do this):\n"
+        "Private Johnson showed the greatest improvement. (mentions a name)\n"
+        "The top scorer achieved 94 points. (mentions a number)\n"
+        "3 personnel are currently on leave. (mentions a count)\n"
+        "Data retrieved successfully. (system language)\n"
+        "Here are the results. (too vague and generic)\n\n"
         f"Admin question: {question}\n\n"
         f"Context:\n{context_str}\n\n"
-        "Generate only the sentence and nothing else."
+        "Generate only the sentence."
     )
 
 
 def _sanitize_intro(text: str) -> str:
-    """
-    Post-process the LLM output to enforce clean single-sentence output.
-    Strips notes, qualifiers, follow-up questions, and LLM meta-commentary.
-    """
     import re
 
     text = text.strip().strip('"\'')
 
-    # --- Strip common LLM meta-commentary prefixes ---
-    # Catches: "Here is a possible introduction:", "Here's the intro:",
-    # "Here is the introductory sentence:", "Introduction:", etc.
+    # Strip LLM meta-commentary prefixes
     meta_prefixes = re.compile(
         r"^(?:"
         r"here(?:'s| is)(?: a| the| my)?(?: possible| suggested?)?(?: introductory?| intro)?(?: sentence| line| message| response)?[:\s]*|"
@@ -359,28 +298,43 @@ def _sanitize_intro(text: str) -> str:
     )
     text = meta_prefixes.sub("", text).strip()
 
-    # --- Strip parenthetical notes at end ---
-    # Catches: "(Note: I've written...)", "(I made this concise)"
+    # Strip parenthetical notes
     text = re.sub(r"\s*\([^)]{0,200}\)\s*$", "", text).strip()
 
-    # --- Strip "Note:" lines anywhere ---
+    # Strip "Note:" lines
     text = re.sub(r"\s*[Nn]ote\s*[:—–-].*$", "", text, flags=re.DOTALL).strip()
     text = re.sub(r"\s*[Pp]lease note.*$", "", text, flags=re.DOTALL).strip()
 
-    # --- Keep only the first sentence ---
+    # Keep only first sentence
     sentences = re.split(r"(?<=[.!?])\s+", text)
     if sentences:
         text = sentences[0].strip()
 
-    # --- Remove trailing question marks ---
+    # Remove trailing question marks
     if text.endswith("?"):
         text = text.rstrip("?").rstrip() + "."
 
-    # --- Ensure ends with a period ---
-    if text and not text[-1] in ".!":
+    # Ensure ends with period
+    if text and text[-1] not in ".!":
         text += "."
 
-    # --- Final cleanup: if result still looks like meta-commentary, discard it ---
+    # REJECT if it contains a number (score, count, percentage)
+    if re.search(r"\b\d+\b", text):
+        return ""
+
+    # REJECT if it contains a capitalised word that looks like a proper noun
+    # (names like "Johnson", "Ravi", "Alpha Unit" — excludes first word of sentence)
+    words = text.split()
+    for word in words[1:]:
+        clean_word = re.sub(r"[^A-Za-z]", "", word)
+        if clean_word and clean_word[0].isupper() and clean_word.lower() not in {
+            "agniveer", "bept", "ppt", "drill", "firing", "medical",
+            "attendance", "leave", "equipment", "performance", "verification",
+            "distribution", "skills", "unit", "platoon", "batch",
+        }:
+            return ""
+
+    # Reject meta-commentary
     meta_check = re.compile(
         r"^(?:here(?:'s| is)|i(?:'ve| have)|based on|the following|as requested)",
         re.IGNORECASE,
