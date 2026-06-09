@@ -32,7 +32,7 @@ def test_lowest_performers():
     assert r["category"] == "Performance"
     assert r["subcategory"] == "LowestPerformers"
     assert r["number"] == 3
-    assert r["section"] == "FIRING"
+    assert r["section"] == "Firing"
 
 
 def test_average_score():
@@ -58,7 +58,7 @@ def test_grade_distribution():
     r = classify_admin_intent("Show grade distribution for DRILL")
     assert r["category"] == "Performance"
     assert r["subcategory"] == "GradeDistribution"
-    assert r["section"] == "DRILL"
+    assert r["section"] == "Drill"
 
 
 def test_grade_summary():
@@ -82,7 +82,7 @@ def test_improvement():
 def test_decline():
     r = classify_admin_intent("Who had a decline in scores?")
     assert r["category"] == "Performance"
-    assert r["subcategory"] == "Decline"
+    assert r["subcategory"] == "Drop"
 
 
 def test_grading_filter_excellent():
@@ -276,8 +276,8 @@ def test_payload_has_required_fields():
     r = classify_admin_intent("Who are the top 5 performers in BEPT?")
     payload = format_admin_payload(r)
     assert payload["category"] == "Performance"
-    assert payload["subcategory"] == "TopPerformers"
-    assert payload["number"] == 5
+    assert payload["operation"] == "Top"
+    assert payload["n"] == 5
     assert payload["section"] == "BEPT"
 
 

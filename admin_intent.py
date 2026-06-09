@@ -469,6 +469,242 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
 
 
 # =============================================================================
+# ADMIN-SPECIFIC QUERY NORMALISATION
+# =============================================================================
+
+# Fuzzy vocabulary for the admin domain — fixes common misspellings and
+# case variants before the classifier sees the query.
+# Keys are always lowercase.  Values are the canonical lowercase forms
+# used in the keyword lists above.  Section tokens are later restored to
+# their exact casing by _ADMIN_CANONICAL_CASE.
+ADMIN_FUZZY_VOCAB: Dict[str, str] = {
+    # ── Module names ───────────────────────────────────────────────────
+    "performace":    "performance",
+    "performence":   "performance",
+    "prefomance":    "performance",
+    "preformance":   "performance",
+    "performnce":    "performance",
+    "performanc":    "performance",
+    "attendence":    "attendance",
+    "attendnce":     "attendance",
+    "attendanc":     "attendance",
+    "atendance":     "attendance",
+    "attandance":    "attendance",
+    "verfication":   "verification",
+    "verifcation":   "verification",
+    "verificaton":   "verification",
+    "varification":  "verification",
+    "veriification": "verification",
+    "distribtion":   "distribution",
+    "distributon":   "distribution",
+    "distibution":   "distribution",
+    "distribusion":  "distribution",
+    "equipement":    "equipment",
+    "equiptment":    "equipment",
+    "equipmnt":      "equipment",
+    "equpment":      "equipment",
+    "meical":        "medical",
+    "medicl":        "medical",
+    "medcal":        "medical",
+    "meddical":      "medical",
+    "medicall":      "medical",
+    # ── Section names ─────────────────────────────────────────────────
+    # These are corrected to lowercase here; _ADMIN_CANONICAL_CASE then
+    # restores the exact casing expected by _extract_section().
+    "beptt":         "bept",
+    "bpet":          "bept",
+    "betp":          "bept",
+    "pptt":          "ppt",
+    "fiiring":       "firing",
+    "firng":         "firing",
+    "fring":         "firing",
+    "fireing":       "firing",
+    "drll":          "drill",
+    "dril":          "drill",
+    "drile":         "drill",
+    # ── Operation / result words ───────────────────────────────────────
+    "performrs":     "performers",
+    "preformers":    "performers",
+    "perfomers":     "performers",
+    "performas":     "performers",
+    "bottm":         "bottom",
+    "lowst":         "lowest",
+    "loest":         "lowest",
+    "hihest":        "highest",
+    "higest":        "highest",
+    "higgest":       "highest",
+    "avrage":        "average",
+    "averge":        "average",
+    "averag":        "average",
+    "avrg":          "average",
+    "improvment":    "improvement",
+    "improvemnt":    "improvement",
+    "imporvement":   "improvement",
+    "percentge":     "percentage",
+    "percntage":     "percentage",
+    "percenage":     "percentage",
+    "gradig":        "grading",
+    "gradng":        "grading",
+    "gradeing":      "grading",
+    "sumary":        "summary",
+    "summry":        "summary",
+    "sumarry":       "summary",
+    "comparson":     "comparison",
+    "comparsion":    "comparison",
+    "comparision":   "comparison",
+    "attmpt":        "attempt",
+    "attepmpt":      "attempt",
+    "attemp":        "attempt",
+    "atempt":        "attempt",
+    # ── Leave ─────────────────────────────────────────────────────────
+    "leeve":         "leave",
+    "leve":          "leave",
+    "leav":          "leave",
+    "abscnded":      "absconded",
+    "absconed":      "absconded",
+    "absconede":     "absconded",
+    "abscondd":      "absconded",
+    # ── Attendance ────────────────────────────────────────────────────
+    "presnt":        "present",
+    "preent":        "present",
+    "presentt":      "present",
+    "campas":        "campus",
+    "campuss":       "campus",
+    "strenght":      "strength",
+    "strengh":       "strength",
+    "stength":       "strength",
+    "montly":        "monthly",
+    "monthyl":       "monthly",
+    "monthl":        "monthly",
+    # ── Equipment ─────────────────────────────────────────────────────
+    "overdeu":       "overdue",
+    "overdu":        "overdue",
+    "overdued":      "overdue",
+    "condtion":      "condition",
+    "condiiton":     "condition",
+    "conditon":      "condition",
+    # ── Skills / roster ───────────────────────────────────────────────
+    "blod":          "blood",
+    "bloog":         "blood",
+    "sportt":        "sport",
+    "sprot":         "sport",
+    "classs":        "class",
+    "claas":         "class",
+    "rosster":       "roster",
+    "rostr":         "roster",
+    # ── Common query words ────────────────────────────────────────────
+    "shoow":         "show",
+    "shw":           "show",
+    "lst":           "list",
+    "listt":         "list",
+    "gve":           "give",
+    "givee":         "give",
+    "whch":          "which",
+    "whcih":         "which",
+    "waht":          "what",
+    "hwo":           "how",
+    "mny":           "many",
+    "mant":          "many",
+    "mannay":        "many",
+    "todya":         "today",
+    "todday":        "today",
+    "toady":         "today",
+    "persnnel":      "personnel",
+    "personel":      "personnel",
+    "personnnel":    "personnel",
+    "persnonel":     "personnel",
+    "traineee":      "trainee",
+    "tainee":        "trainee",
+    "agniverr":      "agniveer",
+    "agniver":       "agniveer",
+    # ── Grading ───────────────────────────────────────────────────────
+    "excelent":      "excellent",
+    "excellnt":      "excellent",
+    "excellentt":    "excellent",
+    "exeptional":    "exceptional",
+    "exceptonal":    "exceptional",
+    "satifactory":   "satisfactory",
+    # ── Unit / distribution ───────────────────────────────────────────
+    "unassignd":     "unassigned",
+    "unasigned":     "unassigned",
+    "unassiged":     "unassigned",
+    "distribted":    "distributed",
+    "distrubted":    "distributed",
+}
+
+# Tokens whose casing must be restored after fuzzy correction so that
+# _extract_section() (exact-string lookup in _SECTION_MAP) works correctly
+# regardless of how the user typed the section name.
+_ADMIN_CANONICAL_CASE: Dict[str, str] = {
+    "bept":   "BEPT",
+    "ppt":    "PPT",
+    "firing": "Firing",
+    "drill":  "Drill",
+}
+
+
+def admin_normalize_query(query: str) -> str:
+    """
+    Normalise an admin chat query before intent classification.
+
+    Steps
+    -----
+    1. Strip leading/trailing whitespace (internal spacing is preserved
+       so the raw_query stored in intent results remains human-readable).
+    2. Word-by-word fuzzy correction via ADMIN_FUZZY_VOCAB so that
+       misspellings ("performace", "bpet", "avrage", "attendence", …)
+       and case variants ("BEPT", "Bept", "bEPT") are mapped to forms
+       the keyword matchers recognise.
+    3. Canonical-casing restoration for section tokens (BEPT, PPT,
+       Firing, Drill) so _extract_section() matches them exactly.
+
+    This function is intentionally separate from
+    config._fuzzy_normalize_query() which targets Agniveer recruitment
+    vocabulary (salary, eligibility, seva nidhi, …).  Admin vocabulary
+    is completely different and the two vocabs must not interfere.
+
+    The function does NOT lowercase the whole query — the classifier's
+    own _normalise() handles that internally.  We only fix individual
+    tokens so names, numbers, and unit strings arrive un-mangled.
+    """
+    if not query:
+        return query
+
+    words = query.split()
+    out: List[str] = []
+
+    for word in words:
+        # Peel trailing punctuation so it doesn't break dict lookup,
+        # then reattach it after correction.
+        suffix = ""
+        core = word
+        while core and core[-1] in "?.,!:;":
+            suffix = core[-1] + suffix
+            core = core[:-1]
+
+        if not core:
+            out.append(word)
+            continue
+
+        lower_core = core.lower()
+
+        # Step 1 — fuzzy spelling correction (keyed by lowercase)
+        fixed = ADMIN_FUZZY_VOCAB.get(lower_core)
+        if fixed is not None:
+            core = fixed
+            lower_core = fixed
+
+        # Step 2 — canonical casing for section / special tokens
+        canonical_cased = _ADMIN_CANONICAL_CASE.get(lower_core)
+        if canonical_cased is not None:
+            core = canonical_cased
+
+        out.append(core + suffix)
+
+    return " ".join(out)
+
+
+# =============================================================================
 # FILTER VALUE MAPS
 # Exact values accepted by .NET per the API documentation.
 # =============================================================================

@@ -59,7 +59,7 @@ from typing import Any, Dict, Optional
 import requests as _requests
 from flask import Blueprint, jsonify, request
 
-from admin_intent import classify_admin_intent, format_admin_payload
+from admin_intent import admin_normalize_query, classify_admin_intent, format_admin_payload
 from config import _is_greeting
 
 logger = logging.getLogger(__name__)
@@ -575,6 +575,7 @@ def admin_classify():
     id_filters    = _get_id_filters(body)
     full_name     = _get_full_name(body)
 
+    message = admin_normalize_query(message)
     intent_result  = classify_admin_intent(message)
     dotnet_payload = format_admin_payload(intent_result)
     dotnet_payload.update(id_filters)
@@ -642,6 +643,7 @@ def admin_chat():
     elapsed_ms = lambda: round((time.time() - start_time) * 1000)
 
     # ── Step 1: Classify intent ────────────────────────────────────────────
+    message = admin_normalize_query(message)
     intent_result = classify_admin_intent(message)
     logger.info(
         "Admin intent: session=%s category=%s subcategory=%s confidence=%s",
