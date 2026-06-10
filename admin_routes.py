@@ -688,9 +688,6 @@ def admin_chat():
             502,
         )
 
-    # ── Step 4: Format .NET data into human-readable markdown ─────────────
-    from admin_formatter import format_dotnet_response
-    formatted_answer = format_dotnet_response(dotnet_data, intent_result)
 
     # ── Step 5: Generate clean single-sentence intro ───────────────────────
     intro_message = _generate_intro_message(
@@ -699,15 +696,12 @@ def admin_chat():
         dotnet_data=dotnet_data,
     )
 
-    # Combine: intro sentence + formatted data
-    full_message = f"{intro_message}\n\n{formatted_answer}" if formatted_answer else intro_message
-
+    full_message = intro_message
     # ── Step 6: Build response ─────────────────────────────────────────────
     response_data: Dict[str, Any] = {
-        "dotnetPayload": dotnet_payload,
-        "result":        dotnet_data if dotnet_data is not None else {},
-        "formattedAnswer": formatted_answer,
-    }
+    "dotnetPayload": dotnet_payload,
+    "result":        dotnet_data if dotnet_data is not None else {},
+}
 
     if session_id and session_id != "admin-default":
         response_data["sessionId"] = session_id
