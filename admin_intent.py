@@ -13,7 +13,7 @@ CATEGORIES & OPERATIONS (exact strings sent to .NET):
   Medical      → Active, BMI, Disease
   Attendance   → Monthly, Present, Strength
   Verification → Pending, Completed
-  Equipment    → Stats, Overdue, Returned
+  Equipment    → Stats, Overdue, Returned, IssuedItems, ProcuredItems
   Distribution → Latest, ByUnit, Unassigned, TopUnit
   Skills       → BySport, ByClass, BloodGroup
   Overall      → Overall   (separate top-level category — composite ranking)
@@ -24,6 +24,7 @@ FILTERS (exact camelCase keys sent to .NET):
   Attendance:  date
   Distribution: unitName
   Skills:      sport, class
+  Equipment:   itemName, itemCategory
 
 DESIGN NOTES:
   - "Overall" is a SEPARATE category (not Performance/Overall).
@@ -82,6 +83,8 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "EquipmentSummary":       "Stats",
     "OverdueEquipment":       "Overdue",
     "PoorConditionEquipment": "Returned",
+    "IssuedItems":            "IssuedItems",
+    "ProcuredItems":          "ProcuredItems",
     # Distribution
     "LatestDistribution": "Latest",
     "DistributionByUnit": "ByUnit",
@@ -98,10 +101,6 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
 
 # =============================================================================
 # INTENT LISTS
-# Rules:
-#   - Longer / more specific phrases listed first → score higher on match.
-#   - Single bare words only as last-resort fallbacks.
-#   - No word that could ambiguously match another module at the bare level.
 # =============================================================================
 
 # ── Performance ──────────────────────────────────────────────────────────────
@@ -256,12 +255,8 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 ]
 
 # ── Attendance ────────────────────────────────────────────────────────────────
-# IMPORTANT: Attendance triggers must score above Performance for any query
-# containing attendance-specific words, including "overall attendance",
-# "attendance statistics", "attendance stats", "current month".
 _ATTENDANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
     ("Monthly Attendance", "MonthlyAttendance", (
-        # Multi-word phrases first (highest score)
         "monthly attendance statistics",
         "attendance statistics for the current month",
         "attendance statistics for this month",
@@ -334,6 +329,72 @@ _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "bad condition equipment", "equipment damaged",
         "returned", "poor condition", "poor", "damaged",
     )),
+    ("Issued Items", "IssuedItems", (
+        # List / overview queries
+        "issued items", "items issued", "all issued items",
+        "list of issued items", "issued equipment list",
+        "kit issued", "gear issued", "uniform issued",
+        "what was issued", "what is issued to agniveer",
+        "issued clothing", "issued kit list",
+        # Specific item name fragments
+        "dms boot", "gp boot", "pt shoes brown",
+        "cap fs", "mug steel", "blanket",
+        "terry towel", "under pant woollen",
+        "vest woollen og", "vest cotton h/s",
+        "ground shed", "kit bag", "combat t shirt",
+        "net mosquito", "pagari 5.5m",
+        "combat coat", "belt ick", "combat dress",
+        "line bedding", "ffd",
+        "cover water proof og", "cover water pro sikh",
+        "haver shack", "boot high ankle dvs",
+        "spoon desert", "frog bayonet ick",
+        "net camouflage h/d", "lases nylon",
+        "pouches amn ick", "pack with allmn frame",
+        "cord disk identity", "disk identity oval",
+        "disk identity round", "water bottle plastic",
+        "vest cotton white s4", "drawers cotton white",
+        "jersey v neck", "short kd",
+        "knee elbow", "socks woollen og",
+        "trouser drill khaki", "shirt man khaki",
+        "short kd light green", "jersey man woollen",
+        "shirt angola drive", "trouser bd serge",
+        "issued",
+    )),
+    ("Procured Items", "ProcuredItems", (
+        # List / overview queries
+        "procured items", "items procured", "all procured items",
+        "list of procured items", "procured equipment list",
+        "kit procured", "gear procured", "self purchased",
+        "what was procured", "what is procured by agniveer",
+        "bought items", "purchase list", "items to buy",
+        "procured clothing", "procured kit list",
+        # Specific item name fragments
+        "rect bag khaki", "mufti shoes",
+        "black socks", "black pagri with fifty",
+        "drill shoes", "pt dress complete",
+        "games dress", "mufti dress white",
+        "regt tie with clip", "mufti blazer",
+        "khaki half sleeves", "khaki full sleeves",
+        "socks og", "green pagri with fifty",
+        "og dress", "combat cap",
+        "leather belt with crest", "bed sheet",
+        "rect shoulder", "name plate black",
+        "name plate khaki", "belt black",
+        "water bottle 02 ltr", "mug plastic",
+        "box steel with paint", "hanger",
+        "health card", "bed card", "locker cloth",
+        "firing data card",
+        "track suit with name", "clip board",
+        "256 pages copy", "white hanky",
+        "steel thali", "glass steel", "spoon steel",
+        "soap case", "indls photograph",
+        "small bucket", "progress card", "mattress",
+        "angola shirt with og pant", "big bucket",
+        "pt vest with chest no", "underwear",
+        "swimming costumes", "swimming cover",
+        "jungle shoes", "barret cap", "rifle sling",
+        "procured",
+    )),
 ]
 
 # ── Distribution ──────────────────────────────────────────────────────────────
@@ -387,9 +448,6 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 ]
 
 # ── Overall (separate top-level category) ─────────────────────────────────────
-# Triggered when the user wants the composite/overall ranking across ALL
-# categories without any Performance-specific filter.
-# "Show overall performance" routes here if no section/grading filter present.
 _OVERALL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
     ("Overall Ranking", "OverallRanking", (
         "overall top performers", "top overall performers",
@@ -405,23 +463,13 @@ _OVERALL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 
 # =============================================================================
 # MODULE REGISTRY
-# Maps category → (trigger_keywords, intent_list)
-#
-# CRITICAL ORDERING RULES:
-#   1. Attendance MUST be listed before Performance so that any query
-#      containing "attendance" is routed to Attendance first.
-#   2. Overall (the separate category) MUST be listed before Performance
-#      so "overall top 10" goes to Overall, not Performance.
-#   3. Module trigger keywords must NOT contain bare ambiguous words
-#      ("overall", "stats", "monthly") — those are resolved at intent level.
 # =============================================================================
 
 _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]]]] = {
 
-    # ── Attendance (BEFORE Performance to avoid "overall attendance" misrouting) ──
+    # ── Attendance (BEFORE Performance) ───────────────────────────────────────
     "Attendance": (
         (
-            # High-specificity multi-word triggers (score 2+)
             "attendance statistics",
             "attendance stats",
             "overall attendance",
@@ -433,7 +481,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "present on campus",
             "on campus today",
             "strength breakdown",
-            # Single-word triggers (score 1 each)
             "attendance",
             "present",
             "campus",
@@ -444,7 +491,7 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         _ATTENDANCE_INTENTS,
     ),
 
-    # ── Overall (BEFORE Performance — separate category) ──────────────────────
+    # ── Overall (BEFORE Performance) ──────────────────────────────────────────
     "Overall": (
         (
             "overall top performers",
@@ -462,7 +509,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
     # ── Performance ───────────────────────────────────────────────────────────
     "Performance": (
         (
-            # Multi-word triggers (score 2+)
             "top performer", "bottom performer", "worst performer",
             "best performer", "highest performer",
             "top scorer", "worst scorer", "lowest scorer",
@@ -474,7 +520,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "section summary", "section comparison",
             "who scored", "who passed", "who failed",
             "highest score", "lowest score", "best score", "worst score",
-            # Single-word triggers
             "performance", "score", "marks", "exam", "grading",
             "bept", "ppt", "firing", "drill",
             "performer", "performers",
@@ -524,11 +569,33 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
     # ── Equipment ─────────────────────────────────────────────────────────────
     "Equipment": (
         (
+            # Existing triggers
             "equipment stats", "equipment summary",
             "overdue equipment", "overdue returns",
             "poor condition equipment", "returned poor condition",
             "equipment", "gear", "overdue", "weapon",
             "kit", "issued", "inventory", "damaged",
+            # New: category-level
+            "issued items", "procured items",
+            "items issued", "items procured",
+            "issued equipment", "procured equipment",
+            "issued list", "procured list",
+            "kit issued", "kit procured",
+            "issued gear", "procured gear",
+            "issued uniform", "issued clothing",
+            "self purchased", "bought items",
+            # New: high-signal issued item fragments
+            "dms boot", "cap fs", "mug steel",
+            "terry towel", "combat coat", "belt ick",
+            "haver shack", "dvs boot", "net camouflage",
+            "pagari 5.5m", "lases nylon",
+            # New: high-signal procured item fragments
+            "rect bag", "mufti shoes", "black pagri",
+            "drill shoes", "games dress", "mufti dress",
+            "regt tie", "mufti blazer", "socks og",
+            "green pagri", "og dress", "combat cap",
+            "leather belt with crest", "rifle sling",
+            "barret cap", "jungle shoes",
         ),
         _EQUIPMENT_INTENTS,
     ),
@@ -589,11 +656,6 @@ ADMIN_FUZZY_VOCAB: Dict[str, str] = {
     "meical":        "medical",
     "medicl":        "medical",
     "medcal":        "medical",
-    # Attendance misspellings (must correct before module scoring)
-    "attendence":    "attendance",
-    "attendnce":     "attendance",
-    "atendance":     "attendance",
-    "attandance":    "attendance",
     # Section names
     "beptt":         "bept",
     "bpet":          "bept",
@@ -764,6 +826,122 @@ _CLASS_MAP = {
     "punjabi": "Punjabi",
 }
 
+# =============================================================================
+# EQUIPMENT ITEM MASTER LISTS
+# =============================================================================
+
+ISSUED_ITEMS: List[str] = [
+    "Pt Shoes Brown",
+    "Cap FS",
+    "Mug Steel",
+    "Blanket",
+    "DMS Boot GP",
+    "Terry Towel Light Blue",
+    "Under Pant Woollen",
+    "Vest Woollen OG FS",
+    "Vest Cotton H/S RN",
+    "Pt Dress",
+    "Ground Shed",
+    "Kit Bag",
+    "Combat T Shirt",
+    "Net Mosquito",
+    "Pagari 5.5m",
+    "Combat Coat",
+    "Belt ICK",
+    "Combat Dress",
+    "Line Bedding",
+    "FFD",
+    "Cover Water Proof OG",
+    "Cover Water Pro Sikh",
+    "Haver Shack All Rank",
+    "Boot High Ankle DVS",
+    "Spoon Desert",
+    "Frog Bayonet ICK",
+    "Net Camouflage H/D",
+    "Lases Nylon Black 100cm for Footwear",
+    "Pouches Amn ICK",
+    "Pack with Allmn Frame",
+    "Cord Disk identity",
+    "Disk identity Oval",
+    "Disk identity Round",
+    "Water Bottle Plastic with C",
+    "Vest Cotton White S4",
+    "Drawers Cotton White",
+    "Jersey V Neck",
+    "Short KD",
+    "Knee & Elbow",
+    "Socks Woollen OG",
+    "Trouser Drill Khaki Poly",
+    "Shirt Man Khaki Poly",
+    "Short KD Light Green",
+    "Jersey Man Woollen OG",
+    "Shirt Angola Drive",
+    "Trouser Bd Serge",
+]
+
+PROCURED_ITEMS: List[str] = [
+    "Rect Bag (Khaki)",
+    "Pt Shoes",
+    "Mufti Shoes",
+    "Black Socks",
+    "Black Pagri with Fifty",
+    "Drill Shoes",
+    "PT Dress Complete",
+    "Games Dress",
+    "Mufti Dress (White)",
+    "Regt Tie with Clip",
+    "Mufti Dress (Winter) / Mufti Blazer",
+    "Khaki Half Sleeves (Drill)",
+    "Khaki Full Sleeves (WT & Drill)",
+    "Socks OG",
+    "Green Pagri with Fifty",
+    "OG Dress",
+    "Combat Cap",
+    "Leather Belt with Crest",
+    "Bed Sheet",
+    "Rect Shoulder",
+    "Name Plate (Black)",
+    "Name Plate (Khaki)",
+    "Belt (Black)",
+    "Water Bottle 02 Ltr",
+    "Mug Plastic",
+    "Box Steel with Paint",
+    "Hanger",
+    "Health Card",
+    "Bed Card",
+    "Locker Cloth",
+    "Firing Data Card",
+    "Vest",
+    "Track Suit with Name",
+    "Clip Board",
+    "256 Pages Copy",
+    "White Hanky",
+    "Steel Thali",
+    "Glass (Steel)",
+    "Spoon (Steel)",
+    "Soap Case",
+    "Indls Photograph",
+    "Small Bucket",
+    "Progress Card",
+    "Mattress",
+    "Angola Shirt with OG Pant",
+    "Big Bucket",
+    "PT Vest with Chest No",
+    "Underwear",
+    "Swimming Costumes",
+    "Swimming Cover",
+    "Jungle Shoes",
+    "Barret Cap",
+    "Rifle Sling",
+]
+
+# Flat lookup: normalised item name → (canonical_name, subcategory_code)
+_ITEM_LOOKUP: Dict[str, Tuple[str, str]] = {}
+for _item in ISSUED_ITEMS:
+    _ITEM_LOOKUP[_item.lower()] = (_item, "IssuedItems")
+for _item in PROCURED_ITEMS:
+    _ITEM_LOOKUP[_item.lower()] = (_item, "ProcuredItems")
+
 _GENERIC_WORDS = {
     "by", "in", "for", "per", "top", "distribution", "show",
     "of", "the", "a", "an", "latest", "recent", "last",
@@ -780,12 +958,6 @@ def _normalise(text: str) -> str:
 
 
 def _extract_number(text: str) -> Optional[int]:
-    """
-    Extract the top-N count from a query.
-    Ignores numbers that are clearly attempt references (fromAttempt/toAttempt/attemptNo).
-    Prefers numbers that appear after 'top', 'bottom', 'show', 'best', 'worst', 'n='.
-    """
-    # First try: look for explicit top/bottom N phrases
     explicit = re.search(
         r"\b(?:top|bottom|show|best|worst|lowest|highest|last|first)\s+(\d+)\b",
         text,
@@ -793,8 +965,6 @@ def _extract_number(text: str) -> Optional[int]:
     )
     if explicit:
         return int(explicit.group(1))
-
-    # Strip attempt number references before falling back to first number
     stripped = re.sub(
         r"\b(?:attempt\s*(?:no\.?\s*)?|from\s*attempt\s*|to\s*attempt\s*)\d+\b",
         "",
@@ -849,6 +1019,57 @@ def _extract_class(text_lower: str) -> Optional[str]:
     return None
 
 
+def _extract_item_query(text_lower: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Identify a specific issued or procured item mentioned in the query.
+
+    Returns (canonical_item_name, subcategory_code) where subcategory_code
+    is "IssuedItems" or "ProcuredItems", or (None, None) if no match.
+
+    Priority:
+      1. Longest substring match against _ITEM_LOOKUP keys (prevents "vest"
+         from shadowing "vest cotton white s4").
+      2. Token-overlap fallback for abbreviated / paraphrased queries
+         (requires >=2 shared content tokens).
+    """
+    # 1. Longest-match substring scan
+    best_key: Optional[str] = None
+    best_len = 0
+    for key in _ITEM_LOOKUP:
+        if key in text_lower and len(key) > best_len:
+            best_key = key
+            best_len = len(key)
+    if best_key:
+        name, cat = _ITEM_LOOKUP[best_key]
+        return name, cat
+
+    # 2. Token-overlap fallback
+    _STOP = {
+        "a", "an", "the", "of", "for", "in", "with", "and", "or",
+        "is", "are", "was", "were", "show", "list", "get", "give",
+        "tell", "me", "its", "item", "items", "all", "any", "which",
+        "what", "who", "how", "where", "do", "does",
+    }
+    query_tokens = set(re.findall(r"[a-z]+", text_lower)) - _STOP
+    if len(query_tokens) < 2:
+        return None, None
+
+    best_overlap = 0
+    best_match: Optional[Tuple[str, str]] = None
+    for key, (name, cat) in _ITEM_LOOKUP.items():
+        item_tokens = set(re.findall(r"[a-z]+", key)) - _STOP
+        if not item_tokens:
+            continue
+        overlap = len(query_tokens & item_tokens)
+        if overlap >= 2 and overlap > best_overlap:
+            best_overlap = overlap
+            best_match = (name, cat)
+
+    if best_match:
+        return best_match
+    return None, None
+
+
 def _extract_unit_name(text: str) -> Optional[str]:
     match = re.search(
         r"\b(?:in unit|by unit|for unit|unit)\s+([A-Za-z][A-Za-z0-9]*)(\s+[Uu]nit)?\b",
@@ -885,8 +1106,6 @@ def _extract_to_attempt(text_lower: str) -> Optional[int]:
 
 
 def _extract_date(text: str) -> Optional[str]:
-    """Extract a date string for Attendance date filter."""
-    # Match patterns: "2024-01-15", "15/01/2024", "January 2024", "Jan 2024"
     patterns = [
         r"\b(\d{4}-\d{2}-\d{2})\b",
         r"\b(\d{2}/\d{2}/\d{4})\b",
@@ -913,11 +1132,6 @@ def _score_intent(query_lower: str, keywords: Tuple[str, ...]) -> int:
 
 
 def _match_module(query_lower: str) -> Optional[str]:
-    """
-    Score each module by trigger keywords.
-    Attendance is checked before Performance to prevent "overall attendance"
-    misrouting. Ties are broken by scoring intent-level keywords.
-    """
     scores: Dict[str, int] = {}
     for module, (triggers, _) in _MODULES.items():
         scores[module] = _score_intent(query_lower, triggers)
@@ -930,7 +1144,6 @@ def _match_module(query_lower: str) -> Optional[str]:
     if len(tied) == 1:
         return tied[0]
 
-    # Tiebreak: score intent-level keywords
     best_module = None
     best_intent_score = -1
     for module in tied:
@@ -942,7 +1155,6 @@ def _match_module(query_lower: str) -> Optional[str]:
             best_intent_score = intent_score
             best_module = module
 
-    # Secondary tiebreak: prefer module ordering (Attendance before Performance)
     if best_module is None:
         module_order = list(_MODULES.keys())
         for module in module_order:
@@ -997,6 +1209,8 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         "from_attempt": None,
         "to_attempt":   None,
         "date":         None,
+        "item_name":    None,
+        "item_category": None,
         "raw_query":    raw_query,
         "confidence":   "low",
     }
@@ -1004,7 +1218,6 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     # ── Module detection ───────────────────────────────────────────────────────
     module = _match_module(q)
 
-    # Fallback: scan all intent keywords across all modules
     if module is None:
         best_module = None
         best_score  = 0
@@ -1029,7 +1242,7 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         result["subcategory"] = intent_code
         result["confidence"]  = "high"
     else:
-        result["subcategory"] = intent_list[0][1]   # default to first
+        result["subcategory"] = intent_list[0][1]
         result["confidence"]  = "medium"
 
     # ── Filter extraction ──────────────────────────────────────────────────────
@@ -1046,7 +1259,21 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     result["to_attempt"]   = _extract_to_attempt(q)
     result["date"]         = _extract_date(raw_query)
 
-    # Downgrade confidence if top/bottom but no count given
+    # ── Item lookup (Equipment only) ───────────────────────────────────────────
+    item_name, item_cat = _extract_item_query(q)
+    result["item_name"]     = item_name
+    result["item_category"] = item_cat
+
+    # If a specific item was found but subcategory resolved to a generic
+    # Equipment intent, promote it to the item-specific subcategory.
+    if item_cat and result.get("subcategory") in (
+        "EquipmentSummary", "OverdueEquipment", "PoorConditionEquipment", None
+    ):
+        result["subcategory"] = item_cat
+        if result.get("confidence") != "high":
+            result["confidence"] = "medium"
+
+    # ── Confidence downgrade ───────────────────────────────────────────────────
     if result["confidence"] == "high":
         if result["subcategory"] in ("TopPerformers", "LowestPerformers"):
             if result["number"] is None:
@@ -1070,6 +1297,8 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     from_attempt    → fromAttempt
     to_attempt      → toAttempt
     date            → date
+    item_name       → itemName
+    item_category   → itemCategory
 
     None values and internal-only fields are stripped.
     """
@@ -1117,5 +1346,11 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
 
     if intent_result.get("date"):
         payload["date"] = intent_result["date"]
+
+    if intent_result.get("item_name"):
+        payload["itemName"] = intent_result["item_name"]
+
+    if intent_result.get("item_category"):
+        payload["itemCategory"] = intent_result["item_category"]
 
     return payload

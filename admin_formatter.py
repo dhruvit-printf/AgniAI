@@ -508,6 +508,11 @@ def _format_verification(subcategory: str, data: Any, intent_result: Dict) -> st
 # =============================================================================
 
 def _format_equipment(subcategory: str, data: Any, intent_result: Dict) -> str:
+    # ── NEW: item-list subcategories ─────────────────────────────────────────
+    if subcategory in ("IssuedItems", "ProcuredItems"):
+        return _format_item_list(subcategory, data, intent_result)
+
+    # ── Existing handlers (unchanged) ────────────────────────────────────────
     if subcategory == "EquipmentSummary":
         if isinstance(data, dict):
             lines = ["### Equipment Summary\n"]
@@ -558,6 +563,86 @@ def _format_equipment(subcategory: str, data: Any, intent_result: Dict) -> str:
         return "\n".join(lines)
     return str(data)
 
+
+def _format_item_list(subcategory: str, data: Any, intent_result: Dict) -> str:
+    """
+    Format a list of issued or procured equipment items.
+
+    data can be:
+      - A list of item dicts  → each item has at least a "name" key
+      - A list of strings     → each string is an item name
+      - A dict envelope       → unwrap data/items key first
+      - None / empty          → fall back to the canonical master list
+    """
+    from admin_intent import ISSUED_ITEMS, PROCURED_ITEMS  # lazy import avoids circulars
+
+    is_issued    = subcategory == "IssuedItems"
+    label        = "Issued Items" if is_issued else "Procured Items"
+    master_list  = ISSUED_ITEMS if is_issued else PROCURED_ITEMS
+    item_name    = intent_result.get("item_name")
+
+    # ── Single-item lookup ───────────────────────────────────────────────────
+    if item_name:
+        in_issued    = item_name in ISSUED_ITEMS
+        in_procured  = item_name in PROCURED_ITEMS
+        category_tag = "Issued" if in_issued else ("Procured" if in_procured else "Unknown")
+
+        # Try to pull extra detail from the .NET response if present
+        item_detail = ""
+        if isinstance(data, dict):
+            item_detail = _safe_str(
+                data.get("detail") or data.get("description") or data.get("status"), ""
+            )
+        elif isinstance(data, list):
+            for entry in data:
+                if isinstance(entry, dict):
+                    name_val = _safe_str(_get(entry, "name", "itemName", "item"))
+                    if name_val.lower() == item_name.lower():
+                        item_detail = _safe_str(
+                            entry.get("detail") or entry.get("status") or entry.get("description"), ""
+                        )
+                        break
+
+        lines = [f"### Item Lookup — **{item_name}**\n"]
+        lines.append(f"📦 **Category:** {category_tag}")
+        if item_detail:
+            lines.append(f"📋 **Detail:** {item_detail}")
+        return "\n".join(lines)
+
+    # ── List response from .NET ──────────────────────────────────────────────
+    records: list = []
+    if isinstance(data, list):
+        records = data
+    elif isinstance(data, dict):
+        records = (
+            _get(data, "data", "items", "Data", "Items") or []
+        )
+
+    # ── If .NET returned records, render them ────────────────────────────────
+    if records:
+        lines = [f"### {label} ({len(records)} items)\n"]
+        for i, entry in enumerate(records, 1):
+            if isinstance(entry, str):
+                lines.append(f"{i}. {entry}")
+            elif isinstance(entry, dict):
+                name    = _safe_str(_get(entry, "name", "itemName", "item", "Name"))
+                status  = _safe_str(_get(entry, "status", "Status"), "")
+                qty     = _get(entry, "quantity", "qty", "Quantity")
+                line    = f"{i}. **{name}**"
+                if status:
+                    line += f" — {status}"
+                if qty is not None:
+                    line += f" (Qty: {qty})"
+                lines.append(line)
+            else:
+                lines.append(f"{i}. {_safe_str(entry)}")
+        return "\n".join(lines)
+
+    # ── Fallback: render the canonical master list ───────────────────────────
+    lines = [f"### {label} — Master List ({len(master_list)} items)\n"]
+    for i, item in enumerate(master_list, 1):
+        lines.append(f"{i}. {item}")
+    return "\n".join(lines)
 
 # =============================================================================
 # DISTRIBUTION
