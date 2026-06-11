@@ -1,8 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 # AgniAI PyInstaller build spec
-# Run with:  pyinstaller agniai.spec
+# Run with:  pyinstaller agniai.spec --clean
 
 block_cipher = None
+
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs
+
+# Collect full package data + metadata for packages that need it
+regex_datas,        regex_binaries,        regex_hiddenimports        = collect_all('regex')
+transformers_datas, transformers_binaries, transformers_hiddenimports = collect_all('transformers')
+tokenizers_datas,   tokenizers_binaries,   tokenizers_hiddenimports   = collect_all('tokenizers')
+senttr_datas,       senttr_binaries,       senttr_hiddenimports       = collect_all('sentence_transformers')
+huggingface_datas,  huggingface_binaries,  huggingface_hiddenimports  = collect_all('huggingface_hub')
+safetensors_datas,  safetensors_binaries,  safetensors_hiddenimports  = collect_all('safetensors')
 
 hidden_imports = [
     # Flask ecosystem
@@ -10,14 +20,10 @@ hidden_imports = [
     "flask_limiter.util", "werkzeug", "werkzeug.middleware.proxy_fix",
     "werkzeug.utils", "jinja2", "click", "itsdangerous",
 
-    # Sentence Transformers (correct submodule names)
+    # Sentence Transformers
     "sentence_transformers",
-    "sentence_transformers.models.Transformer",
-    "sentence_transformers.models.Pooling",
-    "sentence_transformers.models.Dense",
-    "sentence_transformers.models.Normalize",
-    "sentence_transformers.cross_encoder",
     "sentence_transformers.util",
+    "sentence_transformers.cross_encoder",
 
     # HuggingFace
     "huggingface_hub",
@@ -35,7 +41,6 @@ hidden_imports = [
     # NumPy
     "numpy",
     "numpy.core",
-    "numpy.core._multiarray_umath",
     "numpy.core._multiarray_umath",
 
     # SciPy
@@ -64,26 +69,33 @@ hidden_imports = [
     "bs4",
     "bs4.builder",
     "bs4.builder._htmlparser",
-    "bs4.builder._lxml",
     "bs4.formatter",
 
-    # dotenv (correct import name)
+    # dotenv
     "dotenv",
 
-    # Torch (only what's actually needed)
+    # Torch
     "torch",
     "torch.nn",
     "torch.nn.functional",
     "torch.cuda",
+
+    # regex — must be explicit
+    "regex",
+    "regex._regex",
+    "regex._regex_core",
 
     # Other
     "psutil",
     "tqdm",
     "packaging",
     "filelock",
-    "regex",
     "PIL",
     "PIL.Image",
+
+    # importlib metadata
+    "importlib.metadata",
+    "importlib_metadata",
 ]
 
 datas = [
@@ -91,28 +103,55 @@ datas = [
     (".env.example", "."),
 ]
 
+# Merge all collected datas
+all_datas = (
+    datas
+    + regex_datas
+    + transformers_datas
+    + tokenizers_datas
+    + senttr_datas
+    + huggingface_datas
+    + safetensors_datas
+)
+
+# Merge all collected binaries
+all_binaries = (
+    regex_binaries
+    + transformers_binaries
+    + tokenizers_binaries
+    + senttr_binaries
+    + huggingface_binaries
+    + safetensors_binaries
+)
+
+# Merge all collected hidden imports
+all_hidden_imports = (
+    hidden_imports
+    + regex_hiddenimports
+    + transformers_hiddenimports
+    + tokenizers_hiddenimports
+    + senttr_hiddenimports
+    + huggingface_hiddenimports
+    + safetensors_hiddenimports
+)
+
 a = Analysis(
     ["app_launcher.py"],
     pathex=["."],
-    binaries=[],
-    datas=datas,
-    hiddenimports=hidden_imports,
+    binaries=all_binaries,
+    datas=all_datas,
+    hiddenimports=all_hidden_imports,
     hookspath=[".pyinstaller_hooks"],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # GUI toolkits — not needed
         "tkinter", "wx", "PyQt5", "PyQt6", "PySide2", "PySide6",
-        # Dev / test tools
-        "matplotlib", "IPython", "notebook", "pytest", "pytest_cov",
-        # Torch distributed (huge, not needed for inference)
+        "matplotlib", "IPython", "notebook", "pytest",
         "torch.distributed",
         "torch.utils.tensorboard",
         "tensorboard",
-        # Build tools
         "setuptools", "distutils", "pip",
-        # Other heavy unused
-        "pandas", "sklearn", "cv2",
+        "pandas", "cv2",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
