@@ -1,9 +1,8 @@
 """
 admin_formatter.py
 ==================
-Formats raw .NET AiCommand JSON responses into clean markdown answers
-for the admin chatbot UI. Uses markdown tables for tabular data
-(except Performance records, which use a clean line-based layout).
+Formats raw .NET AiCommand JSON responses into clean plain-text answers
+for the admin chatbot UI. No markdown symbols, no emojis, no bold markers.
 
 REAL .NET RESPONSE SHAPE (from actual data):
   {
@@ -83,53 +82,41 @@ def _get(obj: Dict, *keys, fallback=None):
     return fallback
 
 
-def _md_escape(text: Any) -> str:
-    """Escape pipe characters for use inside markdown table cells."""
-    return str(text if text is not None else "").replace("|", "\\|")
-
-
-def _md_table(headers: List[str], rows: List[List[Any]]) -> str:
-    """Build a markdown table from headers and rows."""
+def _plain_table(headers: List[str], rows: List[List[Any]]) -> str:
+    """Build a plain-text aligned table from headers and rows."""
     if not rows:
-        return "_No data available._"
-    header_row = "| " + " | ".join(headers) + " |"
-    separator  = "| " + " | ".join(["---"] * len(headers)) + " |"
-    data_rows  = [
-        "| " + " | ".join(_md_escape(cell) for cell in row) + " |"
-        for row in rows
-    ]
-    return "\n".join([header_row, separator] + data_rows)
+        return "No data available."
+
+    all_rows = [headers] + [[str(cell) if cell is not None else "" for cell in row] for row in rows]
+    col_widths = [max(len(str(r[i])) for r in all_rows) for i in range(len(headers))]
+
+    lines = []
+    header_line = "  ".join(str(h).ljust(col_widths[i]) for i, h in enumerate(headers))
+    lines.append(header_line)
+    lines.append("-" * len(header_line))
+    for row in rows:
+        lines.append("  ".join(str(cell if cell is not None else "").ljust(col_widths[i]) for i, cell in enumerate(row)))
+    return "\n".join(lines)
 
 
-def _kv_table(pairs: List[tuple]) -> str:
-    """Build a two-column key/value markdown table."""
-    rows = [[label, value] for label, value in pairs if value not in (None, "", "N/A")]
-    if not rows:
-        return "_No data available._"
-    return _md_table(["Field", "Value"], rows)
+def _kv_block(pairs: List[tuple]) -> str:
+    """Build a plain key: value block."""
+    lines = [f"{label}: {value}" for label, value in pairs if value not in (None, "", "N/A")]
+    return "\n".join(lines) if lines else "No data available."
 
 
-def _rank_medal(rank: int) -> str:
-    """Return medal emoji for top 3 ranks."""
-    return {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"**{rank}.**")
+def _rank_label(rank: int) -> str:
+    """Return a plain rank label."""
+    suffixes = {1: "1st", 2: "2nd", 3: "3rd"}
+    return suffixes.get(rank, f"{rank}th")
 
 
 # =============================================================================
 # PERFORMANCE — NESTED STRUCTURE HANDLERS
 # =============================================================================
 
-def _grading_emoji(grading: str) -> str:
-    g = (grading or "").lower()
-    if "exceptional" in g: return "🏆"
-    if "excellent"   in g: return "⭐"
-    if "good"        in g: return "✅"
-    if "sat"         in g: return "🔵"
-    if "fail" in g or "unsa" in g: return "❌"
-    return "•"
-
-
 def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> str:
-    """Format one agniveer record into a clean readable markdown block."""
+    """Format one agniveer record into clean readable plain text."""
     name        = _safe_str(_get(agniveer, "fullName", "name", "Name"))
     agniveer_no = _safe_str(_get(agniveer, "agniveerNo"), "")
     batch       = _safe_str(_get(agniveer, "batchName"), "")
@@ -141,21 +128,20 @@ def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> s
     exceptional = agniveer.get("exceptionalSections") or []
 
     display_rank = stored_rank if stored_rank is not None else rank
-    medal        = _rank_medal(int(display_rank))
+    rank_label   = _rank_label(int(display_rank))
 
-    lines = [f"{medal} **{name}**"]
+    lines = [f"{rank_label}. {name}"]
 
-    # Meta line
     meta_parts = []
-    if agniveer_no: meta_parts.append(f"`{agniveer_no}`")
-    if batch:       meta_parts.append(f"Batch: **{batch}**")
-    if platoon:     meta_parts.append(f"Platoon: **{platoon}**")
-    if cls:         meta_parts.append(f"Class: **{cls}**")
+    if agniveer_no: meta_parts.append(f"No: {agniveer_no}")
+    if batch:       meta_parts.append(f"Batch: {batch}")
+    if platoon:     meta_parts.append(f"Platoon: {platoon}")
+    if cls:         meta_parts.append(f"Class: {cls}")
     if meta_parts:
-        lines.append(" · ".join(meta_parts))
+        lines.append("  " + "  |  ".join(meta_parts))
 
     if best_total is not None:
-        lines.append(f"📊 **Best Total: {best_total}**")
+        lines.append(f"  Best Total: {best_total}")
 
     section_filter = (intent_result.get("section") or "").upper()
     attempt_filter = intent_result.get("attempt_no")
@@ -177,20 +163,18 @@ def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> s
         if not sections or not has_data:
             continue
 
-        lines.append("")
-        lines.append(f"*Attempt {attempt_no}:*")
+        lines.append(f"  Attempt {attempt_no}:")
 
         for section in sorted(sections, key=lambda s: s.get("displayOrder", 99)):
             s_name  = _safe_str(section.get("sectionName"))
             s_total = section.get("omrInputTotal")
             s_grade = _safe_str(section.get("grading"), "")
-            emoji   = _grading_emoji(s_grade)
 
             if s_total is None or s_total == 0:
                 continue
 
-            grade_str = f" — *{s_grade}*" if s_grade else ""
-            lines.append(f"&nbsp;&nbsp;{emoji} **{s_name}**: {s_total} pts{grade_str}")
+            grade_str = f"  ({s_grade})" if s_grade else ""
+            lines.append(f"    {s_name}: {s_total} pts{grade_str}")
 
             sub_items = section.get("subItems") or []
             best_sub  = [si for si in sub_items if si.get("isBestAttempt") is True]
@@ -202,19 +186,17 @@ def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> s
                 if obtained is not None and max_m is not None:
                     sub_parts.append(f"{si_name}: {obtained}/{max_m}")
             if sub_parts:
-                lines.append(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ {', '.join(sub_parts)}")
+                lines.append(f"      " + ", ".join(sub_parts))
 
-    # Exceptional sections
     if exceptional:
         exc_parts = []
         for exc in exceptional:
             exc_name  = _safe_str(exc.get("sectionName"))
             exc_marks = exc.get("marksObtained")
             if exc_marks is not None:
-                exc_parts.append(f"{exc_name}: **{exc_marks:.2f}**")
+                exc_parts.append(f"{exc_name}: {exc_marks:.2f}")
         if exc_parts:
-            lines.append("")
-            lines.append(f"🎖️ *Exceptional:* {' · '.join(exc_parts)}")
+            lines.append(f"  Exceptional: {', '.join(exc_parts)}")
 
     return "\n".join(lines)
 
@@ -231,10 +213,10 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
         command_label = ""
         records = data
     else:
-        return "_Unexpected data format._"
+        return "Unexpected data format."
 
     if not records:
-        return "_No records found for this query._"
+        return "No records found for this query."
 
     subcategory    = intent_result.get("subcategory", "")
     section_filter = intent_result.get("section", "")
@@ -252,11 +234,11 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
     }
     label   = command_label or label_map.get(subcategory, subcategory or "Performance Data")
     count   = len(records)
-    sec_str = f" — {section_filter}" if section_filter else ""
+    sec_str = f" - {section_filter}" if section_filter else ""
 
     lines = [
-        f"### {label}{sec_str}",
-        f"*{count} record{'s' if count != 1 else ''}*",
+        f"{label}{sec_str}",
+        f"({count} record{'s' if count != 1 else ''})",
         "",
     ]
 
@@ -264,7 +246,7 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
         lines.append(_format_single_agniveer(record, i, intent_result))
         if i < len(records):
             lines.append("")
-            lines.append("---")
+            lines.append("-" * 40)
             lines.append("")
 
     return "\n".join(lines).strip()
@@ -285,21 +267,18 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
             if isinstance(data, dict) else []
         )
         if not records:
-            return "_No leave data found._"
+            return "No leave data found."
 
         rows = []
         for i, item in enumerate(records, 1):
             name = _safe_str(_get(item, "name", "Name", "fullName"))
             days = _get(item, "leaveDays", "days", "count", "Days")
-            lt   = _safe_str(_get(item, "leaveType", "type"), "—")
-            medal = _rank_medal(i)
-            rows.append([f"{medal} {name}", days if days is not None else "—", lt])
+            lt   = _safe_str(_get(item, "leaveType", "type"), "-")
+            rows.append([f"{_rank_label(i)}. {name}", days if days is not None else "-", lt])
 
-        return "\n".join([
-            f"### {label}{lt_str}",
-            "",
-            _md_table(["Name", "Days", "Leave Type"], rows),
-        ])
+        lines = [f"{label}{lt_str}", ""]
+        lines.append(_plain_table(["Name", "Days", "Leave Type"], rows))
+        return "\n".join(lines)
 
     if subcategory == "CurrentLeaveStatus":
         records = data if isinstance(data, list) else (
@@ -307,41 +286,36 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
             if isinstance(data, dict) else []
         )
         if not records:
-            return "_No personnel are currently on leave._"
+            return "No personnel are currently on leave."
 
         rows = []
         for item in records:
             name = _safe_str(_get(item, "name", "Name", "fullName"))
-            lt   = _safe_str(_get(item, "leaveType", "type"), "—")
-            date = _safe_str(_get(item, "from", "startDate", "fromDate"), "—")
+            lt   = _safe_str(_get(item, "leaveType", "type"), "-")
+            date = _safe_str(_get(item, "from", "startDate", "fromDate"), "-")
             rows.append([name, lt, date])
 
-        return "\n".join([
-            f"### Currently On Leave ({len(records)} personnel)",
-            "",
-            _md_table(["Name", "Leave Type", "From"], rows),
-        ])
+        lines = [f"Currently On Leave ({len(records)} personnel)", ""]
+        lines.append(_plain_table(["Name", "Leave Type", "From"], rows))
+        return "\n".join(lines)
 
     if subcategory == "AbscondedPersonnel":
         records = data if isinstance(data, list) else []
         if not records:
-            return "_No absconded personnel on record._"
+            return "No absconded personnel on record."
 
-        rows = [[f"⚠️ {_safe_str(_get(item, 'name', 'Name', 'fullName'))}",
-                 _safe_str(_get(item, "since", "date", "abscondedDate"), "—")]
+        rows = [[_safe_str(_get(item, "name", "Name", "fullName")),
+                 _safe_str(_get(item, "since", "date", "abscondedDate"), "-")]
                 for item in records]
 
-        return "\n".join([
-            f"### Absconded Personnel ({len(records)})",
-            "",
-            _md_table(["Name", "Since"], rows),
-        ])
+        lines = [f"Absconded Personnel ({len(records)})", ""]
+        lines.append(_plain_table(["Name", "Since"], rows))
+        return "\n".join(lines)
 
-    # Generic leave fallback
     if isinstance(data, list):
         rows = [[i, _safe_str(_get(item, "name", "Name", "fullName"))]
                 for i, item in enumerate(data, 1)]
-        return "\n".join(["### Leave Data", "", _md_table(["#", "Name"], rows)])
+        return "Leave Data\n\n" + _plain_table(["#", "Name"], rows)
     return str(data)
 
 
@@ -357,55 +331,49 @@ def _format_medical(subcategory: str, data: Any, intent_result: Dict) -> str:
         )
         total_from_dict = _get(data, "total", "count") if isinstance(data, dict) else None
         if total_from_dict is not None and not records:
-            return f"There are currently **{total_from_dict}** active medical case(s)."
+            return f"There are currently {total_from_dict} active medical case(s)."
         if not records:
-            return "_No active medical cases at the moment._"
+            return "No active medical cases at the moment."
 
         rows = [
             [_safe_str(_get(item, "name", "Name", "fullName")),
              _safe_str(_get(item, "disease", "diagnosis", "condition"), "Unknown"),
-             _safe_str(_get(item, "ward"), "—")]
+             _safe_str(_get(item, "ward"), "-")]
             for item in records
         ]
-        return "\n".join([
-            f"### Active Medical Cases ({len(records)})",
-            "",
-            _md_table(["Name", "Diagnosis", "Ward"], rows),
-        ])
+        lines = [f"Active Medical Cases ({len(records)})", ""]
+        lines.append(_plain_table(["Name", "Diagnosis", "Ward"], rows))
+        return "\n".join(lines)
 
     if subcategory == "BMIAnalysis":
         if isinstance(data, list):
             rows = [
                 [_safe_str(_get(item, "name", "Name", "fullName")),
-                 _safe_str(_get(item, "bmi", "BMI"), "—"),
-                 _safe_str(_get(item, "category", "bmiCategory"), "—")]
+                 _safe_str(_get(item, "bmi", "BMI"), "-"),
+                 _safe_str(_get(item, "category", "bmiCategory"), "-")]
                 for item in data
             ]
-            return "\n".join(["### BMI Analysis", "", _md_table(["Name", "BMI", "Category"], rows)])
+            return "BMI Analysis\n\n" + _plain_table(["Name", "BMI", "Category"], rows)
         if isinstance(data, dict):
             pairs = [(_camel_to_words(k), v) for k, v in data.items()
                      if not isinstance(v, (list, dict))]
-            return "\n".join(["### BMI / Fitness Analysis", "", _kv_table(pairs)])
+            return "BMI / Fitness Analysis\n\n" + _kv_block(pairs)
 
     if subcategory == "DiseaseStatistics":
         records = data if isinstance(data, list) else []
         if not records:
-            return "_No disease statistics available._"
+            return "No disease statistics available."
         rows = [
             [i, _safe_str(_get(item, "disease", "name", "condition", "diagnosis")),
-             _safe_str(_get(item, "count", "cases", "total"), "—")]
+             _safe_str(_get(item, "count", "cases", "total"), "-")]
             for i, item in enumerate(records, 1)
         ]
-        return "\n".join([
-            "### Disease Statistics",
-            "",
-            _md_table(["#", "Disease", "Cases"], rows),
-        ])
+        return "Disease Statistics\n\n" + _plain_table(["#", "Disease", "Cases"], rows)
 
     if isinstance(data, dict):
         pairs = [(_camel_to_words(k), v) for k, v in data.items()
                  if not isinstance(v, (list, dict))]
-        return "\n".join(["### Medical Summary", "", _kv_table(pairs)])
+        return "Medical Summary\n\n" + _kv_block(pairs)
     return str(data)
 
 
@@ -418,40 +386,36 @@ def _format_attendance(subcategory: str, data: Any, intent_result: Dict) -> str:
         if isinstance(data, dict):
             present   = _get(data, "present", "Present", "count", "Count") or 0
             total     = _get(data, "total", "Total")
-            total_str = f" out of **{total}**" if total else ""
-            return f"🟢 **{present}** personnel are present on campus today{total_str}."
+            total_str = f" out of {total}" if total else ""
+            return f"{present} personnel are present on campus today{total_str}."
         if isinstance(data, (int, float)):
-            return f"🟢 **{data}** personnel are present on campus today."
+            return f"{data} personnel are present on campus today."
 
     if subcategory == "MonthlyAttendance":
         if isinstance(data, list):
             rows = [
                 [_safe_str(_get(item, "month", "Month")),
                  f"{_get(item, 'percentage', 'attendancePercentage', 'Percentage')}%"
-                 if _get(item, "percentage", "attendancePercentage", "Percentage") is not None else "—",
-                 _safe_str(_get(item, "present", "Present"), "—")]
+                 if _get(item, "percentage", "attendancePercentage", "Percentage") is not None else "-",
+                 _safe_str(_get(item, "present", "Present"), "-")]
                 for item in data
             ]
-            return "\n".join([
-                "### Monthly Attendance",
-                "",
-                _md_table(["Month", "Attendance %", "Present"], rows),
-            ])
+            return "Monthly Attendance\n\n" + _plain_table(["Month", "Attendance %", "Present"], rows)
         if isinstance(data, dict):
             pairs = [(_camel_to_words(k), v) for k, v in data.items()
                      if not isinstance(v, (list, dict))]
-            return "\n".join(["### Monthly Attendance Summary", "", _kv_table(pairs)])
+            return "Monthly Attendance Summary\n\n" + _kv_block(pairs)
 
     if subcategory == "StrengthBreakdown":
         if isinstance(data, dict):
             pairs = [(_camel_to_words(k), v) for k, v in data.items()
                      if not isinstance(v, (list, dict))]
-            return "\n".join(["### Strength Breakdown", "", _kv_table(pairs)])
+            return "Strength Breakdown\n\n" + _kv_block(pairs)
 
     if isinstance(data, dict):
         pairs = [(_camel_to_words(k), v) for k, v in data.items()
                  if not isinstance(v, (list, dict))]
-        return "\n".join(["### Attendance Summary", "", _kv_table(pairs)])
+        return "Attendance Summary\n\n" + _kv_block(pairs)
     return str(data)
 
 
@@ -461,7 +425,6 @@ def _format_attendance(subcategory: str, data: Any, intent_result: Dict) -> str:
 
 def _format_verification(subcategory: str, data: Any, intent_result: Dict) -> str:
     label   = "Pending" if subcategory == "PendingVerification" else "Completed"
-    icon    = "⏳" if label == "Pending" else "✅"
     records = data if isinstance(data, list) else (
         _get(data, "data", "records") or []
         if isinstance(data, dict) else []
@@ -469,20 +432,16 @@ def _format_verification(subcategory: str, data: Any, intent_result: Dict) -> st
     total_from_dict = _get(data, "total", "count") if isinstance(data, dict) else None
 
     if total_from_dict is not None and not records:
-        return f"**{total_from_dict}** {label.lower()} verification(s) found."
+        return f"{total_from_dict} {label.lower()} verification(s) found."
     if not records:
-        return f"_No {label.lower()} verifications found._"
+        return f"No {label.lower()} verifications found."
 
     rows = [
-        [f"{icon} {_safe_str(_get(item, 'name', 'Name', 'fullName'))}",
-         _safe_str(_get(item, "documentType", "document", "docType"), "—")]
+        [_safe_str(_get(item, "name", "Name", "fullName")),
+         _safe_str(_get(item, "documentType", "document", "docType"), "-")]
         for item in records
     ]
-    return "\n".join([
-        f"### {label} Verifications ({len(records)})",
-        "",
-        _md_table(["Name", "Document Type"], rows),
-    ])
+    return f"{label} Verifications ({len(records)})\n\n" + _plain_table(["Name", "Document Type"], rows)
 
 
 # =============================================================================
@@ -497,49 +456,41 @@ def _format_equipment(subcategory: str, data: Any, intent_result: Dict) -> str:
         if isinstance(data, dict):
             pairs = [(_camel_to_words(k), v) for k, v in data.items()
                      if not isinstance(v, (list, dict))]
-            return "\n".join(["### Equipment Summary", "", _kv_table(pairs)])
+            return "Equipment Summary\n\n" + _kv_block(pairs)
 
     if subcategory == "OverdueEquipment":
         records = data if isinstance(data, list) else []
         if not records:
-            return "_No overdue equipment records._"
+            return "No overdue equipment records."
         rows = [
-            [f"⚠️ {_safe_str(_get(item, 'name', 'equipment', 'itemName'))}",
-             _safe_str(_get(item, "issuedTo", "holder"), "—"),
+            [_safe_str(_get(item, "name", "equipment", "itemName")),
+             _safe_str(_get(item, "issuedTo", "holder"), "-"),
              f"{_get(item, 'overdueDays', 'daysOverdue')} days"
-             if _get(item, "overdueDays", "daysOverdue") else "—"]
+             if _get(item, "overdueDays", "daysOverdue") else "-"]
             for item in records
         ]
-        return "\n".join([
-            f"### Overdue Equipment ({len(records)} items)",
-            "",
-            _md_table(["Equipment", "Issued To", "Overdue By"], rows),
-        ])
+        return f"Overdue Equipment ({len(records)} items)\n\n" + _plain_table(["Equipment", "Issued To", "Overdue By"], rows)
 
     if subcategory == "PoorConditionEquipment":
         records = data if isinstance(data, list) else []
         if not records:
-            return "_No equipment returned in poor condition._"
+            return "No equipment returned in poor condition."
         rows = [
-            [f"🔴 {_safe_str(_get(item, 'name', 'equipment', 'itemName'))}",
+            [_safe_str(_get(item, "name", "equipment", "itemName")),
              _safe_str(_get(item, "condition", "state"), "Poor")]
             for item in records
         ]
-        return "\n".join([
-            f"### Poor Condition Equipment ({len(records)} items)",
-            "",
-            _md_table(["Equipment", "Condition"], rows),
-        ])
+        return f"Poor Condition Equipment ({len(records)} items)\n\n" + _plain_table(["Equipment", "Condition"], rows)
 
     if isinstance(data, dict):
         pairs = [(_camel_to_words(k), v) for k, v in data.items()
                  if not isinstance(v, (list, dict))]
-        return "\n".join(["### Equipment Data", "", _kv_table(pairs)])
+        return "Equipment Data\n\n" + _kv_block(pairs)
 
     if isinstance(data, list):
         rows = [[i, _safe_str(_get(item, "name", "equipment", "itemName"))]
                 for i, item in enumerate(data, 1)]
-        return "\n".join(["### Equipment Records", "", _md_table(["#", "Item"], rows)])
+        return "Equipment Records\n\n" + _plain_table(["#", "Item"], rows)
 
     return str(data)
 
@@ -552,7 +503,6 @@ def _format_item_list(subcategory: str, data: Any, intent_result: Dict) -> str:
     master_list = ISSUED_ITEMS if is_issued else PROCURED_ITEMS
     item_name   = intent_result.get("item_name")
 
-    # ── Single-item lookup ──────────────────────────────────────────────────
     if item_name:
         in_issued    = item_name in ISSUED_ITEMS
         in_procured  = item_name in PROCURED_ITEMS
@@ -576,9 +526,8 @@ def _format_item_list(subcategory: str, data: Any, intent_result: Dict) -> str:
         pairs = [("Category", category_tag)]
         if item_detail:
             pairs.append(("Detail", item_detail))
-        return "\n".join([f"### Item Lookup — {item_name}", "", _kv_table(pairs)])
+        return f"Item Lookup - {item_name}\n\n" + _kv_block(pairs)
 
-    # ── List from .NET (or master list fallback) ────────────────────────────
     records: list = []
     if isinstance(data, list):
         records = data
@@ -590,23 +539,19 @@ def _format_item_list(subcategory: str, data: Any, intent_result: Dict) -> str:
     rows = []
     for i, entry in enumerate(items_to_render, 1):
         if isinstance(entry, str):
-            rows.append([i, entry, "—", "—"])
+            rows.append([i, entry, "-", "-"])
         elif isinstance(entry, dict):
             rows.append([
                 i,
                 _safe_str(_get(entry, "name", "itemName", "item", "Name")),
-                _safe_str(_get(entry, "status", "Status"), "—"),
-                _safe_str(_get(entry, "quantity", "qty", "Quantity"), "—"),
+                _safe_str(_get(entry, "status", "Status"), "-"),
+                _safe_str(_get(entry, "quantity", "qty", "Quantity"), "-"),
             ])
         else:
-            rows.append([i, _safe_str(entry), "—", "—"])
+            rows.append([i, _safe_str(entry), "-", "-"])
 
-    note = "\n\n*Source: master list*" if not records else ""
-    return "\n".join([
-        f"### {label} ({len(items_to_render)} items)",
-        "",
-        _md_table(["#", "Item Name", "Status", "Qty"], rows),
-    ]) + note
+    note = "\n\n(Source: master list)" if not records else ""
+    return f"{label} ({len(items_to_render)} items)\n\n" + _plain_table(["#", "Item Name", "Status", "Qty"], rows) + note
 
 
 # =============================================================================
@@ -618,45 +563,41 @@ def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> st
         if isinstance(data, dict):
             pairs = [(_camel_to_words(k), v) for k, v in data.items()
                      if not isinstance(v, (list, dict))]
-            return "\n".join(["### Latest Distribution", "", _kv_table(pairs)])
+            return "Latest Distribution\n\n" + _kv_block(pairs)
         if isinstance(data, list):
             rows = [[i, _safe_str(_get(item, "name", "Name"))]
                     for i, item in enumerate(data, 1)]
-            return "\n".join(["### Latest Distribution", "", _md_table(["#", "Name"], rows)])
+            return "Latest Distribution\n\n" + _plain_table(["#", "Name"], rows)
 
     if subcategory == "DistributionByUnit":
         records = data if isinstance(data, list) else []
         if not records:
-            return "_No unit distribution data._"
+            return "No unit distribution data."
         rows = [
             [_safe_str(_get(item, "unit", "Unit", "unitName")),
-             _safe_str(_get(item, "count", "quantity", "total"), "—")]
+             _safe_str(_get(item, "count", "quantity", "total"), "-")]
             for item in records
         ]
-        return "\n".join(["### Distribution by Unit", "", _md_table(["Unit", "Count"], rows)])
+        return "Distribution by Unit\n\n" + _plain_table(["Unit", "Count"], rows)
 
     if subcategory == "UnassignedItems":
         records = data if isinstance(data, list) else []
         if not records:
-            return "_All items have been assigned to units._"
+            return "All items have been assigned to units."
         rows = [[i, _safe_str(_get(item, "name", "Name"))]
                 for i, item in enumerate(records, 1)]
-        return "\n".join([
-            f"### Unassigned Items ({len(records)})",
-            "",
-            _md_table(["#", "Item"], rows),
-        ])
+        return f"Unassigned Items ({len(records)})\n\n" + _plain_table(["#", "Item"], rows)
 
     if subcategory == "TopUnit":
         if isinstance(data, dict):
             unit  = _safe_str(_get(data, "unit", "Unit", "unitName"))
             count = _get(data, "count", "quantity")
-            return f"🏆 The top unit is **{unit}** with **{count}** items distributed."
+            return f"Top unit: {unit} with {count} items distributed."
 
     if isinstance(data, dict):
         pairs = [(_camel_to_words(k), v) for k, v in data.items()
                  if not isinstance(v, (list, dict))]
-        return "\n".join(["### Distribution Summary", "", _kv_table(pairs)])
+        return "Distribution Summary\n\n" + _kv_block(pairs)
     return str(data)
 
 
@@ -668,44 +609,40 @@ def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
     if subcategory == "BySport":
         records = data if isinstance(data, list) else []
         if not records:
-            return "_No sport data found._"
+            return "No sport data found."
         rows = [
-            [f"🏅 {_safe_str(_get(item, 'sport', 'name', 'Sport'))}",
-             _safe_str(_get(item, "count", "personnel", "total"), "—")]
+            [_safe_str(_get(item, "sport", "name", "Sport")),
+             _safe_str(_get(item, "count", "personnel", "total"), "-")]
             for item in records
         ]
-        return "\n".join(["### Roster by Sport", "", _md_table(["Sport", "Personnel"], rows)])
+        return "Roster by Sport\n\n" + _plain_table(["Sport", "Personnel"], rows)
 
     if subcategory == "ByClass":
         records = data if isinstance(data, list) else []
         if not records:
-            return "_No class data found._"
+            return "No class data found."
         rows = [
             [_safe_str(_get(item, "class", "className", "name", "Class")),
-             _safe_str(_get(item, "count", "personnel", "total"), "—")]
+             _safe_str(_get(item, "count", "personnel", "total"), "-")]
             for item in records
         ]
-        return "\n".join(["### Roster by Class", "", _md_table(["Class", "Personnel"], rows)])
+        return "Roster by Class\n\n" + _plain_table(["Class", "Personnel"], rows)
 
     if subcategory == "BloodGroup":
         records = data if isinstance(data, list) else []
         if not records:
-            return "_No blood group data found._"
+            return "No blood group data found."
         rows = [
-            [f"🩸 **{_safe_str(_get(item, 'bloodGroup', 'blood', 'group'))}**",
-             _safe_str(_get(item, "count", "total"), "—")]
+            [_safe_str(_get(item, "bloodGroup", "blood", "group")),
+             _safe_str(_get(item, "count", "total"), "-")]
             for item in records
         ]
-        return "\n".join([
-            "### Blood Group Distribution",
-            "",
-            _md_table(["Blood Group", "Count"], rows),
-        ])
+        return "Blood Group Distribution\n\n" + _plain_table(["Blood Group", "Count"], rows)
 
     if isinstance(data, list):
         rows = [[i, _safe_str(_get(item, "name", "Name", "fullName"))]
                 for i, item in enumerate(data, 1)]
-        return "\n".join(["### Skills / Roster", "", _md_table(["#", "Name"], rows)])
+        return "Skills / Roster\n\n" + _plain_table(["#", "Name"], rows)
     return str(data)
 
 
@@ -727,48 +664,41 @@ _PERFORMANCE_AGGREGATE_SUBCATEGORIES = {
 
 def _format_performance_aggregate(subcategory: str, data: Any, intent_result: Dict) -> str:
     section = intent_result.get("section", "")
-    sec_str = f" for **{section}**" if section else ""
+    sec_str = f" for {section}" if section else ""
 
     if subcategory == "AverageScore":
         avg = (
             _get(data, "averageScore", "AverageScore", "average", "Average")
             if isinstance(data, dict) else data
         )
-        return f"📊 The average score{sec_str} is **{avg}**."
+        return f"The average score{sec_str} is {avg}."
 
     if subcategory in ("PassPercentage", "FailPercentage"):
         label  = "pass" if subcategory == "PassPercentage" else "fail"
-        icon   = "✅" if label == "pass" else "❌"
         if isinstance(data, dict):
             pct       = _get(data, "percentage", "Percentage", "passPercentage", "failPercentage")
             total     = _get(data, "total", "Total")
             total_str = f" (out of {total} total)" if total else ""
-            return f"{icon} The {label} percentage{sec_str} is **{pct}%**{total_str}."
-        return f"{icon} {label.title()} percentage{sec_str}: **{data}%**"
+            return f"The {label} percentage{sec_str} is {pct}%{total_str}."
+        return f"{label.title()} percentage{sec_str}: {data}%"
 
     if subcategory in ("GradeDistribution", "GradingSummary"):
-        title = f"### Grade Distribution{' — ' + section if section else ''}"
+        title = f"Grade Distribution{' - ' + section if section else ''}"
         if isinstance(data, dict):
-            rows = [
-                [f"{_grading_emoji(k)} {k}", v]
-                for k, v in data.items()
-                if not isinstance(v, (list, dict))
-            ]
-            return "\n".join([title, "", _md_table(["Grade", "Count"], rows)])
+            rows = [[k, v] for k, v in data.items() if not isinstance(v, (list, dict))]
+            return f"{title}\n\n" + _plain_table(["Grade", "Count"], rows)
         if isinstance(data, list):
             rows = [
-                [f"{_grading_emoji(_safe_str(_get(item,'grade','Grade','grading')))} "
-                 f"{_safe_str(_get(item,'grade','Grade','grading'))}",
-                 _safe_str(_get(item, "count", "Count", "total"), "—")]
+                [_safe_str(_get(item, "grade", "Grade", "grading")),
+                 _safe_str(_get(item, "count", "Count", "total"), "-")]
                 for item in data
             ]
-            return "\n".join([title, "", _md_table(["Grade", "Count"], rows)])
+            return f"{title}\n\n" + _plain_table(["Grade", "Count"], rows)
 
-    # Generic aggregate fallback
     if isinstance(data, dict):
         pairs = [(_camel_to_words(k), v) for k, v in data.items()
                  if not isinstance(v, (list, dict))]
-        return "\n".join([f"### Performance Data{sec_str}", "", _kv_table(pairs)])
+        return f"Performance Data{sec_str}\n\n" + _kv_block(pairs)
     return str(data)
 
 
@@ -796,26 +726,23 @@ def format_dotnet_response(
     intent_result: Dict,
 ) -> str:
     """
-    Convert raw .NET response + intent into clean markdown.
-    Frontend renders this with react-markdown (or similar).
+    Convert raw .NET response + intent into clean plain-text.
+    No markdown symbols, no emojis, no bold/italic markers.
     """
     category    = intent_result.get("category", "")
     subcategory = intent_result.get("subcategory", "")
 
-    # ── Handle .NET error shapes ───────────────────────────────────────────
     if isinstance(dotnet_response, dict):
         error_msg = _get(dotnet_response, "error", "Error", "errorMessage")
         if error_msg:
-            return f"> ⚠️ **Server error:** {error_msg}"
+            return f"Server error: {error_msg}"
         if dotnet_response.get("success") is False:
             msg = _get(dotnet_response, "message", "Message") or "Unknown error."
-            return f"> ⚠️ **Request failed:** {msg}"
+            return f"Request failed: {msg}"
 
-    # ── Overall (composite ranking — same shape as Performance) ───────────
     if category == "Overall":
         return _format_performance_list(dotnet_response, intent_result)
 
-    # ── Performance ────────────────────────────────────────────────────────
     if category == "Performance":
         if subcategory in _PERFORMANCE_NESTED_SUBCATEGORIES:
             return _format_performance_list(dotnet_response, intent_result)
@@ -830,7 +757,6 @@ def format_dotnet_response(
 
         return _format_performance_list(dotnet_response, intent_result)
 
-    # ── All other modules ──────────────────────────────────────────────────
     data = (
         _get(dotnet_response, "data", "Data", "result", "Result")
         or dotnet_response
@@ -843,8 +769,7 @@ def format_dotnet_response(
         except Exception:
             pass
 
-    # ── Ultimate fallback: pretty JSON ─────────────────────────────────────
     try:
-        return "```json\n" + json.dumps(data, indent=2, ensure_ascii=False) + "\n```"
+        return json.dumps(data, indent=2, ensure_ascii=False)
     except Exception:
         return str(data)
