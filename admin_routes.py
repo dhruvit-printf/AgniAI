@@ -62,7 +62,7 @@ from flask import Blueprint, jsonify, request
 
 from admin_formatter import format_dotnet_response
 from admin_intent import admin_normalize_query, classify_admin_intent, format_admin_payload
-from config import _is_greeting
+from config import _is_greeting, _is_small_talk, _is_patriotic, GREETING_PHRASES
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,49 @@ def _register_rate_limits(app):
 
 
 # =============================================================================
+# CONVERSATIONAL DETECTION
+# =============================================================================
+
+def _is_admin_conversational(message: str) -> bool:
+    """Return True if the message is casual / conversational and not a data query.
+
+    Checks: exact greetings, small-talk substrings, patriotic phrases,
+    and very short messages (≤3 words) that don't contain admin-data keywords.
+    """
+    cleaned = message.lower().strip().rstrip("!?.,;")
+
+    # Exact greeting match
+    if _is_greeting(cleaned):
+        return True
+
+    # Substring-based small-talk
+    if _is_small_talk(cleaned):
+        return True
+
+    # Patriotic phrases
+    if _is_patriotic(cleaned):
+        return True
+
+    # Very short messages (≤3 words) that don't look like admin queries
+    tokens = cleaned.split()
+    if len(tokens) <= 3:
+        _ADMIN_SIGNAL_WORDS = {
+            "performance", "leave", "attendance", "medical", "equipment",
+            "verification", "distribution", "skills", "top", "bottom",
+            "score", "marks", "grading", "bpet", "ppt", "firing", "drill",
+            "performer", "performers", "overdue", "absconded", "bmi",
+            "disease", "present", "strength", "issued", "procured",
+            "pending", "completed", "sport", "blood", "unit", "overall",
+            "average", "pass", "fail", "improvement", "drop", "attempt",
+            "comparison", "compare", "summary", "ranking",
+        }
+        if not any(t in _ADMIN_SIGNAL_WORDS for t in tokens):
+            return True
+
+    return False
+
+
+# =============================================================================
 # GREETING BUILDER
 # =============================================================================
 
@@ -150,6 +193,98 @@ def _build_greeting_response(body: Dict, session_id: str) -> tuple:
         response_data["sessionId"] = session_id
 
     return response_data, random.choice(greetings)
+
+
+# =============================================================================
+# CONVERSATIONAL RESPONSE BUILDER (for small-talk / casual messages)
+# =============================================================================
+
+def _build_conversational_response(message: str, body: Dict, session_id: str) -> tuple:
+    """Generate a natural conversational reply for non-greeting casual messages.
+
+    Uses the LLM for a warm, human-like response. Falls back to a static
+    reply if the LLM is unavailable.
+    """
+    import random
+    import datetime as _dt
+
+    admin_name = (
+        body.get("fullName")
+        or body.get("adminName")
+        or body.get("userName")
+        or body.get("commanderName")
+        or body.get("commander_name")
+        or body.get("name")
+        or "Officer"
+    ).strip()
+
+    hour = _dt.datetime.now().hour
+    if 5 <= hour < 12:
+        time_greeting = "Good Morning"
+    elif 12 <= hour < 17:
+        time_greeting = "Good Afternoon"
+    else:
+        time_greeting = "Good Evening"
+
+    # Try LLM for a natural response
+    try:
+        import requests as _req
+        from config import OLLAMA_URL, DEFAULT_MODEL
+
+        prompt = (
+            f"You are AgniAI Command Console — an intelligent admin assistant that helps "
+            f"commanding officers review and analyze Agniveer data such as Performance, "
+            f"Attendance, Leave, Medical, Equipment, Verification, Distribution, and Skills.\n"
+            f"The admin officer's name/title is \"{admin_name}\". They sent this casual message: \"{message}\"\n"
+            f"The current time of day greeting is \"{time_greeting}\".\n\n"
+            f"IMPORTANT: Start your reply with \"{time_greeting}, {admin_name}!\" or \"{time_greeting}, {admin_name}.\" "
+            f"then continue naturally.\n"
+            f"Reply warmly, professionally, and naturally in 1-2 sentences as a command console assistant would. "
+            f"Be respectful and military-professional in tone. If they asked how you are, respond naturally. "
+            f"If they said thanks, acknowledge it warmly. If they said something patriotic, match that energy with pride. "
+            f"End by offering to help with Agniveer data, reports, or analytics they may need.\n"
+            f"Do NOT use markdown, bullets, or headers. Do NOT be robotic. Do NOT mention aspirants or recruitment."
+        )
+        payload = {
+            "model":    DEFAULT_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream":   False,
+            "options": {
+                "temperature": 0.7,
+                "num_predict": 80,
+                "num_ctx":     512,
+            },
+        }
+        resp = _req.post(OLLAMA_URL, json=payload, timeout=(8, 30))
+        resp.raise_for_status()
+        llm_reply = (
+            resp.json()
+            .get("message", {})
+            .get("content", "")
+            .strip()
+            .strip('"\'')
+        )
+        if llm_reply and 5 <= len(llm_reply) <= 300:
+            response_data: Dict[str, Any] = {"type": "conversational"}
+            if session_id and session_id != "admin-default":
+                response_data["sessionId"] = session_id
+            return response_data, llm_reply
+    except Exception as exc:
+        logger.debug("LLM conversational reply failed, using fallback: %s", exc)
+
+    # Static fallbacks (with time greeting + admin name)
+    fallbacks = [
+        f"{time_greeting}, {admin_name}. I'm here and ready to help. What data would you like to review?",
+        f"{time_greeting}, {admin_name}! Let me know if you need any reports or insights.",
+        f"{time_greeting}, {admin_name}. All systems are operational. What would you like to look into today?",
+        f"{time_greeting}, {admin_name}. At your service — feel free to ask about Performance, Attendance, Leave, or any other module.",
+    ]
+
+    response_data = {"type": "conversational"}
+    if session_id and session_id != "admin-default":
+        response_data["sessionId"] = session_id
+
+    return response_data, random.choice(fallbacks)
 
 
 # =============================================================================
@@ -574,8 +709,12 @@ def admin_classify():
 
     session_id = _get_session_id(body)
 
-    if _is_greeting(message.lower().strip().rstrip("!?.,;")):
-        response_data, greeting_message = _build_greeting_response(body, session_id)
+    if _is_admin_conversational(message):
+        cleaned = message.lower().strip().rstrip("!?.,;")
+        if _is_greeting(cleaned):
+            response_data, greeting_message = _build_greeting_response(body, session_id)
+        else:
+            response_data, greeting_message = _build_conversational_response(message, body, session_id)
         return _success_response(response_data, message=greeting_message)
 
     id_filters    = _get_id_filters(body)
@@ -635,9 +774,13 @@ def admin_chat():
     id_filters = _get_id_filters(body)
     full_name  = _get_full_name(body)
 
-    # ── Greeting short-circuit ─────────────────────────────────────────────
-    if _is_greeting(message.lower().strip().rstrip("!?.,;")):
-        response_data, greeting_message = _build_greeting_response(body, session_id)
+    # ── Greeting / conversational short-circuit ─────────────────────────────
+    if _is_admin_conversational(message):
+        cleaned = message.lower().strip().rstrip("!?.,;")
+        if _is_greeting(cleaned):
+            response_data, greeting_message = _build_greeting_response(body, session_id)
+        else:
+            response_data, greeting_message = _build_conversational_response(message, body, session_id)
         return _success_response(response_data, message=greeting_message)
 
     if not message:
@@ -664,8 +807,7 @@ def admin_chat():
                 "result":        None,
             },
             message=(
-                "Please ask a performance, leave, attendance, medical, equipment, "
-                "verification, distribution, or skills related question."
+                "Sorry, I was unable to understand your request. I can help with Performance, Leave, Attendance, Medical, Equipment, Verification, Distribution, and Skills information. Please ask a relevant question."
             ),
         )
 
