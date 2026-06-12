@@ -521,7 +521,7 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "who scored", "who passed", "who failed",
             "highest score", "lowest score", "best score", "worst score",
             "performance", "score", "marks", "exam", "grading",
-            "bept", "ppt", "firing", "drill",
+            "bpet", "ppt", "firing", "drill",
             "performer", "performers",
             "attempt", "section",
         ),
@@ -657,9 +657,8 @@ ADMIN_FUZZY_VOCAB: Dict[str, str] = {
     "medicl":        "medical",
     "medcal":        "medical",
     # Section names
-    "beptt":         "bept",
-    "bpet":          "bept",
-    "betp":          "bept",
+    "bpet":          "bpet",
+    "betp":          "bpet",
     "pptt":          "ppt",
     "fiiring":       "firing",
     "firng":         "firing",
@@ -733,7 +732,7 @@ ADMIN_FUZZY_VOCAB: Dict[str, str] = {
 }
 
 _ADMIN_CANONICAL_CASE: Dict[str, str] = {
-    "bept":   "BEPT",
+    "bpet":   "BPET",
     "ppt":    "PPT",
     "firing": "Firing",
     "drill":  "Drill",
@@ -772,7 +771,7 @@ def admin_normalize_query(query: str) -> str:
 # =============================================================================
 
 _SECTION_MAP = {
-    "bept":   "BEPT",
+    "bpet":   "BPET",
     "ppt":    "PPT",
     "firing": "Firing",
     "drill":  "Drill",

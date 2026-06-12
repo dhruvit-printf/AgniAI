@@ -15,24 +15,25 @@ Flow for /api/admin/chat:
      └─ includes commandId, batchId, platoonId, fullName from the frontend request
   4. POST payload to .NET       → https://<DOTNET_API_BASE_URL>/api/AiCommand/execute
   5. generate_intro_message()   → LLM generates a single clean intro sentence
-  6. Return unified response
+  6. format_dotnet_response()   → formats raw .NET data into rich readable markdown
+  7. Return unified response with intro + formatted answer in 'message'
 
 RESPONSE SHAPE:
   {
     "status":     true,
     "httpStatus": 200,
-    "message":    "<single LLM intro sentence — no notes, no extra text>",
+    "message":    "<intro sentence>\n\n<full formatted answer>",
     "data": {
       "intent":        { ...classified intent fields... },
       "dotnetPayload": { ...sent to .NET... },
-      "result":        <raw .NET response — frontend renders this>,
+      "result":        <raw .NET response — frontend can also use this>,
       "sessionId":     "..."   (only if not admin-default)
     }
   }
 
-  message  → one clean sentence, e.g. "Top 5 BEPT performers retrieved."
-  data.result → raw .NET JSON for frontend to render as needed
-  data.intent → full intent classification (category, subcategory, filters, confidence)
+  message  → intro sentence + "\n\n" + full formatted markdown answer
+  data.result → raw .NET JSON (kept for frontend flexibility)
+  data.intent → full intent classification
   data.dotnetPayload → exact payload sent to .NET
 
 FRONTEND REQUEST FIELDS:
@@ -59,6 +60,7 @@ from typing import Any, Dict, Optional
 import requests as _requests
 from flask import Blueprint, jsonify, request
 
+from admin_formatter import format_dotnet_response
 from admin_intent import admin_normalize_query, classify_admin_intent, format_admin_payload
 from config import _is_greeting
 
@@ -114,10 +116,6 @@ def _register_rate_limits(app):
 # =============================================================================
 
 def _build_greeting_response(body: Dict, session_id: str) -> tuple:
-    """
-    Single source of truth for all admin greeting responses.
-    Priority for name: fullName → adminName → userName → commanderName → name → "Officer"
-    """
     import datetime as _dt
     import random
 
@@ -158,9 +156,6 @@ def _build_greeting_response(body: Dict, session_id: str) -> tuple:
 # INTRO MESSAGE GENERATOR
 # =============================================================================
 
-# Static fallback templates — used when Ollama is unavailable.
-# One clean sentence per (category, subcategory) pair.
-# No "Note:", no qualifiers, no follow-up questions.
 _INTRO_TEMPLATES: Dict[tuple, str] = {
     # Performance
     ("Performance", "TopPerformers"):      "These assessment results highlight the strongest performers in the evaluation.",
@@ -197,6 +192,8 @@ _INTRO_TEMPLATES: Dict[tuple, str] = {
     ("Equipment", "EquipmentSummary"):         "This inventory summary reflects current equipment counts and status.",
     ("Equipment", "OverdueEquipment"):         "These records flag issued gear currently overdue for return.",
     ("Equipment", "PoorConditionEquipment"):   "This quality review highlights equipment returned in sub-standard condition.",
+    ("Equipment", "IssuedItems"):              "Here is the complete list of items issued to Agniveers.",
+    ("Equipment", "ProcuredItems"):            "Here is the complete list of items procured by Agniveers.",
     # Distribution
     ("Distribution", "LatestDistribution"):    "Recent distribution logs track the latest issue of supplies and gear.",
     ("Distribution", "DistributionByUnit"):    "Distribution logs trace supply allocation across different units.",
@@ -284,7 +281,6 @@ def _sanitize_intro(text: str) -> str:
 
     text = text.strip().strip('"\'')
 
-    # Strip LLM meta-commentary prefixes
     meta_prefixes = re.compile(
         r"^(?:"
         r"here(?:'s| is)(?: a| the| my)?(?: possible| suggested?)?(?: introductory?| intro)?(?: sentence| line| message| response)?[:\s]*|"
@@ -298,43 +294,33 @@ def _sanitize_intro(text: str) -> str:
     )
     text = meta_prefixes.sub("", text).strip()
 
-    # Strip parenthetical notes
     text = re.sub(r"\s*\([^)]{0,200}\)\s*$", "", text).strip()
-
-    # Strip "Note:" lines
     text = re.sub(r"\s*[Nn]ote\s*[:—–-].*$", "", text, flags=re.DOTALL).strip()
     text = re.sub(r"\s*[Pp]lease note.*$", "", text, flags=re.DOTALL).strip()
 
-    # Keep only first sentence
     sentences = re.split(r"(?<=[.!?])\s+", text)
     if sentences:
         text = sentences[0].strip()
 
-    # Remove trailing question marks
     if text.endswith("?"):
         text = text.rstrip("?").rstrip() + "."
 
-    # Ensure ends with period
     if text and text[-1] not in ".!":
         text += "."
 
-    # REJECT if it contains a number (score, count, percentage)
     if re.search(r"\b\d+\b", text):
         return ""
 
-    # REJECT if it contains a capitalised word that looks like a proper noun
-    # (names like "Johnson", "Ravi", "Alpha Unit" — excludes first word of sentence)
     words = text.split()
     for word in words[1:]:
         clean_word = re.sub(r"[^A-Za-z]", "", word)
         if clean_word and clean_word[0].isupper() and clean_word.lower() not in {
-            "agniveer", "bept", "ppt", "drill", "firing", "medical",
+            "agniveer", "bpet", "ppt", "drill", "firing", "medical",
             "attendance", "leave", "equipment", "performance", "verification",
             "distribution", "skills", "unit", "platoon", "batch",
         }:
             return ""
 
-    # Reject meta-commentary
     meta_check = re.compile(
         r"^(?:here(?:'s| is)|i(?:'ve| have)|based on|the following|as requested)",
         re.IGNORECASE,
@@ -350,11 +336,6 @@ def _generate_intro_message(
     intent: Dict[str, Any],
     dotnet_data: Any,
 ) -> str:
-    """
-    Generate a clean single-sentence intro using Ollama.
-    Falls back to static template if Ollama is unavailable or returns bad output.
-    Output is always exactly one sentence with no notes, qualifiers, or questions.
-    """
     category    = intent.get("category", "")
     subcategory = intent.get("subcategory", "")
 
@@ -369,10 +350,10 @@ def _generate_intro_message(
             "messages": messages,
             "stream":   False,
             "options": {
-                "temperature": 0.2,   # Lower temp = more deterministic / less creative
-                "num_predict": 60,    # Hard cap — one sentence needs at most ~20 tokens
+                "temperature": 0.2,
+                "num_predict": 60,
                 "num_ctx":     512,
-                "stop": ["Note:", "Please note", "\n", "?"],  # Stop tokens
+                "stop": ["Note:", "Please note", "\n", "?"],
             },
         }
         resp = _req.post(OLLAMA_URL, json=payload, timeout=(8, 30))
@@ -384,10 +365,8 @@ def _generate_intro_message(
             .strip()
         )
 
-        # Sanitize the output
         clean_text = _sanitize_intro(raw_text)
 
-        # Accept only if it's a valid single sentence of reasonable length
         if clean_text and 10 <= len(clean_text) <= 200:
             logger.debug("LLM intro (sanitized): %s", clean_text)
             return clean_text
@@ -397,13 +376,38 @@ def _generate_intro_message(
     except Exception as exc:
         logger.debug("Ollama intro generation failed, using template: %s", exc)
 
-    # Static fallback
     key = (category, subcategory)
     if key in _INTRO_TEMPLATES:
         return _INTRO_TEMPLATES[key]
 
     category_label = category or "requested"
     return f"These records outline the current {category_label.lower()} status across the unit."
+
+
+# =============================================================================
+# RICH FORMATTER  ← NEW
+# =============================================================================
+
+def _build_rich_formatted_answer(
+    dotnet_data: Any,
+    intent_result: Dict[str, Any],
+) -> str:
+    """
+    Convert raw .NET response into a rich, human-readable formatted answer
+    using admin_formatter.py — the same way ChatGPT/Claude would present it.
+
+    Returns a markdown string ready to be shown directly in the frontend.
+    Falls back to a clean JSON block if formatting fails.
+    """
+    try:
+        formatted = format_dotnet_response(dotnet_data, intent_result)
+        return formatted or ""
+    except Exception as exc:
+        logger.warning("admin_formatter failed: %s", exc)
+        try:
+            return "```json\n" + json.dumps(dotnet_data, indent=2, ensure_ascii=False) + "\n```"
+        except Exception:
+            return str(dotnet_data)
 
 
 # =============================================================================
@@ -502,7 +506,7 @@ def _success_response(data: Dict, http_status: int = 200, message: str = ""):
       {
         "status":     true,
         "httpStatus": 200,
-        "message":    "<single clean sentence>",
+        "message":    "<intro sentence>\\n\\n<full formatted answer>",
         "data": {
           "intent":        {...},
           "dotnetPayload": {...},
@@ -570,7 +574,6 @@ def admin_classify():
 
     session_id = _get_session_id(body)
 
-    # ── Greeting short-circuit ─────────────────────────────────────────────
     if _is_greeting(message.lower().strip().rstrip("!?.,;")):
         response_data, greeting_message = _build_greeting_response(body, session_id)
         return _success_response(response_data, message=greeting_message)
@@ -609,22 +612,19 @@ def admin_chat():
       2. Build .NET payload (camelCase), including fullName if provided
       3. POST to .NET AiCommand/execute
       4. Generate clean single-sentence intro via LLM (or static template)
-      5. Return unified JSON response
+      5. Format raw .NET data into rich readable markdown (admin_formatter)
+      6. Combine: message = intro + "\\n\\n" + formatted_answer
+      7. Return unified JSON response
 
     RESPONSE SHAPE:
       {
         "status":     true,
         "httpStatus": 200,
-        "message":    "<single sentence — no notes, no questions>",
+        "message":    "<intro sentence>\\n\\n<full formatted answer>",
         "data": {
-          "dotnetPayload": {
-            "category":  "Performance",
-            "operation": "Top",
-            "n":         5,
-            "section":   "BEPT"
-          },
-          "result":    <raw .NET response object>,
-          "sessionId": "..."    (only present if provided by frontend)
+          "dotnetPayload": { "category": "Performance", "operation": "Top", ... },
+          "result":        <raw .NET response object>,
+          "sessionId":     "..."
         }
       }
     """
@@ -688,20 +688,27 @@ def admin_chat():
             502,
         )
 
-
-    # ── Step 5: Generate clean single-sentence intro ───────────────────────
+    # ── Step 4: Generate clean single-sentence intro ───────────────────────
     intro_message = _generate_intro_message(
         question=message,
         intent=intent_result,
         dotnet_data=dotnet_data,
     )
 
-    full_message = intro_message
-    # ── Step 6: Build response ─────────────────────────────────────────────
+    # ── Step 5: Format raw .NET data into rich readable answer ─────────────
+    formatted_answer = _build_rich_formatted_answer(dotnet_data, intent_result)
+
+    # ── Step 6: Combine intro + formatted answer ───────────────────────────
+    if formatted_answer and formatted_answer.strip():
+        full_message = f"{intro_message}\n\n{formatted_answer}"
+    else:
+        full_message = intro_message
+
+    # ── Step 7: Build response ─────────────────────────────────────────────
     response_data: Dict[str, Any] = {
-    "dotnetPayload": dotnet_payload,
-    "result":        dotnet_data if dotnet_data is not None else {},
-}
+        "dotnetPayload": dotnet_payload,
+        "result":        dotnet_data if dotnet_data is not None else {},
+    }
 
     if session_id and session_id != "admin-default":
         response_data["sessionId"] = session_id
