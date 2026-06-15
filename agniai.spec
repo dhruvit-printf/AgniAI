@@ -34,7 +34,7 @@ meta_datas = (
     + copy_metadata("itsdangerous")
     + copy_metadata("jinja2")
     + copy_metadata("rank_bm25")
-    + copy_metadata("faiss")
+    + copy_metadata("faiss-cpu")
     + copy_metadata("python_dotenv")
     + copy_metadata("beautifulsoup4")
     + copy_metadata("psutil")
@@ -52,6 +52,7 @@ huggingface_datas,  huggingface_binaries,  huggingface_hiddenimports  = collect_
 safetensors_datas,  safetensors_binaries,  safetensors_hiddenimports  = collect_all("safetensors")
 docx_datas,         docx_binaries,         docx_hiddenimports         = collect_all("docx")
 fitz_datas,         fitz_binaries,         fitz_hiddenimports         = collect_all("fitz")
+faiss_datas,        faiss_binaries,        faiss_hiddenimports        = collect_all("faiss")
 
 hidden_imports = [
     # Flask ecosystem
@@ -89,6 +90,8 @@ hidden_imports = [
 
     # FAISS
     "faiss",
+    "faiss.loader",
+    "faiss.swigfaiss",
 
     # NumPy
     "numpy",
@@ -201,6 +204,7 @@ all_datas = (
     + safetensors_datas
     + docx_datas
     + fitz_datas
+    + faiss_datas
 )
 
 # ── Merge all collected binaries ───────────────────────────────────────────
@@ -213,6 +217,7 @@ all_binaries = (
     + safetensors_binaries
     + docx_binaries
     + fitz_binaries
+    + faiss_binaries
 )
 
 # ── Merge all collected hidden imports ─────────────────────────────────────
@@ -226,6 +231,7 @@ all_hidden_imports = (
     + safetensors_hiddenimports
     + docx_hiddenimports
     + fitz_hiddenimports
+    + faiss_hiddenimports
 )
 
 a = Analysis(
