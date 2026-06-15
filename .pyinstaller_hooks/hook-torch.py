@@ -1,71 +1,63 @@
 # .pyinstaller_hooks/hook-torch.py
-#
-# KEY CHANGE vs original:
-#   Added `module_collection_mode` dict to force torch.nn.functional (and
-#   other files that use @_overload at module level) to be collected as
-#   bytecode-only (.pyc) rather than frozen source.  When PyInstaller
-#   freezes a file as source, PyTorch's JIT parser finds the file and
-#   tries to parse it — which fails because frozen "source" is actually
-#   compiled bytecode.  Bytecode-only mode hides the file from the parser.
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 binaries = collect_dynamic_libs("torch")
 
 datas = collect_data_files("torch", excludes=[
-    "test",
-    "tests",
-    "utils/tensorboard",
+    "test", "tests", "utils/tensorboard",
 ])
 
 hiddenimports = [
-    "torch",
-    "torch.nn",
-    "torch.nn.functional",
-    "torch.nn.modules",
-    "torch.nn.modules.linear",
-    "torch.nn.modules.normalization",
-    "torch.nn.modules.activation",
+    "torch", "torch.nn", "torch.nn.functional",
+    "torch.nn.modules", "torch.nn.modules.linear",
+    "torch.nn.modules.normalization", "torch.nn.modules.activation",
     "torch.nn.modules.pooling",
-    "torch.cuda",
-    "torch.jit",
-    "torch._C",
-    "torch._tensor",
-    "torch.storage",
-    "torch.serialization",
-    "torch.utils",
-    "torch.utils.data",
-    "torch.utils.data.dataloader",
-    "torch.distributed",
-    "torch.distributed.distributed_c10d",
-    "torch._jit_internal",
-    "torch._sources",
-    "torch.jit._builtins",
-    "torch.jit.annotations",
+    "torch.cuda", "torch.jit", "torch._C", "torch._tensor",
+    "torch.storage", "torch.serialization",
+    "torch.utils", "torch.utils.data", "torch.utils.data.dataloader",
+    "torch.distributed", "torch.distributed.distributed_c10d",
+    "torch._jit_internal", "torch._sources",
+    "torch.jit._builtins", "torch.jit.annotations",
     "torch.utils._config_module",
+    # dynamo + all polyfills
+    "torch._dynamo",
+    "torch._dynamo.polyfills",
+    "torch._dynamo.polyfills.loader",
+    "torch._dynamo.polyfills._collections",
+    "torch._dynamo.polyfills.builtins",
+    "torch._dynamo.polyfills.copy",
+    "torch._dynamo.polyfills.functools",
+    "torch._dynamo.polyfills.fx",
+    "torch._dynamo.polyfills.heapq",
+    "torch._dynamo.polyfills.itertools",
+    "torch._dynamo.polyfills.operator",
+    "torch._dynamo.polyfills.os",
+    "torch._dynamo.polyfills.pytree",
+    "torch._dynamo.polyfills.struct",
+    "torch._dynamo.polyfills.sys",
+    "torch._dynamo.polyfills.tensor",
+    "torch._dynamo.polyfills.torch_c_nn",
+    "torch._dynamo.polyfills.traceback",
 ]
 
-# ── Force bytecode-only collection for modules that use @_overload ────────
-# This prevents PyTorch's JIT source parser from ever seeing these files
-# as text, which is what causes:
-#   RuntimeError: Expected a single top-level function: torch/nn/functional.py:1
-#
-# 'bytecode' mode = collect as .pyc, no frozen source text in the archive.
+# "pyc" = external .pyc, no frozen source text — prevents parse_def() crash
 module_collection_mode = {
-    "torch.nn.functional":              "bytecode",
-    "torch.nn.modules.activation":      "bytecode",
-    "torch.nn.modules.linear":          "bytecode",
-    "torch.nn.modules.normalization":   "bytecode",
-    "torch.nn.modules.pooling":         "bytecode",
-    "torch.nn.modules.sparse":          "bytecode",
-    "torch.nn.modules.conv":            "bytecode",
-    "torch.nn.modules.rnn":             "bytecode",
-    "torch._jit_internal":              "bytecode",
-    "torch._sources":                   "bytecode",
-    "torch.jit._builtins":              "bytecode",
-    "torch.jit.annotations":            "bytecode",
-    "torch.functional":                 "bytecode",
-    "torch.nn.parallel.distributed":    "bytecode",
-    "torch.distributed.distributed_c10d": "bytecode",
-    "torch.utils._config_module":       "bytecode",
+    "torch.nn.functional":                "pyc",
+    "torch.nn.modules.activation":        "pyc",
+    "torch.nn.modules.linear":            "pyc",
+    "torch.nn.modules.normalization":     "pyc",
+    "torch.nn.modules.pooling":           "pyc",
+    "torch.nn.modules.sparse":            "pyc",
+    "torch.nn.modules.conv":              "pyc",
+    "torch.nn.modules.rnn":               "pyc",
+    "torch._jit_internal":                "pyc",
+    "torch._sources":                     "pyc",
+    "torch.jit._builtins":                "pyc",
+    "torch.jit.annotations":              "pyc",
+    "torch.functional":                   "pyc",
+    "torch.nn.parallel.distributed":      "pyc",
+    "torch.distributed.distributed_c10d": "pyc",
+    "torch.utils._config_module":         "pyc",
+    "torch._dynamo":                      "pyc",
 }

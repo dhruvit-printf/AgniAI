@@ -1,15 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # AgniAI PyInstaller build spec
 # Run with:  pyinstaller agniai.spec --clean --noconfirm
-# Built against agniai-env — pip list verified 2026-06-15
-#
-# KEY FIX vs previous version:
-#   module_collection_mode added to Analysis() call so PyInstaller collects
-#   torch.nn.functional and related modules as bytecode-only (.pyc).
-#   This prevents torch._jit_internal._check_overload_body() from finding
-#   the "source" file and trying to parse frozen bytecode as Python source,
-#   which caused:
-#     RuntimeError: Expected a single top-level function: torch/nn/functional.py:1
 
 block_cipher = None
 
@@ -17,6 +8,7 @@ from PyInstaller.utils.hooks import (
     collect_all,
     collect_data_files,
     collect_dynamic_libs,
+    collect_submodules,
     copy_metadata,
 )
 
@@ -83,184 +75,115 @@ docx_datas,         docx_binaries,         docx_hiddenimports         = collect_
 fitz_datas,         fitz_binaries,         fitz_hiddenimports         = collect_all("fitz")
 faiss_datas,        faiss_binaries,        faiss_hiddenimports        = collect_all("faiss")
 
+# ── NEW: collect torch._dynamo fully (fixes polyfills.copy and friends) ───
+dynamo_datas,       dynamo_binaries,       dynamo_hiddenimports       = collect_all("torch._dynamo")
+
 hidden_imports = [
     # Flask ecosystem
-    "flask",
-    "flask.json",
-    "flask_cors",
-    "flask_limiter",
-    "flask_limiter.util",
-    "werkzeug",
-    "werkzeug.middleware.proxy_fix",
-    "werkzeug.utils",
-    "jinja2",
-    "click",
-    "itsdangerous",
+    "flask", "flask.json", "flask_cors", "flask_limiter", "flask_limiter.util",
+    "werkzeug", "werkzeug.middleware.proxy_fix", "werkzeug.utils",
+    "jinja2", "click", "itsdangerous",
 
     # Sentence Transformers
-    "sentence_transformers",
-    "sentence_transformers.util",
+    "sentence_transformers", "sentence_transformers.util",
     "sentence_transformers.cross_encoder",
-    "sentence_transformers.backend",
-    "sentence_transformers.backend.load",
+    "sentence_transformers.backend", "sentence_transformers.backend.load",
 
-    # HuggingFace / Transformers
-    "huggingface_hub",
-    "transformers",
+    # HuggingFace / Transformers core
+    "huggingface_hub", "transformers",
+    "transformers.modeling_utils",          # fixes PreTrainedModel import error
     "transformers.models.auto",
     "transformers.models.bert.modeling_bert",
     "transformers.models.roberta.modeling_roberta",
-    "transformers.utils",
-    "transformers.utils.versions",
+    "transformers.utils", "transformers.utils.versions",
     "transformers.dependency_versions_check",
-    "tokenizers",
-    "safetensors",
-    "safetensors.torch",
+    # transformers.integrations chain that triggered dynamo import
+    "transformers.integrations",
+    "transformers.integrations.finegrained_fp8",
+    "transformers.integrations.moe",
+    "transformers.integrations.sonicmoe",
+    "tokenizers", "safetensors", "safetensors.torch",
 
     # FAISS
     "faiss",
 
-    # NumPy
-    "numpy",
-    "numpy.core",
-    "numpy.core._multiarray_umath",
+    # NumPy / SciPy / sklearn
+    "numpy", "numpy.core", "numpy.core._multiarray_umath",
+    "scipy", "scipy.sparse",
+    "sklearn", "sklearn.metrics.pairwise", "joblib", "threadpoolctl",
 
-    # SciPy
-    "scipy",
-    "scipy.sparse",
-
-    # scikit-learn
-    "sklearn",
-    "sklearn.metrics.pairwise",
-    "joblib",
-    "threadpoolctl",
-
-    # PyYAML
-    "yaml",
-
-    # sympy / torch deps
-    "sympy",
-    "mpmath",
-    "networkx",
-    "fsspec",
-
-    # typing
-    "typing_extensions",
+    # PyYAML / sympy / misc torch deps
+    "yaml", "sympy", "mpmath", "networkx", "fsspec", "typing_extensions",
 
     # PyMuPDF
-    "fitz",
-    "fitz.fitz",
-    "fitz.utils",
+    "fitz", "fitz.utils",
 
     # python-docx
-    "docx",
-    "docx.oxml",
-    "docx.oxml.ns",
-    "docx.oxml.table",
-    "docx.oxml.text",
-    "docx.oxml.text.paragraph",
-    "docx.oxml.text.run",
-    "docx.oxml.document",
-    "docx.oxml.shared",
-    "docx.oxml.styles",
-    "docx.parts",
-    "docx.parts.document",
-    "docx.parts.image",
-    "docx.shared",
-    "docx.styles",
-    "docx.styles.style",
-    "docx.table",
-    "docx.text",
-    "docx.text.paragraph",
-    "docx.text.run",
-    "docx.enum",
-    "docx.enum.text",
-    "docx.enum.style",
-    "docx.enum.table",
-    "docx.image",
-    "docx.image.image",
+    "docx", "docx.oxml", "docx.oxml.ns", "docx.oxml.table",
+    "docx.oxml.text", "docx.oxml.text.paragraph", "docx.oxml.text.run",
+    "docx.oxml.document", "docx.oxml.shared", "docx.oxml.styles",
+    "docx.parts", "docx.parts.document", "docx.parts.image",
+    "docx.shared", "docx.styles", "docx.styles.style",
+    "docx.table", "docx.text", "docx.text.paragraph", "docx.text.run",
+    "docx.enum", "docx.enum.text", "docx.enum.style", "docx.enum.table",
+    "docx.image", "docx.image.image",
 
     # lxml
-    "lxml",
-    "lxml.etree",
+    "lxml", "lxml.etree",
 
-    # BM25
-    "rank_bm25",
-
-    # Requests / networking
-    "requests",
-    "urllib3",
-    "certifi",
-    "charset_normalizer",
-    "chardet",
-    "idna",
+    # BM25 / requests / networking
+    "rank_bm25", "requests", "urllib3", "certifi",
+    "charset_normalizer", "chardet", "idna",
 
     # BeautifulSoup
-    "bs4",
-    "bs4.builder",
-    "bs4.builder._htmlparser",
-    "bs4.builder._lxml",
-    "bs4.formatter",
+    "bs4", "bs4.builder", "bs4.builder._htmlparser",
+    "bs4.builder._lxml", "bs4.formatter",
 
     # dotenv
     "dotenv",
 
-    # Torch core — JIT internals explicitly included so our hook patches them
-    "torch",
-    "torch.nn",
-    "torch.nn.functional",
-    "torch.nn.modules",
-    "torch.nn.modules.module",
-    "torch.cuda",
-    "torch.jit",
-    "torch.jit._builtins",
-    "torch.jit.annotations",
-    "torch._C",
-    "torch._tensor",
-    "torch._jit_internal",
-    "torch._sources",
-    "torch.storage",
-    "torch.serialization",
-    "torch.utils",
-    "torch.utils.data",
-    "torch.utils.data.dataloader",
+    # Torch core
+    "torch", "torch.nn", "torch.nn.functional",
+    "torch.nn.modules", "torch.nn.modules.module",
+    "torch.cuda", "torch.jit", "torch.jit._builtins", "torch.jit.annotations",
+    "torch._C", "torch._tensor", "torch._jit_internal", "torch._sources",
+    "torch.storage", "torch.serialization",
+    "torch.utils", "torch.utils.data", "torch.utils.data.dataloader",
     "torch.utils._config_module",
-    "torch.distributed",
-    "torch.distributed.distributed_c10d",
-    "torch.distributed.device_mesh",
-    "torch.distributed.config",
+    "torch.distributed", "torch.distributed.distributed_c10d",
+    "torch.distributed.device_mesh", "torch.distributed.config",
+
+    # torch._dynamo — ALL polyfills explicitly listed
+    "torch._dynamo",
+    "torch._dynamo.polyfills",
+    "torch._dynamo.polyfills.loader",
+    "torch._dynamo.polyfills._collections",
+    "torch._dynamo.polyfills.builtins",
+    "torch._dynamo.polyfills.copy",
+    "torch._dynamo.polyfills.functools",
+    "torch._dynamo.polyfills.fx",
+    "torch._dynamo.polyfills.heapq",
+    "torch._dynamo.polyfills.itertools",
+    "torch._dynamo.polyfills.operator",
+    "torch._dynamo.polyfills.os",
+    "torch._dynamo.polyfills.pytree",
+    "torch._dynamo.polyfills.struct",
+    "torch._dynamo.polyfills.sys",
+    "torch._dynamo.polyfills.tensor",
+    "torch._dynamo.polyfills.torch_c_nn",
+    "torch._dynamo.polyfills.traceback",
 
     # regex
-    "regex",
-    "regex._regex",
-    "regex._regex_core",
+    "regex", "regex._regex", "regex._regex_core",
 
     # stdlib helpers
-    "subprocess",
-    "shutil",
-    "tempfile",
+    "subprocess", "shutil", "tempfile",
+    "importlib.metadata", "importlib_metadata",
+    "packaging", "packaging.version",
+    "packaging.requirements", "packaging.specifiers",
 
-    # importlib metadata
-    "importlib.metadata",
-    "importlib_metadata",
-    "packaging",
-    "packaging.version",
-    "packaging.requirements",
-    "packaging.specifiers",
-
-    # colorama
-    "colorama",
-
-    # wrapt / Deprecated
-    "wrapt",
-
-    # Other
-    "yaml",
-    "psutil",
-    "tqdm",
-    "filelock",
-    "anyio",
-    "rich",
+    # misc
+    "colorama", "wrapt", "psutil", "tqdm", "filelock", "anyio", "rich",
 ]
 
 datas = [
@@ -270,79 +193,57 @@ datas = [
 
 # ── Merge all collected datas ──────────────────────────────────────────────
 all_datas = (
-    meta_datas
-    + datas
-    + regex_datas
-    + transformers_datas
-    + tokenizers_datas
-    + senttr_datas
-    + huggingface_datas
-    + safetensors_datas
-    + docx_datas
-    + fitz_datas
-    + faiss_datas
+    meta_datas + datas
+    + regex_datas + transformers_datas + tokenizers_datas
+    + senttr_datas + huggingface_datas + safetensors_datas
+    + docx_datas + fitz_datas + faiss_datas
+    + dynamo_datas
 )
 
-# ── Merge all collected binaries ───────────────────────────────────────────
 all_binaries = (
-    regex_binaries
-    + transformers_binaries
-    + tokenizers_binaries
-    + senttr_binaries
-    + huggingface_binaries
-    + safetensors_binaries
-    + docx_binaries
-    + fitz_binaries
-    + faiss_binaries
+    regex_binaries + transformers_binaries + tokenizers_binaries
+    + senttr_binaries + huggingface_binaries + safetensors_binaries
+    + docx_binaries + fitz_binaries + faiss_binaries
+    + dynamo_binaries
 )
 
-# ── Merge all collected hidden imports ─────────────────────────────────────
 all_hidden_imports = (
     hidden_imports
-    + regex_hiddenimports
-    + transformers_hiddenimports
-    + tokenizers_hiddenimports
-    + senttr_hiddenimports
-    + huggingface_hiddenimports
-    + safetensors_hiddenimports
-    + docx_hiddenimports
-    + fitz_hiddenimports
-    + faiss_hiddenimports
+    + regex_hiddenimports + transformers_hiddenimports + tokenizers_hiddenimports
+    + senttr_hiddenimports + huggingface_hiddenimports + safetensors_hiddenimports
+    + docx_hiddenimports + fitz_hiddenimports + faiss_hiddenimports
+    + dynamo_hiddenimports
 )
 
 # ── Module collection mode ─────────────────────────────────────────────────
-# CRITICAL: These modules use @_overload decorators that call
-# torch._jit_internal._check_overload_body() → torch._sources.parse_def()
-# → inspect.getsource() at import time.
-#
-# Inside a frozen PyInstaller bundle the "source" file is bytecode, not
-# Python text.  parse_def() raises:
-#   RuntimeError: Expected a single top-level function: torch/nn/functional.py:1
-#
-# Setting mode to "bytecode" makes PyInstaller store these as .pyc only,
-# so parse_def() never finds a file to attempt parsing.
+# "pyc" = external .pyc file on disk (no source text in PYZ archive).
+# Prevents torch._jit_internal.parse_def() from finding a "source" file
+# and trying to parse frozen bytecode as Python text.
+# Valid PyInstaller 6.x modes: pyz | pyc | py | pyz+py
 _module_collection_mode = {
-    # torch — all files that have @_overload at module level
-    "torch.nn.functional":                  "bytecode",
-    "torch.nn.modules.activation":          "bytecode",
-    "torch.nn.modules.linear":              "bytecode",
-    "torch.nn.modules.normalization":       "bytecode",
-    "torch.nn.modules.pooling":             "bytecode",
-    "torch.nn.modules.sparse":              "bytecode",
-    "torch.nn.modules.conv":                "bytecode",
-    "torch.nn.modules.rnn":                 "bytecode",
-    "torch._jit_internal":                  "bytecode",
-    "torch._sources":                       "bytecode",
-    "torch.jit._builtins":                  "bytecode",
-    "torch.jit.annotations":               "bytecode",
-    "torch.functional":                     "bytecode",
-    "torch.nn.parallel.distributed":        "bytecode",
-    "torch.distributed.distributed_c10d":   "bytecode",
-    "torch.utils._config_module":           "bytecode",
-    # transformers — modules that fail similarly
-    "transformers.generation.logits_process":      "bytecode",
-    "transformers.generation.configuration_utils": "bytecode",
-    "transformers.configuration_utils":            "bytecode",
+    # torch modules that use @_overload at import time
+    "torch.nn.functional":                "pyc",
+    "torch.nn.modules.activation":        "pyc",
+    "torch.nn.modules.linear":            "pyc",
+    "torch.nn.modules.normalization":     "pyc",
+    "torch.nn.modules.pooling":           "pyc",
+    "torch.nn.modules.sparse":            "pyc",
+    "torch.nn.modules.conv":              "pyc",
+    "torch.nn.modules.rnn":               "pyc",
+    "torch._jit_internal":                "pyc",
+    "torch._sources":                     "pyc",
+    "torch.jit._builtins":                "pyc",
+    "torch.jit.annotations":              "pyc",
+    "torch.functional":                   "pyc",
+    "torch.nn.parallel.distributed":      "pyc",
+    "torch.distributed.distributed_c10d": "pyc",
+    "torch.utils._config_module":         "pyc",
+    # torch._dynamo — collect all as pyc so no source parsing occurs
+    "torch._dynamo":                      "pyc",
+    # transformers modules that fail similarly
+    "transformers.generation.logits_process":      "pyc",
+    "transformers.generation.configuration_utils": "pyc",
+    "transformers.configuration_utils":            "pyc",
 }
 
 a = Analysis(
@@ -357,8 +258,7 @@ a = Analysis(
     excludes=[
         "tkinter", "wx", "PyQt5", "PyQt6", "PySide2", "PySide6",
         "matplotlib", "IPython", "notebook", "pytest",
-        "torch.utils.tensorboard",
-        "tensorboard",
+        "torch.utils.tensorboard", "tensorboard",
         "setuptools", "distutils", "pip",
         "pandas", "cv2",
     ],
@@ -366,8 +266,6 @@ a = Analysis(
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
-    # ↓ This is the primary fix for older PyInstaller that ignores hook-level
-    #   module_collection_mode.  PyInstaller >= 5.8 reads it from both places.
     module_collection_mode=_module_collection_mode,
 )
 
