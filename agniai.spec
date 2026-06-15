@@ -14,12 +14,13 @@ from PyInstaller.utils.hooks import (
 # ── Package metadata (fixes importlib.metadata.PackageNotFoundError) ───────
 # transformers calls require_version() at import time which reads .dist-info.
 # PyInstaller doesn't copy .dist-info by default — copy_metadata fixes this.
+# NOTE: metadata keys must match the pip package name (use hyphens, not underscores).
 meta_datas = (
     copy_metadata("packaging")
     + copy_metadata("transformers")
-    + copy_metadata("sentence_transformers")
+    + copy_metadata("sentence-transformers")   # pip: sentence-transformers
     + copy_metadata("tokenizers")
-    + copy_metadata("huggingface_hub")
+    + copy_metadata("huggingface-hub")         # pip: huggingface-hub
     + copy_metadata("safetensors")
     + copy_metadata("tqdm")
     + copy_metadata("numpy")
@@ -27,19 +28,19 @@ meta_datas = (
     + copy_metadata("requests")
     + copy_metadata("regex")
     + copy_metadata("flask")
-    + copy_metadata("flask_cors")
-    + copy_metadata("flask_limiter")
+    + copy_metadata("flask-cors")              # pip: flask-cors
+    + copy_metadata("flask-limiter")           # pip: flask-limiter
     + copy_metadata("werkzeug")
     + copy_metadata("click")
     + copy_metadata("itsdangerous")
     + copy_metadata("jinja2")
-    + copy_metadata("rank_bm25")
-    + copy_metadata("faiss-cpu")
-    + copy_metadata("python_dotenv")
+    + copy_metadata("rank-bm25")               # pip: rank-bm25
+    + copy_metadata("faiss-cpu")               # pip: faiss-cpu (not "faiss")
+    + copy_metadata("python-dotenv")           # pip: python-dotenv
     + copy_metadata("beautifulsoup4")
     + copy_metadata("psutil")
     + copy_metadata("certifi")
-    + copy_metadata("charset_normalizer")
+    + copy_metadata("charset-normalizer")      # pip: charset-normalizer
     + copy_metadata("urllib3")
 )
 
@@ -52,6 +53,7 @@ huggingface_datas,  huggingface_binaries,  huggingface_hiddenimports  = collect_
 safetensors_datas,  safetensors_binaries,  safetensors_hiddenimports  = collect_all("safetensors")
 docx_datas,         docx_binaries,         docx_hiddenimports         = collect_all("docx")
 fitz_datas,         fitz_binaries,         fitz_hiddenimports         = collect_all("fitz")
+# FIX: faiss was collected but never merged into all_* lists — fixed below
 faiss_datas,        faiss_binaries,        faiss_hiddenimports        = collect_all("faiss")
 
 hidden_imports = [
@@ -90,8 +92,6 @@ hidden_imports = [
 
     # FAISS
     "faiss",
-    "faiss.loader",
-    "faiss.swigfaiss",
 
     # NumPy
     "numpy",
@@ -204,7 +204,7 @@ all_datas = (
     + safetensors_datas
     + docx_datas
     + fitz_datas
-    + faiss_datas
+    + faiss_datas       # FIX: was collected but never merged
 )
 
 # ── Merge all collected binaries ───────────────────────────────────────────
@@ -217,7 +217,7 @@ all_binaries = (
     + safetensors_binaries
     + docx_binaries
     + fitz_binaries
-    + faiss_binaries
+    + faiss_binaries    # FIX: was collected but never merged
 )
 
 # ── Merge all collected hidden imports ─────────────────────────────────────
@@ -231,7 +231,7 @@ all_hidden_imports = (
     + safetensors_hiddenimports
     + docx_hiddenimports
     + fitz_hiddenimports
-    + faiss_hiddenimports
+    + faiss_hiddenimports   # FIX: was collected but never merged
 )
 
 a = Analysis(
