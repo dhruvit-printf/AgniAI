@@ -1,40 +1,88 @@
 # -*- mode: python ; coding: utf-8 -*-
 # AgniAI PyInstaller build spec
-# Run with:  pyinstaller agniai.spec --clean
+# Run with:  pyinstaller agniai.spec --clean --noconfirm
 
 block_cipher = None
 
-from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_dynamic_libs,
+    copy_metadata,
+)
+
+# ── Package metadata (fixes importlib.metadata.PackageNotFoundError) ───────
+# transformers calls require_version() at import time which reads .dist-info.
+# PyInstaller doesn't copy .dist-info by default — copy_metadata fixes this.
+meta_datas = (
+    copy_metadata("packaging")
+    + copy_metadata("transformers")
+    + copy_metadata("sentence_transformers")
+    + copy_metadata("tokenizers")
+    + copy_metadata("huggingface_hub")
+    + copy_metadata("safetensors")
+    + copy_metadata("tqdm")
+    + copy_metadata("numpy")
+    + copy_metadata("filelock")
+    + copy_metadata("requests")
+    + copy_metadata("regex")
+    + copy_metadata("flask")
+    + copy_metadata("flask_cors")
+    + copy_metadata("flask_limiter")
+    + copy_metadata("werkzeug")
+    + copy_metadata("click")
+    + copy_metadata("itsdangerous")
+    + copy_metadata("jinja2")
+    + copy_metadata("rank_bm25")
+    + copy_metadata("faiss")
+    + copy_metadata("python_dotenv")
+    + copy_metadata("beautifulsoup4")
+    + copy_metadata("psutil")
+    + copy_metadata("certifi")
+    + copy_metadata("charset_normalizer")
+    + copy_metadata("urllib3")
+)
 
 # ── Collect full package data + metadata for packages that need it ─────────
-regex_datas,        regex_binaries,        regex_hiddenimports        = collect_all('regex')
-transformers_datas, transformers_binaries, transformers_hiddenimports = collect_all('transformers')
-tokenizers_datas,   tokenizers_binaries,   tokenizers_hiddenimports   = collect_all('tokenizers')
-senttr_datas,       senttr_binaries,       senttr_hiddenimports       = collect_all('sentence_transformers')
-huggingface_datas,  huggingface_binaries,  huggingface_hiddenimports  = collect_all('huggingface_hub')
-safetensors_datas,  safetensors_binaries,  safetensors_hiddenimports  = collect_all('safetensors')
-
-# ── NEW: collect python-docx and PyMuPDF (fitz) fully ────────────────────
-docx_datas,  docx_binaries,  docx_hiddenimports  = collect_all('docx')
-fitz_datas,  fitz_binaries,  fitz_hiddenimports  = collect_all('fitz')
+regex_datas,        regex_binaries,        regex_hiddenimports        = collect_all("regex")
+transformers_datas, transformers_binaries, transformers_hiddenimports = collect_all("transformers")
+tokenizers_datas,   tokenizers_binaries,   tokenizers_hiddenimports   = collect_all("tokenizers")
+senttr_datas,       senttr_binaries,       senttr_hiddenimports       = collect_all("sentence_transformers")
+huggingface_datas,  huggingface_binaries,  huggingface_hiddenimports  = collect_all("huggingface_hub")
+safetensors_datas,  safetensors_binaries,  safetensors_hiddenimports  = collect_all("safetensors")
+docx_datas,         docx_binaries,         docx_hiddenimports         = collect_all("docx")
+fitz_datas,         fitz_binaries,         fitz_hiddenimports         = collect_all("fitz")
 
 hidden_imports = [
     # Flask ecosystem
-    "flask", "flask.json", "flask_cors", "flask_limiter",
-    "flask_limiter.util", "werkzeug", "werkzeug.middleware.proxy_fix",
-    "werkzeug.utils", "jinja2", "click", "itsdangerous",
+    "flask",
+    "flask.json",
+    "flask_cors",
+    "flask_limiter",
+    "flask_limiter.util",
+    "werkzeug",
+    "werkzeug.middleware.proxy_fix",
+    "werkzeug.utils",
+    "jinja2",
+    "click",
+    "itsdangerous",
 
     # Sentence Transformers
     "sentence_transformers",
     "sentence_transformers.util",
     "sentence_transformers.cross_encoder",
+    "sentence_transformers.backend",
+    "sentence_transformers.backend.load",
 
-    # HuggingFace
+    # HuggingFace / Transformers
     "huggingface_hub",
     "transformers",
     "transformers.models.auto",
     "transformers.models.bert.modeling_bert",
     "transformers.models.roberta.modeling_roberta",
+    "transformers.utils",
+    "transformers.utils.versions",
+    "transformers.dependency_versions_check",
     "tokenizers",
     "safetensors",
     "safetensors.torch",
@@ -120,17 +168,20 @@ hidden_imports = [
     "shutil",
     "tempfile",
 
+    # importlib metadata — needed by packaging / transformers
+    "importlib.metadata",
+    "importlib_metadata",
+    "packaging",
+    "packaging.version",
+    "packaging.requirements",
+    "packaging.specifiers",
+
     # Other
     "psutil",
     "tqdm",
-    "packaging",
     "filelock",
     "PIL",
     "PIL.Image",
-
-    # importlib metadata
-    "importlib.metadata",
-    "importlib_metadata",
 ]
 
 datas = [
@@ -140,15 +191,16 @@ datas = [
 
 # ── Merge all collected datas ──────────────────────────────────────────────
 all_datas = (
-    datas
+    meta_datas          # ← .dist-info directories (CRITICAL for transformers)
+    + datas
     + regex_datas
     + transformers_datas
     + tokenizers_datas
     + senttr_datas
     + huggingface_datas
     + safetensors_datas
-    + docx_datas          # ← python-docx XML templates & namespace data
-    + fitz_datas          # ← PyMuPDF font/resource data
+    + docx_datas
+    + fitz_datas
 )
 
 # ── Merge all collected binaries ───────────────────────────────────────────
