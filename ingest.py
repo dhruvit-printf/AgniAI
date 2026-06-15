@@ -2,13 +2,17 @@
 ingest.py
 =========
 Ingestion pipeline for AgniAI.
-Supports: PDF files, web URLs, raw text strings, .txt files, and .docx files.
-
+Supports: PDF files, web URLs, raw text strings, .txt files, .docx files,
+          and legacy .doc files (via LibreOffice → docx, antiword, or fitz fallback).
 """
 
 import json
 import logging
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 from html.parser import HTMLParser
 from pathlib import Path
@@ -68,10 +72,6 @@ def chunk_text(
 ) -> List[str]:
     """
     Split *text* into overlapping word-count chunks.
-
-    FIX: start index is clamped to max(0, ...) so it never goes negative.
-    FIX: CHUNK_MIN_WORDS merge is bounded so tiny fragments don't inflate a
-         chunk beyond 2× the target size.
     """
     words = clean_text(text).split()
     if not words:
@@ -79,7 +79,7 @@ def chunk_text(
 
     chunks: List[str] = []
     start = 0
-    max_merge_words = chunk_words * 2  # safety ceiling on merged chunk size
+    max_merge_words = chunk_words * 2
 
     while start < len(words):
         end = min(start + chunk_words, len(words))
@@ -87,7 +87,6 @@ def chunk_text(
         if chunk:
             word_count = len(chunk.split())
             if word_count < CHUNK_MIN_WORDS and chunks:
-                # Only merge if the previous chunk won't balloon excessively
                 prev_word_count = len(chunks[-1].split())
                 if prev_word_count + word_count <= max_merge_words:
                     chunks[-1] = f"{chunks[-1]} {chunk}".strip()
@@ -97,7 +96,6 @@ def chunk_text(
                 chunks.append(chunk)
         if end >= len(words):
             break
-        # FIX: clamp so start never goes negative
         start = max(0, end - overlap)
 
     return chunks
@@ -188,7 +186,6 @@ def _path_source(path: Path) -> str:
 
 def _source_already_ingested(source: str) -> bool:
     """Return True if *source* is already in the docstore."""
-    # UPLOAD ADDITION: guard against empty source
     if not source:
         return False
     docs = load_docstore()
@@ -202,16 +199,11 @@ def _append_documents(
     chunks: Sequence[str],
     source: str,
     doc_type: str,
-    # UPLOAD ADDITION: real filename from the browser upload (e.g. "agniveer.pdf")
-    # When provided, this is stored in docstore instead of the temp-file path.
     original_filename: Optional[str] = None,
 ) -> int:
     """
     Embed *chunks* and append them to the FAISS index + docstore.
     Returns number of chunks actually added.
-
-    original_filename — pass the browser-supplied filename when ingesting an
-    uploaded file so docstore records "agniveer.pdf" and not "/tmp/tmpXYZ.pdf".
     """
     if not chunks:
         return 0
@@ -237,14 +229,12 @@ def _append_documents(
         start_id = len(docs) + 1
         for i, chunk in enumerate(chunks, start=start_id):
             entry: Dict = {
-                "source":    normalized_source,
-                "doc_type":  doc_type,
-                "chunk_id":  str(i),
-                "text":      chunk,
-                # UPLOAD ADDITION: timestamp every ingested chunk
+                "source":      normalized_source,
+                "doc_type":    doc_type,
+                "chunk_id":    str(i),
+                "text":        chunk,
                 "ingested_at": time.time(),
             }
-            # UPLOAD ADDITION: store real filename when ingesting via upload API
             if original_filename:
                 entry["original_filename"] = original_filename
             docs.append(entry)
@@ -268,8 +258,8 @@ def _append_documents(
 # ── HTML extractor ─────────────────────────────────────────────────────────
 
 class _VisibleTextExtractor(HTMLParser):
-    _BLOCK_TAGS = {"h1","h2","h3","h4","h5","p","li","td","th","br","div"}
-    _SKIP_TAGS  = {"script","style","noscript","header","footer","nav"}
+    _BLOCK_TAGS = {"h1", "h2", "h3", "h4", "h5", "p", "li", "td", "th", "br", "div"}
+    _SKIP_TAGS  = {"script", "style", "noscript", "header", "footer", "nav"}
 
     def __init__(self) -> None:
         super().__init__()
@@ -301,7 +291,7 @@ def _extract_visible_text(html: str) -> str:
         for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
             tag.decompose()
         parts: List[str] = []
-        for element in soup.find_all(["h1","h2","h3","h4","h5","p","li","td","th"]):
+        for element in soup.find_all(["h1", "h2", "h3", "h4", "h5", "p", "li", "td", "th"]):
             text = element.get_text(" ", strip=True)
             if text:
                 parts.append(text)
@@ -313,12 +303,88 @@ def _extract_visible_text(html: str) -> str:
     return clean_text("".join(parser.parts))
 
 
+# ── Legacy .doc extractor (Word 97-2003) ──────────────────────────────────
+
+def _extract_doc_text(file_path: str) -> str:
+    """
+    Extract text from a legacy .doc file.
+
+    Priority:
+      1. LibreOffice headless  → convert .doc to .docx, then read with python-docx
+      2. antiword              → lightweight CLI tool, returns plain text
+      3. PyMuPDF (fitz)        → works on some .doc files as a last resort
+
+    Raises ValueError if no method succeeds or no text is extracted.
+    """
+    path = Path(file_path).expanduser().resolve()
+
+    # ── Option 1: LibreOffice ──────────────────────────────────────────────
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if soffice:
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                result = subprocess.run(
+                    [soffice, "--headless", "--convert-to", "docx",
+                     "--outdir", tmpdir, str(path)],
+                    capture_output=True,
+                    timeout=60,
+                )
+                converted_name = path.stem + ".docx"
+                converted_path = Path(tmpdir) / converted_name
+                if converted_path.exists():
+                    try:
+                        from docx import Document as DocxDocument  # type: ignore
+                        doc = DocxDocument(str(converted_path))
+                        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+                        text = clean_text("\n".join(paragraphs))
+                        if text:
+                            logger.info("Extracted .doc via LibreOffice: %s", path.name)
+                            return text
+                    except Exception as exc:
+                        logger.debug("LibreOffice-converted docx read failed: %s", exc)
+        except Exception as exc:
+            logger.debug("LibreOffice .doc conversion failed: %s", exc)
+
+    # ── Option 2: antiword ─────────────────────────────────────────────────
+    antiword = shutil.which("antiword")
+    if antiword:
+        try:
+            result = subprocess.run(
+                [antiword, str(path)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            text = clean_text(result.stdout)
+            if text:
+                logger.info("Extracted .doc via antiword: %s", path.name)
+                return text
+        except Exception as exc:
+            logger.debug("antiword extraction failed: %s", exc)
+
+    # ── Option 3: PyMuPDF fallback ─────────────────────────────────────────
+    if fitz is not None:
+        try:
+            doc = fitz.open(str(path))
+            pages = [page.get_text("text") for page in doc if page.get_text("text").strip()]
+            text = clean_text("\n".join(pages))
+            if text:
+                logger.info("Extracted .doc via PyMuPDF fallback: %s", path.name)
+                return text
+        except Exception as exc:
+            logger.debug("PyMuPDF .doc fallback failed: %s", exc)
+
+    raise ValueError(
+        f"Could not extract text from '{path.name}'. "
+        "Install LibreOffice (soffice) or antiword on the server to support .doc files."
+    )
+
+
 # ── Public ingest functions ────────────────────────────────────────────────
 
 def ingest_pdf(
     file_path: str,
     force: bool = False,
-    # UPLOAD ADDITION: real browser filename e.g. "agniveer_2025.pdf"
     original_filename: Optional[str] = None,
 ) -> int:
     """Extract text from a PDF and add it to the knowledge base."""
@@ -333,7 +399,6 @@ def ingest_pdf(
             "PyMuPDF is not installed. Run: pip install PyMuPDF"
         )
 
-    # Use original_filename for dedup check when uploading so temp path is ignored
     source = _path_source(path)
     dedup_source = original_filename if original_filename else source
     if not force and _source_already_ingested(dedup_source):
@@ -365,7 +430,6 @@ def ingest_pdf(
 def ingest_txt(
     file_path: str,
     force: bool = False,
-    # UPLOAD ADDITION
     original_filename: Optional[str] = None,
 ) -> int:
     """Ingest a plain .txt file."""
@@ -391,7 +455,6 @@ def ingest_txt(
 def ingest_docx(
     file_path: str,
     force: bool = False,
-    # UPLOAD ADDITION
     original_filename: Optional[str] = None,
 ) -> int:
     """Ingest a Microsoft Word (.docx) file."""
@@ -428,6 +491,45 @@ def ingest_docx(
     )
 
 
+def ingest_doc(
+    file_path: str,
+    force: bool = False,
+    original_filename: Optional[str] = None,
+) -> int:
+    """
+    Ingest a legacy Microsoft Word (.doc) file.
+
+    Extraction priority:
+      1. LibreOffice (convert to .docx then parse with python-docx)
+      2. antiword (plain-text CLI extraction)
+      3. PyMuPDF fitz (last-resort fallback)
+
+    Raises RuntimeError with a helpful message if none of the tools are available.
+    """
+    path = Path(file_path).expanduser().resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"Word .doc file not found: {path}")
+    if path.suffix.lower() != ".doc":
+        raise ValueError(f"Expected a .doc file, got: {path.suffix}")
+
+    source = _path_source(path)
+    dedup_source = original_filename if original_filename else source
+    if not force and _source_already_ingested(dedup_source):
+        return 0
+
+    text = _extract_doc_text(str(path))
+    if not text:
+        raise ValueError("No extractable text found in the Word .doc file.")
+
+    chunks = chunk_text_semantic(text)
+    return _append_documents(
+        chunks,
+        source=dedup_source,
+        doc_type="doc",
+        original_filename=original_filename,
+    )
+
+
 def ingest_url(url: str, force: bool = False) -> int:
     """Fetch a webpage, extract visible text, and add it to the knowledge base."""
     if not force and _source_already_ingested(url):
@@ -454,9 +556,6 @@ def ingest_url(url: str, force: bool = False) -> int:
 def ingest_text(text: str, label: str = "manual_text") -> int:
     """
     Ingest raw text directly (e.g. pasted content).
-
-    FIX: Uses a timestamp suffix so multiple rapid calls never collide on
-    the deduplication check, even if the previous call used the same default label.
     """
     if label == "manual_text":
         docs = load_docstore()
@@ -483,7 +582,6 @@ def list_sources() -> List[Dict]:
         if src not in counts:
             counts[src] = {
                 "source":            src,
-                # UPLOAD ADDITION: show original_filename in sources list if present
                 "original_filename": d.get("original_filename", ""),
                 "doc_type":          d.get("doc_type", "?"),
                 "chunk_count":       0,

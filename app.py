@@ -69,6 +69,7 @@ from config import (
 from ingest import (
     clear_index,
     ingest_docx,
+    ingest_doc,
     ingest_pdf,
     ingest_text,
     ingest_txt,
@@ -136,7 +137,7 @@ RATE_LIMIT_INGEST  = os.getenv("RATE_LIMIT_INGEST",  "10 per minute")
 RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "60 per minute")
 
 # ── File Upload Helpers ────────────────────────────────────────────────────
-ALLOWED_EXTENSIONS = {"pdf", "txt", "docx"}
+ALLOWED_EXTENSIONS = {"pdf", "txt", "docx", "doc"}
 
 
 def _allowed_file(filename: str) -> bool:
@@ -1098,10 +1099,11 @@ def ingest():
         "txt":  ingest_txt,
         "text": ingest_text,
         "docx": ingest_docx,
+        "doc":  ingest_doc,
     }
     if kind not in fn_map:
         return _json_error(
-            f"Unknown kind '{kind}'. Valid values: pdf, url, txt, text, docx.",
+            f"Unknown kind '{kind}'. Valid values: pdf, url, txt, text, doc, docx.",
             400,
         )
 
@@ -1163,6 +1165,7 @@ def upload_file():
         "pdf":  ingest_pdf,
         "txt":  ingest_txt,
         "docx": ingest_docx,
+        "doc":  ingest_doc,
     }
 
     if kind not in fn_map:

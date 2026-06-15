@@ -6,13 +6,17 @@ block_cipher = None
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs
 
-# Collect full package data + metadata for packages that need it
+# ── Collect full package data + metadata for packages that need it ─────────
 regex_datas,        regex_binaries,        regex_hiddenimports        = collect_all('regex')
 transformers_datas, transformers_binaries, transformers_hiddenimports = collect_all('transformers')
 tokenizers_datas,   tokenizers_binaries,   tokenizers_hiddenimports   = collect_all('tokenizers')
 senttr_datas,       senttr_binaries,       senttr_hiddenimports       = collect_all('sentence_transformers')
 huggingface_datas,  huggingface_binaries,  huggingface_hiddenimports  = collect_all('huggingface_hub')
 safetensors_datas,  safetensors_binaries,  safetensors_hiddenimports  = collect_all('safetensors')
+
+# ── NEW: collect python-docx and PyMuPDF (fitz) fully ────────────────────
+docx_datas,  docx_binaries,  docx_hiddenimports  = collect_all('docx')
+fitz_datas,  fitz_binaries,  fitz_hiddenimports  = collect_all('fitz')
 
 hidden_imports = [
     # Flask ecosystem
@@ -47,13 +51,38 @@ hidden_imports = [
     "scipy",
     "scipy.sparse",
 
-    # PyMuPDF
+    # PyMuPDF — PDF + legacy .doc fallback
     "fitz",
+    "fitz.fitz",
+    "fitz.utils",
 
-    # python-docx
+    # python-docx — full submodule tree
     "docx",
     "docx.oxml",
     "docx.oxml.ns",
+    "docx.oxml.table",
+    "docx.oxml.text",
+    "docx.oxml.text.paragraph",
+    "docx.oxml.text.run",
+    "docx.oxml.document",
+    "docx.oxml.shared",
+    "docx.oxml.styles",
+    "docx.parts",
+    "docx.parts.document",
+    "docx.parts.image",
+    "docx.shared",
+    "docx.styles",
+    "docx.styles.style",
+    "docx.table",
+    "docx.text",
+    "docx.text.paragraph",
+    "docx.text.run",
+    "docx.enum",
+    "docx.enum.text",
+    "docx.enum.style",
+    "docx.enum.table",
+    "docx.image",
+    "docx.image.image",
 
     # BM25
     "rank_bm25",
@@ -63,6 +92,7 @@ hidden_imports = [
     "urllib3",
     "certifi",
     "charset_normalizer",
+    "chardet",
     "idna",
 
     # BeautifulSoup
@@ -85,6 +115,11 @@ hidden_imports = [
     "regex._regex",
     "regex._regex_core",
 
+    # stdlib helpers used by .doc conversion path
+    "subprocess",
+    "shutil",
+    "tempfile",
+
     # Other
     "psutil",
     "tqdm",
@@ -103,7 +138,7 @@ datas = [
     (".env.example", "."),
 ]
 
-# Merge all collected datas
+# ── Merge all collected datas ──────────────────────────────────────────────
 all_datas = (
     datas
     + regex_datas
@@ -112,9 +147,11 @@ all_datas = (
     + senttr_datas
     + huggingface_datas
     + safetensors_datas
+    + docx_datas          # ← python-docx XML templates & namespace data
+    + fitz_datas          # ← PyMuPDF font/resource data
 )
 
-# Merge all collected binaries
+# ── Merge all collected binaries ───────────────────────────────────────────
 all_binaries = (
     regex_binaries
     + transformers_binaries
@@ -122,9 +159,11 @@ all_binaries = (
     + senttr_binaries
     + huggingface_binaries
     + safetensors_binaries
+    + docx_binaries
+    + fitz_binaries
 )
 
-# Merge all collected hidden imports
+# ── Merge all collected hidden imports ─────────────────────────────────────
 all_hidden_imports = (
     hidden_imports
     + regex_hiddenimports
@@ -133,6 +172,8 @@ all_hidden_imports = (
     + senttr_hiddenimports
     + huggingface_hiddenimports
     + safetensors_hiddenimports
+    + docx_hiddenimports
+    + fitz_hiddenimports
 )
 
 a = Analysis(
