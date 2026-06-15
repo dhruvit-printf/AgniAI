@@ -26,6 +26,9 @@ FILTERS (exact camelCase keys sent to .NET):
   Skills:      sport, class
   Equipment:   itemName, itemCategory
 
+LEAVE TYPE VALUES (leaveType filter sent to .NET):
+  Annual | Medical | Sick | Absconded | ATTNC | ExPPG
+
 DESIGN NOTES:
   - "Overall" is a SEPARATE category (not Performance/Overall).
     Use it when the user asks for composite/overall ranking without a specific
@@ -67,7 +70,7 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "MostLeaveTaken":        "Most",
     "LeastLeaveTaken":       "Least",
     "CurrentLeaveStatus":    "Current",
-    "AbscondedPersonnel":    "Absconded",
+    "AbscondedPerson":       "Absconded",
     # Medical
     "ActiveCases":       "Active",
     "BMIAnalysis":       "BMI",
@@ -208,6 +211,8 @@ _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "most absent", "taken most leave",
         "most leave", "most leaves",
         "highest leave", "maximum leave",
+        "most",           # bare fallback — single-word signal
+        "maximum",
     )),
     ("Least Leave Taken", "LeastLeaveTaken", (
         "least leave taken", "fewest leave taken",
@@ -215,6 +220,9 @@ _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "taken least leave",
         "least leave", "fewest leave",
         "lowest leave", "minimum leave",
+        "least",          # bare fallback — single-word signal
+        "fewest",
+        "minimum",
     )),
     ("Current Leave Status", "CurrentLeaveStatus", (
         "currently on leave", "who is on leave",
@@ -223,9 +231,9 @@ _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "current leave", "leave status",
         "on leave now",
     )),
-    ("Absconded Personnel", "AbscondedPersonnel", (
-        "absconded leave records", "absconded personnel",
-        "gone missing", "missing personnel",
+    ("Absconded Person", "AbscondedPerson", (
+        "absconded leave records", "absconded person",
+        "gone missing", "missing person",
         "absconded", "abscond", "awol",
     )),
 ]
@@ -537,6 +545,9 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "leave taken", "leave status",
             "leave", "absent", "absconded", "awol",
             "sick leave", "annual leave", "medical leave",
+            # new leave types
+            "attnc", "attenc", "att nc", "attn c",
+            "ex ppg", "exppg", "ex-ppg",
         ),
         _LEAVE_INTENTS,
     ),
@@ -697,6 +708,24 @@ ADMIN_FUZZY_VOCAB: Dict[str, str] = {
     "leve":          "leave",
     "abscnded":      "absconded",
     "absconed":      "absconded",
+    # ── New leave type misspellings ────────────────────────────────────────
+    # ATTNC variants
+    "attnc":         "attnc",
+    "attenc":        "attnc",
+    "attn c":        "attnc",
+    "att nc":        "attnc",
+    "attnce":        "attnc",
+    "attncc":        "attnc",
+    "atnc":          "attnc",
+    "atncl":         "attnc",
+    # ExPPG variants
+    "exppg":         "exppg",
+    "ex ppg":        "exppg",
+    "ex-ppg":        "exppg",
+    "expg":          "exppg",
+    "exppq":         "exppg",
+    "ex pgg":        "exppg",
+    "exppgg":        "exppg",
     # Attendance
     "presnt":        "present",
     "preent":        "present",
@@ -720,8 +749,8 @@ ADMIN_FUZZY_VOCAB: Dict[str, str] = {
     # Common words
     "todya":         "today",
     "todday":        "today",
-    "persnnel":      "personnel",
-    "personel":      "personnel",
+    "persnnel":      "person",
+    "personel":      "person",
     "agniverr":      "agniveer",
     "agniver":       "agniveer",
     "excelent":      "excellent",
@@ -797,11 +826,24 @@ _GRADING_MAP = {
     "unsa":               "UNSA",
 }
 
+# ── Leave type filter map ──────────────────────────────────────────────────────
+# Values are the exact strings sent to the .NET leaveType filter field.
 _LEAVE_TYPE_MAP = {
+    # Existing types
     "annual":    "Annual",
     "medical":   "Medical",
     "sick":      "Sick",
     "absconded": "Absconded",
+    # ── New types ────────────────────────────────────────────────────────────
+    # ATTNC  (Attendance Not Counted / Attendance Cause leave)
+    "attnc":     "ATTNC",
+    "attenc":    "ATTNC",
+    "attn c":    "ATTNC",
+    "att nc":    "ATTNC",
+    # ExPPG  (Ex-PPG / Posting Pay Group leave)
+    "ex ppg":    "ExPPG",
+    "exppg":     "ExPPG",
+    "ex-ppg":    "ExPPG",
 }
 
 _SPORT_MAP = {
@@ -996,12 +1038,35 @@ def _extract_grading(text_lower: str) -> Optional[str]:
 
 
 def _extract_leave_type(text_lower: str, category: Optional[str] = None) -> Optional[str]:
-    if category and category != "Leave":
-        return None
+    """Extract leaveType filter value from query text.
+
+    Searches for all known leave type phrases (including ATTNC and ExPPG)
+    using longest-match priority so "ex ppg" wins over bare "ex".
+    The category guard is intentionally removed for the new types because
+    ATTNC/ExPPG are always leave-domain terms.
+    """
+    if category and category not in ("Leave", None):
+        # For the legacy types, only extract when already in Leave context.
+        # For the new types (attnc / exppg) we allow extraction regardless.
+        new_type_phrases = {"attnc", "attenc", "attn c", "att nc",
+                            "ex ppg", "exppg", "ex-ppg"}
+        found = None
+        best_len = 0
+        for phrase, code in _LEAVE_TYPE_MAP.items():
+            if phrase in text_lower and len(phrase) > best_len:
+                if phrase in new_type_phrases or category == "Leave":
+                    found = code
+                    best_len = len(phrase)
+        return found
+
+    # category is Leave (or None) — search all phrases, longest match wins
+    found = None
+    best_len = 0
     for phrase, code in _LEAVE_TYPE_MAP.items():
-        if phrase in text_lower:
-            return code
-    return None
+        if phrase in text_lower and len(phrase) > best_len:
+            found = code
+            best_len = len(phrase)
+    return found
 
 
 def _extract_sport(text_lower: str) -> Optional[str]:

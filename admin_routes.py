@@ -308,18 +308,18 @@ _INTRO_TEMPLATES: Dict[tuple, str] = {
     ("Performance", "BestAttempt"):        "Best attempt outcomes reflect peak trainee achievements in this evaluation.",
     ("Performance", "Comparison"):         "This comparison highlights achievement differences across the selected categories.",
     # Leave
-    ("Leave", "MostLeaveTaken"):           "Leave patterns highlight the personnel with the highest absence rate.",
-    ("Leave", "LeastLeaveTaken"):          "Leave summaries identify the personnel with the highest duty presence.",
-    ("Leave", "CurrentLeaveStatus"):       "Current leave records outline personnel availability across the unit.",
-    ("Leave", "AbscondedPersonnel"):       "These records flag personnel currently absent without official leave.",
+    ("Leave", "MostLeaveTaken"):           "Leave patterns highlight the person with the highest absence rate.",
+    ("Leave", "LeastLeaveTaken"):          "Leave summaries identify the person with the highest duty presence.",
+    ("Leave", "CurrentLeaveStatus"):       "Current leave records outline person availability across the unit.",
+    ("Leave", "AbscondedPerson"):          "These records flag persons currently absent without official leave.",
     # Medical
     ("Medical", "ActiveCases"):            "This summary captures current active cases undergoing medical attention.",
-    ("Medical", "BMIAnalysis"):            "BMI records outline fitness levels and weight distribution across personnel.",
+    ("Medical", "BMIAnalysis"):            "BMI records outline fitness levels and weight distribution across persons.",
     ("Medical", "DiseaseStatistics"):      "Health records highlight the most common medical cases reported recently.",
     # Attendance
-    ("Attendance", "MonthlyAttendance"):   "Monthly attendance trends provide a clear view of personnel participation.",
-    ("Attendance", "PresentToday"):        "Today's attendance records outline current personnel presence on campus.",
-    ("Attendance", "StrengthBreakdown"):   "The strength breakdown captures unit headcount and active personnel counts.",
+    ("Attendance", "MonthlyAttendance"):   "Monthly attendance trends provide a clear view of person participation.",
+    ("Attendance", "PresentToday"):        "Today's attendance records outline current person presence on campus.",
+    ("Attendance", "StrengthBreakdown"):   "The strength breakdown captures unit headcount and active person counts.",
     # Verification
     ("Verification", "PendingVerification"):   "Verification files track documents currently awaiting official review.",
     ("Verification", "CompletedVerification"): "These records confirm files that have cleared the verification process.",
@@ -336,7 +336,7 @@ _INTRO_TEMPLATES: Dict[tuple, str] = {
     ("Distribution", "TopUnit"):               "This summary highlights the unit receiving the largest supply allocation.",
     # Skills
     ("Skills", "BySport"):                     "Sport rosters track athletic participation and team assignments.",
-    ("Skills", "ByClass"):                     "Class rosters group personnel by their administrative designations.",
+    ("Skills", "ByClass"):                     "Class rosters group persons by their administrative designations.",
     ("Skills", "BloodGroup"):                  "Medical profiles outline the blood group distribution across the group.",
     # Overall
     ("Overall", "OverallRanking"):             "The overall rankings reflect those leading the composite evaluations.",
@@ -395,14 +395,14 @@ def _build_intro_prompt(
         "9. Sound like a professional assistant introducing a report, not a database.\n\n"
         "GOOD EXAMPLES:\n"
         "Attempt-wise improvement data is ready for your review.\n"
-        "Here is the leave status across personnel for the current period.\n"
+        "Here is the leave status across persons for the current period.\n"
         "Performance rankings for the selected section are available below.\n"
         "Medical case details for the unit are outlined here.\n"
         "Equipment status across the inventory is summarised below.\n\n"
         "BAD EXAMPLES (never do this):\n"
         "Private Johnson showed the greatest improvement. (mentions a name)\n"
         "The top scorer achieved 94 points. (mentions a number)\n"
-        "3 personnel are currently on leave. (mentions a count)\n"
+        "3 persons are currently on leave. (mentions a count)\n"
         "Data retrieved successfully. (system language)\n"
         "Here are the results. (too vague and generic)\n\n"
         f"Admin question: {question}\n\n"

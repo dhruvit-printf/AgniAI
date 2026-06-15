@@ -118,9 +118,9 @@ def test_current_leave():
 
 
 def test_absconded():
-    r = classify_admin_intent("Show me absconded personnel")
+    r = classify_admin_intent("Show me absconded person")
     assert r["category"] == "Leave"
-    assert r["subcategory"] == "AbscondedPersonnel"
+    assert r["subcategory"] == "AbscondedPerson"
 
 
 def test_leave_type_medical():
@@ -130,7 +130,7 @@ def test_leave_type_medical():
 
 
 def test_leave_type_annual():
-    r = classify_admin_intent("List personnel with maximum annual leave")
+    r = classify_admin_intent("List person with maximum annual leave")
     assert r["leave_type"] == "Annual"
 
 

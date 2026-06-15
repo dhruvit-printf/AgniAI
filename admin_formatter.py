@@ -263,7 +263,7 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
     if subcategory in ("MostLeaveTaken", "LeastLeaveTaken"):
         label = "Most Leave Taken" if subcategory == "MostLeaveTaken" else "Least Leave Taken"
         records = data if isinstance(data, list) else (
-            _get(data, "personnel", "data", "Data") or []
+            _get(data, "person", "personnel", "data", "Data") or []
             if isinstance(data, dict) else []
         )
         if not records:
@@ -282,11 +282,11 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
 
     if subcategory == "CurrentLeaveStatus":
         records = data if isinstance(data, list) else (
-            _get(data, "personnel", "data") or []
+            _get(data, "person", "personnel", "data") or []
             if isinstance(data, dict) else []
         )
         if not records:
-            return "No personnel are currently on leave."
+            return "No person is currently on leave."
 
         rows = []
         for item in records:
@@ -295,20 +295,20 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
             date = _safe_str(_get(item, "from", "startDate", "fromDate"), "-")
             rows.append([name, lt, date])
 
-        lines = [f"Currently On Leave ({len(records)} personnel)", ""]
+        lines = [f"Currently On Leave ({len(records)} {'person' if len(records) == 1 else 'persons'})", ""]
         lines.append(_plain_table(["Name", "Leave Type", "From"], rows))
         return "\n".join(lines)
 
-    if subcategory == "AbscondedPersonnel":
+    if subcategory == "AbscondedPerson":
         records = data if isinstance(data, list) else []
         if not records:
-            return "No absconded personnel on record."
+            return "No absconded person on record."
 
         rows = [[_safe_str(_get(item, "name", "Name", "fullName")),
                  _safe_str(_get(item, "since", "date", "abscondedDate"), "-")]
                 for item in records]
 
-        lines = [f"Absconded Personnel ({len(records)})", ""]
+        lines = [f"Absconded {'Person' if len(records) == 1 else 'Persons'} ({len(records)})", ""]
         lines.append(_plain_table(["Name", "Since"], rows))
         return "\n".join(lines)
 
@@ -387,9 +387,9 @@ def _format_attendance(subcategory: str, data: Any, intent_result: Dict) -> str:
             present   = _get(data, "present", "Present", "count", "Count") or 0
             total     = _get(data, "total", "Total")
             total_str = f" out of {total}" if total else ""
-            return f"{present} personnel are present on campus today{total_str}."
+            return f"{present} {'person is' if present == 1 else 'persons are'} present on campus today{total_str}."
         if isinstance(data, (int, float)):
-            return f"{data} personnel are present on campus today."
+            return f"{data} {'person is' if data == 1 else 'persons are'} present on campus today."
 
     if subcategory == "MonthlyAttendance":
         if isinstance(data, list):
@@ -612,10 +612,10 @@ def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
             return "No sport data found."
         rows = [
             [_safe_str(_get(item, "sport", "name", "Sport")),
-             _safe_str(_get(item, "count", "personnel", "total"), "-")]
+             _safe_str(_get(item, "count", "person", "total"), "-")]
             for item in records
         ]
-        return "Roster by Sport\n\n" + _plain_table(["Sport", "Personnel"], rows)
+        return "Roster by Sport\n\n" + _plain_table(["Sport", "Person"], rows)
 
     if subcategory == "ByClass":
         records = data if isinstance(data, list) else []
@@ -623,10 +623,10 @@ def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
             return "No class data found."
         rows = [
             [_safe_str(_get(item, "class", "className", "name", "Class")),
-             _safe_str(_get(item, "count", "personnel", "total"), "-")]
+             _safe_str(_get(item, "count", "person", "total"), "-")]
             for item in records
         ]
-        return "Roster by Class\n\n" + _plain_table(["Class", "Personnel"], rows)
+        return "Roster by Class\n\n" + _plain_table(["Class", "Person"], rows)
 
     if subcategory == "BloodGroup":
         records = data if isinstance(data, list) else []
