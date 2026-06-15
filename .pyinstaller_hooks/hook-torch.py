@@ -1,4 +1,4 @@
-# hook-torch.py
+# .pyinstaller_hooks/hook-torch.py
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 binaries = collect_dynamic_libs("torch")
@@ -6,8 +6,9 @@ binaries = collect_dynamic_libs("torch")
 datas = collect_data_files("torch", excludes=[
     "test",
     "tests",
-    "distributed",
     "utils/tensorboard",
+    # NOTE: do NOT exclude "distributed" here — only excludes data files,
+    # but torch.distributed DLLs are needed and collected via binaries above
 ])
 
 hiddenimports = [
@@ -25,4 +26,9 @@ hiddenimports = [
     "torch._tensor",
     "torch.storage",
     "torch.serialization",
+    "torch.utils",
+    "torch.utils.data",
+    "torch.utils.data.dataloader",
+    "torch.distributed",
+    "torch.distributed.distributed_c10d",
 ]

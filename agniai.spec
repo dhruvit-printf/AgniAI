@@ -203,7 +203,19 @@ hidden_imports = [
     "torch",
     "torch.nn",
     "torch.nn.functional",
+    "torch.nn.modules",
+    "torch.nn.modules.module",
     "torch.cuda",
+    "torch.jit",
+    "torch._C",
+    "torch._tensor",
+    "torch.storage",
+    "torch.serialization",
+    "torch.utils",
+    "torch.utils.data",
+    "torch.utils.data.dataloader",
+    "torch.distributed",
+    "torch.distributed.distributed_c10d",
 
     # regex
     "regex",
@@ -297,7 +309,6 @@ a = Analysis(
     excludes=[
         "tkinter", "wx", "PyQt5", "PyQt6", "PySide2", "PySide6",
         "matplotlib", "IPython", "notebook", "pytest",
-        "torch.distributed",
         "torch.utils.tensorboard",
         "tensorboard",
         "setuptools", "distutils", "pip",
