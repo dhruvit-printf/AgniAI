@@ -216,6 +216,9 @@ hidden_imports = [
     "torch.utils.data.dataloader",
     "torch.distributed",
     "torch.distributed.distributed_c10d",
+    "torch.distributed.device_mesh",
+    "torch.distributed.config",
+    "torch.utils._config_module",
 
     # regex
     "regex",
@@ -305,7 +308,7 @@ a = Analysis(
     hiddenimports=all_hidden_imports,
     hookspath=[".pyinstaller_hooks"],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[".pyinstaller_hooks/rthook_torch_frozen.py"],
     excludes=[
         "tkinter", "wx", "PyQt5", "PyQt6", "PySide2", "PySide6",
         "matplotlib", "IPython", "notebook", "pytest",
