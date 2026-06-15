@@ -2,6 +2,14 @@
 # AgniAI PyInstaller build spec
 # Run with:  pyinstaller agniai.spec --clean --noconfirm
 # Built against agniai-env — pip list verified 2026-06-15
+#
+# KEY FIX vs previous version:
+#   module_collection_mode added to Analysis() call so PyInstaller collects
+#   torch.nn.functional and related modules as bytecode-only (.pyc).
+#   This prevents torch._jit_internal._check_overload_body() from finding
+#   the "source" file and trying to parse frozen bytecode as Python source,
+#   which caused:
+#     RuntimeError: Expected a single top-level function: torch/nn/functional.py:1
 
 block_cipher = None
 
@@ -13,8 +21,6 @@ from PyInstaller.utils.hooks import (
 )
 
 # ── Package metadata ───────────────────────────────────────────────────────
-# Every name below is the EXACT pip name from `pip list` in agniai-env.
-# copy_metadata() will crash the build if the name doesn't match — no guessing.
 meta_datas = (
     copy_metadata("anyio")
     + copy_metadata("beautifulsoup4")
@@ -129,7 +135,7 @@ hidden_imports = [
     "joblib",
     "threadpoolctl",
 
-    # PyYAML — transformers require_version checks this at startup
+    # PyYAML
     "yaml",
 
     # sympy / torch deps
@@ -174,7 +180,7 @@ hidden_imports = [
     "docx.image",
     "docx.image.image",
 
-    # lxml (used by docx and bs4)
+    # lxml
     "lxml",
     "lxml.etree",
 
@@ -199,7 +205,7 @@ hidden_imports = [
     # dotenv
     "dotenv",
 
-    # Torch
+    # Torch core — JIT internals explicitly included so our hook patches them
     "torch",
     "torch.nn",
     "torch.nn.functional",
@@ -207,18 +213,22 @@ hidden_imports = [
     "torch.nn.modules.module",
     "torch.cuda",
     "torch.jit",
+    "torch.jit._builtins",
+    "torch.jit.annotations",
     "torch._C",
     "torch._tensor",
+    "torch._jit_internal",
+    "torch._sources",
     "torch.storage",
     "torch.serialization",
     "torch.utils",
     "torch.utils.data",
     "torch.utils.data.dataloader",
+    "torch.utils._config_module",
     "torch.distributed",
     "torch.distributed.distributed_c10d",
     "torch.distributed.device_mesh",
     "torch.distributed.config",
-    "torch.utils._config_module",
 
     # regex
     "regex",
@@ -238,7 +248,7 @@ hidden_imports = [
     "packaging.requirements",
     "packaging.specifiers",
 
-    # colorama (Windows color output)
+    # colorama
     "colorama",
 
     # wrapt / Deprecated
@@ -300,6 +310,41 @@ all_hidden_imports = (
     + faiss_hiddenimports
 )
 
+# ── Module collection mode ─────────────────────────────────────────────────
+# CRITICAL: These modules use @_overload decorators that call
+# torch._jit_internal._check_overload_body() → torch._sources.parse_def()
+# → inspect.getsource() at import time.
+#
+# Inside a frozen PyInstaller bundle the "source" file is bytecode, not
+# Python text.  parse_def() raises:
+#   RuntimeError: Expected a single top-level function: torch/nn/functional.py:1
+#
+# Setting mode to "bytecode" makes PyInstaller store these as .pyc only,
+# so parse_def() never finds a file to attempt parsing.
+_module_collection_mode = {
+    # torch — all files that have @_overload at module level
+    "torch.nn.functional":                  "bytecode",
+    "torch.nn.modules.activation":          "bytecode",
+    "torch.nn.modules.linear":              "bytecode",
+    "torch.nn.modules.normalization":       "bytecode",
+    "torch.nn.modules.pooling":             "bytecode",
+    "torch.nn.modules.sparse":              "bytecode",
+    "torch.nn.modules.conv":                "bytecode",
+    "torch.nn.modules.rnn":                 "bytecode",
+    "torch._jit_internal":                  "bytecode",
+    "torch._sources":                       "bytecode",
+    "torch.jit._builtins":                  "bytecode",
+    "torch.jit.annotations":               "bytecode",
+    "torch.functional":                     "bytecode",
+    "torch.nn.parallel.distributed":        "bytecode",
+    "torch.distributed.distributed_c10d":   "bytecode",
+    "torch.utils._config_module":           "bytecode",
+    # transformers — modules that fail similarly
+    "transformers.generation.logits_process":      "bytecode",
+    "transformers.generation.configuration_utils": "bytecode",
+    "transformers.configuration_utils":            "bytecode",
+}
+
 a = Analysis(
     ["app_launcher.py"],
     pathex=["."],
@@ -321,6 +366,9 @@ a = Analysis(
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
+    # ↓ This is the primary fix for older PyInstaller that ignores hook-level
+    #   module_collection_mode.  PyInstaller >= 5.8 reads it from both places.
+    module_collection_mode=_module_collection_mode,
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
