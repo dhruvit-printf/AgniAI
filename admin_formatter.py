@@ -73,9 +73,12 @@ NOTE on intent_result keys:
 from __future__ import annotations
 
 import json
+import logging
 import re as _re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -336,21 +339,24 @@ def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> s
 
 
 def _format_performance_list(data: Any, intent_result: Dict) -> str:
-    """Handle the real .NET performance list response."""
+    """Handle the real .NET performance list response.
+
+    Supports multiple .NET response shapes:
+      1. List of agniveer records (TopPerformers, LowestPerformers, etc.)
+      2. Dict with nested lists like "sections", "distribution" (Comparison, BestAttempt)
+      3. Dict with flat aggregate fields (AverageScore, etc.)
+    """
+    command_label = ""
+    message_text = ""
+
     if isinstance(data, dict):
         command_label = data.get("commandLabel", "")
-        records = (
-            data.get("data") or data.get("Data") or
-            data.get("result") or data.get("Result") or []
-        )
+        message_text = _safe_str(data.get("message"), "")
+        inner = data.get("data") or data.get("Data") or data.get("result") or data.get("Result") or {}
     elif isinstance(data, list):
-        command_label = ""
-        records = data
+        inner = data
     else:
         return "Unexpected data format."
-
-    if not records:
-        return "No records found for this query."
 
     subcategory    = intent_result.get("subcategory", "")
     section_filter = intent_result.get("section", "")
@@ -367,23 +373,117 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
         "Comparison":         "Comparison",
     }
     label   = command_label or label_map.get(subcategory, subcategory or "Performance Data")
-    count   = len(records)
     sec_str = f" - {section_filter}" if section_filter else ""
 
-    lines = [
-        f"{label}{sec_str}",
-        f"({count} record{'s' if count != 1 else ''})",
-        "",
-    ]
+    # ── Case 1: inner data is a list of records ──────────────────────────────
+    if isinstance(inner, list):
+        records = inner
+        if not records:
+            return "No records found for this query."
 
-    for i, record in enumerate(records, start=1):
-        lines.append(_format_single_agniveer(record, i, intent_result))
-        if i < len(records):
-            lines.append("")
-            lines.append("-" * 40)
+        # Check if records look like agniveer dicts (have fullName/agniveerNo/attempts)
+        first = records[0] if records else {}
+        is_agniveer = isinstance(first, dict) and any(
+            k in first for k in ("fullName", "agniveerNo", "attempts", "bestTotal", "name")
+        )
+
+        if is_agniveer:
+            count = len(records)
+            lines = [
+                f"{label}{sec_str}",
+                f"({count} record{'s' if count != 1 else ''})",
+                "",
+            ]
+            for i, record in enumerate(records, start=1):
+                lines.append(_format_single_agniveer(record, i, intent_result))
+                if i < len(records):
+                    lines.append("")
+                    lines.append("-" * 40)
+                    lines.append("")
+            if message_text:
+                lines.append("")
+                lines.append(message_text)
+            return "\n".join(lines).strip()
+
+        # Records are aggregate/summary dicts (sections, distribution entries, etc.)
+        # Auto-detect and format as a table
+        if records and isinstance(first, dict):
+            keys = list(first.keys())
+            # Build human-readable headers from camelCase keys
+            headers = [_camel_to_words(k) for k in keys]
+            rows = []
+            for item in records:
+                row = []
+                for k in keys:
+                    val = item.get(k)
+                    if isinstance(val, float):
+                        row.append(f"{val:.2f}")
+                    elif val is not None:
+                        row.append(str(val))
+                    else:
+                        row.append("-")
+                rows.append(row)
+
+            lines = [f"{label}{sec_str}", f"({len(records)} record{'s' if len(records) != 1 else ''})", ""]
+            lines.append(_plain_table(headers, rows))
+            if message_text:
+                lines.append("")
+                lines.append(message_text)
+            return "\n".join(lines).strip()
+
+        # Fallback for list of non-dict items
+        lines = [f"{label}{sec_str}", ""]
+        for i, item in enumerate(records, 1):
+            lines.append(f"{i}. {item}")
+        return "\n".join(lines).strip()
+
+    # ── Case 2: inner data is a dict with nested lists ───────────────────────
+    if isinstance(inner, dict):
+        # Look for any nested list inside the dict (e.g., "sections", "distribution", "grades")
+        nested_lists = {k: v for k, v in inner.items() if isinstance(v, list) and v}
+        flat_fields  = {k: v for k, v in inner.items() if not isinstance(v, (list, dict))}
+
+        lines = [f"{label}{sec_str}", ""]
+
+        # Show flat summary fields first
+        if flat_fields:
+            pairs = [(_camel_to_words(k), v) for k, v in flat_fields.items()]
+            lines.append(_kv_block(pairs))
             lines.append("")
 
-    return "\n".join(lines).strip()
+        # Format each nested list as a table
+        for list_key, list_items in nested_lists.items():
+            if not list_items or not isinstance(list_items[0], dict):
+                continue
+            list_label = _camel_to_words(list_key)
+            keys = list(list_items[0].keys())
+            headers = [_camel_to_words(k) for k in keys]
+            rows = []
+            for item in list_items:
+                row = []
+                for k in keys:
+                    val = item.get(k)
+                    if isinstance(val, float):
+                        row.append(f"{val:.2f}")
+                    elif val is not None:
+                        row.append(str(val))
+                    else:
+                        row.append("-")
+                rows.append(row)
+            lines.append(f"{list_label}:")
+            lines.append(_plain_table(headers, rows))
+            lines.append("")
+
+        if message_text:
+            lines.append(message_text)
+
+        result = "\n".join(lines).strip()
+        return result if result != f"{label}{sec_str}" else "No records found for this query."
+
+    if not inner:
+        return "No records found for this query."
+
+    return str(inner)
 
 
 # =============================================================================
@@ -1327,6 +1427,17 @@ def format_dotnet_response(
     Convert raw .NET response + intent into clean plain-text.
     No markdown symbols, no emojis, no bold/italic markers.
     """
+    # Guard: if intent_result is not a dict, we can't extract category/subcategory
+    if not isinstance(intent_result, dict):
+        try:
+            return json.dumps(dotnet_response, indent=2, ensure_ascii=False)
+        except Exception:
+            return str(dotnet_response)
+
+    # Guard: if the .NET backend returned a plain string, return it directly
+    if isinstance(dotnet_response, str):
+        return dotnet_response
+
     category    = intent_result.get("category", "")
     subcategory = intent_result.get("subcategory", "")
 
@@ -1364,8 +1475,8 @@ def format_dotnet_response(
     if formatter and subcategory:
         try:
             return formatter(subcategory, dotnet_response, intent_result)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Formatter for %s/%s failed: %s", category, subcategory, exc)
 
     # Fallback: pretty-print JSON
     try:
