@@ -15,25 +15,24 @@ Flow for /api/admin/chat:
      └─ includes commandId, batchId, platoonId, fullName from the frontend request
   4. POST payload to .NET       → https://<DOTNET_API_BASE_URL>/api/AiCommand/execute
   5. generate_intro_message()   → LLM generates a single clean intro sentence
-  6. format_dotnet_response()   → formats raw .NET data into rich readable markdown
-  7. Return unified response with intro + formatted answer in 'message'
+  6. Return raw .NET data directly in data.result — NO formatting layer
 
 RESPONSE SHAPE:
   {
     "status":     true,
     "httpStatus": 200,
-    "message":    "<intro sentence>\n\n<full formatted answer>",
+    "message":    "<intro sentence only>",
     "data": {
       "intent":        { ...classified intent fields... },
       "dotnetPayload": { ...sent to .NET... },
-      "result":        <raw .NET response — frontend can also use this>,
+      "result":        <raw .NET response — frontend uses this directly>,
       "sessionId":     "..."   (only if not admin-default)
     }
   }
 
-  message  → intro sentence + "\n\n" + full formatted markdown answer
-  data.result → raw .NET JSON (kept for frontend flexibility)
-  data.intent → full intent classification
+  message       → intro sentence only (frontend displays this above the data)
+  data.result   → raw .NET JSON (frontend renders this however it wants)
+  data.intent   → full intent classification
   data.dotnetPayload → exact payload sent to .NET
 
 FRONTEND REQUEST FIELDS:
@@ -60,7 +59,6 @@ from typing import Any, Dict, Optional
 import requests as _requests
 from flask import Blueprint, jsonify, request
 
-from admin_formatter import format_dotnet_response
 from admin_intent import admin_normalize_query, classify_admin_intent, format_admin_payload
 from config import _is_greeting, _is_small_talk, _is_patriotic, GREETING_PHRASES
 
@@ -116,26 +114,16 @@ def _register_rate_limits(app):
 # =============================================================================
 
 def _is_admin_conversational(message: str) -> bool:
-    """Return True if the message is casual / conversational and not a data query.
-
-    Checks: exact greetings, small-talk substrings, patriotic phrases,
-    and very short messages (≤3 words) that don't contain admin-data keywords.
-    """
+    """Return True if the message is casual / conversational and not a data query."""
     cleaned = message.lower().strip().rstrip("!?.,;")
 
-    # Exact greeting match
     if _is_greeting(cleaned):
         return True
-
-    # Substring-based small-talk
     if _is_small_talk(cleaned):
         return True
-
-    # Patriotic phrases
     if _is_patriotic(cleaned):
         return True
 
-    # Very short messages (≤3 words) that don't look like admin queries
     tokens = cleaned.split()
     if len(tokens) <= 3:
         _ADMIN_SIGNAL_WORDS = {
@@ -196,15 +184,11 @@ def _build_greeting_response(body: Dict, session_id: str) -> tuple:
 
 
 # =============================================================================
-# CONVERSATIONAL RESPONSE BUILDER (for small-talk / casual messages)
+# CONVERSATIONAL RESPONSE BUILDER
 # =============================================================================
 
 def _build_conversational_response(message: str, body: Dict, session_id: str) -> tuple:
-    """Generate a natural conversational reply for non-greeting casual messages.
-
-    Uses the LLM for a warm, human-like response. Falls back to a static
-    reply if the LLM is unavailable.
-    """
+    """Generate a natural conversational reply for non-greeting casual messages."""
     import random
     import datetime as _dt
 
@@ -226,7 +210,6 @@ def _build_conversational_response(message: str, body: Dict, session_id: str) ->
     else:
         time_greeting = "Good Evening"
 
-    # Try LLM for a natural response
     try:
         import requests as _req
         from config import OLLAMA_URL, DEFAULT_MODEL
@@ -272,7 +255,6 @@ def _build_conversational_response(message: str, body: Dict, session_id: str) ->
     except Exception as exc:
         logger.debug("LLM conversational reply failed, using fallback: %s", exc)
 
-    # Static fallbacks (with time greeting + admin name)
     fallbacks = [
         f"{time_greeting}, {admin_name}. I'm here and ready to help. What data would you like to review?",
         f"{time_greeting}, {admin_name}! Let me know if you need any reports or insights.",
@@ -298,9 +280,9 @@ _INTRO_TEMPLATES: Dict[tuple, str] = {
     ("Performance", "AverageScore"):       "The average scores outline overall achievement levels across the group.",
     ("Performance", "PassPercentage"):     "Pass rates reflect the percentage of trainees meeting the assessment standards.",
     ("Performance", "FailPercentage"):     "Fail rates identify the proportion of trainees currently below standard.",
-    ("Performance", "GradeDistribution"):  "The grade distribution shows overall qualification levels across the group.",
+    ("Performance", "GradeFilter"):        "The grade filter results show performance by the selected grading category.",
     ("Performance", "GradingSummary"):     "The grading summary provides a breakdown of performance achievements.",
-    ("Performance", "OverallPerformance"): "Overall performance metrics highlight trainee progress and evaluation outcomes.",
+    ("Performance", "OverallPerformers"):  "Overall performance metrics highlight trainee progress across all criteria.",
     ("Performance", "Improvement"):        "These records highlight the trainees showing positive performance growth.",
     ("Performance", "Drop"):               "These trends identify trainees experiencing a decline in assessment scores.",
     ("Performance", "SectionSummary"):     "The section summary provides a clear view of performance across individual modules.",
@@ -310,12 +292,12 @@ _INTRO_TEMPLATES: Dict[tuple, str] = {
     # Leave
     ("Leave", "MostLeaveTaken"):           "Leave patterns highlight the person with the highest absence rate.",
     ("Leave", "LeastLeaveTaken"):          "Leave summaries identify the person with the highest duty presence.",
-    ("Leave", "CurrentLeaveStatus"):       "Current leave records outline person availability across the unit.",
-    ("Leave", "AbscondedPerson"):          "These records flag persons currently absent without official leave.",
+    ("Leave", "CurrentLeave"):             "Current leave records outline person availability across the unit.",
+    ("Leave", "AbscondedLeave"):           "These records flag persons currently absent without official leave.",
     # Medical
     ("Medical", "ActiveCases"):            "This summary captures current active cases undergoing medical attention.",
     ("Medical", "BMIAnalysis"):            "BMI records outline fitness levels and weight distribution across persons.",
-    ("Medical", "DiseaseStatistics"):      "Health records highlight the most common medical cases reported recently.",
+    ("Medical", "DiseaseStats"):           "Health records highlight the most common medical cases reported recently.",
     # Attendance
     ("Attendance", "MonthlyAttendance"):   "Monthly attendance trends provide a clear view of person participation.",
     ("Attendance", "PresentToday"):        "Today's attendance records outline current person presence on campus.",
@@ -324,9 +306,9 @@ _INTRO_TEMPLATES: Dict[tuple, str] = {
     ("Verification", "PendingVerification"):   "Verification files track documents currently awaiting official review.",
     ("Verification", "CompletedVerification"): "These records confirm files that have cleared the verification process.",
     # Equipment
-    ("Equipment", "EquipmentSummary"):         "This inventory summary reflects current equipment counts and status.",
+    ("Equipment", "EquipmentStats"):           "This inventory summary reflects current equipment counts and status.",
     ("Equipment", "OverdueEquipment"):         "These records flag issued gear currently overdue for return.",
-    ("Equipment", "PoorConditionEquipment"):   "This quality review highlights equipment returned in sub-standard condition.",
+    ("Equipment", "ReturnedEquipment"):        "This quality review highlights equipment returned in sub-standard condition.",
     ("Equipment", "IssuedItems"):              "Here is the complete list of items issued to Agniveers.",
     ("Equipment", "ProcuredItems"):            "Here is the complete list of items procured by Agniveers.",
     # Distribution
@@ -338,8 +320,6 @@ _INTRO_TEMPLATES: Dict[tuple, str] = {
     ("Skills", "BySport"):                     "Sport rosters track athletic participation and team assignments.",
     ("Skills", "ByClass"):                     "Class rosters group persons by their administrative designations.",
     ("Skills", "BloodGroup"):                  "Medical profiles outline the blood group distribution across the group.",
-    # Overall
-    ("Overall", "OverallRanking"):             "The overall rankings reflect those leading the composite evaluations.",
 }
 
 
@@ -383,7 +363,7 @@ def _build_intro_prompt(
     return (
         "You are AgniAI, an intelligent military training assistant.\n\n"
         "Generate ONE short introductory sentence for the data being shown to the admin.\n\n"
-        "STRICT RULES — violating any rule makes the response useless:\n"
+        "STRICT RULES:\n"
         "1. ONE sentence only. End with a period.\n"
         "2. 10 to 20 words maximum.\n"
         "3. NEVER mention any person's name, rank, or ID.\n"
@@ -392,19 +372,11 @@ def _build_intro_prompt(
         "6. NEVER use: retrieved, fetched, generated, extracted, shown below, listed below.\n"
         "7. Do not ask questions.\n"
         "8. No markdown, no bullets, no quotes.\n"
-        "9. Sound like a professional assistant introducing a report, not a database.\n\n"
+        "9. Sound like a professional assistant introducing a report.\n\n"
         "GOOD EXAMPLES:\n"
         "Attempt-wise improvement data is ready for your review.\n"
         "Here is the leave status across persons for the current period.\n"
-        "Performance rankings for the selected section are available below.\n"
-        "Medical case details for the unit are outlined here.\n"
-        "Equipment status across the inventory is summarised below.\n\n"
-        "BAD EXAMPLES (never do this):\n"
-        "Private Johnson showed the greatest improvement. (mentions a name)\n"
-        "The top scorer achieved 94 points. (mentions a number)\n"
-        "3 persons are currently on leave. (mentions a count)\n"
-        "Data retrieved successfully. (system language)\n"
-        "Here are the results. (too vague and generic)\n\n"
+        "Performance rankings for the selected section are available below.\n\n"
         f"Admin question: {question}\n\n"
         f"Context:\n{context_str}\n\n"
         "Generate only the sentence."
@@ -506,7 +478,10 @@ def _generate_intro_message(
             logger.debug("LLM intro (sanitized): %s", clean_text)
             return clean_text
 
-        logger.debug("LLM intro rejected after sanitize (raw=%r clean=%r), using template", raw_text, clean_text)
+        logger.debug(
+            "LLM intro rejected after sanitize (raw=%r clean=%r), using template",
+            raw_text, clean_text,
+        )
 
     except Exception as exc:
         logger.debug("Ollama intro generation failed, using template: %s", exc)
@@ -517,32 +492,6 @@ def _generate_intro_message(
 
     category_label = category or "requested"
     return f"These records outline the current {category_label.lower()} status across the unit."
-
-
-# =============================================================================
-# RICH FORMATTER  ← NEW
-# =============================================================================
-
-def _build_rich_formatted_answer(
-    dotnet_data: Any,
-    intent_result: Dict[str, Any],
-) -> str:
-    """
-    Convert raw .NET response into a rich, human-readable formatted answer
-    using admin_formatter.py — the same way ChatGPT/Claude would present it.
-
-    Returns a markdown string ready to be shown directly in the frontend.
-    Falls back to a clean JSON block if formatting fails.
-    """
-    try:
-        formatted = format_dotnet_response(dotnet_data, intent_result)
-        return formatted or ""
-    except Exception as exc:
-        logger.warning("admin_formatter failed: %s", exc)
-        try:
-            return "```json\n" + json.dumps(dotnet_data, indent=2, ensure_ascii=False) + "\n```"
-        except Exception:
-            return str(dotnet_data)
 
 
 # =============================================================================
@@ -634,22 +583,6 @@ def _call_dotnet(payload: Dict) -> tuple[Any, Optional[str]]:
 
 
 def _success_response(data: Dict, http_status: int = 200, message: str = ""):
-    """
-    Unified success envelope.
-
-    Shape:
-      {
-        "status":     true,
-        "httpStatus": 200,
-        "message":    "<intro sentence>\\n\\n<full formatted answer>",
-        "data": {
-          "intent":        {...},
-          "dotnetPayload": {...},
-          "result":        <raw .NET response>,
-          "sessionId":     "..."
-        }
-      }
-    """
     return jsonify({
         "status":     True,
         "httpStatus": http_status,
@@ -701,8 +634,8 @@ def admin_classify():
     Classify-only endpoint — returns intent JSON and .NET payload
     without calling .NET. Useful for debugging.
     """
-    body       = request.get_json(force=True, silent=True) or {}
-    message    = (body.get("message") or "").strip()
+    body    = request.get_json(force=True, silent=True) or {}
+    message = (body.get("message") or "").strip()
 
     if not message:
         return _error_response("message field is required.", 400)
@@ -717,10 +650,10 @@ def admin_classify():
             response_data, greeting_message = _build_conversational_response(message, body, session_id)
         return _success_response(response_data, message=greeting_message)
 
-    id_filters    = _get_id_filters(body)
-    full_name     = _get_full_name(body)
+    id_filters = _get_id_filters(body)
+    full_name  = _get_full_name(body)
 
-    message = admin_normalize_query(message)
+    message        = admin_normalize_query(message)
     intent_result  = classify_admin_intent(message)
     dotnet_payload = format_admin_payload(intent_result)
     dotnet_payload.update(id_filters)
@@ -746,23 +679,25 @@ def admin_chat():
     """
     Main admin chat endpoint.
 
-    Full pipeline:
+    Pipeline:
       1. Classify intent from admin's natural-language question
-      2. Build .NET payload (camelCase), including fullName if provided
+      2. Build .NET payload (camelCase)
       3. POST to .NET AiCommand/execute
-      4. Generate clean single-sentence intro via LLM (or static template)
-      5. Format raw .NET data into rich readable markdown (admin_formatter)
-      6. Combine: message = intro + "\\n\\n" + formatted_answer
-      7. Return unified JSON response
+      4. Generate a single intro sentence via LLM (or static template)
+      5. Return: message = intro sentence, data.result = raw .NET response
+
+    The frontend is responsible for rendering data.result directly.
+    No formatting is applied by this server.
 
     RESPONSE SHAPE:
       {
         "status":     true,
         "httpStatus": 200,
-        "message":    "<intro sentence>\\n\\n<full formatted answer>",
+        "message":    "<intro sentence>",
         "data": {
+          "intent":        { ... },
           "dotnetPayload": { "category": "Performance", "operation": "Top", ... },
-          "result":        <raw .NET response object>,
+          "result":        <raw .NET response object — render this on the frontend>,
           "sessionId":     "..."
         }
       }
@@ -789,7 +724,7 @@ def admin_chat():
     elapsed_ms = lambda: round((time.time() - start_time) * 1000)
 
     # ── Step 1: Classify intent ────────────────────────────────────────────
-    message = admin_normalize_query(message)
+    message       = admin_normalize_query(message)
     intent_result = classify_admin_intent(message)
     logger.info(
         "Admin intent: session=%s category=%s subcategory=%s confidence=%s",
@@ -807,7 +742,10 @@ def admin_chat():
                 "result":        None,
             },
             message=(
-                "Sorry, I was unable to understand your request. I can help with Performance, Leave, Attendance, Medical, Equipment, Verification, Distribution, and Skills information. Please ask a relevant question."
+                "Sorry, I was unable to understand your request. "
+                "I can help with Performance, Leave, Attendance, Medical, Equipment, "
+                "Verification, Distribution, and Skills information. "
+                "Please ask a relevant question."
             ),
         )
 
@@ -830,24 +768,18 @@ def admin_chat():
             502,
         )
 
-    # ── Step 4: Generate clean single-sentence intro ───────────────────────
+    # ── Step 4: Generate intro sentence ───────────────────────────────────
+    # This is the ONLY text this server generates.
+    # The raw .NET data goes straight to the frontend in data.result.
     intro_message = _generate_intro_message(
         question=message,
         intent=intent_result,
         dotnet_data=dotnet_data,
     )
 
-    # ── Step 5: Format raw .NET data into rich readable answer ─────────────
-    formatted_answer = _build_rich_formatted_answer(dotnet_data, intent_result)
-
-    # ── Step 6: Combine intro + formatted answer ───────────────────────────
-    if formatted_answer and formatted_answer.strip():
-        full_message = f"{intro_message}\n\n{formatted_answer}"
-    else:
-        full_message = intro_message
-
-    # ── Step 7: Build response ─────────────────────────────────────────────
+    # ── Step 5: Build response ─────────────────────────────────────────────
     response_data: Dict[str, Any] = {
+        "intent":        intent_result,
         "dotnetPayload": dotnet_payload,
         "result":        dotnet_data if dotnet_data is not None else {},
     }
@@ -861,4 +793,5 @@ def admin_chat():
         elapsed_ms(),
     )
 
-    return _success_response(response_data, message=full_message)
+    # message = intro sentence only; frontend renders data.result itself
+    return _success_response(response_data, message=intro_message)
