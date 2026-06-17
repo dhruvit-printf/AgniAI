@@ -35,7 +35,8 @@ from result_combiner import intersect_results, merge_results, compare_results
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
 from admin_formatter import format_dotnet_response
-from admin_report_generator import generate_admin_report
+from report_generator import generate_report
+from response_builder import build_response
 
 _session_context = AdminSessionContext()
 
@@ -83,297 +84,15 @@ def _register_rate_limits(app):
         logger.warning("Could not register admin rate limit: %s", exc)
 
 
-# =============================================================================
-# STEP 4 — RESULT COMBINER
-# Routes raw .NET responses through the correct combination strategy.
-# This is the layer that creates the "Final Combined Result" which is the
-# SOURCE OF TRUTH passed to the Report Generator.
-# =============================================================================
-
-def _combine_dotnet_results(
-    query_type: QueryType,
-    raw_results: List[Any],
-    labeled_results: List[Tuple[str, Any]],
-) -> Any:
-    """
-    Route raw .NET results through result_combiner based on query type.
-
-    CROSS_FILTER      → intersect_results  (N-way ID intersection)
-    COMPARISON        → compare_results    (side-by-side metric comparison)
-    MULTI_INDEPENDENT → merge_results      (combine independent sections)
-    SIMPLE / other    → passthrough        (single result, no combination)
-
-    The output of this function is the finalResult — the source of truth.
-    It is NEVER modified by any downstream step.
-    """
-    if query_type == QueryType.CROSS_FILTER:
-        logger.info("result_combiner: intersect_results across %d sets", len(raw_results))
-        return intersect_results(raw_results, primary_index=0)
-
-    elif query_type == QueryType.COMPARISON:
-        logger.info("result_combiner: compare_results across %d sides", len(labeled_results))
-        return compare_results(labeled_results)
-
-    elif query_type == QueryType.MULTI_INDEPENDENT:
-        logger.info("result_combiner: merge_results across %d sections", len(labeled_results))
-        return merge_results(labeled_results)
-
+def map_query_type(qt: QueryType) -> str:
+    if qt == QueryType.CROSS_FILTER:
+        return "cross_filter"
+    elif qt == QueryType.COMPARISON:
+        return "comparison"
+    elif qt == QueryType.MULTI_INDEPENDENT:
+        return "multi_independent"
     else:
-        # SIMPLE / ANALYTICS — single result, no combination needed
-        logger.info("result_combiner: simple passthrough")
-        return raw_results[0] if raw_results else {}
-
-
-# =============================================================================
-# STEP 5 — FORMAT COMBINED RESULT
-# Converts the combined result into human-readable plain text.
-# Uses admin_formatter.py which handles all .NET response shapes.
-# =============================================================================
-
-def _format_combined_result(
-    combined_result: Any,
-    intent_result: Dict[str, Any],
-) -> str:
-    """
-    Pass the combined result (source of truth) through format_dotnet_response()
-    to produce clean human-readable plain text for the frontend message bubble.
-    """
-    try:
-        formatted = format_dotnet_response(combined_result, intent_result)
-        logger.debug("format_dotnet_response: %d chars", len(formatted or ""))
-        return formatted or ""
-    except Exception as exc:
-        logger.warning("format_dotnet_response failed: %s", exc)
-        return ""
-
-
-# =============================================================================
-# STEP 6 — REPORT GENERATOR
-# Receives only {queryType, finalResult} and generates:
-#   introMessage, analysis, conclusion
-# CRITICAL: Report Generator NEVER modifies finalResult.
-# =============================================================================
-
-def _generate_report(
-    user_query: str,
-    query_type: QueryType,
-    intent_result: Dict[str, Any],
-    combined_result: Any,
-) -> Dict[str, str]:
-    """
-    Call generate_admin_report() with the combined result (not raw .NET data).
-    Returns {introMessage, analysis, conclusion}.
-    The combined_result is passed read-only — report generator must not modify it.
-    """
-    return generate_admin_report(
-        user_query=user_query,
-        query_type=query_type.value,
-        intent_result=intent_result,
-        combined_result=combined_result,
-    )
-
-
-# =============================================================================
-# STEP 7 — RESPONSE BUILDER
-# Builds the final JSON response in the exact order specified in the spec:
-#   status, queryType, introMessage, result, analysis, conclusion,
-#   intent, dotnetResponses, metadata
-# The message field contains all text sections joined for the frontend.
-# =============================================================================
-
-def _build_response_message(
-    report: Dict[str, str],
-    formatted_data: str = "",
-) -> str:
-    """
-    Merge introMessage + formatted_data + analysis + conclusion into one
-    string that the frontend reads from response.message.
-
-    Order:
-      1. introMessage   — what was fetched / what we are showing
-      2. formatted_data — the actual records in readable plain-text
-      3. Analysis:      — AI analysis of the data
-      4. Conclusion:    — AI executive summary
-
-    Empty sections are skipped cleanly.
-    """
-    parts = []
-
-    intro = (report.get("introMessage") or "").strip()
-    if intro:
-        parts.append(intro)
-
-    data_text = (formatted_data or "").strip()
-    if data_text:
-        parts.append(data_text)
-
-    analysis = (report.get("analysis") or "").strip()
-    if analysis:
-        parts.append(f"Analysis:\n{analysis}")
-
-    conclusion = (report.get("conclusion") or "").strip()
-    if conclusion:
-        parts.append(f"Conclusion:\n{conclusion}")
-
-    return "\n\n".join(parts)
-
-
-def _build_final_response(
-    *,
-    query_type: QueryType,
-    confidence: float,
-    query_plan,
-    intent_result: Dict[str, Any],
-    combined_result: Any,
-    formatted_data: str,
-    report: Dict[str, str],
-    raw_dotnet_responses: List[Any],
-    session_id: str,
-    execution_time_ms: int,
-    analytics_hint: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Build the final response payload in the exact order from the architecture spec:
-
-    {
-      "status": true,
-      "queryType": "...",
-      "introMessage": "...",
-      "result": { ...FINAL RESULT COMBINER OUTPUT... },
-      "analysis": "...",
-      "conclusion": "...",
-      "intent": { ...intent(s)... },
-      "dotnetResponses": [ ...raw .NET responses... ],
-      "metadata": { "confidence": 0.95, "executionTimeMs": 0 }
-    }
-
-    The message field (for frontend text bubble) contains all text joined.
-    """
-    combined_message = _build_response_message(report, formatted_data)
-
-    payload: Dict[str, Any] = {
-        # 1. Status
-        "status":       True,
-        "httpStatus":   200,
-
-        # 2. Query type
-        "queryType":    query_type.value,
-
-        # 3. Intro message
-        "introMessage": report.get("introMessage", ""),
-
-        # 4. Result — the final combined result (source of truth)
-        "result":       combined_result if combined_result is not None else {},
-
-        # 5. Analysis
-        "analysis":     report.get("analysis", ""),
-
-        # 6. Conclusion
-        "conclusion":   report.get("conclusion", ""),
-
-        # 7. Intent
-        "intent":       intent_result,
-
-        # 8. Raw .NET responses (for debugging / audit)
-        "dotnetResponses": raw_dotnet_responses,
-
-        # 9. Metadata
-        "metadata": {
-            "confidence":     round(confidence, 2),
-            "executionTimeMs": execution_time_ms,
-            "queryPlan":      query_plan.to_dict() if query_plan else {},
-            **({"analyticsHint": analytics_hint} if analytics_hint else {}),
-        },
-
-        # Extra fields for frontend convenience
-        "formattedData": formatted_data,      # human-readable text of the result
-        "message":       combined_message,    # full text for message bubble
-    }
-
-    if session_id and session_id != "admin-default":
-        payload["sessionId"] = session_id
-
-    return payload
-
-
-# =============================================================================
-# FULL PIPELINE RUNNER
-# Runs steps 4 → 5 → 6 → 7 after all .NET data has been collected.
-# =============================================================================
-
-def _run_intelligence_pipeline(
-    *,
-    user_query: str,
-    query_type: QueryType,
-    query_plan,
-    raw_results: List[Any],
-    labeled_results: List[Tuple[str, Any]],
-    primary_intent: Dict[str, Any],
-    session_id: str,
-    confidence: float,
-    start_time: float,
-    analytics_hint: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Runs the full AgniAI intelligence pipeline after .NET data is collected:
-
-    Step 4: result_combiner        — combine/intersect/compare raw .NET responses
-    Step 5: format_dotnet_response — format combined result to readable text
-    Step 6: generate_admin_report  — produce introMessage + analysis + conclusion
-    Step 7: _build_final_response  — build final JSON response payload
-
-    Returns the complete response payload dict ready for jsonify().
-    """
-
-    # ── Step 4: Result Combiner ────────────────────────────────────────────
-    combined_result = _combine_dotnet_results(query_type, raw_results, labeled_results)
-    logger.info(
-        "Pipeline step 4 complete: result_combiner produced type=%s",
-        type(combined_result).__name__,
-    )
-
-    # ── Step 5: Format combined result to human-readable text ──────────────
-    formatted_data = _format_combined_result(combined_result, primary_intent)
-    logger.info(
-        "Pipeline step 5 complete: formatted_data=%d chars",
-        len(formatted_data),
-    )
-
-    # ── Step 6: Report Generator (intro + analysis + conclusion) ───────────
-    # CRITICAL: Report Generator receives combined_result READ-ONLY.
-    # It only generates introMessage, analysis, conclusion — never modifies result.
-    report = _generate_report(
-        user_query=user_query,
-        query_type=query_type,
-        intent_result=primary_intent,
-        combined_result=combined_result,
-    )
-    logger.info(
-        "Pipeline step 6 complete: intro=%d analysis=%d conclusion=%d",
-        len(report.get("introMessage", "")),
-        len(report.get("analysis", "")),
-        len(report.get("conclusion", "")),
-    )
-
-    # ── Update session context ─────────────────────────────────────────────
-    _session_context.update(session_id, user_query, primary_intent, combined_result)
-
-    # ── Step 7: Response Builder ───────────────────────────────────────────
-    execution_time_ms = round((time.time() - start_time) * 1000)
-
-    return _build_final_response(
-        query_type=query_type,
-        confidence=confidence,
-        query_plan=query_plan,
-        intent_result=primary_intent,
-        combined_result=combined_result,
-        formatted_data=formatted_data,
-        report=report,
-        raw_dotnet_responses=raw_results,   # kept for audit, never sent raw to frontend
-        session_id=session_id,
-        execution_time_ms=execution_time_ms,
-        analytics_hint=analytics_hint,
-    )
+        return "simple"
 
 
 # =============================================================================
@@ -683,17 +402,7 @@ def admin_classify():
 def admin_chat():
     """
     Main admin chat endpoint.
-
-    Full intelligence pipeline:
-      1. Validate + normalize input
-      2. Resolve named entities (company/platoon names → IDs)
-      3. Query Planner: detect query type + generate all required intents
-      4. Execute .NET API call(s) — one per sub-operation
-      5. Result Combiner: combine raw .NET responses → finalResult
-      6. Format finalResult → human-readable text
-      7. Report Generator: intro + analysis + conclusion from finalResult
-      8. Response Builder: structured JSON response
-      9. Return response (frontend reads response.message for the text bubble)
+    Strict response pipeline processing.
     """
     start_time = time.time()
     body       = request.get_json(force=True, silent=True) or {}
@@ -742,15 +451,19 @@ def admin_chat():
     raw_results:     List[Any]             = []
     labeled_results: List[Tuple[str, Any]] = []
     primary_intent:  Dict[str, Any]        = {}
+    qtype_str:       str                   = "simple"
+    operation_count: int                   = 1
 
     if (query_plan.query_type != QueryType.SIMPLE
             and query_plan.confidence >= 0.5
             and len(query_plan.operations) >= 2):
 
         # MULTI-OP: one .NET call per sub-operation
+        qtype_str = map_query_type(query_plan.query_type)
+        operation_count = len(query_plan.operations)
         logger.info(
             "Multi-op: session=%s type=%s ops=%d",
-            session_id, query_plan.query_type.value, len(query_plan.operations),
+            session_id, qtype_str, operation_count,
         )
 
         for i, op in enumerate(query_plan.operations):
@@ -761,12 +474,12 @@ def admin_chat():
 
             logger.info(
                 "Multi-op %d/%d → .NET: %s",
-                i + 1, len(query_plan.operations), json.dumps(payload),
+                i + 1, operation_count, json.dumps(payload),
             )
 
             dotnet_data, dotnet_error = _call_dotnet(payload)
             if dotnet_error:
-                logger.warning("Multi-op %d/%d failed: %s", i + 1, len(query_plan.operations), dotnet_error)
+                logger.warning("Multi-op %d/%d failed: %s", i + 1, operation_count, dotnet_error)
                 return _error_response(
                     "Unable to fetch data at the moment. Please try again shortly.", 502
                 )
@@ -779,67 +492,59 @@ def admin_chat():
 
     else:
         # SIMPLE / ANALYTICS: single .NET call
-        # For ANALYTICS, we use the intent from the first (and only) planned operation
-        # so that group_by and analyticsHint are preserved in the payload.
+        qtype_str = "simple"
+        operation_count = 1
+        
         if (query_plan.query_type == QueryType.ANALYTICS
                 and query_plan.operations
                 and query_plan.operations[0].intent_result.get("category")):
-            # Use the planner's pre-built intent — it already has group_by etc.
             primary_intent = query_plan.operations[0].intent_result
-            intent_result  = primary_intent
             logger.info(
-                "Analytics intent: session=%s category=%s subcategory=%s hint=%s group_by=%s",
+                "Analytics intent: session=%s category=%s subcategory=%s hint=%s",
                 session_id,
-                intent_result.get("category"),
-                intent_result.get("subcategory"),
+                primary_intent.get("category"),
+                primary_intent.get("subcategory"),
                 query_plan.analytics_hint,
-                getattr(query_plan.operations[0], "group_by", None),
             )
         else:
-            intent_result = classify_admin_intent(message)
-            primary_intent = intent_result
+            primary_intent = classify_admin_intent(message)
             logger.info(
                 "Intent: session=%s category=%s subcategory=%s confidence=%s",
                 session_id,
-                intent_result.get("category"),
-                intent_result.get("subcategory"),
-                intent_result.get("confidence"),
+                primary_intent.get("category"),
+                primary_intent.get("subcategory"),
+                primary_intent.get("confidence"),
             )
 
         # Unrecognised query
-        if intent_result.get("category") is None:
+        if primary_intent.get("category") is None:
             unrecognised_msg = (
                 "Sorry, I was unable to understand your request. "
                 "I can help with Performance, Leave, Attendance, Medical, Equipment, "
                 "Verification, Distribution, and Skills information. "
                 "Please ask a relevant question."
             )
-            response_data = {
-                "queryType":      query_plan.query_type.value,
-                "introMessage":   unrecognised_msg,
-                "result":         {},
-                "analysis":       "",
-                "conclusion":     "",
-                "intent":         intent_result,
-                "dotnetResponses": [],
-                "formattedData":  "",
-                "metadata": {
-                    "confidence":     round(query_plan.confidence, 2),
-                    "executionTimeMs": round((time.time() - start_time) * 1000),
-                    "queryPlan":      query_plan.to_dict(),
-                },
-            }
-            if session_id and session_id != "admin-default":
-                response_data["sessionId"] = session_id
-            return _success_response(response_data, message=unrecognised_msg)
+            response_payload = build_response(
+                query_type=qtype_str,
+                intro_message=unrecognised_msg,
+                combined_result={},
+                analysis={"summary": "", "observations": [], "insights": []},
+                conclusion={"summary": ""},
+                intent=primary_intent,
+                raw_results=[],
+                confidence=query_plan.confidence,
+                operation_count=0,
+                formatted_data="",
+                session_id=session_id,
+            )
+            combined_message = response_payload.pop("message", "")
+            return _success_response(response_payload, message=combined_message)
 
-        dotnet_payload = format_admin_payload(intent_result)
+        dotnet_payload = format_admin_payload(primary_intent)
         dotnet_payload.update(id_filters)
         if full_name:
             dotnet_payload["fullName"] = full_name
 
-        # For ANALYTICS queries, pass group_by and analyticsHint to .NET
-        # so it can group/aggregate server-side if supported.
         if query_plan.query_type == QueryType.ANALYTICS and query_plan.operations:
             op = query_plan.operations[0]
             if getattr(op, "group_by", None):
@@ -857,36 +562,60 @@ def admin_chat():
             )
 
         raw_results     = [dotnet_data]
-        labeled_results = [(intent_result.get("category", "Result"), dotnet_data)]
-        primary_intent  = intent_result
+        labeled_results = [(primary_intent.get("category", "Result"), dotnet_data)]
 
-    # ── Steps 5–8: Run Full Intelligence Pipeline ──────────────────────────
-    # raw_results and labeled_results contain the raw .NET data.
-    # The pipeline processes them through result_combiner → formatter →
-    # report_generator → response_builder.
-    # Raw .NET data is NEVER sent directly to the frontend.
-    pipeline_response = _run_intelligence_pipeline(
+    # ── Step 5: Result Combiner ────────────────────────────────────────────
+    # In multi-op, combine results. In simple, pass-through.
+    if qtype_str == "cross_filter":
+        logger.info("result_combiner: intersect_results across %d sets", len(raw_results))
+        combined_result = intersect_results(raw_results, primary_index=0)
+    elif qtype_str == "comparison":
+        logger.info("result_combiner: compare_results across %d sides", len(labeled_results))
+        combined_result = compare_results(labeled_results)
+    elif qtype_str == "multi_independent":
+        logger.info("result_combiner: merge_results across %d sections", len(labeled_results))
+        combined_result = merge_results(labeled_results)
+    else:
+        logger.info("result_combiner: simple passthrough")
+        combined_result = raw_results[0] if raw_results else {}
+
+    # ── Step 6: Format combined result to human-readable plain text ──────────
+    formatted_data = format_dotnet_response(combined_result, primary_intent)
+
+    # ── Step 7: Report Generator (intro + analysis + conclusion) ───────────
+    report = generate_report(
+        combined_result=combined_result,
+        query_type=qtype_str,
+        intent=primary_intent,
         user_query=message,
-        query_type=query_plan.query_type,
-        query_plan=query_plan,
-        raw_results=raw_results,
-        labeled_results=labeled_results,
-        primary_intent=primary_intent,
-        session_id=session_id,
-        confidence=query_plan.confidence,
-        start_time=start_time,
-        analytics_hint=query_plan.analytics_hint if hasattr(query_plan, "analytics_hint") else None,
     )
+
+    # ── Update session context ─────────────────────────────────────────────
+    _session_context.update(session_id, message, primary_intent, combined_result)
+
+    # ── Step 8: Response Builder ───────────────────────────────────────────
+    response_payload = build_response(
+        query_type=qtype_str,
+        intro_message=report.get("introMessage", ""),
+        combined_result=combined_result,
+        analysis=report.get("analysis") or {},
+        conclusion=report.get("conclusion") or {},
+        intent=primary_intent,
+        raw_results=raw_results,
+        confidence=query_plan.confidence,
+        operation_count=operation_count,
+        formatted_data=formatted_data,
+        session_id=session_id,
+    )
+
+    execution_time_ms = round((time.time() - start_time) * 1000)
+    response_payload["metadata"]["executionTimeMs"] = execution_time_ms
 
     logger.info(
         "Admin chat complete: session=%s elapsed=%dms",
         session_id,
-        pipeline_response.get("metadata", {}).get("executionTimeMs", 0),
+        execution_time_ms,
     )
 
-    # ── Return final response ──────────────────────────────────────────────
-    # response.message contains the full text bubble for the frontend.
-    # response.result contains the structured combined result.
-    # response.dotnetResponses contains raw .NET data (for debugging only).
-    combined_message = pipeline_response.pop("message", "")
-    return _success_response(pipeline_response, message=combined_message)
+    combined_message = response_payload.pop("message", "")
+    return _success_response(response_payload, message=combined_message)
