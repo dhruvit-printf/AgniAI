@@ -4,110 +4,6 @@ admin_intent.py
 Intent classifier for the AgniAI Admin Chatbot.
 
 Built from the OFFICIAL Agniveer AI Command API documentation.
-
-═══════════════════════════════════════════════════════════════════════════════
-OFFICIAL API REFERENCE
-═══════════════════════════════════════════════════════════════════════════════
-
-CATEGORIES:
-  Performance | Leave | Medical | Attendance | Verification |
-  Equipment | Distribution | Skills
-
-──────────────────────────────────────────────────────────────────────────────
-PERFORMANCE   Filters: Section, SubSection, Grading, AttemptNo,
-                       FromAttempt, ToAttempt, Class, N
-  Top            → aliases: Top, Highest, Best
-  Bottom         → aliases: Bottom, Lowest, Worst
-  Improvement    → aliases: Improvement, Improve, Improved
-  Drop           → aliases: Drop, Decline, Dropped
-  Grading        → aliases: Grading, Grade
-  GradingSummary → aliases: GradingSummary, GradeSummary
-  Average        → aliases: Average, Avg, Mean
-  AttemptWise    → aliases: AttemptWise, ByAttempt, Attempts
-  BestAttempt    → aliases: BestAttempt, BestScoreAttempt
-  Compare        → aliases: Compare, Comparison, VS
-  Summary        → aliases: Summary, SectionSummary
-  PassPercentage → aliases: PassPercentage, PassRate
-  FailPercentage → aliases: FailPercentage, FailRate
-  Overall        → aliases: Overall, Composite, AllCriteria
-
-──────────────────────────────────────────────────────────────────────────────
-LEAVE         Filters: LeaveType, N
-  Most       → aliases: Most, Highest, Maximum
-  Least      → aliases: Least, Lowest, Minimum
-  Current    → aliases: Current, Today, Now
-  Absconded  → aliases: Absconded, Abscond
-  LeaveType values: Annual | Medical | Sick | Absconded |
-                    ATTNC (attenc / attn'c') | ExPPG (ex ppg)
-
-──────────────────────────────────────────────────────────────────────────────
-MEDICAL       Filters: Overall
-  Active  → aliases: Active, Cases, Admitted
-  BMI     → aliases: BMI, Weight, Fitness
-  Disease → aliases: Disease, Diagnoses, Diagnosis, Top
-
-──────────────────────────────────────────────────────────────────────────────
-ATTENDANCE    Filters: Date
-  Monthly  → aliases: Monthly, Month, Stats
-  Present  → aliases: Present, Campus, Today
-  Strength → aliases: Strength, Breakdown
-
-──────────────────────────────────────────────────────────────────────────────
-VERIFICATION  Filters: None
-  Pending   → aliases: Pending, Sent, NoResponse
-  Completed → aliases: Completed, Verified, Done
-
-──────────────────────────────────────────────────────────────────────────────
-EQUIPMENT     Filters: None
-  Stats    → aliases: Stats, Summary, Overview
-  Overdue  → aliases: Overdue, Pending, Late
-  Returned → aliases: Returned, Poor, Condition
-
-──────────────────────────────────────────────────────────────────────────────
-DISTRIBUTION  Filters: UnitName
-  Latest     → aliases: Latest, Recent, Last
-  ByUnit     → aliases: ByUnit, Unit, InUnit
-  Unassigned → aliases: Unassigned, NotAssigned, NoUnit
-  TopUnit    → aliases: TopUnit, HighestUnit
-
-──────────────────────────────────────────────────────────────────────────────
-SKILLS        Filters: Sport, Class
-  BySport    → aliases: BySport, Sport, Sports
-  ByClass    → aliases: ByClass, Class
-  BloodGroup → aliases: BloodGroup, Blood
-
-──────────────────────────────────────────────────────────────────────────────
-REQUEST FIELDS:
-  Category    – Performance | Leave | Medical | Attendance |
-                Verification | Equipment | Distribution | Skills
-  Operation   – action inside category (see above)
-  Section     – BPET | PPT | Firing | Drill
-  SubSection  – 5km | Chin Ups | H Rope | etc.
-  Grading     – SAT | Excellent | Good | Fail
-  AttemptNo   – specific attempt number
-  FromAttempt – improvement start attempt
-  ToAttempt   – improvement end attempt
-  LeaveType   – Annual | Medical | Sick | Absconded | ATTNC | ExPPG
-  UnitName    – distribution unit / team name
-  Sport       – Cricket | Football | Running | etc.
-  Class       – Sikh | OIC | Gurkha | etc.
-  N           – top-N record count
-
-EXAMPLE PAYLOADS:
-  {"category":"Performance","operation":"Top","section":"BPET","n":10}
-  {"category":"Performance","operation":"Bottom","section":"PPT","n":10}
-  {"category":"Performance","operation":"Improvement","fromAttempt":1,"toAttempt":4,"n":10}
-  {"category":"Performance","operation":"Grading","grading":"SAT"}
-  {"category":"Leave","operation":"Most","leaveType":"Medical","n":10}
-  {"category":"Leave","operation":"Current"}
-  {"category":"Medical","operation":"Active"}
-  {"category":"Attendance","operation":"Strength"}
-  {"category":"Verification","operation":"Pending"}
-  {"category":"Equipment","operation":"Overdue"}
-  {"category":"Distribution","operation":"ByUnit","unitName":"Alpha Unit"}
-  {"category":"Skills","operation":"BySport","sport":"Cricket"}
-  {"category":"Skills","operation":"ByClass","class":"Sikh"}
-═══════════════════════════════════════════════════════════════════════════════
 """
 
 from __future__ import annotations
@@ -118,11 +14,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # =============================================================================
 # SUBCATEGORY → EXACT .NET OPERATION STRING
-# Maps internal subcategory codes → exact operation string sent in the payload
 # =============================================================================
 
 _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
-    # ── Performance ───────────────────────────────────────────────────────────
     "TopPerformers":      "Top",
     "LowestPerformers":   "Bottom",
     "Improvement":        "Improvement",
@@ -137,69 +31,36 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "PassPercentage":     "PassPercentage",
     "FailPercentage":     "FailPercentage",
     "OverallPerformers":  "Overall",
-    # ── Leave ─────────────────────────────────────────────────────────────────
     "MostLeaveTaken":     "Most",
     "LeastLeaveTaken":    "Least",
     "CurrentLeave":       "Current",
     "AbscondedLeave":     "Absconded",
-    # ── Medical ───────────────────────────────────────────────────────────────
     "ActiveCases":        "Active",
     "BMIAnalysis":        "BMI",
     "DiseaseStats":       "Disease",
-    # ── Attendance ────────────────────────────────────────────────────────────
     "MonthlyAttendance":  "Monthly",
     "PresentToday":       "Present",
     "StrengthBreakdown":  "Strength",
-    # ── Verification ──────────────────────────────────────────────────────────
     "PendingVerification":   "Pending",
     "CompletedVerification": "Completed",
-    # ── Equipment ─────────────────────────────────────────────────────────────
     "EquipmentStats":         "Stats",
     "OverdueEquipment":       "Overdue",
     "ReturnedEquipment":      "Returned",
-    # ── Distribution ──────────────────────────────────────────────────────────
     "LatestDistribution": "Latest",
     "DistributionByUnit": "ByUnit",
     "UnassignedItems":    "Unassigned",
     "TopUnit":            "TopUnit",
-    # ── Skills ────────────────────────────────────────────────────────────────
     "BySport":            "BySport",
     "ByClass":            "ByClass",
     "BloodGroup":         "BloodGroup",
-    # ── Equipment Items (extended) ────────────────────────────────────────────
     "IssuedItems":        "IssuedItems",
     "ProcuredItems":      "ProcuredItems",
 }
 
 
-# =============================================================================
-# ─── PERFORMANCE INTENTS ─────────────────────────────────────────────────────
-#
-# Official aliases → natural-language expansions
-#
-# Top      (Top, Highest, Best)
-# Bottom   (Bottom, Lowest, Worst)
-# Improve  (Improvement, Improve, Improved)
-# Drop     (Drop, Decline, Dropped)
-# Grading  (Grading, Grade)            ← filter by a specific grade
-# GradingSummary (GradingSummary, GradeSummary)  ← distribution of all grades
-# Average  (Average, Avg, Mean)
-# AttemptWise (AttemptWise, ByAttempt, Attempts)
-# BestAttempt (BestAttempt, BestScoreAttempt)
-# Compare  (Compare, Comparison, VS)
-# Summary  (Summary, SectionSummary)
-# PassPercentage (PassPercentage, PassRate)
-# FailPercentage (FailPercentage, FailRate)
-# Overall  (Overall, Composite, AllCriteria)
-# =============================================================================
-
 _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
-
-    # ─── Top (Top, Highest, Best) ─────────────────────────────────────────────
     ("Top Performers", "TopPerformers", (
-        # Official aliases
         "top", "highest", "best",
-        # Phrase variants
         "top performer", "top performers",
         "highest performer", "highest performers",
         "best performer", "best performers",
@@ -227,12 +88,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "highest ranked", "top ranked",
         "maximum scorer", "strong performer", "strong performers",
     )),
-
-    # ─── Bottom (Bottom, Lowest, Worst) ──────────────────────────────────────
     ("Lowest Performers", "LowestPerformers", (
-        # Official aliases
         "bottom", "lowest", "worst",
-        # Phrase variants
         "bottom performer", "bottom performers",
         "lowest performer", "lowest performers",
         "worst performer", "worst performers",
@@ -256,12 +113,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "lowest agniveer", "worst agniveer",
         "minimum scorer", "lowest achieving",
     )),
-
-    # ─── Improvement (Improvement, Improve, Improved) ────────────────────────
     ("Improvement", "Improvement", (
-        # Official aliases
         "improvement", "improve", "improved",
-        # Phrase variants
         "score improvement", "score improved",
         "improvement between attempts", "improved between attempts",
         "improvement from attempt", "improvement between",
@@ -281,12 +134,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "better than last time", "better than before",
         "increase in score", "gained marks",
     )),
-
-    # ─── Drop (Drop, Decline, Dropped) ───────────────────────────────────────
     ("Drop", "Drop", (
-        # Official aliases
         "drop", "decline", "dropped",
-        # Phrase variants
         "score drop", "score dropped", "score declined",
         "biggest drop", "biggest decline", "most dropped",
         "dropped between attempts", "decline between attempts",
@@ -305,12 +154,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "slipped in performance", "performance slip",
         "worsening performance", "who is struggling more",
     )),
-
-    # ─── Grading (Grading, Grade) — filter by a specific grading value ────────
     ("Grade Filter", "GradeFilter", (
-        # Official aliases
         "grading", "grade",
-        # Phrase variants — filter / show by a specific grade
         "filter by grade", "filter by grading",
         "show by grade", "show by grading",
         "grade wise", "grading wise", "by grade", "by grading",
@@ -322,18 +167,13 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "show excellents", "show goods", "show fails",
         "who are in excellent", "who are in good",
         "performance by grade", "performance by grading",
-
         "grade breakdown", "grading breakdown",
         "exceptionally well", "excellent grade", "good grade",
         "sat grade", "fail grade", "unsa grade",
         "categorised by grade", "categorized by grade",
     )),
-
-    # ─── GradingSummary (GradingSummary, GradeSummary) ───────────────────────
     ("Grading Summary", "GradingSummary", (
-        # Official aliases
         "gradingsummary", "gradesummary",
-        # Phrase variants — distribution / count of all grades
         "grading summary", "grade summary",
         "distribution of grades", "grade distribution summary",
         "summary of grading", "grading overview", "grade overview",
@@ -348,12 +188,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "breakdown by grade", "grade totals",
         "grade distribution summary", "grade distribution overview",
     )),
-
-    # ─── Average (Average, Avg, Mean) ─────────────────────────────────────────
     ("Average Score", "AverageScore", (
-        # Official aliases
         "average", "avg", "mean",
-        # Phrase variants
         "average score", "average marks", "average performance",
         "mean score", "mean marks",
         "section average", "section mean",
@@ -367,12 +203,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "subsection average", "average of all",
         "what do they score on average", "typical performance",
     )),
-
-    # ─── AttemptWise (AttemptWise, ByAttempt, Attempts) ──────────────────────
     ("Attempt Wise", "AttemptWise", (
-        # Official aliases
         "attemptwise", "byattempt", "attempts",
-        # Phrase variants
         "attempt wise", "attempt-wise",
         "attempt wise analysis", "per attempt",
         "by attempt", "each attempt",
@@ -390,12 +222,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "attempt statistics", "attempt data",
         "each attempt score", "every attempt",
     )),
-
-    # ─── BestAttempt (BestAttempt, BestScoreAttempt) ─────────────────────────
     ("Best Attempt", "BestAttempt", (
-        # Official aliases
         "bestattempt", "bestscoreattempt",
-        # Phrase variants
         "best attempt", "best attempt analysis",
         "best attempt score", "best scoring attempt",
         "highest attempt", "peak attempt",
@@ -408,12 +236,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "best score in any attempt", "best try",
         "most they scored in one attempt",
     )),
-
-    # ─── Compare (Compare, Comparison, VS) ───────────────────────────────────
     ("Comparison", "Comparison", (
-        # Official aliases
         "compare", "comparison", " vs ",
-        # Phrase variants
         "compare sections", "section comparison",
         "section vs section", "bpet vs ppt",
         "ppt vs firing", "firing vs drill",
@@ -426,12 +250,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "head to head", "compare performance",
         "performance comparison", "compare results",
     )),
-
-    # ─── Summary (Summary, SectionSummary) ───────────────────────────────────
     ("Section Summary", "SectionSummary", (
-        # Official aliases
         "summary", "sectionsummary",
-        # Phrase variants
         "section summary", "section overview",
         "section wise summary", "section-wise summary",
         "consolidated section report", "section snapshot",
@@ -443,12 +263,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "overview of all sections", "section breakdown summary",
         "all sections at a glance",
     )),
-
-    # ─── PassPercentage (PassPercentage, PassRate) ────────────────────────────
     ("Pass Percentage", "PassPercentage", (
-        # Official aliases
         "passpercentage", "passrate",
-        # Phrase variants
         "pass percentage", "passing percentage",
         "pass rate", "passing rate",
         "how many passed", "who passed",
@@ -462,12 +278,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "who met the standard", "how many met the cutoff",
         "pass statistics",
     )),
-
-    # ─── FailPercentage (FailPercentage, FailRate) ────────────────────────────
     ("Fail Percentage", "FailPercentage", (
-        # Official aliases
         "failpercentage", "failrate",
-        # Phrase variants
         "fail percentage", "failure percentage",
         "fail rate", "failure rate",
         "how many failed", "who failed",
@@ -480,12 +292,8 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "failure count", "how many did not clear",
         "failed the exam", "failed the test",
     )),
-
-    # ─── Overall (Overall, Composite, AllCriteria) ────────────────────────────
     ("Overall Performers", "OverallPerformers", (
-        # Official aliases
         "overall", "composite", "allcriteria",
-        # Phrase variants
         "overall performers", "overall performance",
         "overall performance report", "overall score",
         "overall scoring", "overall marks",
@@ -503,26 +311,9 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 ]
 
 
-# =============================================================================
-# ─── LEAVE INTENTS ───────────────────────────────────────────────────────────
-#
-# Official aliases:
-#   Most       → Most, Highest, Maximum
-#   Least      → Least, Lowest, Minimum
-#   Current    → Current, Today, Now
-#   Absconded  → Absconded, Abscond
-#
-# LeaveType values: Annual | Medical | Sick | Absconded |
-#                   ATTNC (attenc / attn'c') | ExPPG (ex ppg)
-# =============================================================================
-
 _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
-
-    # ─── Most (Most, Highest, Maximum) ───────────────────────────────────────
     ("Most Leave Taken", "MostLeaveTaken", (
-        # Official aliases (Leave context)
         "most", "highest", "maximum",
-        # Phrase variants
         "most leave taken", "most leaves taken",
         "highest leave taken", "maximum leave taken",
         "most leave", "most leaves",
@@ -535,12 +326,8 @@ _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "most days off", "maximum off days",
         "most frequent leave taker",
     )),
-
-    # ─── Least (Least, Lowest, Minimum) ──────────────────────────────────────
     ("Least Leave Taken", "LeastLeaveTaken", (
-        # Official aliases (Leave context)
         "least", "lowest", "minimum",
-        # Phrase variants
         "least leave taken", "fewest leave taken",
         "lowest leave taken", "minimum leave taken",
         "least leave", "fewest leave", "fewest leaves",
@@ -553,12 +340,8 @@ _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "most regular", "most punctual",
         "best attendance person",
     )),
-
-    # ─── Current (Current, Today, Now) ───────────────────────────────────────
     ("Current Leave", "CurrentLeave", (
-        # Official aliases
         "current", "today", "now",
-        # Phrase variants
         "currently on leave", "who is on leave",
         "on leave today", "current leave status",
         "leave today", "leave now",
@@ -571,12 +354,8 @@ _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "currently absent", "active leave",
         "who is on leave right now",
     )),
-
-    # ─── Absconded (Absconded, Abscond) ──────────────────────────────────────
     ("Absconded Leave", "AbscondedLeave", (
-        # Official aliases
         "absconded", "abscond",
-        # Phrase variants
         "absconded leave records", "absconded person",
         "gone missing", "missing person",
         "awol", "went missing",
@@ -590,22 +369,9 @@ _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 ]
 
 
-# =============================================================================
-# ─── MEDICAL INTENTS ─────────────────────────────────────────────────────────
-#
-# Official aliases:
-#   Active  → Active, Cases, Admitted
-#   BMI     → BMI, Weight, Fitness
-#   Disease → Disease, Diagnoses, Diagnosis, Top
-# =============================================================================
-
 _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
-
-    # ─── Active (Active, Cases, Admitted) ─────────────────────────────────────
     ("Active Cases", "ActiveCases", (
-        # Official aliases
         "active", "cases", "admitted",
-        # Phrase variants
         "active medical cases", "active cases",
         "current patients", "admitted patients",
         "in ward", "hospitalised", "hospitalized",
@@ -616,12 +382,8 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "medical ward count", "ward count",
         "who is admitted", "who is in hospital",
     )),
-
-    # ─── BMI (BMI, Weight, Fitness) ──────────────────────────────────────────
     ("BMI Analysis", "BMIAnalysis", (
-        # Official aliases
         "bmi", "weight", "fitness",
-        # Phrase variants
         "bmi outliers", "bmi analysis",
         "body mass index", "weight analysis",
         "fitness analysis", "fitness report",
@@ -632,13 +394,8 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "physical fitness data", "height weight ratio",
         "weight report", "fitness data",
     )),
-
-    # ─── Disease (Disease, Diagnoses, Diagnosis, Top) ─────────────────────────
     ("Disease Statistics", "DiseaseStats", (
-        # Official aliases
         "disease", "diagnoses", "diagnosis",
-        # "top" in medical context → disease (note: "top" in performance context → TopPerformers)
-        # Phrase variants
         "top diagnoses", "disease statistics",
         "top disease", "common disease",
         "disease analysis", "illness statistics",
@@ -651,22 +408,9 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 ]
 
 
-# =============================================================================
-# ─── ATTENDANCE INTENTS ──────────────────────────────────────────────────────
-#
-# Official aliases:
-#   Monthly  → Monthly, Month, Stats
-#   Present  → Present, Campus, Today
-#   Strength → Strength, Breakdown
-# =============================================================================
-
 _ATTENDANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
-
-    # ─── Monthly (Monthly, Month, Stats) ─────────────────────────────────────
     ("Monthly Attendance", "MonthlyAttendance", (
-        # Official aliases
         "monthly", "month", "stats",
-        # Phrase variants
         "monthly attendance", "monthly attendance statistics",
         "attendance statistics", "attendance stats",
         "attendance this month", "attendance for the month",
@@ -678,12 +422,8 @@ _ATTENDANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "attendance record", "monthly attendance record",
         "attendance history", "attendance percentage",
     )),
-
-    # ─── Present (Present, Campus, Today) ────────────────────────────────────
     ("Present Today", "PresentToday", (
-        # Official aliases
         "present", "campus", "today",
-        # Phrase variants
         "present on campus", "present today",
         "who is present", "how many present",
         "attendance today", "today attendance",
@@ -694,12 +434,8 @@ _ATTENDANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "today headcount", "actual strength today",
         "who is on campus",
     )),
-
-    # ─── Strength (Strength, Breakdown) ──────────────────────────────────────
     ("Strength Breakdown", "StrengthBreakdown", (
-        # Official aliases
         "strength", "breakdown",
-        # Phrase variants
         "strength breakdown", "total strength",
         "strength report", "headcount breakdown",
         "how many total", "overall strength",
@@ -712,21 +448,9 @@ _ATTENDANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 ]
 
 
-# =============================================================================
-# ─── VERIFICATION INTENTS ────────────────────────────────────────────────────
-#
-# Official aliases:
-#   Pending   → Pending, Sent, NoResponse
-#   Completed → Completed, Verified, Done
-# =============================================================================
-
 _VERIFICATION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
-
-    # ─── Pending (Pending, Sent, NoResponse) ──────────────────────────────────
     ("Pending Verification", "PendingVerification", (
-        # Official aliases
         "pending", "sent", "noresponse",
-        # Phrase variants
         "pending verifications", "sent but no response",
         "no response verification", "awaiting verification",
         "verification pending", "not verified",
@@ -737,12 +461,8 @@ _VERIFICATION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "how many pending", "verification queue",
         "who is pending verification",
     )),
-
-    # ─── Completed (Completed, Verified, Done) ────────────────────────────────
     ("Completed Verification", "CompletedVerification", (
-        # Official aliases
         "completed", "verified", "done",
-        # Phrase variants
         "completed verifications", "verification completed",
         "verification done", "verified documents",
         "verification finished", "documents verified",
@@ -754,22 +474,9 @@ _VERIFICATION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 ]
 
 
-# =============================================================================
-# ─── EQUIPMENT INTENTS ───────────────────────────────────────────────────────
-#
-# Official aliases:
-#   Stats    → Stats, Summary, Overview
-#   Overdue  → Overdue, Pending, Late
-#   Returned → Returned, Poor, Condition
-# =============================================================================
-
 _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
-
-    # ─── Stats (Stats, Summary, Overview) ─────────────────────────────────────
     ("Equipment Stats", "EquipmentStats", (
-        # Official aliases
         "stats", "summary", "overview",
-        # Phrase variants
         "equipment stats", "equipment summary",
         "equipment overview", "equipment report",
         "gear summary", "kit summary", "inventory summary",
@@ -778,13 +485,8 @@ _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "how much equipment", "equipment count",
         "inventory overview",
     )),
-
-    # ─── Overdue (Overdue, Pending, Late) ─────────────────────────────────────
     ("Overdue Equipment", "OverdueEquipment", (
-        # Official aliases
         "overdue", "late",
-        # Note: "pending" is also an alias but conflicts with Verification/Pending.
-        # In Equipment context it will be resolved by module detection.
         "overdue equipment", "equipment overdue",
         "overdue returns", "not returned equipment",
         "late equipment", "equipment not returned",
@@ -794,12 +496,8 @@ _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "equipment outstanding", "equipment not submitted",
         "not submitted equipment",
     )),
-
-    # ─── Returned (Returned, Poor, Condition) ─────────────────────────────────
     ("Returned Poor Condition", "ReturnedEquipment", (
-        # Official aliases
         "returned", "poor", "condition",
-        # Phrase variants
         "returned poor condition", "poor condition equipment",
         "equipment returned poor", "damaged equipment",
         "bad condition equipment", "equipment damaged",
@@ -809,8 +507,6 @@ _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "unserviceable equipment", "defective equipment",
         "poor condition returned",
     )),
-
-    # ─── Extended: IssuedItems / ProcuredItems ────────────────────────────────
     ("Issued Items", "IssuedItems", (
         "issued items", "items issued", "all issued items",
         "list of issued items", "issued equipment list",
@@ -840,7 +536,6 @@ _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "shirt angola drive", "trouser bd serge",
         "issued",
     )),
-
     ("Procured Items", "ProcuredItems", (
         "procured items", "items procured", "all procured items",
         "list of procured items", "procured equipment list",
@@ -877,35 +572,17 @@ _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 ]
 
 
-# =============================================================================
-# ─── DISTRIBUTION INTENTS ────────────────────────────────────────────────────
-#
-# Official aliases:
-#   Latest     → Latest, Recent, Last
-#   ByUnit     → ByUnit, Unit, InUnit
-#   Unassigned → Unassigned, NotAssigned, NoUnit
-#   TopUnit    → TopUnit, HighestUnit
-# =============================================================================
-
 _DISTRIBUTION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
-
-    # ─── Latest (Latest, Recent, Last) ────────────────────────────────────────
     ("Latest Distribution", "LatestDistribution", (
-        # Official aliases
         "latest", "recent", "last",
-        # Phrase variants
         "latest distribution", "recent distribution",
         "last distribution", "newest distribution",
         "most recent distribution", "current distribution",
         "today distribution", "fresh distribution",
         "last issued distribution",
     )),
-
-    # ─── ByUnit (ByUnit, Unit, InUnit) ────────────────────────────────────────
     ("Distribution By Unit", "DistributionByUnit", (
-        # Official aliases
         "byunit", "unit", "inunit",
-        # Phrase variants
         "distribution by unit", "agniveers in unit",
         "how many agniveers in", "agniveers in the unit",
         "by unit distribution", "unit wise distribution",
@@ -915,12 +592,8 @@ _DISTRIBUTION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "regiment wise distribution", "company wise distribution",
         "which unit has how many",
     )),
-
-    # ─── Unassigned (Unassigned, NotAssigned, NoUnit) ─────────────────────────
     ("Unassigned Items", "UnassignedItems", (
-        # Official aliases
         "unassigned", "notassigned", "nounit",
-        # Phrase variants
         "not assigned to unit", "unassigned agniveers",
         "no unit assigned", "items without unit",
         "not assigned", "no unit",
@@ -929,12 +602,8 @@ _DISTRIBUTION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "not yet assigned", "unit not assigned",
         "awaiting unit assignment",
     )),
-
-    # ─── TopUnit (TopUnit, HighestUnit) ──────────────────────────────────────
     ("Top Unit", "TopUnit", (
-        # Official aliases
         "topunit", "highestunit",
-        # Phrase variants
         "top unit", "highest unit",
         "unit with most agniveers", "most agniveers in unit",
         "unit with highest", "highest distribution unit",
@@ -946,22 +615,9 @@ _DISTRIBUTION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 ]
 
 
-# =============================================================================
-# ─── SKILLS INTENTS ──────────────────────────────────────────────────────────
-#
-# Official aliases:
-#   BySport    → BySport, Sport, Sports
-#   ByClass    → ByClass, Class
-#   BloodGroup → BloodGroup, Blood
-# =============================================================================
-
 _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
-
-    # ─── BySport (BySport, Sport, Sports) ─────────────────────────────────────
     ("By Sport", "BySport", (
-        # Official aliases
         "bysport", "sport", "sports",
-        # Phrase variants
         "best performers in sport", "best in sport",
         "by sport", "sport wise",
         "roster by sport", "skills by sport",
@@ -972,12 +628,8 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "who are the sportsmen", "sportsperson roster",
         "sport filter",
     )),
-
-    # ─── ByClass (ByClass, Class) ─────────────────────────────────────────────
     ("By Class", "ByClass", (
-        # Official aliases
         "byclass", "class",
-        # Phrase variants
         "agniveers by class", "by class",
         "class wise", "roster by class",
         "skills by class",
@@ -987,12 +639,8 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "roster by community", "community wise roster",
         "class filter",
     )),
-
-    # ─── BloodGroup (BloodGroup, Blood) ──────────────────────────────────────
     ("Blood Group", "BloodGroup", (
-        # Official aliases
         "bloodgroup", "blood",
-        # Phrase variants
         "blood group statistics", "blood group distribution",
         "blood group", "blood type",
         "a positive", "b positive", "o positive",
@@ -1005,12 +653,7 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 ]
 
 
-# =============================================================================
-# ADMIN FUZZY VOCABULARY  (misspelling → canonical form)
-# =============================================================================
-
 ADMIN_FUZZY_VOCAB: Dict[str, str] = {
-    # ── Module / category names ────────────────────────────────────────────────
     "performace":     "performance",
     "performence":    "performance",
     "prefomance":     "performance",
@@ -1034,7 +677,6 @@ ADMIN_FUZZY_VOCAB: Dict[str, str] = {
     "meical":         "medical",
     "medicl":         "medical",
     "medcal":         "medical",
-    # ── Section names ──────────────────────────────────────────────────────────
     "bpet":           "bpet",
     "betp":           "bpet",
     "pptt":           "ppt",
@@ -1044,7 +686,6 @@ ADMIN_FUZZY_VOCAB: Dict[str, str] = {
     "fireing":        "firing",
     "drll":           "drill",
     "dril":           "drill",
-    # ── Performance operation words ────────────────────────────────────────────
     "performrs":      "performers",
     "preformers":     "performers",
     "perfomers":      "performers",
@@ -1080,24 +721,20 @@ ADMIN_FUZZY_VOCAB: Dict[str, str] = {
     "failrate":       "fail rate",
     "passpercentage": "pass percentage",
     "failpercentage": "fail percentage",
-    # ── Leave ──────────────────────────────────────────────────────────────────
     "leeve":          "leave",
     "leve":           "leave",
     "abscnded":       "absconded",
     "absconed":       "absconded",
-    # ATTNC variants
     "attnc":          "attnc",
     "attenc":         "attnc",
     "attn c":         "attnc",
     "att nc":         "attnc",
     "attnce":         "attnc",
     "atncl":          "attnc",
-    # ExPPG variants
     "exppg":          "exppg",
     "ex ppg":         "exppg",
     "ex-ppg":         "exppg",
     "expg":           "exppg",
-    # ── Attendance ────────────────────────────────────────────────────────────
     "presnt":         "present",
     "preent":         "present",
     "campas":         "campus",
@@ -1105,19 +742,16 @@ ADMIN_FUZZY_VOCAB: Dict[str, str] = {
     "strengh":        "strength",
     "montly":         "monthly",
     "monthyl":        "monthly",
-    # ── Equipment ─────────────────────────────────────────────────────────────
     "overdeu":        "overdue",
     "overdu":         "overdue",
     "condtion":       "condition",
     "conditon":       "condition",
-    # ── Skills ────────────────────────────────────────────────────────────────
     "blod":           "blood",
     "bloog":          "blood",
     "sportt":         "sport",
     "sprot":          "sport",
     "classs":         "class",
     "claas":          "class",
-    # ── Common words ──────────────────────────────────────────────────────────
     "todya":          "today",
     "todday":         "today",
     "persnnel":       "person",
@@ -1166,10 +800,6 @@ def admin_normalize_query(query: str) -> str:
     return " ".join(out)
 
 
-# =============================================================================
-# FILTER VALUE MAPS  (extract from free-text → exact .NET field value)
-# =============================================================================
-
 _SECTION_MAP: Dict[str, str] = {
     "bpet":   "BPET",
     "ppt":    "PPT",
@@ -1197,7 +827,6 @@ _GRADING_MAP: Dict[str, str] = {
     "unsa":               "UNSA",
 }
 
-# Official LeaveType values: Annual | Medical | Sick | Absconded | ATTNC | ExPPG
 _LEAVE_TYPE_MAP: Dict[str, str] = {
     "annual":    "Annual",
     "medical":   "Medical",
@@ -1212,7 +841,6 @@ _LEAVE_TYPE_MAP: Dict[str, str] = {
     "ex-ppg":    "ExPPG",
 }
 
-# Official Sport values
 _SPORT_MAP: Dict[str, str] = {
     "cricket":    "Cricket",
     "football":   "Football",
@@ -1223,7 +851,6 @@ _SPORT_MAP: Dict[str, str] = {
     "hockey":     "Hockey",
 }
 
-# Official Class values
 _CLASS_MAP: Dict[str, str] = {
     "sikh":    "Sikh",
     "oic":     "OIC",
@@ -1235,10 +862,6 @@ _CLASS_MAP: Dict[str, str] = {
     "punjabi": "Punjabi",
 }
 
-
-# =============================================================================
-# EQUIPMENT ITEM MASTER LISTS
-# =============================================================================
 
 ISSUED_ITEMS: List[str] = [
     "Pt Shoes Brown", "Cap FS", "Mug Steel", "Blanket", "DMS Boot GP",
@@ -1288,16 +911,7 @@ _GENERIC_WORDS = {
 }
 
 
-# =============================================================================
-# MODULE REGISTRY
-# Maps category name → (module-level trigger phrases, intent list)
-# Order matters: earlier modules win ties during module detection.
-# =============================================================================
-
 _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]]]] = {
-
-    # ── Attendance FIRST — prevents "overall attendance", "stats", "monthly"
-    #    from being swallowed by Performance ───────────────────────────────────
     "Attendance": (
         (
             "monthly attendance", "attendance statistics", "attendance stats",
@@ -1309,58 +923,42 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         ),
         _ATTENDANCE_INTENTS,
     ),
-
-    # ── Performance ───────────────────────────────────────────────────────────
     "Performance": (
         (
-            # Top aliases
             "top performer", "top performers", "top scorer",
             "highest performer", "highest performers", "highest scorer",
             "best performer", "best performers", "best scorer",
             "topper", "toppers", "leading performer", "ace performer",
             "outstanding performer", "who topped", "who scored highest",
-            # Bottom aliases
             "bottom performer", "bottom performers", "bottom scorer",
             "lowest performer", "lowest performers", "lowest scorer",
             "worst performer", "worst performers", "worst scorer",
             "poor performer", "weakest performer", "last rank",
-            # Improvement aliases
             "improvement", "improve", "improved",
             "score improvement", "score improved", "score gain",
             "most improved", "score went up", "positive progress",
-            # Drop aliases
             "drop", "decline", "dropped",
             "score drop", "score dropped", "regression", "score fell",
-            # Grading aliases
             "grading", "grade",
             "filter by grade", "grade wise", "by grading", "grade distribution",
             "who got excellent", "who got sat", "who got fail",
-            # Grading summary aliases
             "gradingsummary", "gradesummary",
             "grading summary", "grade summary", "how many in each grade",
-            # Average aliases
             "average score", "average marks", "mean score", "avg score",
             "section average",
-            # Attempt aliases
             "attemptwise", "byattempt", "attempts",
             "attempt wise", "per attempt", "by attempt", "each attempt",
             "attempt 1", "attempt 2", "score per attempt",
-            # Best attempt aliases
             "bestattempt", "bestscoreattempt",
             "best attempt", "highest attempt", "peak attempt",
-            # Comparison aliases
             "compare", "comparison", " vs ",
             "compare sections", "section comparison", "bpet vs ppt",
-            # Summary aliases
             "section summary", "section overview", "sectionsummary",
-            # Pass/Fail aliases
             "pass percentage", "passpercentage", "passrate",
             "fail percentage", "failpercentage", "failrate",
             "how many passed", "how many failed", "pass rate", "fail rate",
-            # Overall aliases
             "overall", "composite", "allcriteria",
             "overall performance", "composite performance", "all criteria",
-            # Generic
             "performance", "score", "marks", "exam",
             "bpet", "ppt", "firing", "drill",
             "performer", "performers", "attempt", "section",
@@ -1368,8 +966,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         ),
         _PERFORMANCE_INTENTS,
     ),
-
-    # ── Leave ─────────────────────────────────────────────────────────────────
     "Leave": (
         (
             "most leave", "most leave taken", "highest leave", "maximum leave",
@@ -1383,8 +979,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         ),
         _LEAVE_INTENTS,
     ),
-
-    # ── Medical ───────────────────────────────────────────────────────────────
     "Medical": (
         (
             "active medical cases", "medical cases",
@@ -1397,8 +991,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         ),
         _MEDICAL_INTENTS,
     ),
-
-    # ── Verification ──────────────────────────────────────────────────────────
     "Verification": (
         (
             "pending verifications", "sent but no response",
@@ -1410,8 +1002,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         ),
         _VERIFICATION_INTENTS,
     ),
-
-    # ── Equipment ─────────────────────────────────────────────────────────────
     "Equipment": (
         (
             "equipment stats", "equipment summary", "equipment overview",
@@ -1423,11 +1013,9 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "items issued", "items procured",
             "kit issued", "kit procured",
             "self purchased", "bought items",
-            # High-signal item fragments (issued)
             "dms boot", "cap fs", "mug steel", "terry towel",
             "combat coat", "belt ick", "haver shack", "net camouflage",
             "pagari 5.5m", "lases nylon",
-            # High-signal item fragments (procured)
             "rect bag", "mufti shoes", "black pagri",
             "drill shoes", "games dress", "mufti dress",
             "regt tie", "mufti blazer", "socks og",
@@ -1437,8 +1025,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         ),
         _EQUIPMENT_INTENTS,
     ),
-
-    # ── Distribution ──────────────────────────────────────────────────────────
     "Distribution": (
         (
             "latest distribution", "recent distribution",
@@ -1449,8 +1035,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         ),
         _DISTRIBUTION_INTENTS,
     ),
-
-    # ── Skills ────────────────────────────────────────────────────────────────
     "Skills": (
         (
             "by sport", "sport wise", "roster by sport", "bysport",
@@ -1463,16 +1047,11 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
 }
 
 
-# =============================================================================
-# FILTER EXTRACTORS
-# =============================================================================
-
 def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").lower()).strip()
 
 
 def _extract_number(text: str) -> Optional[int]:
-    """Extract N from 'top N', 'bottom N', 'show N', or bare digit."""
     explicit = re.search(
         r"\b(?:top|bottom|show|best|worst|lowest|highest|last|first)\s+(\d+)\b",
         text,
@@ -1480,7 +1059,6 @@ def _extract_number(text: str) -> Optional[int]:
     )
     if explicit:
         return int(explicit.group(1))
-    # Strip attempt-number references so they don't get picked up as N
     stripped = re.sub(
         r"\b(?:attempt\s*(?:no\.?\s*)?|from\s*attempt\s*|to\s*attempt\s*)\d+\b",
         "",
@@ -1492,7 +1070,6 @@ def _extract_number(text: str) -> Optional[int]:
 
 
 def _extract_section(text_lower: str) -> Optional[str]:
-    """Extract Section: BPET | PPT | Firing | Drill"""
     for key, val in _SECTION_MAP.items():
         if key in text_lower:
             return val
@@ -1500,7 +1077,6 @@ def _extract_section(text_lower: str) -> Optional[str]:
 
 
 def _extract_subsection(text_lower: str) -> Optional[str]:
-    """Extract SubSection: 5km | Chin Ups | H Rope | etc."""
     for key, val in _SUBSECTION_PATTERNS.items():
         if key in text_lower:
             return val
@@ -1508,7 +1084,6 @@ def _extract_subsection(text_lower: str) -> Optional[str]:
 
 
 def _extract_grading(text_lower: str) -> Optional[str]:
-    """Extract Grading: Excellent | Good | SAT | Fail | UNSA | ExceptionallyWell"""
     for phrase, code in _GRADING_MAP.items():
         if phrase in text_lower:
             return code
@@ -1516,12 +1091,7 @@ def _extract_grading(text_lower: str) -> Optional[str]:
 
 
 def _extract_leave_type(text_lower: str, category: Optional[str] = None) -> Optional[str]:
-    """
-    Extract LeaveType: Annual | Medical | Sick | Absconded | ATTNC | ExPPG
-    Longest-match wins so 'ex ppg' beats 'ex'.
-    """
     if category and category not in ("Leave", None):
-        # For non-Leave modules only extract the new types (always leave-domain)
         new_type_phrases = {"attnc", "attenc", "attn c", "att nc",
                             "ex ppg", "exppg", "ex-ppg"}
         found = None
@@ -1543,7 +1113,6 @@ def _extract_leave_type(text_lower: str, category: Optional[str] = None) -> Opti
 
 
 def _extract_sport(text_lower: str) -> Optional[str]:
-    """Extract Sport: Cricket | Football | Running | etc."""
     for phrase, code in _SPORT_MAP.items():
         if phrase in text_lower:
             return code
@@ -1551,7 +1120,6 @@ def _extract_sport(text_lower: str) -> Optional[str]:
 
 
 def _extract_class(text_lower: str) -> Optional[str]:
-    """Extract Class: Sikh | OIC | Gurkha | Dogra | Jat | Rajput | Punjabi"""
     for phrase, code in _CLASS_MAP.items():
         if phrase in text_lower:
             return code
@@ -1559,7 +1127,6 @@ def _extract_class(text_lower: str) -> Optional[str]:
 
 
 def _extract_item_query(text_lower: str) -> Tuple[Optional[str], Optional[str]]:
-    """Identify a specific issued or procured item. Longest-match wins."""
     best_key: Optional[str] = None
     best_len = 0
     for key in _ITEM_LOOKUP:
@@ -1570,7 +1137,6 @@ def _extract_item_query(text_lower: str) -> Tuple[Optional[str], Optional[str]]:
         name, cat = _ITEM_LOOKUP[best_key]
         return name, cat
 
-    # Token-overlap fallback (≥2 shared content tokens)
     _STOP = {
         "a", "an", "the", "of", "for", "in", "with", "and", "or",
         "is", "are", "was", "were", "show", "list", "get", "give",
@@ -1596,7 +1162,6 @@ def _extract_item_query(text_lower: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 def _extract_unit_name(text: str) -> Optional[str]:
-    """Extract UnitName from 'in unit X', 'by unit X', 'X Unit'."""
     match = re.search(
         r"\b(?:in unit|by unit|for unit|unit)\s+([A-Za-z][A-Za-z0-9]*)(\s+[Uu]nit)?\b",
         text,
@@ -1614,19 +1179,16 @@ def _extract_unit_name(text: str) -> Optional[str]:
 
 
 def _extract_attempt_no(text_lower: str) -> Optional[int]:
-    """Extract AttemptNo from 'attempt 3', 'attempt no 2'."""
     match = re.search(r"\battempt\s*(?:no\.?|number)?\s*(\d+)\b", text_lower)
     return int(match.group(1)) if match else None
 
 
 def _extract_from_attempt(text_lower: str) -> Optional[int]:
-    """Extract FromAttempt from 'from attempt 1'."""
     match = re.search(r"\bfrom\s*attempt\s*(\d+)\b", text_lower)
     return int(match.group(1)) if match else None
 
 
 def _extract_to_attempt(text_lower: str) -> Optional[int]:
-    """Extract ToAttempt from 'to attempt 4'."""
     match = (
         re.search(r"\bto\s*attempt\s*(\d+)\b", text_lower) or
         re.search(r"\battempt\s*\d+\s+to\s+(\d+)\b", text_lower)
@@ -1635,7 +1197,6 @@ def _extract_to_attempt(text_lower: str) -> Optional[int]:
 
 
 def _extract_date(text: str) -> Optional[str]:
-    """Extract Date filter (ISO / DD/MM/YYYY / Month YYYY)."""
     patterns = [
         r"\b(\d{4}-\d{2}-\d{2})\b",
         r"\b(\d{2}/\d{2}/\d{4})\b",
@@ -1650,12 +1211,7 @@ def _extract_date(text: str) -> Optional[str]:
     return None
 
 
-# =============================================================================
-# SCORING & MATCHING
-# =============================================================================
-
 def _score_intent(query_lower: str, keywords: Tuple[str, ...]) -> int:
-    """Sum word-count of every keyword phrase found in query."""
     score = 0
     for kw in keywords:
         if kw in query_lower:
@@ -1664,7 +1220,6 @@ def _score_intent(query_lower: str, keywords: Tuple[str, ...]) -> int:
 
 
 def _match_module(query_lower: str) -> Optional[str]:
-    """Return the best-matching category module name."""
     scores: Dict[str, int] = {}
     for module, (triggers, _) in _MODULES.items():
         scores[module] = _score_intent(query_lower, triggers)
@@ -1677,7 +1232,6 @@ def _match_module(query_lower: str) -> Optional[str]:
     if len(tied) == 1:
         return tied[0]
 
-    # Break ties using intent-level scoring
     best_module = None
     best_intent_score = -1
     for module in tied:
@@ -1699,7 +1253,6 @@ def _match_intent(
     query_lower: str,
     intent_list: List[Tuple[str, str, Tuple[str, ...]]],
 ) -> Optional[Tuple[str, str]]:
-    """Return (intent_name, subcategory_code) with the highest keyword score."""
     best_name  = None
     best_code  = None
     best_score = 0
@@ -1712,19 +1265,7 @@ def _match_intent(
     return (best_name, best_code) if best_score > 0 else None
 
 
-# =============================================================================
-# PUBLIC API
-# =============================================================================
-
 def classify_admin_intent(query: str) -> Dict[str, Any]:
-    """
-    Classify an admin natural-language question into a structured intent dict.
-
-    Returns (all snake_case — call format_admin_payload() for .NET camelCase):
-      category, subcategory, number (N), section, sub_section, grading,
-      leave_type, sport, class, unit_name, attempt_no, from_attempt,
-      to_attempt, date, item_name, item_category, raw_query, confidence
-    """
     raw_query = (query or "").strip()
     q = _normalise(raw_query)
 
@@ -1749,10 +1290,8 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         "confidence":    "low",
     }
 
-    # ── 1. Module / category detection ────────────────────────────────────────
     module = _match_module(q)
 
-    # Fallback: scan all intent keywords directly
     if module is None:
         best_module = None
         best_score  = 0
@@ -1770,18 +1309,15 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     result["category"] = module
     _, intent_list = _MODULES[module]
 
-    # ── 2. Intent / operation detection ───────────────────────────────────────
     intent_match = _match_intent(q, intent_list)
     if intent_match:
         _, intent_code        = intent_match
         result["subcategory"] = intent_code
         result["confidence"]  = "high"
     else:
-        # Default to first intent in the module
         result["subcategory"] = intent_list[0][1]
         result["confidence"]  = "medium"
 
-    # ── 3. Filter extraction ───────────────────────────────────────────────────
     result["number"]       = _extract_number(q)
     result["section"]      = _extract_section(q)
     result["sub_section"]  = _extract_subsection(q)
@@ -1795,12 +1331,10 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     result["to_attempt"]   = _extract_to_attempt(q)
     result["date"]         = _extract_date(raw_query)
 
-    # ── 4. Equipment item lookup ───────────────────────────────────────────────
     item_name, item_cat = _extract_item_query(q)
     result["item_name"]     = item_name
     result["item_category"] = item_cat
 
-    # Promote to specific item subcategory if generic Equipment was matched
     if item_cat and result.get("subcategory") in (
         "EquipmentStats", "OverdueEquipment", "ReturnedEquipment", None
     ):
@@ -1808,7 +1342,6 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         if result.get("confidence") != "high":
             result["confidence"] = "medium"
 
-    # ── 5. Confidence adjustments ──────────────────────────────────────────────
     if result["confidence"] == "high":
         if result["subcategory"] in ("TopPerformers", "LowestPerformers"):
             if result["number"] is None:
@@ -1818,30 +1351,6 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
 
 
 def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Convert internal intent dict → .NET AiCommand camelCase payload.
-
-    Internal key    → .NET field
-    ────────────────────────────────────────
-    category        → category
-    subcategory     → operation  (via _SUBCATEGORY_TO_OPERATION)
-    number          → n
-    section         → section
-    sub_section     → subSection
-    grading         → grading
-    leave_type      → leaveType
-    sport           → sport
-    class           → class
-    unit_name       → unitName
-    attempt_no      → attemptNo
-    from_attempt    → fromAttempt
-    to_attempt      → toAttempt
-    date            → date
-    item_name       → itemName
-    item_category   → itemCategory
-
-    None values and internal-only fields (raw_query, confidence) are stripped.
-    """
     payload: Dict[str, Any] = {}
 
     if intent_result.get("category"):
