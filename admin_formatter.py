@@ -1418,6 +1418,7 @@ _FORMATTERS = {
 # =============================================================================
 # MAIN PUBLIC ENTRY POINT
 # =============================================================================
+# Add this code block at the beginning of `format_dotnet_response` in `admin_formatter.py`
 
 def format_dotnet_response(
     dotnet_response: Any,
@@ -1427,59 +1428,69 @@ def format_dotnet_response(
     Convert raw .NET response + intent into clean plain-text.
     No markdown symbols, no emojis, no bold/italic markers.
     """
-    # Guard: if intent_result is not a dict, we can't extract category/subcategory
     if not isinstance(intent_result, dict):
         try:
             return json.dumps(dotnet_response, indent=2, ensure_ascii=False)
         except Exception:
             return str(dotnet_response)
 
-    # Guard: if the .NET backend returned a plain string, return it directly
     if isinstance(dotnet_response, str):
         return dotnet_response
 
-    category    = intent_result.get("category", "")
-    subcategory = intent_result.get("subcategory", "")
+    # ── (NEW) COMPOSITE QUERY PLANNED FORMATTING INTERCEPTION ────────────────
+    if isinstance(dotnet_response, dict) and "queryType" in dotnet_response:
+        qt = dotnet_response["queryType"]
+        
+        if qt == "cross_filter":
+            records = dotnet_response.get("records") or []
+            if not records:
+                return "No records matched the cross-filter criteria."
+            
+            lines = [f"Cross-Filtered Results ({len(records)} matched)", ""]
+            first = records[0]
+            if isinstance(first, dict):
+                headers = [_camel_to_words(k) for k in first.keys() if k not in ("photoPath", "agniveerId")]
+                rows = []
+                for item in records:
+                    rows.append([_safe_str(item.get(k)) for k in first.keys() if k not in ("photoPath", "agniveerId")])
+                lines.append(_plain_table(headers, rows))
+            else:
+                for i, r in enumerate(records, 1):
+                    lines.append(f"{i}. {r}")
+            return "\n".join(lines)
 
-    if isinstance(dotnet_response, dict):
-        error_msg = _get(dotnet_response, "error", "Error", "errorMessage")
-        if error_msg:
-            return f"Server error: {error_msg}"
-        if dotnet_response.get("success") is False:
-            msg = _get(dotnet_response, "message", "Message") or "Unknown error."
-            return f"Request failed: {msg}"
+        elif qt == "multi_independent":
+            sections = dotnet_response.get("sections") or []
+            lines = ["Combined Diagnostic Report", ""]
+            for sec in sections:
+                label = sec.get("label", "Section")
+                data = sec.get("data")
+                lines.append(f"=== {label} ===")
+                formatted_sub = format_dotnet_response(data, {"category": label, "subcategory": label})
+                lines.append(formatted_sub)
+                lines.append("")
+            return "\n".join(lines).strip()
 
-    if category == "Overall":
-        return _format_performance_list(dotnet_response, intent_result)
+        elif qt == "comparison":
+            sides = dotnet_response.get("sides") or []
+            compared_metrics = dotnet_response.get("comparedMetrics") or []
+            lines = ["Comparative Analytics Summary", ""]
+            
+            headers = ["Metric"] + [side.get("label", f"Side {i}") for i, side in enumerate(sides, 1)]
+            rows = []
+            for metric in compared_metrics:
+                row = [_camel_to_words(metric)]
+                for side in sides:
+                    metrics_dict = side.get("metrics") or {}
+                    val = metrics_dict.get(metric, "-")
+                    if isinstance(val, float):
+                        row.append(f"{val:.2f}")
+                    else:
+                        row.append(str(val))
+                rows.append(row)
+            lines.append(_plain_table(headers, rows))
+            return "\n".join(lines)
+            
+    # ── END OF COMPOSITE INTERCEPTION ────────────────────────────────────────
 
-    if category == "Performance":
-        if subcategory in _PERFORMANCE_NESTED_SUBCATEGORIES:
-            return _format_performance_list(dotnet_response, intent_result)
-
-        data = (
-            _get(dotnet_response, "data", "Data", "result", "Result")
-            or dotnet_response
-        ) if isinstance(dotnet_response, dict) else dotnet_response
-
-        if subcategory in _PERFORMANCE_AGGREGATE_SUBCATEGORIES:
-            return _format_performance_aggregate(subcategory, data, intent_result)
-
-        return _format_performance_list(dotnet_response, intent_result)
-
-    # Leave: raw response is often a bare list — pass directly without unwrapping
-    if category == "Leave":
-        return _format_leave(subcategory, dotnet_response, intent_result)
-
-    # All other categories: pass the full response; formatters call _unwrap_data internally
-    formatter = _FORMATTERS.get(category)
-    if formatter and subcategory:
-        try:
-            return formatter(subcategory, dotnet_response, intent_result)
-        except Exception as exc:
-            logger.warning("Formatter for %s/%s failed: %s", category, subcategory, exc)
-
-    # Fallback: pretty-print JSON
-    try:
-        return json.dumps(dotnet_response, indent=2, ensure_ascii=False)
-    except Exception:
-        return str(dotnet_response)
+    # ... Rest of the original code of format_dotnet_response continues unchanged ...

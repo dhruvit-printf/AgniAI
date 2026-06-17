@@ -10,42 +10,13 @@ Registers:
 
 Flow for /api/admin/chat:
   1. Receive admin question from frontend
-  2. classify_admin_intent()    → structured intent dict (Python internal)
-  3. format_admin_payload()     → camelCase JSON payload for .NET
-     └─ includes commandId, batchId, platoonId, fullName from the frontend request
-  4. POST payload to .NET       → https://<DOTNET_API_BASE_URL>/api/AiCommand/execute
-  5. generate_intro_message()   → LLM generates a single clean intro sentence
-  6. Return raw .NET data directly in data.result — NO formatting layer
-
-RESPONSE SHAPE:
-  {
-    "status":     true,
-    "httpStatus": 200,
-    "message":    "<intro sentence only>",
-    "data": {
-      "intent":        { ...classified intent fields... },
-      "dotnetPayload": { ...sent to .NET... },
-      "result":        <raw .NET response — frontend uses this directly>,
-      "sessionId":     "..."   (only if not admin-default)
-    }
-  }
-
-  message       → intro sentence only (frontend displays this above the data)
-  data.result   → raw .NET JSON (frontend renders this however it wants)
-  data.intent   → full intent classification
-  data.dotnetPayload → exact payload sent to .NET
-
-FRONTEND REQUEST FIELDS:
-  message     — (required) natural-language admin question
-  session_id  — (optional) session identifier
-  commandId   — (optional, default 0) command ID filter for .NET
-  batchId     — (optional, default 0) batch ID filter for .NET
-  platoonId   — (optional, default 0) platoon ID filter for .NET
-  fullName    — (optional) full name of the commanding officer / user
-
-PORT SEPARATION:
-  - Python / Flask  → port 5000  (python app.py)
-  - .NET AiCommand  → port 7257  (set DOTNET_API_BASE_URL in .env)
+  2. Resolve company and platoon mentions from query to numeric IDs
+  3. classify_admin_intent()    → structured intent dict (Python internal)
+  4. format_admin_payload()     → camelCase JSON payload for .NET
+     └─ includes commandId, batchId, platoonId, companyId, fullName from the frontend request
+  5. POST payload to .NET       → https://<DOTNET_API_BASE_URL>/api/AiCommand/execute
+  6. generate_intro_message()   → LLM generates a single clean intro sentence
+  7. Return raw .NET data directly in data.result — NO formatting layer
 """
 
 from __future__ import annotations
@@ -63,6 +34,9 @@ from admin_intent import admin_normalize_query, classify_admin_intent, format_ad
 from config import _is_greeting, _is_small_talk, _is_patriotic, GREETING_PHRASES
 from query_planner import plan_query, QueryType
 from result_combiner import intersect_results, merge_results, compare_results
+
+# ── (NEW IMPORT) Import Named Entity Resolver ─────────────────────────────────
+from admin_entity_resolver import resolve_entities_from_query
 
 logger = logging.getLogger(__name__)
 
@@ -523,6 +497,7 @@ def _get_id_filters(data: Dict) -> Dict[str, int]:
     command_id = _safe_int(data.get("commandId", data.get("command_id")))
     batch_id   = _safe_int(data.get("batchId",   data.get("batch_id")))
     platoon_id = _safe_int(data.get("platoonId", data.get("platoon_id")))
+    company_id = _safe_int(data.get("companyId", data.get("company_id")))  # (UPDATED) Support explicit companyId
 
     if command_id is not None:
         filters["commandId"] = command_id
@@ -530,6 +505,8 @@ def _get_id_filters(data: Dict) -> Dict[str, int]:
         filters["batchId"] = batch_id
     if platoon_id is not None:
         filters["platoonId"] = platoon_id
+    if company_id is not None:
+        filters["companyId"] = company_id  # (UPDATED)
 
     return filters
 
@@ -707,6 +684,17 @@ def admin_classify():
     id_filters = _get_id_filters(body)
     full_name  = _get_full_name(body)
 
+    # ── (NEW) Resolve Named Entities (Company / Platoon) ─────────────────────
+    resolved_entities = resolve_entities_from_query(
+        message,
+        existing_company_id=id_filters.get("companyId"),
+        existing_platoon_id=id_filters.get("platoonId")
+    )
+    if resolved_entities.get("companyId") is not None:
+        id_filters["companyId"] = resolved_entities["companyId"]
+    if resolved_entities.get("platoonId") is not None:
+        id_filters["platoonId"] = resolved_entities["platoonId"]
+
     message        = admin_normalize_query(message)
     intent_result  = classify_admin_intent(message)
     dotnet_payload = format_admin_payload(intent_result)
@@ -736,29 +724,6 @@ def admin_classify():
 def admin_chat():
     """
     Main admin chat endpoint.
-
-    Pipeline:
-      1. Classify intent from admin's natural-language question
-      2. Build .NET payload (camelCase)
-      3. POST to .NET AiCommand/execute
-      4. Generate a single intro sentence via LLM (or static template)
-      5. Return: message = intro sentence, data.result = raw .NET response
-
-    The frontend is responsible for rendering data.result directly.
-    No formatting is applied by this server.
-
-    RESPONSE SHAPE:
-      {
-        "status":     true,
-        "httpStatus": 200,
-        "message":    "<intro sentence>",
-        "data": {
-          "intent":        { ... },
-          "dotnetPayload": { "category": "Performance", "operation": "Top", ... },
-          "result":        <raw .NET response object — render this on the frontend>,
-          "sessionId":     "..."
-        }
-      }
     """
     start_time = time.time()
     body       = request.get_json(force=True, silent=True) or {}
@@ -778,6 +743,17 @@ def admin_chat():
 
     if not message:
         return _error_response("message field is required and cannot be empty.", 400)
+
+    # ── (NEW) Resolve Named Entities (Company / Platoon) ─────────────────────
+    resolved_entities = resolve_entities_from_query(
+        message,
+        existing_company_id=id_filters.get("companyId"),
+        existing_platoon_id=id_filters.get("platoonId")
+    )
+    if resolved_entities.get("companyId") is not None:
+        id_filters["companyId"] = resolved_entities["companyId"]
+    if resolved_entities.get("platoonId") is not None:
+        id_filters["platoonId"] = resolved_entities["platoonId"]
 
     elapsed_ms = lambda: round((time.time() - start_time) * 1000)
 
@@ -891,8 +867,6 @@ def admin_chat():
         )
 
     # ── Step 4: Generate intro sentence ───────────────────────────────────
-    # This is the ONLY text this server generates.
-    # The raw .NET data goes straight to the frontend in data.result.
     intro_message = _generate_intro_message(
         question=message,
         intent=intent_result,
@@ -915,5 +889,4 @@ def admin_chat():
         elapsed_ms(),
     )
 
-    # message = intro sentence only; frontend renders data.result itself
     return _success_response(response_data, message=intro_message)
