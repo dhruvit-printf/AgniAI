@@ -1425,6 +1425,7 @@ def format_dotnet_response(
     intent_result: Dict,
 ) -> str:
     """
+    [H: Response Formatter]
     Convert raw .NET response + intent into clean plain-text.
     No markdown symbols, no emojis, no bold/italic markers.
     """
@@ -1493,4 +1494,27 @@ def format_dotnet_response(
             
     # ── END OF COMPOSITE INTERCEPTION ────────────────────────────────────────
 
-    # ... Rest of the original code of format_dotnet_response continues unchanged ...
+    category = intent_result.get("category")
+    subcategory = intent_result.get("subcategory")
+
+    if not category:
+        try:
+            return json.dumps(dotnet_response, indent=2, ensure_ascii=False)
+        except Exception:
+            return str(dotnet_response)
+
+    if category == "Performance":
+        if subcategory in _PERFORMANCE_NESTED_SUBCATEGORIES:
+            return _format_performance_list(dotnet_response, intent_result)
+        elif subcategory in _PERFORMANCE_AGGREGATE_SUBCATEGORIES:
+            return _format_performance_aggregate(subcategory, dotnet_response, intent_result)
+        else:
+            return _format_performance_list(dotnet_response, intent_result)
+
+    if category in _FORMATTERS:
+        return _FORMATTERS[category](subcategory, dotnet_response, intent_result)
+
+    try:
+        return json.dumps(dotnet_response, indent=2, ensure_ascii=False)
+    except Exception:
+        return str(dotnet_response)

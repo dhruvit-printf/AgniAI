@@ -34,9 +34,12 @@ from admin_intent import admin_normalize_query, classify_admin_intent, format_ad
 from config import _is_greeting, _is_small_talk, _is_patriotic, GREETING_PHRASES
 from query_planner import plan_query, QueryType
 from result_combiner import intersect_results, merge_results, compare_results
+from admin_context import AdminSessionContext
 
 # ── (NEW IMPORT) Import Named Entity Resolver ─────────────────────────────────
 from admin_entity_resolver import resolve_entities_from_query
+
+_session_context = AdminSessionContext()
 
 logger = logging.getLogger(__name__)
 
@@ -707,9 +710,11 @@ def admin_classify():
     query_plan = plan_query(message)
 
     response_data: Dict[str, Any] = {
+        "queryType":     query_plan.query_type.value,
+        "confidence":    round(query_plan.confidence, 2),
+        "queryPlan":     query_plan.to_dict(),
         "intent":        intent_result,
         "dotnetPayload": dotnet_payload,
-        "queryPlan":     query_plan.to_dict(),
     }
     if session_id and session_id != "admin-default":
         response_data["sessionId"] = session_id
@@ -801,11 +806,16 @@ def admin_chat():
             dotnet_data=combined_data,
         )
 
+        if combined_data is not None:
+            _session_context.update(session_id, message, primary_intent, combined_data)
+
         response_data: Dict[str, Any] = {
-            "intent":        primary_intent,
-            "dotnetPayload": primary_payload,
+            "queryType":     query_plan.query_type.value,
+            "confidence":    round(query_plan.confidence, 2),
             "queryPlan":     query_plan.to_dict(),
             "result":        combined_data if combined_data is not None else {},
+            "intent":        primary_intent,
+            "dotnetPayload": primary_payload,
         }
 
         if session_id and session_id != "admin-default":
@@ -834,11 +844,18 @@ def admin_chat():
 
     # ── Unrecognised query ─────────────────────────────────────────────────
     if intent_result.get("category") is None:
+        response_data = {
+            "queryType":     query_plan.query_type.value,
+            "confidence":    round(query_plan.confidence, 2),
+            "queryPlan":     query_plan.to_dict(),
+            "dotnetPayload": {},
+            "result":        None,
+            "intent":        intent_result,
+        }
+        if session_id and session_id != "admin-default":
+            response_data["sessionId"] = session_id
         return _success_response(
-            {
-                "dotnetPayload": {},
-                "result":        None,
-            },
+            response_data,
             message=(
                 "Sorry, I was unable to understand your request. "
                 "I can help with Performance, Leave, Attendance, Medical, Equipment, "
@@ -873,11 +890,17 @@ def admin_chat():
         dotnet_data=dotnet_data,
     )
 
+    if dotnet_data is not None:
+        _session_context.update(session_id, message, intent_result, dotnet_data)
+
     # ── Step 5: Build response ─────────────────────────────────────────────
     response_data: Dict[str, Any] = {
+        "queryType":     query_plan.query_type.value,
+        "confidence":    round(query_plan.confidence, 2),
+        "queryPlan":     query_plan.to_dict(),
+        "result":        dotnet_data if dotnet_data is not None else {},
         "intent":        intent_result,
         "dotnetPayload": dotnet_payload,
-        "result":        dotnet_data if dotnet_data is not None else {},
     }
 
     if session_id and session_id != "admin-default":

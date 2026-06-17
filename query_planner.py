@@ -1,5 +1,5 @@
 """
-query_planner.py  (v2 — extended)
+query_planner.py 
 ==================================
 Query Planning Layer for the AgniAI Admin Chatbot.
 """
@@ -264,6 +264,11 @@ def _detect_comparison(
 def _detect_multi_independent(
     text_lower: str, categories: List[str]
 ) -> Optional[List[str]]:
+    """
+    [D4: Multi Query Decomposition]
+    Splits the text on commas and independent connectors, verifying that
+    each fragment corresponds to a unique category, supporting N-way merges.
+    """
     for connector in _MULTI_INDEPENDENT_CONNECTORS:
         if connector in text_lower:
             parts = text_lower.split(connector, 1)
@@ -354,7 +359,9 @@ def _extract_cross_filter_fragments(
     text_lower: str, categories: List[str]
 ) -> Optional[List[str]]:
     """
+    [D2: Query Decomposition]
     Returns a list of 2+ fragments for N-way cross-filter.
+    Iteratively splits the query on prepositions/connectors and cleans them.
 
     Strategy:
     1. Split on the first strong keyword (e.g. "who plays").
@@ -428,6 +435,7 @@ def _extract_cross_filter_fragments(
 def _extract_comparison_fragments(
     text_lower: str, categories: List[str]
 ) -> Optional[List[str]]:
+    """[D3: Comparison Decomposition]"""
     for sep in [" vs ", " versus "]:
         if sep in text_lower:
             parts = text_lower.split(sep, 1)
@@ -506,6 +514,9 @@ def _build_sub_operation(
     group_by: Optional[str] = None,
     filter_fragment: Optional[str] = None,
 ) -> SubOperation:
+    """
+    [D1: Intent Extraction] / [E1/E2/E3/E4: N Intent Generation]
+    """
     intent_result  = classify_admin_intent(fragment)
     dotnet_payload = format_admin_payload(intent_result)
     return SubOperation(
@@ -522,6 +533,9 @@ def _build_sub_operation(
 # =============================================================================
 
 def plan_query(query: str) -> QueryPlan:
+    """
+    [B: Query Classifier] -> [C: Query Type]
+    """
     raw_query = (query or "").strip()
     q = _normalise(raw_query)
 

@@ -21,7 +21,7 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "LowestPerformers":   "Bottom",
     "Improvement":        "Improvement",
     "Drop":               "Drop",
-    "GradeFilter":        "Grading",
+    "GradeDistribution":  "Grading",
     "GradingSummary":     "GradingSummary",
     "AverageScore":       "Average",
     "AttemptWise":        "AttemptWise",
@@ -30,22 +30,22 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "SectionSummary":     "Summary",
     "PassPercentage":     "PassPercentage",
     "FailPercentage":     "FailPercentage",
-    "OverallPerformers":  "Overall",
+    "OverallPerformance": "Overall",
     "MostLeaveTaken":     "Most",
     "LeastLeaveTaken":    "Least",
-    "CurrentLeave":       "Current",
-    "AbscondedLeave":     "Absconded",
+    "CurrentLeaveStatus": "Current",
+    "AbscondedPerson":    "Absconded",
     "ActiveCases":        "Active",
     "BMIAnalysis":        "BMI",
-    "DiseaseStats":       "Disease",
+    "DiseaseStatistics":  "Disease",
     "MonthlyAttendance":  "Monthly",
     "PresentToday":       "Present",
     "StrengthBreakdown":  "Strength",
     "PendingVerification":   "Pending",
     "CompletedVerification": "Completed",
-    "EquipmentStats":         "Stats",
+    "EquipmentSummary":       "Stats",
     "OverdueEquipment":       "Overdue",
-    "ReturnedEquipment":      "Returned",
+    "PoorConditionEquipment":  "Returned",
     "LatestDistribution": "Latest",
     "DistributionByUnit": "ByUnit",
     "UnassignedItems":    "Unassigned",
@@ -154,7 +154,7 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "slipped in performance", "performance slip",
         "worsening performance", "who is struggling more",
     )),
-    ("Grade Filter", "GradeFilter", (
+    ("Grade Distribution", "GradeDistribution", (
         "grading", "grade",
         "filter by grade", "filter by grading",
         "show by grade", "show by grading",
@@ -292,7 +292,7 @@ _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "failure count", "how many did not clear",
         "failed the exam", "failed the test",
     )),
-    ("Overall Performers", "OverallPerformers", (
+    ("Overall Performance", "OverallPerformance", (
         "overall", "composite", "allcriteria",
         "overall performers", "overall performance",
         "overall performance report", "overall score",
@@ -340,7 +340,7 @@ _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "most regular", "most punctual",
         "best attendance person",
     )),
-    ("Current Leave", "CurrentLeave", (
+    ("Current Leave Status", "CurrentLeaveStatus", (
         "current", "today", "now",
         "currently on leave", "who is on leave",
         "on leave today", "current leave status",
@@ -354,7 +354,7 @@ _LEAVE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "currently absent", "active leave",
         "who is on leave right now",
     )),
-    ("Absconded Leave", "AbscondedLeave", (
+    ("Absconded Person", "AbscondedPerson", (
         "absconded", "abscond",
         "absconded leave records", "absconded person",
         "gone missing", "missing person",
@@ -394,7 +394,7 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "physical fitness data", "height weight ratio",
         "weight report", "fitness data",
     )),
-    ("Disease Statistics", "DiseaseStats", (
+    ("Disease Statistics", "DiseaseStatistics", (
         "disease", "diagnoses", "diagnosis",
         "top diagnoses", "disease statistics",
         "top disease", "common disease",
@@ -475,7 +475,7 @@ _VERIFICATION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 
 
 _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
-    ("Equipment Stats", "EquipmentStats", (
+    ("Equipment Summary", "EquipmentSummary", (
         "stats", "summary", "overview",
         "equipment stats", "equipment summary",
         "equipment overview", "equipment report",
@@ -496,7 +496,7 @@ _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "equipment outstanding", "equipment not submitted",
         "not submitted equipment",
     )),
-    ("Returned Poor Condition", "ReturnedEquipment", (
+    ("Returned Poor Condition", "PoorConditionEquipment", (
         "returned", "poor", "condition",
         "returned poor condition", "poor condition equipment",
         "equipment returned poor", "damaged equipment",
@@ -1021,7 +1021,7 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "regt tie", "mufti blazer", "socks og",
             "green pagri", "og dress", "combat cap",
             "leather belt with crest", "rifle sling", "barret cap",
-            "jungle shoes",
+            "jungle shoes", "health card", "health card details",
         ),
         _EQUIPMENT_INTENTS,
     ),

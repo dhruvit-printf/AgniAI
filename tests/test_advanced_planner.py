@@ -29,35 +29,24 @@ _STUB_MODS = [
     "dotenv", "requests",
 ]
 for mod in _STUB_MODS:
-    if mod not in sys.modules:
-        stub = types.ModuleType(mod)
-        if mod == "dotenv":
-            stub.load_dotenv = lambda *a, **kw: None  # type: ignore[attr-defined]
-        sys.modules[mod] = stub
+    try:
+        __import__(mod)
+    except ImportError:
+        if mod not in sys.modules:
+            stub = types.ModuleType(mod)
+            if mod == "dotenv":
+                stub.load_dotenv = lambda *a, **kw: None  # type: ignore[attr-defined]
+            sys.modules[mod] = stub
 
 # ── Point import resolution at the repo root ─────────────────────────────────
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-# ── Also look in the ext directory for v2 modules ───────────────────────────
-_EXT = os.path.join(_ROOT, "agniai_ext")
-if _EXT not in sys.path:
-    sys.path.insert(0, _EXT)
-
-# Now import the v2 modules (named with _v2 suffix in the ext dir)
-import importlib, importlib.util
-
-def _load(name: str, filename: str):
-    spec = importlib.util.spec_from_file_location(name, os.path.join(_EXT, filename))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-qp   = _load("query_planner_v2",   "query_planner_v2.py")
-rc   = _load("result_combiner_v2", "result_combiner_v2.py")
-ac   = _load("admin_context",      "admin_context.py")
-acf  = _load("admin_confidence",   "admin_confidence.py")
+import query_planner as qp
+import result_combiner as rc
+import admin_context as ac
+import admin_confidence as acf
 
 QueryType   = qp.QueryType
 plan_query  = qp.plan_query

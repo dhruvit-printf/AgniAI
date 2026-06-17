@@ -194,6 +194,7 @@ def intersect_results(
     primary_index: int = 0,
 ) -> Dict[str, Any]:
     """
+    [G1: Intersection Engine]
     Compute the intersection of N result sets by agniveerId.
 
     Works for 2, 3, or more result sets.  The primary_index set supplies
@@ -250,7 +251,10 @@ def intersect_results(
 # =============================================================================
 
 def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
-    """Combine independent query results into a multi-section response."""
+    """
+    [G3: Merge Engine]
+    Combine independent query results into a multi-section response.
+    """
     sections: List[Dict] = []
     for label, data in labeled_results:
         records = _extract_records(data)
@@ -316,6 +320,7 @@ def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
 
 def compare_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
     """
+    [G2: Comparison Engine]
     Compare two or more .NET results.
 
     Extended from v1:
