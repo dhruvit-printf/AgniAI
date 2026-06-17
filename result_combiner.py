@@ -1,16 +1,17 @@
 """
-result_combiner.py  (v2 — extended)
-=====================================
+result_combiner.py
+==================
 Combines results from multiple .NET API calls for the Query Planning Layer.
 
-WHAT CHANGED FROM v1
----------------------
-1.  `intersect_results` supports N-way intersection (not just 2).
-2.  `compare_results` supports comparing list results, record counts,
-    top-N values, and aggregated metrics — not just scalar dict fields.
-3.  `aggregate_records` — NEW helper that groups+aggregates a flat record
-    list by a given dimension (section / sport / unit / class).
-4.  All existing public signatures preserved for backward compatibility.
+This is Step 4 in the AgniAI intelligence pipeline.
+The output — finalResult — is the SOURCE OF TRUTH passed to the Report Generator.
+The Report Generator must never modify it.
+
+Supported combination strategies:
+  CROSS_FILTER      → intersect_results   (N-way ID intersection)
+  COMPARISON        → compare_results     (side-by-side metric extraction)
+  MULTI_INDEPENDENT → merge_results       (combine independent sections)
+  SIMPLE / other    → caller passes through unchanged (no combiner needed)
 """
 
 from __future__ import annotations
@@ -79,10 +80,9 @@ def _safe_float(value: Any) -> Optional[float]:
 
 
 # =============================================================================
-# AGGREGATE HELPER  (NEW)
+# AGGREGATE HELPER
 # =============================================================================
 
-# Maps the group-by dimension keyword to the record field(s) to inspect.
 _GROUP_FIELD_MAP: Dict[str, List[str]] = {
     "section":  ["sectionName", "section", "Section"],
     "sport":    ["sports", "sport", "Sport"],
@@ -120,18 +120,18 @@ def aggregate_records(
     metric: str = "average_score",
 ) -> List[Dict]:
     """
-    Group *records* by *group_by* dimension and compute an aggregate metric.
+    Group records by a dimension and compute an aggregate metric.
 
     Parameters
     ----------
     records  : flat list of agniveer dicts from .NET
     group_by : "section" | "sport" | "unit" | "class" | "platoon" | "batch"
-    metric   : "average_score" | "count" | "pass_count"
+    metric   : "average_score" | "count"
 
     Returns
     -------
-    List of dicts sorted descending by the computed metric value, e.g.
-    [{"group": "PPT", "count": 120, "averageScore": 74.3}, ...]
+    List of dicts sorted descending by the computed metric value.
+    e.g. [{"group": "PPT", "count": 120, "averageScore": 74.3}, ...]
     """
     if not records or group_by not in _GROUP_FIELD_MAP:
         return []
@@ -140,15 +140,13 @@ def aggregate_records(
     buckets: Dict[str, List[float]] = {}
 
     for record in records:
-        # Find the group key for this record
         group_key: Optional[str] = None
         for field_name in field_candidates:
             raw = record.get(field_name)
             if raw is not None:
-                # sports field may be comma-separated
                 raw_str = str(raw).strip()
                 if "," in raw_str:
-                    # multiple sports — add record to each
+                    # comma-separated (e.g. sports field) — add to each
                     for part in raw_str.split(","):
                         part = part.strip()
                         if part:
@@ -156,7 +154,7 @@ def aggregate_records(
                             score = _get_score(record)
                             if score is not None:
                                 buckets[part].append(score)
-                    group_key = None  # already handled
+                    group_key = None
                 else:
                     group_key = raw_str
                 break
@@ -177,7 +175,6 @@ def aggregate_records(
             row["averageScore"] = round(sum(scores) / len(scores), 2)
         results.append(row)
 
-    # Sort descending by averageScore then count
     results.sort(
         key=lambda r: (r.get("averageScore", 0), r.get("count", 0)),
         reverse=True,
@@ -186,7 +183,7 @@ def aggregate_records(
 
 
 # =============================================================================
-# N-WAY INTERSECTION  (extended from v1)
+# N-WAY INTERSECTION (CROSS_FILTER)
 # =============================================================================
 
 def intersect_results(
@@ -194,18 +191,18 @@ def intersect_results(
     primary_index: int = 0,
 ) -> Dict[str, Any]:
     """
-    [G1: Intersection Engine]
-    Compute the intersection of N result sets by agniveerId.
+    Compute the N-way intersection of result sets by agniveerId.
 
-    Works for 2, 3, or more result sets.  The primary_index set supplies
-    the record objects for the final filtered list.
+    The primary_index set supplies the full record objects for the filtered list.
+    All other sets are used only for their ID sets.
     """
     if not result_sets:
         return {
-            "queryType": "cross_filter",
-            "matchCount": 0,
+            "queryType":         "cross_filter",
+            "filterDepth":       0,
+            "matchCount":        0,
             "totalBeforeFilter": 0,
-            "records": [],
+            "records":           [],
         }
 
     all_record_sets = [_extract_records(rs) for rs in result_sets]
@@ -214,7 +211,6 @@ def intersect_results(
     if not all_id_sets or any(len(ids) == 0 for ids in all_id_sets):
         common_ids: Set[int] = set()
     else:
-        # N-way intersection
         common_ids = all_id_sets[0]
         for id_set in all_id_sets[1:]:
             common_ids = common_ids & id_set
@@ -237,9 +233,14 @@ def intersect_results(
         if record_id is not None and record_id in common_ids:
             filtered.append(record)
 
+    logger.info(
+        "intersect_results: depth=%d total_before=%d matched=%d",
+        len(result_sets), total_before, len(filtered),
+    )
+
     return {
         "queryType":         "cross_filter",
-        "filterDepth":       len(result_sets),     # NEW
+        "filterDepth":       len(result_sets),
         "matchCount":        len(filtered),
         "totalBeforeFilter": total_before,
         "records":           filtered,
@@ -247,13 +248,13 @@ def intersect_results(
 
 
 # =============================================================================
-# MERGE  (unchanged from v1)
+# MERGE (MULTI_INDEPENDENT)
 # =============================================================================
 
 def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
     """
-    [G3: Merge Engine]
     Combine independent query results into a multi-section response.
+    Each section retains its label and full data for the formatter.
     """
     sections: List[Dict] = []
     for label, data in labeled_results:
@@ -263,6 +264,9 @@ def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
             "data":        data,
             "recordCount": len(records),
         })
+
+    logger.info("merge_results: %d sections", len(sections))
+
     return {
         "queryType":    "multi_independent",
         "sectionCount": len(sections),
@@ -271,21 +275,17 @@ def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
 
 
 # =============================================================================
-# COMPARISON  (extended from v1)
+# COMPARISON
 # =============================================================================
 
 def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
     """
-    Extract comparable metrics from a .NET response.
-
-    Extended from v1 to also:
-    - count records
-    - extract top-1 scalar from a record list (e.g. highest score)
-    - extract nested aggregate fields
+    Extract comparable scalar metrics from any .NET response shape.
+    Works for plain dicts, wrapped dicts, and record lists.
     """
     metrics: Dict[str, Any] = {}
 
-    # ── Scalar fields from dict ───────────────────────────────────────────
+    # Scalar fields from dict
     if isinstance(data, dict):
         inner = data
         for key in ("data", "Data", "result", "Result"):
@@ -303,12 +303,11 @@ def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
                 except ValueError:
                     pass
 
-    # ── Record-list metrics ───────────────────────────────────────────────
+    # Record-list metrics
     records = _extract_records(data)
     if records:
         metrics["recordCount"] = len(records)
 
-        # Average score across records
         scores = [s for s in (_get_score(r) for r in records) if s is not None]
         if scores:
             metrics["averageScore"] = round(sum(scores) / len(scores), 2)
@@ -320,12 +319,10 @@ def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
 
 def compare_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
     """
-    [G2: Comparison Engine]
-    Compare two or more .NET results.
+    Compare two or more .NET results side by side.
 
-    Extended from v1:
-    - supports list results (extracts recordCount, averageScore, topScore…)
-    - collects all unique metric keys across sides
+    Each side retains its full data (for the formatter) and extracted metrics
+    (for display in analysis/conclusion).
     """
     sides: List[Dict] = []
     all_metric_keys: Set[str] = set()
@@ -338,6 +335,11 @@ def compare_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
             "data":    data,
             "metrics": metrics,
         })
+
+    logger.info(
+        "compare_results: %d sides, metrics=%s",
+        len(sides), sorted(all_metric_keys),
+    )
 
     return {
         "queryType":       "comparison",
