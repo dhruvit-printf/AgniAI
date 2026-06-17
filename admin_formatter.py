@@ -1465,7 +1465,7 @@ def _format_leave_side_records(records: List[Dict], title: str) -> str:
     count = len(records)
     return (
         f"{title}\\n"
-        f"({count} record{\'s\' if count != 1 else \'\'})\\n\\n"
+        f"({count} record{'s' if count != 1 else ''})\\n\\n"
         f"{table}"
     )
 
@@ -1490,7 +1490,7 @@ def _format_performance_side_records(records: List[Dict], title: str) -> str:
     count = len(records)
     return (
         f"{title}\\n"
-        f"({count} record{\'s\' if count != 1 else \'\'})\\n\\n"
+        f"({count} record{'s' if count != 1 else ''})\\n\\n"
         f"{table}"
     )
 
@@ -1533,7 +1533,7 @@ def _format_generic_side_records(records: List[Dict], title: str) -> str:
     count = len(records)
     return (
         f"{title}\\n"
-        f"({count} record{\'s\' if count != 1 else \'\'})\\n\\n"
+        f"({count} record{'s' if count != 1 else ''})\\n\\n"
         f"{table}"
     )
 
@@ -1586,7 +1586,7 @@ def _format_comparison_result(data: Any, intent_result: Dict) -> str:
         if not records:
             record_count = metrics.get("recordCount", 0)
             section_blocks.append(
-                f"{title}\\n{record_count} record{\'s\' if record_count != 1 else \'\'} found."
+                f"{title}\\n{record_count} record{'s' if record_count != 1 else ''} found."
             )
             continue
 
