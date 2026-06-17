@@ -39,6 +39,7 @@ from admin_context import AdminSessionContext
 # ── (NEW IMPORT) Import Named Entity Resolver ─────────────────────────────────
 from admin_entity_resolver import resolve_entities_from_query
 from admin_formatter import format_dotnet_response
+from admin_report_generator import generate_admin_report
 
 _session_context = AdminSessionContext()
 
@@ -253,320 +254,7 @@ def _build_conversational_response(message: str, body: Dict, session_id: str) ->
 # INTRO MESSAGE GENERATOR
 # =============================================================================
 
-_INTRO_TEMPLATES: Dict[tuple, str] = {
-    # Performance
-    ("Performance", "TopPerformers"):      "These assessment results highlight the strongest performers in the evaluation.",
-    ("Performance", "LowestPerformers"):   "These results identify the individuals requiring additional training support.",
-    ("Performance", "AverageScore"):       "The average scores outline overall achievement levels across the group.",
-    ("Performance", "PassPercentage"):     "Pass rates reflect the percentage of trainees meeting the assessment standards.",
-    ("Performance", "FailPercentage"):     "Fail rates identify the proportion of trainees currently below standard.",
-    ("Performance", "GradeFilter"):        "The grade filter results show performance by the selected grading category.",
-    ("Performance", "GradingSummary"):     "The grading summary provides a breakdown of performance achievements.",
-    ("Performance", "OverallPerformers"):  "Overall performance metrics highlight trainee progress across all criteria.",
-    ("Performance", "Improvement"):        "These records highlight the trainees showing positive performance growth.",
-    ("Performance", "Drop"):               "These trends identify trainees experiencing a decline in assessment scores.",
-    ("Performance", "SectionSummary"):     "The section summary provides a clear view of performance across individual modules.",
-    ("Performance", "AttemptWise"):        "Attempt-wise statistics track trainee progress across successive evaluation cycles.",
-    ("Performance", "BestAttempt"):        "Best attempt outcomes reflect peak trainee achievements in this evaluation.",
-    ("Performance", "Comparison"):         "This comparison highlights achievement differences across the selected categories.",
-    # Leave
-    ("Leave", "MostLeaveTaken"):           "Leave patterns highlight the person with the highest absence rate.",
-    ("Leave", "LeastLeaveTaken"):          "Leave summaries identify the person with the highest duty presence.",
-    ("Leave", "CurrentLeave"):             "Current leave records outline person availability across the unit.",
-    ("Leave", "AbscondedLeave"):           "These records flag persons currently absent without official leave.",
-    # Medical
-    ("Medical", "ActiveCases"):            "This summary captures current active cases undergoing medical attention.",
-    ("Medical", "BMIAnalysis"):            "BMI records outline fitness levels and weight distribution across persons.",
-    ("Medical", "DiseaseStats"):           "Health records highlight the most common medical cases reported recently.",
-    # Attendance
-    ("Attendance", "MonthlyAttendance"):   "Monthly attendance trends provide a clear view of person participation.",
-    ("Attendance", "PresentToday"):        "Today's attendance records outline current person presence on campus.",
-    ("Attendance", "StrengthBreakdown"):   "The strength breakdown captures unit headcount and active person counts.",
-    # Verification
-    ("Verification", "PendingVerification"):   "Verification files track documents currently awaiting official review.",
-    ("Verification", "CompletedVerification"): "These records confirm files that have cleared the verification process.",
-    # Equipment
-    ("Equipment", "EquipmentStats"):           "This inventory summary reflects current equipment counts and status.",
-    ("Equipment", "OverdueEquipment"):         "These records flag issued gear currently overdue for return.",
-    ("Equipment", "ReturnedEquipment"):        "This quality review highlights equipment returned in sub-standard condition.",
-    ("Equipment", "IssuedItems"):              "Here is the complete list of items issued to Agniveers.",
-    ("Equipment", "ProcuredItems"):            "Here is the complete list of items procured by Agniveers.",
-    # Distribution
-    ("Distribution", "LatestDistribution"):    "Recent distribution logs track the latest issue of supplies and gear.",
-    ("Distribution", "DistributionByUnit"):    "Distribution logs trace supply allocation across different units.",
-    ("Distribution", "UnassignedItems"):       "Supply records outline items currently unassigned to any unit.",
-    ("Distribution", "TopUnit"):               "This summary highlights the unit receiving the largest supply allocation.",
-    # Skills
-    ("Skills", "BySport"):                     "Sport rosters track athletic participation and team assignments.",
-    ("Skills", "ByClass"):                     "Class rosters group persons by their administrative designations.",
-    ("Skills", "BloodGroup"):                  "Medical profiles outline the blood group distribution across the group.",
-}
 
-
-def _build_intro_prompt(
-    question: str,
-    intent: Dict[str, Any],
-    dotnet_data: Any,
-) -> str:
-    category    = intent.get("category", "")
-    subcategory = intent.get("subcategory", "")
-    number      = intent.get("number")
-    section     = intent.get("section", "")
-    leave_type  = intent.get("leave_type", "")
-    grading     = intent.get("grading", "")
-    unit_name   = intent.get("unit_name", "")
-    sport       = intent.get("sport", "")
-    class_name  = intent.get("class", "")
-
-    context_parts = []
-    if category:
-        context_parts.append(f"Module: {category}")
-    if subcategory:
-        context_parts.append(f"Query type: {subcategory}")
-    if number:
-        context_parts.append(f"Requested count: {number}")
-    if section:
-        context_parts.append(f"Section filter: {section}")
-    if leave_type:
-        context_parts.append(f"Leave type: {leave_type}")
-    if grading:
-        context_parts.append(f"Grading filter: {grading}")
-    if unit_name:
-        context_parts.append(f"Unit filter: {unit_name}")
-    if sport:
-        context_parts.append(f"Sport filter: {sport}")
-    if class_name:
-        context_parts.append(f"Class filter: {class_name}")
-
-    context_str = "\n".join(context_parts)
-
-    return (
-        "You are AgniAI, an intelligent military training assistant.\n\n"
-        "Generate ONE short introductory sentence for the data being shown to the admin.\n\n"
-        "STRICT RULES:\n"
-        "1. ONE sentence only. End with a period.\n"
-        "2. 10 to 20 words maximum.\n"
-        "3. NEVER mention any person's name, rank, or ID.\n"
-        "4. NEVER mention any score, number, percentage, or statistic.\n"
-        "5. NEVER say what the result is — only describe what type of data is shown.\n"
-        "6. NEVER use: retrieved, fetched, generated, extracted, shown below, listed below.\n"
-        "7. Do not ask questions.\n"
-        "8. No markdown, no bullets, no quotes.\n"
-        "9. Sound like a professional assistant introducing a report.\n\n"
-        "GOOD EXAMPLES:\n"
-        "Attempt-wise improvement data is ready for your review.\n"
-        "Here is the leave status across persons for the current period.\n"
-        "Performance rankings for the selected section are available below.\n\n"
-        f"Admin question: {question}\n\n"
-        f"Context:\n{context_str}\n\n"
-        "Generate only the sentence."
-    )
-
-
-def _sanitize_intro(text: str) -> str:
-    import re
-
-    text = text.strip().strip('"\'')
-
-    meta_prefixes = re.compile(
-        r"^(?:"
-        r"here(?:'s| is)(?: a| the| my)?(?: possible| suggested?)?(?: introductory?| intro)?(?: sentence| line| message| response)?[:\s]*|"
-        r"(?:introductory?|intro|opening|response)\s+(?:sentence|line|message)[:\s]*|"
-        r"(?:a possible|suggested?) introduction[:\s]*|"
-        r"introduction[:\s]*|"
-        r"answer[:\s]*|"
-        r"response[:\s]*"
-        r")",
-        re.IGNORECASE,
-    )
-    text = meta_prefixes.sub("", text).strip()
-
-    text = re.sub(r"\s*\([^)]{0,200}\)\s*$", "", text).strip()
-    text = re.sub(r"\s*[Nn]ote\s*[:—–-].*$", "", text, flags=re.DOTALL).strip()
-    text = re.sub(r"\s*[Pp]lease note.*$", "", text, flags=re.DOTALL).strip()
-
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-    if sentences:
-        text = sentences[0].strip()
-
-    if text.endswith("?"):
-        text = text.rstrip("?").rstrip() + "."
-
-    if text and text[-1] not in ".!":
-        text += "."
-
-    if re.search(r"\b\d+\b", text):
-        return ""
-
-    words = text.split()
-    for word in words[1:]:
-        clean_word = re.sub(r"[^A-Za-z]", "", word)
-        if clean_word and clean_word[0].isupper() and clean_word.lower() not in {
-            "agniveer", "bpet", "ppt", "drill", "firing", "medical",
-            "attendance", "leave", "equipment", "performance", "verification",
-            "distribution", "skills", "unit", "platoon", "batch",
-        }:
-            return ""
-
-    meta_check = re.compile(
-        r"^(?:here(?:'s| is)|i(?:'ve| have)|based on|the following|as requested)",
-        re.IGNORECASE,
-    )
-    if meta_check.match(text):
-        return ""
-
-    return text
-
-
-def _generate_intro_message(
-    question: str,
-    intent: Dict[str, Any],
-    dotnet_data: Any,
-) -> str:
-    category    = intent.get("category", "")
-    subcategory = intent.get("subcategory", "")
-
-    try:
-        import requests as _req
-        from config import OLLAMA_URL, DEFAULT_MODEL
-
-        prompt   = _build_intro_prompt(question, intent, dotnet_data)
-        messages = [{"role": "user", "content": prompt}]
-        payload  = {
-            "model":    DEFAULT_MODEL,
-            "messages": messages,
-            "stream":   False,
-            "options": {
-                "temperature": 0.2,
-                "num_predict": 60,
-                "num_ctx":     512,
-                "stop": ["Note:", "Please note", "\n", "?"],
-            },
-        }
-        resp = _req.post(OLLAMA_URL, json=payload, timeout=(8, 30))
-        resp.raise_for_status()
-        raw_text = (
-            resp.json()
-            .get("message", {})
-            .get("content", "")
-            .strip()
-        )
-
-        clean_text = _sanitize_intro(raw_text)
-
-        if clean_text and 10 <= len(clean_text) <= 200:
-            logger.debug("LLM intro (sanitized): %s", clean_text)
-            return clean_text
-
-        logger.debug(
-            "LLM intro rejected after sanitize (raw=%r clean=%r), using template",
-            raw_text, clean_text,
-        )
-
-    except Exception as exc:
-        logger.debug("Ollama intro generation failed, using template: %s", exc)
-
-    key = (category, subcategory)
-    if key in _INTRO_TEMPLATES:
-        return _INTRO_TEMPLATES[key]
-
-    category_label = category or "requested"
-    return f"These records outline the current {category_label.lower()} status across the unit."
-
-
-def _generate_analysis_and_conclusion(
-    question: str,
-    intent: Dict[str, Any],
-    formatted_data: str,
-) -> tuple[str, str]:
-    import re
-    category = intent.get("category", "")
-    subcategory = intent.get("subcategory", "")
-    category_label = category or "Agniveer data"
-
-    fallback_analysis = (
-        f"Analysis of the retrieved records indicates that the dataset contains active {category_label.lower()} indicators. "
-        "The distribution pattern matches the requested parameters and no anomalies are highlighted."
-    )
-    fallback_conclusion = (
-        f"The current {category_label.lower()} status remains stable, and no immediate actions are required."
-    )
-
-    try:
-        import requests as _req
-        from config import OLLAMA_URL, DEFAULT_MODEL
-
-        prompt = (
-            "You are AgniAI, an intelligent military command console assistant.\n"
-            "You are reviewing Agniveer training data in the command center. Based on the User Query and the Formatted Backend Data, "
-            "generate an Analysis and a Conclusion.\n\n"
-            "STRICT RULES:\n"
-            "1. Base your response 100% on the actual Formatted Backend Data provided. Do NOT invent or make up any names, ranks, IDs, scores, counts, or stats.\n"
-            "2. Do NOT mention any person's name or specific details not present in the data.\n"
-            "3. Do NOT contradict the backend data in any way.\n"
-            "4. Keep the Analysis focused on trends, patterns, strengths, weaknesses, anomalies, or distributions (1-3 sentences).\n"
-            "5. Keep the Conclusion as an executive summary of 2-4 sentences. Keep it actionable and grounded in the data.\n"
-            "6. You must structure your output in exactly this format:\n"
-            "ANALYSIS: <your analysis text here>\n"
-            "CONCLUSION: <your conclusion text here>\n\n"
-            f"User Query: {question}\n\n"
-            f"Formatted Backend Data:\n{formatted_data}\n\n"
-            "Generate only the ANALYSIS and CONCLUSION lines."
-        )
-
-        payload = {
-            "model":    DEFAULT_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream":   False,
-            "options": {
-                "temperature": 0.3,
-                "num_predict": 180,
-                "num_ctx":     1024,
-            },
-        }
-
-        resp = _req.post(OLLAMA_URL, json=payload, timeout=(8, 30))
-        resp.raise_for_status()
-        raw_content = resp.json().get("message", {}).get("content", "").strip()
-
-        analysis_match = re.search(r'ANALYSIS\s*:\s*(.*?)(?=\n\s*CONCLUSION\s*:|$)', raw_content, re.IGNORECASE | re.DOTALL)
-        conclusion_match = re.search(r'CONCLUSION\s*:\s*(.*)', raw_content, re.IGNORECASE | re.DOTALL)
-
-        analysis = analysis_match.group(1).strip() if analysis_match else ""
-        conclusion = conclusion_match.group(1).strip() if conclusion_match else ""
-
-        # Strip markdown bold or formatting inside the generated text
-        analysis = re.sub(r'[*_`#]', '', analysis)
-        conclusion = re.sub(r'[*_`#]', '', conclusion)
-
-        if not analysis or len(analysis) < 5:
-            analysis = fallback_analysis
-        if not conclusion or len(conclusion) < 5:
-            conclusion = fallback_conclusion
-
-        return analysis, conclusion
-
-    except Exception as exc:
-        logger.debug("Ollama analysis/conclusion generation failed, using fallbacks: %s", exc)
-        return fallback_analysis, fallback_conclusion
-
-
-def _build_final_admin_response(
-    question: str,
-    intent: Dict[str, Any],
-    dotnet_data: Any,
-) -> str:
-    # 1. Intro Message
-    intro = _generate_intro_message(question, intent, dotnet_data)
-
-    # 2. Frontend Rendered Data
-    formatted_data = format_dotnet_response(dotnet_data, intent)
-
-    # 3 & 4. Analysis and Conclusion
-    analysis, conclusion = _generate_analysis_and_conclusion(question, intent, formatted_data)
-
-    # Combine with double newlines
-    return f"{intro}\n\n{formatted_data}\n\n{analysis}\n\n{conclusion}"
 
 
 # =============================================================================
@@ -896,11 +584,11 @@ def admin_chat():
                 502,
             )
 
-        # Build the structured response flow
-        final_message = _build_final_admin_response(
-            question=message,
-            intent=primary_intent,
-            dotnet_data=combined_data,
+        report = generate_admin_report(
+            user_query=message,
+            query_type=query_plan.query_type.value,
+            intent_result=primary_intent,
+            combined_result=combined_data
         )
 
         if combined_data is not None:
@@ -909,10 +597,11 @@ def admin_chat():
         response_data: Dict[str, Any] = {
             "queryType":     query_plan.query_type.value,
             "confidence":    round(query_plan.confidence, 2),
+            "introMessage":  report["introMessage"],
+            "data":          combined_data if combined_data is not None else {},
+            "analysis":      report["analysis"],
+            "conclusion":    report["conclusion"],
             "queryPlan":     query_plan.to_dict(),
-            "result":        combined_data if combined_data is not None else {},
-            "intent":        primary_intent,
-            "dotnetPayload": primary_payload,
         }
 
         if session_id and session_id != "admin-default":
@@ -923,7 +612,7 @@ def admin_chat():
             session_id, elapsed_ms(),
         )
 
-        return _success_response(response_data, message=final_message)
+        return _success_response(response_data, message=report["introMessage"])
 
     # ══════════════════════════════════════════════════════════════════════
     # SIMPLE PATH — existing flow, unchanged
@@ -981,10 +670,11 @@ def admin_chat():
         )
 
     # ── Step 4: Build the structured response flow ─────────────────────────
-    final_message = _build_final_admin_response(
-        question=message,
-        intent=intent_result,
-        dotnet_data=dotnet_data,
+    report = generate_admin_report(
+        user_query=message,
+        query_type=query_plan.query_type.value,
+        intent_result=intent_result,
+        combined_result=dotnet_data
     )
 
     if dotnet_data is not None:
@@ -994,10 +684,11 @@ def admin_chat():
     response_data: Dict[str, Any] = {
         "queryType":     query_plan.query_type.value,
         "confidence":    round(query_plan.confidence, 2),
+        "introMessage":  report["introMessage"],
+        "data":          dotnet_data if dotnet_data is not None else {},
+        "analysis":      report["analysis"],
+        "conclusion":    report["conclusion"],
         "queryPlan":     query_plan.to_dict(),
-        "result":        dotnet_data if dotnet_data is not None else {},
-        "intent":        intent_result,
-        "dotnetPayload": dotnet_payload,
     }
 
     if session_id and session_id != "admin-default":
@@ -1009,4 +700,4 @@ def admin_chat():
         elapsed_ms(),
     )
 
-    return _success_response(response_data, message=final_message)
+    return _success_response(response_data, message=report["introMessage"])

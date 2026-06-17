@@ -1414,6 +1414,212 @@ _FORMATTERS = {
     "Skills":       _format_skills,
 }
 
+def _detect_side_label(side_data: Any) -> str:
+    """
+    Extract a human-readable label for a comparison side from its
+    commandLabel or from the leaveTypeLabel of the first record.
+    """
+    if isinstance(side_data, dict):
+        command_label = (side_data.get("commandLabel") or "").strip()
+        if command_label:
+            # e.g. "Top 10 Highest Leave — Medical" → use as-is
+            return command_label
+        # Try leaveTypeLabel from first record in data list
+        records = side_data.get("data") or []
+        if records and isinstance(records, list) and isinstance(records[0], dict):
+            leave_type = records[0].get("leaveTypeLabel") or records[0].get("leaveType")
+            if leave_type:
+                return str(leave_type)
+    return ""
+
+
+def _format_leave_side_records(records: List[Dict], title: str) -> str:
+    """Render leave records from one comparison side as a named table."""
+    if not records:
+        return f"{title}\\nNo records found."
+
+    rows = []
+    for i, item in enumerate(records, 1):
+        name     = _safe_str(_get(item, "fullName", "name", "Name"), f"Person {i}")
+        no_      = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
+        platoon  = _safe_str(_get(item, "platoonName", "platoon"), "-")
+        from_dt  = _fmt_datetime(_get(item, "fromDate", "from"))
+        to_dt    = _fmt_datetime(_get(item, "toDate", "to"))
+        # Prefer the pre-computed totalDays / totalLeaveDays field
+        days = _get(item, "totalDays", "totalLeaveDays")
+        if days is not None:
+            try:
+                days_str = str(int(days))
+            except (ValueError, TypeError):
+                days_str = str(days)
+        else:
+            computed = _calc_days(item)
+            days_str = str(computed) if computed is not None else "-"
+        remarks = _safe_str(_get(item, "remarks"), "-")
+        rows.append([f"{i}. {name}", no_, platoon, from_dt, to_dt, days_str, remarks])
+
+    table = _plain_table(
+        ["Name", "No.", "Platoon", "From", "To", "Days", "Remarks"],
+        rows,
+    )
+    count = len(records)
+    return (
+        f"{title}\\n"
+        f"({count} record{\'s\' if count != 1 else \'\'})\\n\\n"
+        f"{table}"
+    )
+
+
+def _format_performance_side_records(records: List[Dict], title: str) -> str:
+    """Render performance records from one comparison side as a named table."""
+    if not records:
+        return f"{title}\\nNo records found."
+
+    rows = []
+    for i, item in enumerate(records, 1):
+        name    = _safe_str(_get(item, "fullName", "name", "Name"), f"Person {i}")
+        no_     = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
+        score   = _get(item, "bestTotal", "totalMarks", "score", "Score")
+        platoon = _safe_str(_get(item, "platoonName", "platoon"), "-")
+        rows.append([
+            f"{i}. {name}", no_, platoon,
+            str(score) if score is not None else "-",
+        ])
+
+    table = _plain_table(["Name", "No.", "Platoon", "Score"], rows)
+    count = len(records)
+    return (
+        f"{title}\\n"
+        f"({count} record{\'s\' if count != 1 else \'\'})\\n\\n"
+        f"{table}"
+    )
+
+
+def _format_generic_side_records(records: List[Dict], title: str) -> str:
+    """
+    Auto-detect columns from the first record and render a generic table.
+    Skips internal/noisy fields that are not useful for display.
+    """
+    if not records:
+        return f"{title}\\nNo records found."
+
+    _SKIP_KEYS = {
+        "photoPath", "agniveerId", "isAbscondedLeave", "isHospitalized",
+        "onATTNC", "onAnnualLeave", "onEXPPG", "onMedicalLeave", "onSickLeave",
+    }
+    first = records[0]
+    display_keys = [k for k in first.keys() if k not in _SKIP_KEYS][:7]
+
+    def _key_to_header(k: str) -> str:
+        import re as _re
+        return _re.sub(r"(?<!^)(?=[A-Z])", " ", k).title()
+
+    headers = [_key_to_header(k) for k in display_keys]
+
+    rows = []
+    for i, item in enumerate(records, 1):
+        row = []
+        for k in display_keys:
+            val = item.get(k)
+            if isinstance(val, bool):
+                row.append("Yes" if val else "No")
+            elif val is None:
+                row.append("-")
+            else:
+                row.append(str(val))
+        rows.append(row)
+
+    table = _plain_table(headers, rows)
+    count = len(records)
+    return (
+        f"{title}\\n"
+        f"({count} record{\'s\' if count != 1 else \'\'})\\n\\n"
+        f"{table}"
+    )
+
+
+def _format_comparison_result(data: Any, intent_result: Dict) -> str:
+    """
+    Format a comparison queryType result from result_combiner.compare_results().
+
+    Expected shape:
+        {
+            "queryType": "comparison",
+            "sides": [
+                {
+                    "label": "Leave",
+                    "data": { "commandLabel": "...", "data": [...records...] },
+                    "metrics": { "recordCount": N }
+                },
+                ...
+            ],
+            "comparedMetrics": [...]
+        }
+
+    Renders each side's actual records as a fully labelled table with a
+    clear separator between sides — instead of a generic metrics-only table.
+    """
+    sides = data.get("sides") or []
+    if not sides:
+        return "No comparison data available."
+
+    section_blocks: List[str] = []
+
+    for side_idx, side in enumerate(sides):
+        side_data  = side.get("data") or {}
+        side_label = side.get("label", f"Side {side_idx + 1}")
+        metrics    = side.get("metrics") or {}
+
+        # Determine the display title for this side
+        detected_label = _detect_side_label(side_data)
+        title = detected_label if detected_label else side_label
+
+        # Extract records
+        records: List[Dict] = []
+        if isinstance(side_data, dict):
+            inner = side_data.get("data") or []
+            if isinstance(inner, list):
+                records = inner
+        elif isinstance(side_data, list):
+            records = side_data
+
+        if not records:
+            record_count = metrics.get("recordCount", 0)
+            section_blocks.append(
+                f"{title}\\n{record_count} record{\'s\' if record_count != 1 else \'\'} found."
+            )
+            continue
+
+        first = records[0] if records else {}
+
+        # Choose the right renderer based on record shape
+        if isinstance(first, dict):
+            is_leave = any(k in first for k in (
+                "fromDate", "totalDays", "totalLeaveDays",
+                "leaveTypeLabel", "onMedicalLeave", "onAnnualLeave",
+            ))
+            is_performance = any(k in first for k in (
+                "bestTotal", "attempts", "score", "totalMarks", "omrInputTotal",
+            ))
+
+            if is_leave:
+                block = _format_leave_side_records(records, title)
+            elif is_performance:
+                block = _format_performance_side_records(records, title)
+            else:
+                block = _format_generic_side_records(records, title)
+        else:
+            # List of non-dict items
+            lines = [title, ""]
+            for i, item in enumerate(records, 1):
+                lines.append(f"{i}. {item}")
+            block = "\\n".join(lines)
+
+        section_blocks.append(block)
+
+    # Join all sides with a clear horizontal separator
+    separator = "\\n\\n" + ("\u2500" * 50) + "\\n\\n"
+    return separator.join(section_blocks)
 
 # =============================================================================
 # MAIN PUBLIC ENTRY POINT
@@ -1473,24 +1679,7 @@ def format_dotnet_response(
             return "\n".join(lines).strip()
 
         elif qt == "comparison":
-            sides = dotnet_response.get("sides") or []
-            compared_metrics = dotnet_response.get("comparedMetrics") or []
-            lines = ["Comparative Analytics Summary", ""]
-            
-            headers = ["Metric"] + [side.get("label", f"Side {i}") for i, side in enumerate(sides, 1)]
-            rows = []
-            for metric in compared_metrics:
-                row = [_camel_to_words(metric)]
-                for side in sides:
-                    metrics_dict = side.get("metrics") or {}
-                    val = metrics_dict.get(metric, "-")
-                    if isinstance(val, float):
-                        row.append(f"{val:.2f}")
-                    else:
-                        row.append(str(val))
-                rows.append(row)
-            lines.append(_plain_table(headers, rows))
-            return "\n".join(lines)
+            return _format_comparison_result(dotnet_response, intent_result)
             
     # ── END OF COMPOSITE INTERCEPTION ────────────────────────────────────────
 
