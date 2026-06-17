@@ -6,8 +6,9 @@ Report Generator Layer for the AgniAI Admin Chatbot Response Pipeline.
 CRITICAL CONTRACT:
   - Input: combinedResult, queryType, intent, user_query
   - Output: introMessage (string), analysis (dict), conclusion (dict)
-  - Enforces strict grounding guard via formatted plain-text representation of combinedResult.
-  - Never consumes raw .NET response directly or query alone.
+  - Enforces strict grounding guard via compact aggregate text of combinedResult.
+  - NEVER analyzes individual records — always analyzes the Combined Result.
+  - Uses query-type-specific analysis & conclusion engines.
 """
 
 from __future__ import annotations
@@ -72,17 +73,212 @@ _QUERY_TYPE_INTROS: Dict[str, str] = {
 
 
 # =============================================================================
-# GROUNDING GUARD
+# AGGREGATE TEXT BUILDER
 # =============================================================================
+# Builds a compact, aggregate-only text representation of the combinedResult.
+# This text is what gets passed to Ollama AND used for grounding.
+# It intentionally EXCLUDES individual record data, attempts, sections, subItems.
+
+def _extract_records_from_combined(data: Any) -> List[Dict]:
+    """Pull the list of records out of any .NET wrapper shape."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in (
+            "data", "Data", "result", "Result",
+            "records", "Records", "persons", "personnel",
+        ):
+            val = data.get(key)
+            if isinstance(val, list):
+                return val
+            if isinstance(val, dict):
+                return _extract_records_from_combined(val)
+    return []
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+_SCORE_FIELDS = [
+    "bestTotal", "totalMarks", "score", "Score",
+    "omrInputTotal", "marksObtained",
+]
+
+
+def _get_score(record: Dict) -> Optional[float]:
+    for field in _SCORE_FIELDS:
+        v = _safe_float(record.get(field))
+        if v is not None:
+            return v
+    return None
+
+
+def _get_name(record: Dict) -> Optional[str]:
+    for key in ("fullName", "name", "Name"):
+        val = record.get(key)
+        if val:
+            return str(val).strip()
+    return None
+
+
+def _build_aggregate_text(
+    combined_result: Any,
+    query_type: str,
+    intent: Dict[str, Any],
+) -> str:
+    """
+    Build a compact aggregate-only text from combinedResult.
+    
+    This text is the ONLY data the LLM sees. It contains:
+      - Counts, totals, percentages, summary metrics
+      - Record names (for simple queries)
+      - NO attempts, sections, subItems, marks, grades
+    """
+    category = intent.get("category") or "Agniveer"
+    subcategory = intent.get("subcategory") or ""
+    lines: List[str] = []
+
+    if query_type == "cross_filter":
+        match_count = combined_result.get("matchCount", 0) if isinstance(combined_result, dict) else 0
+        total_before = combined_result.get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
+        filter_depth = combined_result.get("filterDepth", 2) if isinstance(combined_result, dict) else 2
+        records = combined_result.get("records", []) if isinstance(combined_result, dict) else []
+
+        lines.append(f"Query Type: cross_filter")
+        lines.append(f"Match Count: {match_count}")
+        lines.append(f"Total Before Filter: {total_before}")
+        lines.append(f"Filter Depth: {filter_depth}")
+        lines.append(f"Records Returned: {len(records)}")
+
+        if total_before > 0 and match_count > 0:
+            pct = round((match_count / total_before) * 100, 1)
+            lines.append(f"Match Percentage: {pct}%")
+
+        # Include names only — no nested data
+        names = []
+        for r in records:
+            name = _get_name(r)
+            if name:
+                names.append(name)
+        if names:
+            lines.append(f"Matched Agniveers: {', '.join(names)}")
+
+    elif query_type == "comparison":
+        sides = combined_result.get("sides", []) if isinstance(combined_result, dict) else []
+        compared_metrics = combined_result.get("comparedMetrics", []) if isinstance(combined_result, dict) else []
+
+        lines.append(f"Query Type: comparison")
+        lines.append(f"Number of Sides: {len(sides)}")
+
+        for i, side in enumerate(sides):
+            label = side.get("label", f"Side {i + 1}")
+            metrics = side.get("metrics") or {}
+            lines.append(f"")
+            lines.append(f"Side {i + 1}: {label}")
+            for mk, mv in metrics.items():
+                lines.append(f"  {mk}: {mv}")
+
+        if compared_metrics:
+            lines.append(f"")
+            lines.append(f"Compared Metrics: {', '.join(compared_metrics)}")
+
+    elif query_type == "multi_independent":
+        sections = combined_result.get("sections", []) if isinstance(combined_result, dict) else []
+        section_count = combined_result.get("sectionCount", len(sections)) if isinstance(combined_result, dict) else 0
+
+        lines.append(f"Query Type: multi_independent")
+        lines.append(f"Section Count: {section_count}")
+
+        for sec in sections:
+            label = sec.get("label", "Section")
+            rec_count = sec.get("recordCount", 0)
+            lines.append(f"  Section: {label} — {rec_count} records")
+
+    else:
+        # simple
+        records = _extract_records_from_combined(combined_result)
+        cnt = len(records)
+
+        lines.append(f"Query Type: simple")
+        lines.append(f"Category: {category}")
+        if subcategory:
+            lines.append(f"Subcategory: {subcategory}")
+        lines.append(f"Record Count: {cnt}")
+
+        # Extract aggregate scores if available
+        scores = [s for s in (_get_score(r) for r in records) if s is not None]
+        if scores:
+            lines.append(f"Average Score: {round(sum(scores) / len(scores), 2)}")
+            lines.append(f"Top Score: {max(scores)}")
+            lines.append(f"Bottom Score: {min(scores)}")
+
+        # Extract scalar summary fields from dict wrapper
+        if isinstance(combined_result, dict):
+            for k, v in combined_result.items():
+                if k in ("data", "Data", "result", "Result", "records", "Records"):
+                    continue
+                if isinstance(v, (int, float)):
+                    lines.append(f"{k}: {v}")
+                elif isinstance(v, str) and v.strip():
+                    # Only short scalar strings
+                    if len(v) < 100:
+                        lines.append(f"{k}: {v}")
+
+        # Include names only — no nested data
+        names = []
+        for r in records:
+            name = _get_name(r)
+            if name:
+                names.append(name)
+        if names and len(names) <= 20:
+            lines.append(f"Records: {', '.join(names)}")
+        elif names:
+            lines.append(f"Records: {', '.join(names[:20])} (and {len(names) - 20} more)")
+
+    return "\n".join(lines)
+
+
+# =============================================================================
+# GROUNDING GUARD (ENHANCED)
+# =============================================================================
+
+_METRIC_KEYWORDS = re.compile(
+    r"\b(?:scored|marks|mark|attempt|attempts|grade|grades|grading|"
+    r"percentage|percent|total|totals|out\s+of|scored\s+\d|"
+    r"marks\s+obtained|section\s+score|sub\s*item)"
+    r"\b",
+    re.IGNORECASE,
+)
+
 
 def _extract_numbers_from_text(text: str) -> set:
     return set(re.findall(r"\b\d+(?:\.\d+)?\b", text or ""))
+
+
+def _contains_ungrounded_metrics(sentence: str, grounded_numbers: set) -> bool:
+    """
+    Returns True if the sentence uses metric keywords but contains numbers
+    not found in the grounded text. This catches fabricated scores/marks/grades.
+    """
+    if not _METRIC_KEYWORDS.search(sentence):
+        return False
+    sentence_numbers = _extract_numbers_from_text(sentence)
+    if not sentence_numbers:
+        return False
+    return not sentence_numbers.issubset(grounded_numbers)
 
 
 def _strip_ungrounded_numbers(llm_text: str, grounded_text: str) -> str:
     """
     Remove any sentence from llm_text that contains a number not present
     in grounded_text. Prevents hallucinated totals/percentages/counts.
+    Also catches metric-keyword sentences with ungrounded numbers.
     """
     grounded_numbers = _extract_numbers_from_text(grounded_text)
 
@@ -90,17 +286,25 @@ def _strip_ungrounded_numbers(llm_text: str, grounded_text: str) -> str:
     kept: List[str] = []
     for sentence in sentences:
         sentence_numbers = _extract_numbers_from_text(sentence)
-        if not sentence_numbers:
-            kept.append(sentence)
-            continue
-        if sentence_numbers.issubset(grounded_numbers):
-            kept.append(sentence)
-        else:
+
+        # Drop sentences with ungrounded numbers
+        if sentence_numbers and not sentence_numbers.issubset(grounded_numbers):
             bad = sentence_numbers - grounded_numbers
             logger.debug(
                 "Grounding guard: dropped sentence with unverified numbers %s: %r",
                 bad, sentence,
             )
+            continue
+
+        # Extra check: metric keywords with ungrounded numbers
+        if _contains_ungrounded_metrics(sentence, grounded_numbers):
+            logger.debug(
+                "Grounding guard: dropped metric sentence with unverified data: %r",
+                sentence,
+            )
+            continue
+
+        kept.append(sentence)
     return " ".join(kept).strip()
 
 
@@ -123,21 +327,20 @@ def get_fallback_report(
     subcategory = intent.get("subcategory") or ""
     
     # Extract records and counts
-    from result_combiner import _extract_records
-    records = _extract_records(combined_result)
+    records = _extract_records_from_combined(combined_result)
     cnt = len(records)
     
     # Base fallback values
     if query_type == "cross_filter":
-        match_count = combined_result.get("matchCount", cnt)
-        total_before = combined_result.get("totalBeforeFilter", 0)
+        match_count = combined_result.get("matchCount", cnt) if isinstance(combined_result, dict) else cnt
+        total_before = combined_result.get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
         intro = f"{match_count} Agniveers matched the requested cross-filter criteria."
         summary = f"Cross-filter intersection completed with {match_count} matches."
         obs = [f"{match_count} records matched out of {total_before} primary records."]
         insights = ["Intersection identifies trainees matching all filtered properties simultaneously."]
         conclusion = f"{match_count} trainees have been successfully cross-referenced."
     elif query_type == "comparison":
-        sides = combined_result.get("sides", [])
+        sides = combined_result.get("sides", []) if isinstance(combined_result, dict) else []
         labels = [s.get("label", "Section") for s in sides]
         labels_str = " and ".join(labels) if labels else "selected categories"
         intro = f"Comparison between {labels_str} has been completed."
@@ -146,12 +349,12 @@ def get_fallback_report(
         insights = ["Comparison highlights metric variances across categories."]
         conclusion = "The comparative analysis of the requested metrics is complete."
     elif query_type == "multi_independent":
-        sections = combined_result.get("sections", [])
+        sections = combined_result.get("sections", []) if isinstance(combined_result, dict) else []
         labels = [s.get("label", "Section") for s in sections]
         labels_str = ", ".join(labels) if labels else "multiple modules"
-        intro = "Attendance, equipment, and verification statistics have been consolidated."
-        summary = f"Consolidated dataset generated from {labels_str} sections."
-        obs = [f"Successfully loaded {len(sections)} independent data sections."]
+        intro = f"{labels_str} statistics have been consolidated."
+        summary = f"Consolidated dataset generated from {len(sections)} sections."
+        obs = [f"Successfully loaded {len(sections)} independent data sections: {labels_str}."]
         insights = ["No correlation analysis is performed for independent requests."]
         conclusion = "All requested sections are merged into a single report view."
     else:
@@ -187,6 +390,28 @@ def get_fallback_report(
 # OLLAMA HELPERS
 # =============================================================================
 
+def _call_ollama(prompt: str, temperature: float = 0.3, max_tokens: int = 200) -> Optional[str]:
+    """Call Ollama and return the raw text response, or None on failure."""
+    try:
+        payload = {
+            "model": DEFAULT_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+                "num_ctx": 1024,
+            },
+        }
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=(8, 30))
+        resp.raise_for_status()
+        raw = resp.json().get("message", {}).get("content", "").strip()
+        return raw if raw else None
+    except Exception as exc:
+        logger.debug("Ollama call failed: %s", exc)
+        return None
+
+
 def parse_analysis_json(text: str) -> Dict[str, Any]:
     start = text.find('{')
     end = text.rfind('}')
@@ -219,6 +444,229 @@ def parse_analysis_non_json(text: str) -> Dict[str, Any]:
     }
 
 
+def _parse_llm_analysis(raw: str) -> Dict[str, Any]:
+    """Try to parse LLM analysis response as JSON, then fallback to plain text."""
+    parsed = parse_analysis_json(raw)
+    if not parsed:
+        parsed = parse_analysis_non_json(raw)
+    return parsed
+
+
+# =============================================================================
+# QUERY-TYPE-SPECIFIC ANALYSIS ENGINES
+# =============================================================================
+
+_ANALYSIS_RULES_COMMON = (
+    "STRICT RULES:\n"
+    "1. Base your response 100% on the Aggregate Data below. Never hallucinate, never invent details.\n"
+    "2. Only mention numbers/metrics that appear verbatim in the Aggregate Data.\n"
+    "3. Do NOT mention any person's name unless it appears in the Aggregate Data.\n"
+    "4. Do NOT analyze individual records, attempts, sections, subItems, marks, or grades.\n"
+    "5. 'summary' must be a single string (1 sentence overview).\n"
+    "6. 'observations' must be a list of 1-3 strings representing key data points/metrics.\n"
+    "7. 'insights' must be a list of 1-2 strings representing trends or observations.\n"
+    "8. Produce valid JSON with keys: 'summary', 'observations', 'insights'.\n"
+)
+
+
+def _generate_simple_analysis(aggregate_text: str, user_query: str) -> Dict[str, Any]:
+    """Analysis engine for simple queries — focuses on record count and summary metrics."""
+    prompt = (
+        "You are AgniAI, an intelligent military assistant.\n"
+        "Analyze the AGGREGATE data summary below. Focus on:\n"
+        "- Record count\n"
+        "- Summary metrics (averages, totals, counts)\n"
+        "- Returned record names\n\n"
+        "Do NOT focus on any single record. Do NOT mention attempts, sections, or sub-items.\n\n"
+        + _ANALYSIS_RULES_COMMON +
+        f"\nUser Query: {user_query}\n"
+        f"Aggregate Data:\n{aggregate_text}\n\n"
+        "Generate only the raw JSON."
+    )
+    raw = _call_ollama(prompt, temperature=0.3, max_tokens=250)
+    if raw:
+        parsed = _parse_llm_analysis(raw)
+        if parsed and parsed.get("summary"):
+            return parsed
+    return {}
+
+
+def _generate_cross_filter_analysis(aggregate_text: str, user_query: str) -> Dict[str, Any]:
+    """Analysis engine for cross-filter queries — focuses on matchCount, filterDepth, intersection."""
+    prompt = (
+        "You are AgniAI, an intelligent military assistant.\n"
+        "Analyze the cross-filter AGGREGATE data below. Focus ONLY on:\n"
+        "- matchCount (how many records matched)\n"
+        "- totalBeforeFilter (original pool size)\n"
+        "- filterDepth (number of filter criteria applied)\n"
+        "- Match percentage\n"
+        "- Intersection results\n\n"
+        "CRITICAL: Do NOT analyze attempts, sections, subItems, marks, grades, or scores.\n"
+        "Do NOT write about individual candidate performance.\n"
+        "Focus on the aggregate intersection result.\n\n"
+        + _ANALYSIS_RULES_COMMON +
+        f"\nUser Query: {user_query}\n"
+        f"Aggregate Data:\n{aggregate_text}\n\n"
+        "Generate only the raw JSON."
+    )
+    raw = _call_ollama(prompt, temperature=0.2, max_tokens=250)
+    if raw:
+        parsed = _parse_llm_analysis(raw)
+        if parsed and parsed.get("summary"):
+            return parsed
+    return {}
+
+
+def _generate_comparison_analysis(aggregate_text: str, user_query: str) -> Dict[str, Any]:
+    """Analysis engine for comparison queries — focuses on side-by-side metrics."""
+    prompt = (
+        "You are AgniAI, an intelligent military assistant.\n"
+        "Analyze the comparison AGGREGATE data below. Focus ONLY on:\n"
+        "- Side labels and their metrics\n"
+        "- Differences between sides (record counts, averages, scores)\n"
+        "- Percentages and relative comparisons\n\n"
+        "CRITICAL: Do NOT analyze individual records, nested attempts, or sub-items.\n"
+        "Compare the aggregate metrics between sides.\n\n"
+        + _ANALYSIS_RULES_COMMON +
+        f"\nUser Query: {user_query}\n"
+        f"Aggregate Data:\n{aggregate_text}\n\n"
+        "Generate only the raw JSON."
+    )
+    raw = _call_ollama(prompt, temperature=0.3, max_tokens=250)
+    if raw:
+        parsed = _parse_llm_analysis(raw)
+        if parsed and parsed.get("summary"):
+            return parsed
+    return {}
+
+
+def _generate_multi_independent_analysis(aggregate_text: str, user_query: str) -> Dict[str, Any]:
+    """Analysis engine for multi-independent queries — focuses on section summaries."""
+    prompt = (
+        "You are AgniAI, an intelligent military assistant.\n"
+        "Analyze the multi-section AGGREGATE data below. Focus ONLY on:\n"
+        "- Section labels\n"
+        "- Record counts per section\n"
+        "- Total sections consolidated\n\n"
+        "CRITICAL: Do NOT analyze individual records or nested data within sections.\n"
+        "Summarize the section-level data only.\n\n"
+        + _ANALYSIS_RULES_COMMON +
+        f"\nUser Query: {user_query}\n"
+        f"Aggregate Data:\n{aggregate_text}\n\n"
+        "Generate only the raw JSON."
+    )
+    raw = _call_ollama(prompt, temperature=0.3, max_tokens=250)
+    if raw:
+        parsed = _parse_llm_analysis(raw)
+        if parsed and parsed.get("summary"):
+            return parsed
+    return {}
+
+
+# =============================================================================
+# QUERY-TYPE-SPECIFIC CONCLUSION ENGINES
+# =============================================================================
+
+_CONCLUSION_RULES_COMMON = (
+    "STRICT RULES:\n"
+    "1. Base your conclusion 100% on the Analysis and Aggregate Data below.\n"
+    "2. Maximum 2-3 sentences.\n"
+    "3. NEVER introduce new facts, numbers, or details not in the Analysis or Aggregate Data.\n"
+    "4. NEVER mention attempts, sections, subItems, marks, or grades unless they appear in the Aggregate Data.\n"
+    "5. Summarize the analysis findings concisely.\n"
+)
+
+
+def _generate_conclusion(
+    aggregate_text: str,
+    analysis_data: Dict[str, Any],
+    user_query: str,
+    query_type_instruction: str,
+) -> str:
+    """Generic conclusion generator with query-type-specific instructions."""
+    analysis_summary = analysis_data.get("summary", "")
+    analysis_obs = analysis_data.get("observations", [])
+    analysis_ins = analysis_data.get("insights", [])
+
+    analysis_text_parts = []
+    if analysis_summary:
+        analysis_text_parts.append(f"Summary: {analysis_summary}")
+    if analysis_obs:
+        analysis_text_parts.append("Observations: " + "; ".join(analysis_obs))
+    if analysis_ins:
+        analysis_text_parts.append("Insights: " + "; ".join(analysis_ins))
+    analysis_text = "\n".join(analysis_text_parts) if analysis_text_parts else "No analysis available."
+
+    prompt = (
+        "You are AgniAI, an intelligent military assistant.\n"
+        "Generate a brief conclusion summarizing the analysis findings.\n\n"
+        + query_type_instruction + "\n\n"
+        + _CONCLUSION_RULES_COMMON +
+        f"\nUser Query: {user_query}\n"
+        f"Aggregate Data:\n{aggregate_text}\n\n"
+        f"Analysis:\n{analysis_text}\n\n"
+        "Generate only the conclusion text (2-3 sentences)."
+    )
+    raw = _call_ollama(prompt, temperature=0.3, max_tokens=120)
+    if raw:
+        # Clean up common LLM prefixes
+        cleaned = re.sub(r'^(?:CONCLUSION\s*:\s*)', '', raw, flags=re.IGNORECASE)
+        cleaned = re.sub(r'[*_`#]', '', cleaned).strip()
+        cleaned = cleaned.strip('"' + "'")
+        return cleaned
+    return ""
+
+
+def _generate_simple_conclusion(aggregate_text: str, analysis_data: Dict[str, Any], user_query: str) -> str:
+    return _generate_conclusion(
+        aggregate_text, analysis_data, user_query,
+        "Focus on summarizing the record count and overall dataset findings."
+    )
+
+
+def _generate_cross_filter_conclusion(aggregate_text: str, analysis_data: Dict[str, Any], user_query: str) -> str:
+    return _generate_conclusion(
+        aggregate_text, analysis_data, user_query,
+        "Focus on the cross-filter intersection result: how many matched and out of how many. "
+        "Do NOT mention individual candidate performance, attempts, or scores."
+    )
+
+
+def _generate_comparison_conclusion(aggregate_text: str, analysis_data: Dict[str, Any], user_query: str) -> str:
+    return _generate_conclusion(
+        aggregate_text, analysis_data, user_query,
+        "Focus on the comparison between sides: which side has more/fewer records, higher/lower metrics. "
+        "Do NOT mention individual records."
+    )
+
+
+def _generate_multi_independent_conclusion(aggregate_text: str, analysis_data: Dict[str, Any], user_query: str) -> str:
+    return _generate_conclusion(
+        aggregate_text, analysis_data, user_query,
+        "Focus on summarizing how many sections were consolidated and their respective record counts. "
+        "Do NOT analyze individual records within sections."
+    )
+
+
+# =============================================================================
+# ANALYSIS / CONCLUSION DISPATCH
+# =============================================================================
+
+_ANALYSIS_ENGINES = {
+    "simple":            _generate_simple_analysis,
+    "cross_filter":      _generate_cross_filter_analysis,
+    "comparison":        _generate_comparison_analysis,
+    "multi_independent": _generate_multi_independent_analysis,
+}
+
+_CONCLUSION_ENGINES = {
+    "simple":            _generate_simple_conclusion,
+    "cross_filter":      _generate_cross_filter_conclusion,
+    "comparison":        _generate_comparison_conclusion,
+    "multi_independent": _generate_multi_independent_conclusion,
+}
+
+
 # =============================================================================
 # PUBLIC INTERFACE
 # =============================================================================
@@ -231,17 +679,28 @@ def generate_report(
 ) -> Dict[str, Any]:
     """
     Produce the structured report: introMessage, analysis, and conclusion.
-    Enforces strict grounding guard to prevent LLM hallucinations.
+    
+    CRITICAL: All analysis is based on the aggregate summary of combinedResult,
+    never on individual records. The LLM only sees aggregate metrics.
     """
+    # Build the aggregate-only text — this is the ONLY data the LLM sees
+    aggregate_text = _build_aggregate_text(combined_result, query_type, intent)
+    logger.info("Report Generator aggregate text:\n%s", aggregate_text)
+
+    # Also get the formatted data for the formattedData response field
+    # (NOT used for LLM prompts — only for grounding validation cross-check)
     formatted_data = format_dotnet_response(combined_result, intent)
+    
+    # Build deterministic fallback
     fallback = get_fallback_report(combined_result, query_type, intent)
 
-    if not formatted_data or "No records found" in formatted_data or "No comparison data" in formatted_data:
+    if not aggregate_text or len(aggregate_text.strip()) < 10:
         return fallback
 
     category = intent.get("category") or "Agniveer data"
-    
-    # 1. Generate Intro Message
+    effective_query_type = query_type if query_type in _ANALYSIS_ENGINES else "simple"
+
+    # ── 1. Generate Intro Message ────────────────────────────────────────
     intro_prompt = (
         "You are AgniAI, an intelligent military assistant.\n"
         "Generate a short introductory summary (1-2 sentences) describing what data was retrieved.\n\n"
@@ -249,87 +708,36 @@ def generate_report(
         "1. Maximum 1-2 sentences. End with a period.\n"
         "2. No analysis, recommendations, or assumptions.\n"
         "3. State only what has been identified or fetched.\n"
-        "4. You can mention count numbers if they are in the Formatted Data, but do not calculate or guess other numbers.\n\n"
+        "4. You can mention count numbers if they are in the Aggregate Data, but do not calculate or guess other numbers.\n\n"
         f"User Query: {user_query}\n"
         f"Query Type: {query_type}\n"
-        f"Formatted Data:\n{formatted_data}\n\n"
+        f"Aggregate Data:\n{aggregate_text}\n\n"
         "Generate only the introductory sentence."
     )
 
     intro_message = fallback["introMessage"]
-    try:
-        payload = {
-            "model": DEFAULT_MODEL,
-            "messages": [{"role": "user", "content": intro_prompt}],
-            "stream": False,
-            "options": {
-                "temperature": 0.2,
-                "num_predict": 80,
-                "num_ctx": 1024,
-            },
-        }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=(8, 30))
-        resp.raise_for_status()
-        raw_intro = resp.json().get("message", {}).get("content", "").strip()
+    raw_intro = _call_ollama(intro_prompt, temperature=0.2, max_tokens=80)
+    if raw_intro:
         raw_intro = raw_intro.strip('"' + "'")
-        clean_intro = _ground_and_sanitize(raw_intro, formatted_data)
+        clean_intro = _ground_and_sanitize(raw_intro, aggregate_text)
         if clean_intro and len(clean_intro) > 5:
             intro_message = clean_intro
-    except Exception as exc:
-        logger.debug("Ollama intro generation failed: %s", exc)
 
-    # 2. Generate Analysis
-    analysis_prompt = (
-        "You are AgniAI, an intelligent military assistant.\n"
-        "Analyze the provided training data based on the User Query and Formatted Data.\n"
-        "Produce your response in valid JSON format with three keys: 'summary', 'observations', 'insights'.\n\n"
-        "STRICT RULES:\n"
-        "1. Base your response 100% on the Formatted Data. Never hallucinate, never invent or extrapolate details.\n"
-        "2. Do NOT mention any person's name or specific details not in the data.\n"
-        "3. Only mention numbers/metrics that appear verbatim in the Formatted Data.\n"
-        "4. 'summary' must be a single string (1 sentence overview).\n"
-        "5. 'observations' must be a list of 1-3 strings representing key data points/metrics/counts.\n"
-        "6. 'insights' must be a list of 1-2 strings representing trends, anomalies, or observations.\n"
-        "7. Ensure the JSON is properly formatted.\n\n"
-        f"User Query: {user_query}\n"
-        f"Query Type: {query_type}\n"
-        f"Formatted Data:\n{formatted_data}\n\n"
-        "Generate only the raw JSON."
-    )
+    # ── 2. Generate Analysis (query-type-specific) ───────────────────────
+    analysis_engine = _ANALYSIS_ENGINES[effective_query_type]
+    analysis_data = analysis_engine(aggregate_text, user_query)
 
-    analysis_data = fallback["analysis"]
-    try:
-        payload = {
-            "model": DEFAULT_MODEL,
-            "messages": [{"role": "user", "content": analysis_prompt}],
-            "stream": False,
-            "options": {
-                "temperature": 0.3,
-                "num_predict": 250,
-                "num_ctx": 1024,
-            },
-        }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=(8, 30))
-        resp.raise_for_status()
-        raw_analysis = resp.json().get("message", {}).get("content", "").strip()
-        
-        parsed = parse_analysis_json(raw_analysis)
-        if not parsed:
-            parsed = parse_analysis_non_json(raw_analysis)
-            
-        if parsed and parsed.get("summary"):
-            analysis_data = parsed
-    except Exception as exc:
-        logger.debug("Ollama analysis generation failed: %s", exc)
+    if not analysis_data or not analysis_data.get("summary"):
+        analysis_data = fallback["analysis"]
 
     # Apply Grounding Guard to Analysis fields
-    clean_summary = _ground_and_sanitize(analysis_data.get("summary", ""), formatted_data)
+    clean_summary = _ground_and_sanitize(analysis_data.get("summary", ""), aggregate_text)
     if not clean_summary:
         clean_summary = fallback["analysis"]["summary"]
 
     clean_obs = []
     for obs in analysis_data.get("observations", []):
-        san = _ground_and_sanitize(obs, formatted_data)
+        san = _ground_and_sanitize(obs, aggregate_text)
         if san:
             clean_obs.append(san)
     if not clean_obs:
@@ -337,55 +745,31 @@ def generate_report(
 
     clean_ins = []
     for ins in analysis_data.get("insights", []):
-        san = _ground_and_sanitize(ins, formatted_data)
+        san = _ground_and_sanitize(ins, aggregate_text)
         if san:
             clean_ins.append(san)
     if not clean_ins:
         clean_ins = fallback["analysis"]["insights"]
 
-    # 3. Generate Conclusion
-    conclusion_prompt = (
-        "You are AgniAI, an intelligent military assistant.\n"
-        "Generate a brief conclusion (2-4 sentences) summarizing findings from the analysis.\n\n"
-        "STRICT RULES:\n"
-        "1. Base your response 100% on the Formatted Data. Do not introduce new information.\n"
-        "2. Maximum 2-4 sentences.\n"
-        "3. Never hallucinate or extrapolate.\n\n"
-        f"User Query: {user_query}\n"
-        f"Formatted Data:\n{formatted_data}\n\n"
-        "Generate only the conclusion text."
-    )
+    grounded_analysis = {
+        "summary": clean_summary,
+        "observations": clean_obs,
+        "insights": clean_ins,
+    }
 
+    # ── 3. Generate Conclusion (query-type-specific) ─────────────────────
+    conclusion_engine = _CONCLUSION_ENGINES[effective_query_type]
+    raw_conclusion = conclusion_engine(aggregate_text, grounded_analysis, user_query)
+    
     conclusion_text = fallback["conclusion"]["summary"]
-    try:
-        payload = {
-            "model": DEFAULT_MODEL,
-            "messages": [{"role": "user", "content": conclusion_prompt}],
-            "stream": False,
-            "options": {
-                "temperature": 0.3,
-                "num_predict": 120,
-                "num_ctx": 1024,
-            },
-        }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=(8, 30))
-        resp.raise_for_status()
-        raw_conclusion = resp.json().get("message", {}).get("content", "").strip()
-        raw_conclusion = re.sub(r'^(?:CONCLUSION\s*:\s*)', '', raw_conclusion, flags=re.IGNORECASE)
-        raw_conclusion = re.sub(r'[*_`#]', '', raw_conclusion).strip()
-        clean_conclusion = _ground_and_sanitize(raw_conclusion, formatted_data)
+    if raw_conclusion:
+        clean_conclusion = _ground_and_sanitize(raw_conclusion, aggregate_text)
         if clean_conclusion and len(clean_conclusion) > 5:
             conclusion_text = clean_conclusion
-    except Exception as exc:
-        logger.debug("Ollama conclusion generation failed: %s", exc)
 
     return {
         "introMessage": intro_message,
-        "analysis": {
-            "summary": clean_summary,
-            "observations": clean_obs,
-            "insights": clean_ins
-        },
+        "analysis": grounded_analysis,
         "conclusion": {
             "summary": conclusion_text
         }
