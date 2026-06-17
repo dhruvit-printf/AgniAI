@@ -2,21 +2,6 @@
 admin_routes.py
 ===============
 Admin chatbot Flask blueprint for AgniAI.
-
-Registers:
-  POST /api/admin/chat       — main admin chat endpoint
-  POST /api/admin/classify   — classify-only (no .NET call; for debugging)
-  GET  /api/admin/health     — admin route health check
-
-Flow for /api/admin/chat:
-  1. Receive admin question from frontend
-  2. Resolve company and platoon mentions from query to numeric IDs
-  3. classify_admin_intent()    → structured intent dict (Python internal)
-  4. format_admin_payload()     → camelCase JSON payload for .NET
-     └─ includes commandId, batchId, platoonId, companyId, fullName from the frontend request
-  5. POST payload to .NET       → https://<DOTNET_API_BASE_URL>/api/AiCommand/execute
-  6. generate_intro_message()   → LLM generates a single clean intro sentence
-  7. Return raw .NET data directly in data.result — NO formatting layer
 """
 
 from __future__ import annotations
@@ -87,6 +72,43 @@ def _register_rate_limits(app):
             logger.info("Admin rate limit applied: %s", ADMIN_RATE_LIMIT)
     except Exception as exc:
         logger.warning("Could not register admin rate limit: %s", exc)
+
+
+# =============================================================================
+# COMBINE REPORT INTO SINGLE MESSAGE STRING
+# =============================================================================
+
+def _build_combined_message(report: Dict[str, str]) -> str:
+    """
+    Combine introMessage + analysis + conclusion into one single string
+    that the frontend will display as the message bubble text.
+
+    Format:
+        <introMessage>
+
+        Analysis:
+        <analysis>
+
+        Conclusion:
+        <conclusion>
+
+    Any missing section is skipped cleanly.
+    """
+    parts = []
+
+    intro = (report.get("introMessage") or "").strip()
+    if intro:
+        parts.append(intro)
+
+    analysis = (report.get("analysis") or "").strip()
+    if analysis:
+        parts.append(f"Analysis:\n{analysis}")
+
+    conclusion = (report.get("conclusion") or "").strip()
+    if conclusion:
+        parts.append(f"Conclusion:\n{conclusion}")
+
+    return "\n\n".join(parts)
 
 
 # =============================================================================
@@ -387,15 +409,10 @@ def _execute_multi_operation(
 
 def _success_response(data: Dict, http_status: int = 200, message: str = ""):
     """
-    Flatten all keys from data directly into the response payload so that
-    analysis, conclusion, introMessage, queryType, confidence, data (dotnet records)
-    etc. are all accessible at the root level of the JSON response.
-
-    Before (broken):
-        { "status": true, "message": "intro", "data": { "analysis": "...", "conclusion": "...", "data": {...} } }
-
-    After (fixed):
-        { "status": true, "message": "intro", "analysis": "...", "conclusion": "...", "data": {...} }
+    Flatten all keys from data directly into the response payload.
+    The `message` field contains the FULL combined text
+    (intro + analysis + conclusion) so the frontend displays everything
+    from just response.message without any frontend changes.
     """
     payload: Dict[str, Any] = {
         "status":     True,
@@ -560,7 +577,6 @@ def admin_chat():
             and len(query_plan.operations) >= 2):
 
         primary_intent  = query_plan.operations[0].intent_result
-        primary_payload = query_plan.operations[0].dotnet_payload
 
         logger.info(
             "Admin multi-op: session=%s type=%s ops=%d",
@@ -585,6 +601,9 @@ def admin_chat():
             combined_result=combined_data
         )
 
+        # ── Combine intro + analysis + conclusion into ONE message string ──
+        combined_message = _build_combined_message(report)
+
         if combined_data is not None:
             _session_context.update(session_id, message, primary_intent, combined_data)
 
@@ -606,7 +625,8 @@ def admin_chat():
             session_id, elapsed_ms(),
         )
 
-        return _success_response(response_data, message=report["introMessage"])
+        # message = combined string so frontend shows everything
+        return _success_response(response_data, message=combined_message)
 
     # ══════════════════════════════════════════════════════════════════════
     # SIMPLE PATH
@@ -624,29 +644,27 @@ def admin_chat():
 
     # ── Unrecognised query ─────────────────────────────────────────────────
     if intent_result.get("category") is None:
+        unrecognised_msg = (
+            "Sorry, I was unable to understand your request. "
+            "I can help with Performance, Leave, Attendance, Medical, Equipment, "
+            "Verification, Distribution, and Skills information. "
+            "Please ask a relevant question."
+        )
         response_data = {
-            "queryType":     query_plan.query_type.value,
-            "confidence":    round(query_plan.confidence, 2),
-            "queryPlan":     query_plan.to_dict(),
+            "queryType":    query_plan.query_type.value,
+            "confidence":   round(query_plan.confidence, 2),
+            "queryPlan":    query_plan.to_dict(),
             "dotnetPayload": {},
-            "result":        None,
-            "intent":        intent_result,
-            "introMessage":  "",
-            "analysis":      "",
-            "conclusion":    "",
-            "data":          {},
+            "result":       None,
+            "intent":       intent_result,
+            "introMessage": unrecognised_msg,
+            "analysis":     "",
+            "conclusion":   "",
+            "data":         {},
         }
         if session_id and session_id != "admin-default":
             response_data["sessionId"] = session_id
-        return _success_response(
-            response_data,
-            message=(
-                "Sorry, I was unable to understand your request. "
-                "I can help with Performance, Leave, Attendance, Medical, Equipment, "
-                "Verification, Distribution, and Skills information. "
-                "Please ask a relevant question."
-            ),
-        )
+        return _success_response(response_data, message=unrecognised_msg)
 
     # ── Step 2: Build .NET payload ─────────────────────────────────────────
     dotnet_payload = format_admin_payload(intent_result)
@@ -675,10 +693,14 @@ def admin_chat():
         combined_result=dotnet_data
     )
 
+    # ── Combine intro + analysis + conclusion into ONE message string ──────
+    # This is what the frontend reads from response.message
+    combined_message = _build_combined_message(report)
+
     if dotnet_data is not None:
         _session_context.update(session_id, message, intent_result, dotnet_data)
 
-    # ── Step 5: Build response — all fields flat at root level ─────────────
+    # ── Step 5: Build response ─────────────────────────────────────────────
     response_data: Dict[str, Any] = {
         "queryType":    query_plan.query_type.value,
         "confidence":   round(query_plan.confidence, 2),
@@ -698,4 +720,5 @@ def admin_chat():
         elapsed_ms(),
     )
 
-    return _success_response(response_data, message=report["introMessage"])
+    # message = combined string so frontend shows everything from response.message
+    return _success_response(response_data, message=combined_message)
