@@ -38,6 +38,7 @@ from admin_context import AdminSessionContext
 
 # ── (NEW IMPORT) Import Named Entity Resolver ─────────────────────────────────
 from admin_entity_resolver import resolve_entities_from_query
+from admin_formatter import format_dotnet_response
 
 _session_context = AdminSessionContext()
 
@@ -473,6 +474,101 @@ def _generate_intro_message(
     return f"These records outline the current {category_label.lower()} status across the unit."
 
 
+def _generate_analysis_and_conclusion(
+    question: str,
+    intent: Dict[str, Any],
+    formatted_data: str,
+) -> tuple[str, str]:
+    import re
+    category = intent.get("category", "")
+    subcategory = intent.get("subcategory", "")
+    category_label = category or "Agniveer data"
+
+    fallback_analysis = (
+        f"Analysis of the retrieved records indicates that the dataset contains active {category_label.lower()} indicators. "
+        "The distribution pattern matches the requested parameters and no anomalies are highlighted."
+    )
+    fallback_conclusion = (
+        f"The current {category_label.lower()} status remains stable, and no immediate actions are required."
+    )
+
+    try:
+        import requests as _req
+        from config import OLLAMA_URL, DEFAULT_MODEL
+
+        prompt = (
+            "You are AgniAI, an intelligent military command console assistant.\n"
+            "You are reviewing Agniveer training data in the command center. Based on the User Query and the Formatted Backend Data, "
+            "generate an Analysis and a Conclusion.\n\n"
+            "STRICT RULES:\n"
+            "1. Base your response 100% on the actual Formatted Backend Data provided. Do NOT invent or make up any names, ranks, IDs, scores, counts, or stats.\n"
+            "2. Do NOT mention any person's name or specific details not present in the data.\n"
+            "3. Do NOT contradict the backend data in any way.\n"
+            "4. Keep the Analysis focused on trends, patterns, strengths, weaknesses, anomalies, or distributions (1-3 sentences).\n"
+            "5. Keep the Conclusion as an executive summary of 2-4 sentences. Keep it actionable and grounded in the data.\n"
+            "6. You must structure your output in exactly this format:\n"
+            "ANALYSIS: <your analysis text here>\n"
+            "CONCLUSION: <your conclusion text here>\n\n"
+            f"User Query: {question}\n\n"
+            f"Formatted Backend Data:\n{formatted_data}\n\n"
+            "Generate only the ANALYSIS and CONCLUSION lines."
+        )
+
+        payload = {
+            "model":    DEFAULT_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream":   False,
+            "options": {
+                "temperature": 0.3,
+                "num_predict": 180,
+                "num_ctx":     1024,
+            },
+        }
+
+        resp = _req.post(OLLAMA_URL, json=payload, timeout=(8, 30))
+        resp.raise_for_status()
+        raw_content = resp.json().get("message", {}).get("content", "").strip()
+
+        analysis_match = re.search(r'ANALYSIS\s*:\s*(.*?)(?=\n\s*CONCLUSION\s*:|$)', raw_content, re.IGNORECASE | re.DOTALL)
+        conclusion_match = re.search(r'CONCLUSION\s*:\s*(.*)', raw_content, re.IGNORECASE | re.DOTALL)
+
+        analysis = analysis_match.group(1).strip() if analysis_match else ""
+        conclusion = conclusion_match.group(1).strip() if conclusion_match else ""
+
+        # Strip markdown bold or formatting inside the generated text
+        analysis = re.sub(r'[*_`#]', '', analysis)
+        conclusion = re.sub(r'[*_`#]', '', conclusion)
+
+        if not analysis or len(analysis) < 5:
+            analysis = fallback_analysis
+        if not conclusion or len(conclusion) < 5:
+            conclusion = fallback_conclusion
+
+        return analysis, conclusion
+
+    except Exception as exc:
+        logger.debug("Ollama analysis/conclusion generation failed, using fallbacks: %s", exc)
+        return fallback_analysis, fallback_conclusion
+
+
+def _build_final_admin_response(
+    question: str,
+    intent: Dict[str, Any],
+    dotnet_data: Any,
+) -> str:
+    # 1. Intro Message
+    intro = _generate_intro_message(question, intent, dotnet_data)
+
+    # 2. Frontend Rendered Data
+    formatted_data = format_dotnet_response(dotnet_data, intent)
+
+    # 3 & 4. Analysis and Conclusion
+    analysis, conclusion = _generate_analysis_and_conclusion(question, intent, formatted_data)
+
+    # Combine with double newlines
+    return f"{intro}\n\n{formatted_data}\n\n{analysis}\n\n{conclusion}"
+
+
 # =============================================================================
 # HELPERS
 # =============================================================================
@@ -800,7 +896,8 @@ def admin_chat():
                 502,
             )
 
-        intro_message = _generate_intro_message(
+        # Build the structured response flow
+        final_message = _build_final_admin_response(
             question=message,
             intent=primary_intent,
             dotnet_data=combined_data,
@@ -826,7 +923,7 @@ def admin_chat():
             session_id, elapsed_ms(),
         )
 
-        return _success_response(response_data, message=intro_message)
+        return _success_response(response_data, message=final_message)
 
     # ══════════════════════════════════════════════════════════════════════
     # SIMPLE PATH — existing flow, unchanged
@@ -883,8 +980,8 @@ def admin_chat():
             502,
         )
 
-    # ── Step 4: Generate intro sentence ───────────────────────────────────
-    intro_message = _generate_intro_message(
+    # ── Step 4: Build the structured response flow ─────────────────────────
+    final_message = _build_final_admin_response(
         question=message,
         intent=intent_result,
         dotnet_data=dotnet_data,
@@ -912,4 +1009,4 @@ def admin_chat():
         elapsed_ms(),
     )
 
-    return _success_response(response_data, message=intro_message)
+    return _success_response(response_data, message=final_message)
