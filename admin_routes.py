@@ -61,6 +61,8 @@ from flask import Blueprint, jsonify, request
 
 from admin_intent import admin_normalize_query, classify_admin_intent, format_admin_payload
 from config import _is_greeting, _is_small_talk, _is_patriotic, GREETING_PHRASES
+from query_planner import plan_query, QueryType
+from result_combiner import intersect_results, merge_results, compare_results
 
 logger = logging.getLogger(__name__)
 
@@ -582,6 +584,58 @@ def _call_dotnet(payload: Dict) -> tuple[Any, Optional[str]]:
         return None, f"Backend returned invalid JSON: {exc}"
 
 
+def _execute_multi_operation(
+    query_plan,
+    id_filters: Dict,
+    full_name: str,
+) -> tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute a multi-operation query plan.
+
+    Runs each sub-operation through _call_dotnet() sequentially,
+    then combines results based on the plan's query_type.
+
+    Returns (combined_result, error_message).
+    """
+    results = []
+    labeled_results = []
+
+    for i, op in enumerate(query_plan.operations):
+        payload = dict(op.dotnet_payload)
+        payload.update(id_filters)
+        if full_name:
+            payload["fullName"] = full_name
+
+        logger.info(
+            "Multi-op %d/%d: sending to .NET: %s",
+            i + 1, len(query_plan.operations), json.dumps(payload),
+        )
+
+        data, error = _call_dotnet(payload)
+        if error:
+            logger.warning(
+                "Multi-op %d/%d failed: %s", i + 1, len(query_plan.operations), error,
+            )
+            return None, f"Sub-query {i + 1} failed: {error}"
+
+        results.append(data)
+        label = op.intent_result.get("category", f"Query {i + 1}")
+        labeled_results.append((label, data))
+
+    # Combine based on query type
+    if query_plan.query_type == QueryType.CROSS_FILTER:
+        combined = intersect_results(results, primary_index=0)
+    elif query_plan.query_type == QueryType.COMPARISON:
+        combined = compare_results(labeled_results)
+    elif query_plan.query_type == QueryType.MULTI_INDEPENDENT:
+        combined = merge_results(labeled_results)
+    else:
+        # Should not happen, but fallback
+        combined = results[0] if results else {}
+
+    return combined, None
+
+
 def _success_response(data: Dict, http_status: int = 200, message: str = ""):
     return jsonify({
         "status":     True,
@@ -661,9 +715,13 @@ def admin_classify():
     if full_name:
         dotnet_payload["fullName"] = full_name
 
+    # ── Query plan (for debugging) ─────────────────────────────────────────
+    query_plan = plan_query(message)
+
     response_data: Dict[str, Any] = {
         "intent":        intent_result,
         "dotnetPayload": dotnet_payload,
+        "queryPlan":     query_plan.to_dict(),
     }
     if session_id and session_id != "admin-default":
         response_data["sessionId"] = session_id
@@ -723,8 +781,72 @@ def admin_chat():
 
     elapsed_ms = lambda: round((time.time() - start_time) * 1000)
 
+    # ── Step 1: Normalize & plan ────────────────────────────────────────────
+    message    = admin_normalize_query(message)
+    query_plan = plan_query(message)
+
+    logger.info(
+        "Query plan: session=%s type=%s confidence=%.2f ops=%d reason=%s",
+        session_id,
+        query_plan.query_type.value,
+        query_plan.confidence,
+        len(query_plan.operations),
+        query_plan.reasoning,
+    )
+
+    # ── Multi-operation path (CROSS_FILTER / COMPARISON / MULTI_INDEPENDENT)
+    if (query_plan.query_type != QueryType.SIMPLE
+            and query_plan.confidence >= 0.5
+            and len(query_plan.operations) >= 2):
+
+        # Use the first operation's intent as the "primary" for intro/logging
+        primary_intent  = query_plan.operations[0].intent_result
+        primary_payload = query_plan.operations[0].dotnet_payload
+
+        logger.info(
+            "Admin multi-op: session=%s type=%s ops=%d",
+            session_id, query_plan.query_type.value, len(query_plan.operations),
+        )
+
+        combined_data, multi_error = _execute_multi_operation(
+            query_plan, id_filters, full_name,
+        )
+
+        if multi_error:
+            logger.warning("Admin multi-op failed: %s", multi_error)
+            return _error_response(
+                "Unable to fetch data at the moment. Please try again shortly.",
+                502,
+            )
+
+        intro_message = _generate_intro_message(
+            question=message,
+            intent=primary_intent,
+            dotnet_data=combined_data,
+        )
+
+        response_data: Dict[str, Any] = {
+            "intent":        primary_intent,
+            "dotnetPayload": primary_payload,
+            "queryPlan":     query_plan.to_dict(),
+            "result":        combined_data if combined_data is not None else {},
+        }
+
+        if session_id and session_id != "admin-default":
+            response_data["sessionId"] = session_id
+
+        logger.info(
+            "Admin multi-op complete: session=%s elapsed=%dms",
+            session_id, elapsed_ms(),
+        )
+
+        return _success_response(response_data, message=intro_message)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # SIMPLE PATH — existing flow, unchanged
+    # ══════════════════════════════════════════════════════════════════════
+
     # ── Step 1: Classify intent ────────────────────────────────────────────
-    message       = admin_normalize_query(message)
     intent_result = classify_admin_intent(message)
     logger.info(
         "Admin intent: session=%s category=%s subcategory=%s confidence=%s",
