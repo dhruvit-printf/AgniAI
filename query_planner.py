@@ -2,24 +2,6 @@
 query_planner.py  (v2 — extended)
 ==================================
 Query Planning Layer for the AgniAI Admin Chatbot.
-
-WHAT CHANGED FROM v1
----------------------
-1.  ANALYTICS QueryType added — recognises "highest average", "rank sections",
-    "which unit has most absconded", "best sport" etc.
-2.  Nested / N-way cross filters — `_extract_cross_filter_fragments` now returns
-    a list of 2+ fragments so three-way intersections work end-to-end.
-3.  Multi-filter cross category — CROSS_FILTER keyword list extended to cover
-    Leave, Medical, Attendance connectors ("on leave", "with medical",
-    "attending today") not just sport connectors.
-4.  Filtered COMPARISON — new helper `_extract_filtered_comparison_fragments`
-    detects "Compare PPT and BEPT among cricket players" and returns comparison
-    fragments each carrying the filter embedded ("ppt cricket", "bept cricket").
-5.  Group-by hint — SubOperation gains an optional `group_by` field extracted
-    by `_extract_group_by`.
-6.  Backward-compatible — all existing behaviour for SIMPLE / CROSS_FILTER /
-    COMPARISON / MULTI_INDEPENDENT is unchanged; new paths only activate on
-    new signals.
 """
 
 from __future__ import annotations
@@ -328,7 +310,7 @@ def _enrich_right(right_fragment: str) -> str:
     """Prefix sport fragments with 'sport' so classify_admin_intent picks Skills."""
     for sport in _SPORT_NAMES:
         if sport in right_fragment:
-            return f"sport {sport}"
+            return f"sport {right_fragment}"
     return right_fragment
 
 
@@ -378,6 +360,14 @@ def _extract_cross_filter_fragments(
     1. Split on the first strong keyword (e.g. "who plays").
     2. Check if the right side itself contains another cross-filter signal
        — if so, split again to produce a third fragment.
+
+    IMPORTANT: nested-pattern detection must run on the RAW (un-enriched)
+    right-hand fragment. `_enrich_right` rewrites a fragment so the sport
+    name dominates it for classification purposes; if that rewrite happens
+    *before* we search for "and is" / "and are" / etc., the trailing
+    third fragment (e.g. "...and is currently on leave") gets silently
+    discarded. So we keep the raw text for splitting and only call
+    `_enrich_right` on the final fragments that get returned.
     """
     primary_split: Optional[Tuple[str, str]] = None
 
@@ -387,7 +377,7 @@ def _extract_cross_filter_fragments(
             left  = text_lower[:idx].strip()
             right = text_lower[idx:].strip()
             if left and right:
-                primary_split = (left, _enrich_right(right))
+                primary_split = (left, right)
                 break
 
     if primary_split is None:
@@ -400,7 +390,7 @@ def _extract_cross_filter_fragments(
                     lc = _detect_categories(left)
                     rc = _detect_categories(_enrich_right(right))
                     if lc and rc and lc[0] != rc[0]:
-                        primary_split = (left, _enrich_right(right))
+                        primary_split = (left, right)
                         break
 
     if primary_split is None:
@@ -431,7 +421,7 @@ def _extract_cross_filter_fragments(
                 return fragments
 
     # No nested split — just two fragments
-    fragments.append(right)
+    fragments.append(_enrich_right(right))
     return fragments
 
 
@@ -482,7 +472,7 @@ def _extract_filtered_comparison_fragments(
 
     filter_text = filter_m.group(1).strip()
     # Strip common noise
-    filter_text = re.sub(r"\b(?:players?|personnel|agniveers?|trainees?)\b", "", filter_text).strip()
+    filter_text = re.sub(r"\b(?:players?|person|agniveers?|trainees?)\b", "", filter_text).strip()
     if not filter_text:
         return None
 
