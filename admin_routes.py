@@ -36,7 +36,6 @@ from query_planner import plan_query, QueryType
 from result_combiner import intersect_results, merge_results, compare_results
 from admin_context import AdminSessionContext
 
-# ── (NEW IMPORT) Import Named Entity Resolver ─────────────────────────────────
 from admin_entity_resolver import resolve_entities_from_query
 from admin_formatter import format_dotnet_response
 from admin_report_generator import generate_admin_report
@@ -251,13 +250,6 @@ def _build_conversational_response(message: str, body: Dict, session_id: str) ->
 
 
 # =============================================================================
-# INTRO MESSAGE GENERATOR
-# =============================================================================
-
-
-
-
-# =============================================================================
 # HELPERS
 # =============================================================================
 
@@ -284,7 +276,7 @@ def _get_id_filters(data: Dict) -> Dict[str, int]:
     command_id = _safe_int(data.get("commandId", data.get("command_id")))
     batch_id   = _safe_int(data.get("batchId",   data.get("batch_id")))
     platoon_id = _safe_int(data.get("platoonId", data.get("platoon_id")))
-    company_id = _safe_int(data.get("companyId", data.get("company_id")))  # (UPDATED) Support explicit companyId
+    company_id = _safe_int(data.get("companyId", data.get("company_id")))
 
     if command_id is not None:
         filters["commandId"] = command_id
@@ -293,7 +285,7 @@ def _get_id_filters(data: Dict) -> Dict[str, int]:
     if platoon_id is not None:
         filters["platoonId"] = platoon_id
     if company_id is not None:
-        filters["companyId"] = company_id  # (UPDATED)
+        filters["companyId"] = company_id
 
     return filters
 
@@ -355,11 +347,6 @@ def _execute_multi_operation(
 ) -> tuple[Optional[Dict], Optional[str]]:
     """
     Execute a multi-operation query plan.
-
-    Runs each sub-operation through _call_dotnet() sequentially,
-    then combines results based on the plan's query_type.
-
-    Returns (combined_result, error_message).
     """
     results = []
     labeled_results = []
@@ -386,7 +373,6 @@ def _execute_multi_operation(
         label = op.intent_result.get("category", f"Query {i + 1}")
         labeled_results.append((label, data))
 
-    # Combine based on query type
     if query_plan.query_type == QueryType.CROSS_FILTER:
         combined = intersect_results(results, primary_index=0)
     elif query_plan.query_type == QueryType.COMPARISON:
@@ -394,19 +380,30 @@ def _execute_multi_operation(
     elif query_plan.query_type == QueryType.MULTI_INDEPENDENT:
         combined = merge_results(labeled_results)
     else:
-        # Should not happen, but fallback
         combined = results[0] if results else {}
 
     return combined, None
 
 
 def _success_response(data: Dict, http_status: int = 200, message: str = ""):
-    return jsonify({
+    """
+    Flatten all keys from data directly into the response payload so that
+    analysis, conclusion, introMessage, queryType, confidence, data (dotnet records)
+    etc. are all accessible at the root level of the JSON response.
+
+    Before (broken):
+        { "status": true, "message": "intro", "data": { "analysis": "...", "conclusion": "...", "data": {...} } }
+
+    After (fixed):
+        { "status": true, "message": "intro", "analysis": "...", "conclusion": "...", "data": {...} }
+    """
+    payload: Dict[str, Any] = {
         "status":     True,
         "httpStatus": http_status,
         "message":    message,
-        "data":       data,
-    }), http_status
+    }
+    payload.update(data)
+    return jsonify(payload), http_status
 
 
 def _error_response(message: str, http_status: int = 400, data: Optional[Dict] = None):
@@ -471,7 +468,6 @@ def admin_classify():
     id_filters = _get_id_filters(body)
     full_name  = _get_full_name(body)
 
-    # ── (NEW) Resolve Named Entities (Company / Platoon) ─────────────────────
     resolved_entities = resolve_entities_from_query(
         message,
         existing_company_id=id_filters.get("companyId"),
@@ -490,7 +486,6 @@ def admin_classify():
     if full_name:
         dotnet_payload["fullName"] = full_name
 
-    # ── Query plan (for debugging) ─────────────────────────────────────────
     query_plan = plan_query(message)
 
     response_data: Dict[str, Any] = {
@@ -533,7 +528,7 @@ def admin_chat():
     if not message:
         return _error_response("message field is required and cannot be empty.", 400)
 
-    # ── (NEW) Resolve Named Entities (Company / Platoon) ─────────────────────
+    # ── Resolve Named Entities (Company / Platoon) ─────────────────────────
     resolved_entities = resolve_entities_from_query(
         message,
         existing_company_id=id_filters.get("companyId"),
@@ -559,12 +554,11 @@ def admin_chat():
         query_plan.reasoning,
     )
 
-    # ── Multi-operation path (CROSS_FILTER / COMPARISON / MULTI_INDEPENDENT)
+    # ── Multi-operation path ────────────────────────────────────────────────
     if (query_plan.query_type != QueryType.SIMPLE
             and query_plan.confidence >= 0.5
             and len(query_plan.operations) >= 2):
 
-        # Use the first operation's intent as the "primary" for intro/logging
         primary_intent  = query_plan.operations[0].intent_result
         primary_payload = query_plan.operations[0].dotnet_payload
 
@@ -595,13 +589,13 @@ def admin_chat():
             _session_context.update(session_id, message, primary_intent, combined_data)
 
         response_data: Dict[str, Any] = {
-            "queryType":     query_plan.query_type.value,
-            "confidence":    round(query_plan.confidence, 2),
-            "introMessage":  report["introMessage"],
-            "data":          combined_data if combined_data is not None else {},
-            "analysis":      report["analysis"],
-            "conclusion":    report["conclusion"],
-            "queryPlan":     query_plan.to_dict(),
+            "queryType":    query_plan.query_type.value,
+            "confidence":   round(query_plan.confidence, 2),
+            "introMessage": report["introMessage"],
+            "analysis":     report["analysis"],
+            "conclusion":   report["conclusion"],
+            "data":         combined_data if combined_data is not None else {},
+            "queryPlan":    query_plan.to_dict(),
         }
 
         if session_id and session_id != "admin-default":
@@ -615,7 +609,7 @@ def admin_chat():
         return _success_response(response_data, message=report["introMessage"])
 
     # ══════════════════════════════════════════════════════════════════════
-    # SIMPLE PATH — existing flow, unchanged
+    # SIMPLE PATH
     # ══════════════════════════════════════════════════════════════════════
 
     # ── Step 1: Classify intent ────────────────────────────────────────────
@@ -637,6 +631,10 @@ def admin_chat():
             "dotnetPayload": {},
             "result":        None,
             "intent":        intent_result,
+            "introMessage":  "",
+            "analysis":      "",
+            "conclusion":    "",
+            "data":          {},
         }
         if session_id and session_id != "admin-default":
             response_data["sessionId"] = session_id
@@ -669,7 +667,7 @@ def admin_chat():
             502,
         )
 
-    # ── Step 4: Build the structured response flow ─────────────────────────
+    # ── Step 4: Generate report (intro + analysis + conclusion) ────────────
     report = generate_admin_report(
         user_query=message,
         query_type=query_plan.query_type.value,
@@ -680,15 +678,15 @@ def admin_chat():
     if dotnet_data is not None:
         _session_context.update(session_id, message, intent_result, dotnet_data)
 
-    # ── Step 5: Build response ─────────────────────────────────────────────
+    # ── Step 5: Build response — all fields flat at root level ─────────────
     response_data: Dict[str, Any] = {
-        "queryType":     query_plan.query_type.value,
-        "confidence":    round(query_plan.confidence, 2),
-        "introMessage":  report["introMessage"],
-        "data":          dotnet_data if dotnet_data is not None else {},
-        "analysis":      report["analysis"],
-        "conclusion":    report["conclusion"],
-        "queryPlan":     query_plan.to_dict(),
+        "queryType":    query_plan.query_type.value,
+        "confidence":   round(query_plan.confidence, 2),
+        "introMessage": report["introMessage"],
+        "analysis":     report["analysis"],
+        "conclusion":   report["conclusion"],
+        "data":         dotnet_data if dotnet_data is not None else {},
+        "queryPlan":    query_plan.to_dict(),
     }
 
     if session_id and session_id != "admin-default":

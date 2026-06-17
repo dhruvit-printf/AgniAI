@@ -2,10 +2,11 @@
 admin_report_generator.py
 ==========================
 Dedicated reporting and analysis layer for the AgniAI Admin Chatbot.
-Generates:
-1. Intro Messages
-2. Data Analysis (cautious, data-backed)
-3. Executive Conclusions
+
+FIX: generate_analysis() and generate_conclusion() now pass the formatter's
+plain-text output as the sole data source for the LLM, AND strip any number
+from the LLM output that is not present in the formatted data.  This prevents
+hallucinated aggregates (e.g. "159 total days" when the real total is 87).
 """
 
 from __future__ import annotations
@@ -26,7 +27,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 _INTRO_TEMPLATES: Dict[Tuple[str, str], str] = {
-    # Performance
     ("Performance", "TopPerformers"):      "These assessment results highlight the strongest performers in the evaluation.",
     ("Performance", "LowestPerformers"):   "These results identify the individuals requiring additional training support.",
     ("Performance", "AverageScore"):       "The average scores outline overall achievement levels across the group.",
@@ -41,38 +41,73 @@ _INTRO_TEMPLATES: Dict[Tuple[str, str], str] = {
     ("Performance", "AttemptWise"):        "Attempt-wise statistics track trainee progress across successive evaluation cycles.",
     ("Performance", "BestAttempt"):        "Best attempt outcomes reflect peak trainee achievements in this evaluation.",
     ("Performance", "Comparison"):         "This comparison highlights achievement differences across the selected categories.",
-    # Leave
     ("Leave", "MostLeaveTaken"):           "Leave patterns highlight the person with the highest absence rate.",
     ("Leave", "LeastLeaveTaken"):          "Leave summaries identify the person with the highest duty presence.",
     ("Leave", "CurrentLeave"):             "Current leave records outline person availability across the unit.",
     ("Leave", "AbscondedLeave"):           "These records flag persons currently absent without official leave.",
-    # Medical
     ("Medical", "ActiveCases"):            "This summary captures current active cases undergoing medical attention.",
     ("Medical", "BMIAnalysis"):            "BMI records outline fitness levels and weight distribution across persons.",
     ("Medical", "DiseaseStats"):           "Health records highlight the most common medical cases reported recently.",
-    # Attendance
     ("Attendance", "MonthlyAttendance"):   "Monthly attendance trends provide a clear view of person participation.",
     ("Attendance", "PresentToday"):        "Today's attendance records outline current person presence on campus.",
     ("Attendance", "StrengthBreakdown"):   "The strength breakdown captures unit headcount and active person counts.",
-    # Verification
     ("Verification", "PendingVerification"):   "Verification files track documents currently awaiting official review.",
     ("Verification", "CompletedVerification"): "These records confirm files that have cleared the verification process.",
-    # Equipment
     ("Equipment", "EquipmentStats"):           "This inventory summary reflects current equipment counts and status.",
     ("Equipment", "OverdueEquipment"):         "These records flag issued gear currently overdue for return.",
     ("Equipment", "ReturnedEquipment"):        "This quality review highlights equipment returned in sub-standard condition.",
     ("Equipment", "IssuedItems"):              "Here is the complete list of items issued to Agniveers.",
     ("Equipment", "ProcuredItems"):            "Here is the complete list of items procured by Agniveers.",
-    # Distribution
     ("Distribution", "LatestDistribution"):    "Recent distribution logs track the latest issue of supplies and gear.",
     ("Distribution", "DistributionByUnit"):    "Distribution logs trace supply allocation across different units.",
     ("Distribution", "UnassignedItems"):       "Supply records outline items currently unassigned to any unit.",
     ("Distribution", "TopUnit"):               "This summary highlights the unit receiving the largest supply allocation.",
-    # Skills
     ("Skills", "BySport"):                     "Sport rosters track athletic participation and team assignments.",
     ("Skills", "ByClass"):                     "Class rosters group persons by their administrative designations.",
     ("Skills", "BloodGroup"):                  "Medical profiles outline the blood group distribution across the group.",
 }
+
+
+# =============================================================================
+# GROUNDING GUARD
+# =============================================================================
+
+def _extract_numbers_from_text(text: str) -> set:
+    """Return all numeric strings found in *text* (integers and decimals)."""
+    return set(re.findall(r"\b\d+(?:\.\d+)?\b", text or ""))
+
+
+def _strip_ungrounded_numbers(llm_text: str, grounded_text: str) -> str:
+    """
+    FIX: Remove any sentence from *llm_text* that contains a number not present
+    in *grounded_text*.  This prevents the LLM from hallucinating aggregate
+    totals, percentages, or counts that are not in the actual data.
+
+    Strategy:
+    - Split LLM output into sentences.
+    - For each sentence, extract all numbers.
+    - If every number in the sentence also appears in grounded_text → keep it.
+    - If any number is absent from grounded_text → drop that sentence.
+    - Rejoin kept sentences.
+    """
+    grounded_numbers = _extract_numbers_from_text(grounded_text)
+
+    sentences = re.split(r"(?<=[.!?])\s+", (llm_text or "").strip())
+    kept: list[str] = []
+    for sentence in sentences:
+        sentence_numbers = _extract_numbers_from_text(sentence)
+        if not sentence_numbers:
+            kept.append(sentence)
+            continue
+        if sentence_numbers.issubset(grounded_numbers):
+            kept.append(sentence)
+        else:
+            bad = sentence_numbers - grounded_numbers
+            logger.debug(
+                "Grounding guard: dropped sentence with unverified numbers %s: %r",
+                bad, sentence,
+            )
+    return " ".join(kept).strip()
 
 
 # =============================================================================
@@ -91,24 +126,15 @@ def _build_intro_prompt(question: str, intent: Dict[str, Any]) -> str:
     class_name  = intent.get("class", "")
 
     context_parts = []
-    if category:
-        context_parts.append(f"Module: {category}")
-    if subcategory:
-        context_parts.append(f"Query type: {subcategory}")
-    if number:
-        context_parts.append(f"Requested count: {number}")
-    if section:
-        context_parts.append(f"Section filter: {section}")
-    if leave_type:
-        context_parts.append(f"Leave type: {leave_type}")
-    if grading:
-        context_parts.append(f"Grading filter: {grading}")
-    if unit_name:
-        context_parts.append(f"Unit filter: {unit_name}")
-    if sport:
-        context_parts.append(f"Sport filter: {sport}")
-    if class_name:
-        context_parts.append(f"Class filter: {class_name}")
+    if category:    context_parts.append(f"Module: {category}")
+    if subcategory: context_parts.append(f"Query type: {subcategory}")
+    if number:      context_parts.append(f"Requested count: {number}")
+    if section:     context_parts.append(f"Section filter: {section}")
+    if leave_type:  context_parts.append(f"Leave type: {leave_type}")
+    if grading:     context_parts.append(f"Grading filter: {grading}")
+    if unit_name:   context_parts.append(f"Unit filter: {unit_name}")
+    if sport:       context_parts.append(f"Sport filter: {sport}")
+    if class_name:  context_parts.append(f"Class filter: {class_name}")
 
     context_str = "\n".join(context_parts)
 
@@ -150,7 +176,6 @@ def _sanitize_intro(text: str) -> str:
         re.IGNORECASE,
     )
     text = meta_prefixes.sub("", text).strip()
-
     text = re.sub(r"\s*\([^)]{0,200}\)\s*$", "", text).strip()
     text = re.sub(r"\s*[Nn]ote\s*[:—–-].*$", "", text, flags=re.DOTALL).strip()
     text = re.sub(r"\s*[Pp]lease note.*$", "", text, flags=re.DOTALL).strip()
@@ -161,7 +186,6 @@ def _sanitize_intro(text: str) -> str:
 
     if text.endswith("?"):
         text = text.rstrip("?").rstrip() + "."
-
     if text and text[-1] not in ".!":
         text += "."
 
@@ -202,10 +226,8 @@ def generate_intro_message(
     query_type: str,
     intent_result: Dict[str, Any]
 ) -> str:
-    """
-    Generate a 1-3 sentence introduction detailing what was requested.
-    """
-    category = intent_result.get("category", "")
+    """Generate a 1-sentence introduction for the data being shown."""
+    category    = intent_result.get("category", "")
     subcategory = intent_result.get("subcategory", "")
 
     try:
@@ -223,14 +245,17 @@ def generate_intro_message(
         }
         resp = requests.post(OLLAMA_URL, json=payload, timeout=(8, 30))
         resp.raise_for_status()
-        raw_text = resp.json().get("message", {}).get("content", "").strip()
+        raw_text   = resp.json().get("message", {}).get("content", "").strip()
         clean_text = _sanitize_intro(raw_text)
 
         if clean_text and 10 <= len(clean_text) <= 200:
             logger.debug("LLM intro (sanitized): %s", clean_text)
             return clean_text
 
-        logger.debug("LLM intro rejected after sanitize (raw=%r clean=%r), using template", raw_text, clean_text)
+        logger.debug(
+            "LLM intro rejected after sanitize (raw=%r clean=%r), using template",
+            raw_text, clean_text,
+        )
     except Exception as exc:
         logger.debug("Ollama intro generation failed, using template fallback: %s", exc)
 
@@ -248,15 +273,20 @@ def generate_analysis(
     combined_result: Any
 ) -> str:
     """
-    Analyze returned backend data according to the query type and query.
-    Must be fully data-backed and use cautious, tentative language.
+    Analyze returned backend data.
+
+    FIX: The formatted plain-text (not the raw .NET JSON) is used as the
+    prompt data source, and the LLM output is passed through
+    _strip_ungrounded_numbers() before returning. Any number the LLM invents
+    that is absent from the formatter output is silently removed.
     """
     intent = classify_admin_intent(user_query)
     category = intent.get("category", "")
     category_label = category or "Agniveer data"
 
     fallback_analysis = (
-        f"Analysis of the retrieved records indicates that the dataset contains active {category_label.lower()} indicators. "
+        f"Analysis of the retrieved records indicates that the dataset contains "
+        f"active {category_label.lower()} indicators. "
         "The distribution pattern matches the requested parameters and no anomalies are highlighted."
     )
 
@@ -278,18 +308,19 @@ def generate_analysis(
 
     prompt = (
         "You are AgniAI, an intelligent military command console assistant.\n"
-        "You are reviewing Agniveer training data in the command center. Based on the User Query and the Formatted Backend Data, "
-        "generate a detailed Analysis.\n\n"
+        "You are reviewing Agniveer training data. Based on the User Query and the "
+        "Formatted Backend Data below, generate a brief Analysis.\n\n"
         "STRICT RULES:\n"
         f"1. Focus instruction: {type_instruction}\n"
-        "2. Base your response 100% on the actual Formatted Backend Data provided. Do NOT invent or make up any names, ranks, IDs, scores, counts, stats, or rankings.\n"
-        "3. Analyze actual returned data, and mention trends, patterns, strengths, weaknesses, concentrations, or anomalies where present.\n"
-        "4. Do NOT mention any person's name or specific details not present in the data.\n"
-        "5. Do NOT contradict the backend data in any way.\n"
-        "6. Use cautious/tentative language such as 'indicates', 'suggests', 'appears', or 'may reflect'.\n"
-        "7. Keep the Analysis focused and concise (1-3 sentences).\n"
-        "8. Do NOT include any 'CONCLUSION' section, recommendations, or executive summaries. Generate only the ANALYSIS text.\n"
-        "9. No markdown formatting (no asterisks, no headers, no bold text).\n\n"
+        "2. Base your response 100% on the Formatted Backend Data. "
+        "Do NOT invent or calculate any numbers, totals, percentages, or averages "
+        "that are not explicitly present in the data.\n"
+        "3. Only mention numbers that appear verbatim in the Formatted Backend Data.\n"
+        "4. Do NOT mention any person's name or specific details not in the data.\n"
+        "5. Use cautious language: 'indicates', 'suggests', 'appears', 'may reflect'.\n"
+        "6. Keep it concise (1-3 sentences).\n"
+        "7. Do NOT include recommendations, conclusions, or executive summaries.\n"
+        "8. No markdown formatting.\n\n"
         f"User Query: {user_query}\n\n"
         f"Formatted Backend Data:\n{formatted_data}\n\n"
         "Generate only the ANALYSIS text."
@@ -310,12 +341,14 @@ def generate_analysis(
         resp.raise_for_status()
         analysis = resp.json().get("message", {}).get("content", "").strip()
 
-        # Clean prefix and markdown
         analysis = re.sub(r'^(?:ANALYSIS\s*:\s*)', '', analysis, flags=re.IGNORECASE)
         analysis = re.sub(r'[*_`#]', '', analysis).strip()
 
         if analysis and len(analysis) >= 5:
-            return analysis
+            # FIX: strip any sentence containing a number not in the formatted data
+            grounded_analysis = _strip_ungrounded_numbers(analysis, formatted_data)
+            return grounded_analysis if grounded_analysis else fallback_analysis
+
     except Exception as exc:
         logger.debug("Ollama analysis generation failed: %s", exc)
 
@@ -328,14 +361,18 @@ def generate_conclusion(
     combined_result: Any
 ) -> str:
     """
-    Generate an executive summary conclusion of 2-4 sentences grounded entirely in data.
+    Generate an executive summary conclusion grounded entirely in data.
+
+    FIX: Same grounding guard applied — numbers not in the formatter output
+    are stripped from the conclusion before returning.
     """
     intent = classify_admin_intent(user_query)
     category = intent.get("category", "")
     category_label = category or "Agniveer data"
 
     fallback_conclusion = (
-        f"The current {category_label.lower()} status remains stable, and no immediate actions are required."
+        f"The current {category_label.lower()} status remains stable, "
+        "and no immediate actions are required."
     )
 
     formatted_data = format_dotnet_response(combined_result, intent)
@@ -344,16 +381,15 @@ def generate_conclusion(
 
     prompt = (
         "You are AgniAI, an intelligent military command console assistant.\n"
-        "You are reviewing Agniveer training data in the command center. Based on the User Query and the Formatted Backend Data, "
-        "generate a brief Conclusion/Executive Summary.\n\n"
+        "Based on the User Query and the Formatted Backend Data, generate a brief Conclusion.\n\n"
         "STRICT RULES:\n"
-        "1. Base your response 100% on the actual Formatted Backend Data provided. Do NOT invent or make up any names, ranks, IDs, scores, counts, or stats.\n"
-        "2. Do NOT mention any person's name or specific details not present in the data.\n"
-        "3. Do NOT contradict the backend data in any way.\n"
+        "1. Base your response 100% on the Formatted Backend Data. "
+        "Do NOT invent or calculate any numbers, totals, percentages, or averages "
+        "that are not explicitly present in the data.\n"
+        "2. Only mention numbers that appear verbatim in the Formatted Backend Data.\n"
+        "3. Do NOT mention any person's name or specific details not in the data.\n"
         "4. Maximum of 2-4 sentences.\n"
-        "5. The conclusion must be grounded entirely in backend data, representing a stable military command summary.\n"
-        "6. Do NOT include any 'ANALYSIS' or recommendations. Generate only the CONCLUSION text.\n"
-        "7. No markdown formatting (no asterisks, no headers, no bold text).\n\n"
+        "5. No markdown formatting.\n\n"
         f"User Query: {user_query}\n\n"
         f"Formatted Backend Data:\n{formatted_data}\n\n"
         "Generate only the CONCLUSION text."
@@ -374,12 +410,14 @@ def generate_conclusion(
         resp.raise_for_status()
         conclusion = resp.json().get("message", {}).get("content", "").strip()
 
-        # Clean prefix and markdown
         conclusion = re.sub(r'^(?:CONCLUSION\s*:\s*)', '', conclusion, flags=re.IGNORECASE)
         conclusion = re.sub(r'[*_`#]', '', conclusion).strip()
 
         if conclusion and len(conclusion) >= 5:
-            return conclusion
+            # FIX: strip any sentence containing a number not in the formatted data
+            grounded_conclusion = _strip_ungrounded_numbers(conclusion, formatted_data)
+            return grounded_conclusion if grounded_conclusion else fallback_conclusion
+
     except Exception as exc:
         logger.debug("Ollama conclusion generation failed: %s", exc)
 
@@ -392,15 +430,13 @@ def generate_admin_report(
     intent_result: Dict[str, Any],
     combined_result: Any
 ) -> Dict[str, str]:
-    """
-    Main reporting engine endpoint.
-    """
-    intro = generate_intro_message(user_query, query_type, intent_result)
-    analysis = generate_analysis(user_query, query_type, combined_result)
+    """Main reporting engine endpoint."""
+    intro      = generate_intro_message(user_query, query_type, intent_result)
+    analysis   = generate_analysis(user_query, query_type, combined_result)
     conclusion = generate_conclusion(user_query, query_type, combined_result)
 
     return {
         "introMessage": intro,
-        "analysis": analysis,
-        "conclusion": conclusion,
+        "analysis":     analysis,
+        "conclusion":   conclusion,
     }

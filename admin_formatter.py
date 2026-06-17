@@ -8,7 +8,8 @@ REAL .NET RESPONSE SHAPES (from actual data):
 
 Leave:
   [ { "agniveerId": 1210, "agniveerNo": "A0701532AA", "fullName": "AMIT KUMAR",
-      "photoPath": null, "fromDate": "2026-06-24T06:30:00", "toDate": null, "remarks": "" } ]
+      "photoPath": null, "fromDate": "2026-06-24T06:30:00", "toDate": null, "remarks": "",
+      "totalDays": 5, "totalLeaveDays": 5 } ]
 
 Medical BMI:
   [ { "agniveerId": 616, "agniveerNo": "", "fullName": "", "photoPath": null,
@@ -155,14 +156,9 @@ def _rank_label(rank: int) -> str:
 # =============================================================================
 
 def _fmt_date(value: Any) -> str:
-    """
-    Format an ISO date string like "2026-06-24T06:30:00" → "24 Jun 2026".
-    Returns "-" for None / unparseable values.
-    """
     if not value:
         return "-"
     raw = str(value).strip()
-    # strip fractional seconds and timezone
     date_part = raw.split("T")[0]
     try:
         dt = datetime.strptime(date_part, "%Y-%m-%d")
@@ -172,14 +168,9 @@ def _fmt_date(value: Any) -> str:
 
 
 def _fmt_datetime(value: Any) -> str:
-    """
-    Format an ISO datetime like "2026-06-01T11:48:02.39" → "01 Jun 2026 11:48".
-    Returns "-" for None / unparseable values.
-    """
     if not value:
         return "-"
     raw = str(value).strip()
-    # drop fractional seconds
     raw_clean = raw.split(".")[0]
     try:
         dt = datetime.strptime(raw_clean, "%Y-%m-%dT%H:%M:%S")
@@ -190,8 +181,8 @@ def _fmt_datetime(value: Any) -> str:
 
 def _calc_days(item: Dict) -> Optional[int]:
     """
-    Compute leave / absence duration in days from fromDate → toDate.
-    If toDate is null (still on leave / absconded), counts up to today.
+    Compute leave duration in days from fromDate → toDate.
+    If toDate is null (still on leave), counts up to today.
     Returns None if fromDate is missing or unparseable.
     """
     from_raw = _get(item, "fromDate", "from", "startDate", "sentDate")
@@ -211,15 +202,28 @@ def _calc_days(item: Dict) -> Optional[int]:
         return None
 
 
+def _get_days_str(item: Dict) -> str:
+    """
+    FIX: Prefer pre-computed totalDays / totalLeaveDays from the .NET response.
+    Only fall back to _calc_days() if neither field is present.
+    This prevents mismatches when the .NET backend has already computed the
+    correct day count (e.g. excluding weekends, public holidays, etc.).
+    """
+    pre_computed = _get(item, "totalDays", "totalLeaveDays")
+    if pre_computed is not None:
+        try:
+            return str(int(pre_computed))
+        except (ValueError, TypeError):
+            return str(pre_computed)
+    computed = _calc_days(item)
+    return str(computed) if computed is not None else "-"
+
+
 # =============================================================================
 # RECORD EXTRACTOR  (handles any .NET wrapper shape)
 # =============================================================================
 
 def _extract_records(data: Any) -> List[Dict]:
-    """
-    Pull the list of records out of whatever shape .NET returned.
-    Handles: bare list, dict with data/Data/result/Result/records/persons wrapper.
-    """
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
@@ -234,10 +238,6 @@ def _extract_records(data: Any) -> List[Dict]:
 
 
 def _unwrap_data(data: Any) -> Any:
-    """
-    Unwrap a single-dict wrapper to get the inner data object.
-    Returns the inner dict/list or the original if no wrapper found.
-    """
     if isinstance(data, dict):
         for key in ("data", "Data", "result", "Result"):
             val = data.get(key)
@@ -251,7 +251,6 @@ def _unwrap_data(data: Any) -> Any:
 # =============================================================================
 
 def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> str:
-    """Format one agniveer performance record into clean readable plain text."""
     name        = _safe_str(_get(agniveer, "fullName", "name", "Name"))
     agniveer_no = _safe_str(_get(agniveer, "agniveerNo"), "")
     batch       = _safe_str(_get(agniveer, "batchName"), "")
@@ -339,13 +338,6 @@ def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> s
 
 
 def _format_performance_list(data: Any, intent_result: Dict) -> str:
-    """Handle the real .NET performance list response.
-
-    Supports multiple .NET response shapes:
-      1. List of agniveer records (TopPerformers, LowestPerformers, etc.)
-      2. Dict with nested lists like "sections", "distribution" (Comparison, BestAttempt)
-      3. Dict with flat aggregate fields (AverageScore, etc.)
-    """
     command_label = ""
     message_text = ""
 
@@ -375,13 +367,11 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
     label   = command_label or label_map.get(subcategory, subcategory or "Performance Data")
     sec_str = f" - {section_filter}" if section_filter else ""
 
-    # ── Case 1: inner data is a list of records ──────────────────────────────
     if isinstance(inner, list):
         records = inner
         if not records:
             return "No records found for this query."
 
-        # Check if records look like agniveer dicts (have fullName/agniveerNo/attempts)
         first = records[0] if records else {}
         is_agniveer = isinstance(first, dict) and any(
             k in first for k in ("fullName", "agniveerNo", "attempts", "bestTotal", "name")
@@ -405,11 +395,8 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
                 lines.append(message_text)
             return "\n".join(lines).strip()
 
-        # Records are aggregate/summary dicts (sections, distribution entries, etc.)
-        # Auto-detect and format as a table
         if records and isinstance(first, dict):
             keys = list(first.keys())
-            # Build human-readable headers from camelCase keys
             headers = [_camel_to_words(k) for k in keys]
             rows = []
             for item in records:
@@ -431,27 +418,22 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
                 lines.append(message_text)
             return "\n".join(lines).strip()
 
-        # Fallback for list of non-dict items
         lines = [f"{label}{sec_str}", ""]
         for i, item in enumerate(records, 1):
             lines.append(f"{i}. {item}")
         return "\n".join(lines).strip()
 
-    # ── Case 2: inner data is a dict with nested lists ───────────────────────
     if isinstance(inner, dict):
-        # Look for any nested list inside the dict (e.g., "sections", "distribution", "grades")
         nested_lists = {k: v for k, v in inner.items() if isinstance(v, list) and v}
         flat_fields  = {k: v for k, v in inner.items() if not isinstance(v, (list, dict))}
 
         lines = [f"{label}{sec_str}", ""]
 
-        # Show flat summary fields first
         if flat_fields:
             pairs = [(_camel_to_words(k), v) for k, v in flat_fields.items()]
             lines.append(_kv_block(pairs))
             lines.append("")
 
-        # Format each nested list as a table
         for list_key, list_items in nested_lists.items():
             if not list_items or not isinstance(list_items[0], dict):
                 continue
@@ -494,19 +476,10 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
     """
     Format .NET leave responses.
 
-    Real record shape:
-        {
-          "agniveerId":  1210,
-          "agniveerNo":  "A0701532AA",
-          "fullName":    "AMIT KUMAR",
-          "photoPath":   null,
-          "fromDate":    "2026-06-24T06:30:00",
-          "toDate":      null,
-          "remarks":     ""
-        }
-
-    remarks may be empty — toDate null means still on leave / absconded.
-    Days are auto-computed from fromDate → toDate (today if toDate is null).
+    FIX: _leave_rows now uses _get_days_str() which prefers the pre-computed
+    totalDays / totalLeaveDays fields returned by .NET, falling back to
+    _calc_days() only when neither field is present. This prevents day-count
+    mismatches caused by recomputing from raw timestamps.
     """
     leave_type = intent_result.get("leave_type", "")
     lt_str     = f" ({leave_type})" if leave_type else ""
@@ -520,8 +493,8 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
             to_raw      = _get(item, "toDate", "to", "endDate")
             to_date     = _fmt_datetime(to_raw) if to_raw else "Ongoing"
             remarks     = _safe_str(_get(item, "remarks", "leaveType", "type"), "-")
-            days        = _calc_days(item)
-            days_str    = str(days) if days is not None else "-"
+            # FIX: prefer pre-computed totalDays / totalLeaveDays over recalculation
+            days_str    = _get_days_str(item)
             prefix      = f"{i}. " if numbered else ""
             rows.append([f"{prefix}{name}", agniveer_no, from_date, to_date, days_str, remarks])
         return rows
@@ -531,9 +504,24 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
         records = _extract_records(data)
         if not records:
             return "No leave data found."
+
+        # FIX: compute total days from pre-computed field, not by summing _calc_days
+        total_days = 0
+        for item in records:
+            pre = _get(item, "totalDays", "totalLeaveDays")
+            if pre is not None:
+                try:
+                    total_days += int(pre)
+                except (ValueError, TypeError):
+                    pass
+            else:
+                computed = _calc_days(item)
+                if computed is not None:
+                    total_days += computed
+
         lines = [
             f"Most Leave Taken{lt_str}",
-            f"({len(records)} record{'s' if len(records) != 1 else ''})",
+            f"({len(records)} record{'s' if len(records) != 1 else ''}  |  Total days: {total_days})",
             "",
         ]
         lines.append(_plain_table(
@@ -547,9 +535,23 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
         records = _extract_records(data)
         if not records:
             return "No leave data found."
+
+        total_days = 0
+        for item in records:
+            pre = _get(item, "totalDays", "totalLeaveDays")
+            if pre is not None:
+                try:
+                    total_days += int(pre)
+                except (ValueError, TypeError):
+                    pass
+            else:
+                computed = _calc_days(item)
+                if computed is not None:
+                    total_days += computed
+
         lines = [
             f"Least Leave Taken{lt_str}",
-            f"({len(records)} record{'s' if len(records) != 1 else ''})",
+            f"({len(records)} record{'s' if len(records) != 1 else ''}  |  Total days: {total_days})",
             "",
         ]
         lines.append(_plain_table(
@@ -589,8 +591,7 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
             )
             to_raw      = _get(item, "toDate", "to")
             returned    = _fmt_date(to_raw) if to_raw else "Still Absconded"
-            days        = _calc_days(item)
-            days_str    = str(days) if days is not None else "-"
+            days_str    = _get_days_str(item)
             remarks     = _safe_str(_get(item, "remarks"), "-")
             rows.append([name, agniveer_no, since, returned, days_str, remarks])
 
@@ -661,7 +662,6 @@ def _format_medical(subcategory: str, data: Any, intent_result: Dict) -> str:
 
         rows = []
         for item in records:
-            # real fields: fullName, agniveerNo, heightCm, weightKg, bmiValue, bmiCategory
             name        = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
             agniveer_no = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
             height      = _get(item, "heightCm", "height", "Height")
@@ -756,10 +756,6 @@ def _format_attendance(subcategory: str, data: Any, intent_result: Dict) -> str:
             return "Monthly Attendance Summary\n\n" + _kv_block(pairs)
 
     if subcategory == "StrengthBreakdown":
-        # Real shape: { "success": true, "data": { "totalAgniveers": 610,
-        #   "activeCount": 608, "inactiveCount": 2, "presentToday": 0,
-        #   "absentToday": 0, "onLeave": 10,
-        #   "byPlatoon": [ { "platoonName": "PL-01", "count": 30 }, ... ] } }
         inner = _unwrap_data(data) if isinstance(data, dict) else data
         if isinstance(inner, dict):
             summary_pairs = []
@@ -811,21 +807,6 @@ def _format_attendance(subcategory: str, data: Any, intent_result: Dict) -> str:
 # =============================================================================
 
 def _format_verification(subcategory: str, data: Any, intent_result: Dict) -> str:
-    """
-    Real shapes:
-
-    Pending:
-      [ { "verificationId": 10, "agniveerId": 614, "agniveerNo": "A0701528W",
-          "fullName": "LAVEPREET", "photoPath": null,
-          "policeStation": "HAJIPUR", "sentDate": "2026-06-01T11:48:02.39" } ]
-
-    Completed:
-      [ { "verificationId": 36, "agniveerId": 822, "agniveerNo": "A0701778X",
-          "fullName": "Keshav Rana", "photoPath": null,
-          "policeStation": "BHAWARNA",
-          "sentDate": "2026-06-05T11:48:02.39",
-          "receivedDate": "2026-06-09T23:48:02.39", "status": "Verified" } ]
-    """
     is_pending  = subcategory == "PendingVerification"
     label       = "Pending" if is_pending else "Completed"
     records     = _extract_records(data)
@@ -837,14 +818,12 @@ def _format_verification(subcategory: str, data: Any, intent_result: Dict) -> st
         return f"No {label.lower()} verifications found."
 
     if is_pending:
-        # Columns: Name | No. | Police Station | Sent Date | Days Pending
         rows = []
         for item in records:
             name     = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
             no_      = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
             station  = _safe_str(_get(item, "policeStation", "station"), "-")
             sent     = _fmt_datetime(_get(item, "sentDate", "sent", "date"))
-            # days pending = sentDate → today
             days     = _calc_days({
                 "fromDate": _get(item, "sentDate", "sent"),
                 "toDate":   None,
@@ -852,10 +831,7 @@ def _format_verification(subcategory: str, data: Any, intent_result: Dict) -> st
             days_str = str(days) if days is not None else "-"
             rows.append([name, no_, station, sent, days_str])
 
-        lines = [
-            f"Pending Verifications ({len(records)})",
-            "",
-        ]
+        lines = [f"Pending Verifications ({len(records)})", ""]
         lines.append(_plain_table(
             ["Name", "No.", "Police Station", "Sent Date", "Days Pending"],
             rows,
@@ -863,7 +839,6 @@ def _format_verification(subcategory: str, data: Any, intent_result: Dict) -> st
         return "\n".join(lines)
 
     else:
-        # Columns: Name | No. | Police Station | Sent | Received | Status
         rows = []
         for item in records:
             name     = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
@@ -874,10 +849,7 @@ def _format_verification(subcategory: str, data: Any, intent_result: Dict) -> st
             status   = _safe_str(_get(item, "status", "Status"), "Completed")
             rows.append([name, no_, station, sent, received, status])
 
-        lines = [
-            f"Completed Verifications ({len(records)})",
-            "",
-        ]
+        lines = [f"Completed Verifications ({len(records)})", ""]
         lines.append(_plain_table(
             ["Name", "No.", "Police Station", "Sent", "Received", "Status"],
             rows,
@@ -894,9 +866,6 @@ def _format_equipment(subcategory: str, data: Any, intent_result: Dict) -> str:
         return _format_item_list(subcategory, data, intent_result)
 
     if subcategory == "EquipmentSummary":
-        # Real shape: { "success": true, "commandLabel": "Equipment Stats",
-        #   "data": { "totalAssigned": 505, "active": 444,
-        #             "returned": 61, "poorCondition": 0 } }
         inner = _unwrap_data(data) if isinstance(data, dict) else data
         if isinstance(inner, dict):
             label_map = {
@@ -1040,34 +1009,6 @@ def _format_item_list(subcategory: str, data: Any, intent_result: Dict) -> str:
 # =============================================================================
 
 def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> str:
-    """
-    Real shapes:
-
-    LatestDistribution:
-      { "success": true, "commandLabel": "Latest Distribution",
-        "data": { "distributionId": 5, "distributionDate": "2026-06-12T...",
-                  "teams": [ { "teamId": 4, "teamName": "14 Punjab",
-                               "memberCount": 21,
-                               "members": [ { "agniveerId": 639,
-                                              "agniveerNo": "A0701560L",
-                                              "fullName": "PARAMJEET SINGH",
-                                              "class": "SIKH", "rank": 1 } ] } ] } }
-
-    DistributionByUnit:
-      [ { "agniveerId": 946, "agniveerNo": "A0701915L", "fullName": "TARUN KUMAR",
-          "photoPath": null, "class": "DOGRA", "rank": 420,
-          "distributionEventId": 6, "distributionDate": "2026-06-15T..." } ]
-
-    UnassignedItems:
-      [ { "agniveerId": 605, "agniveerNo": "A0701515Y",
-          "fullName": "SHAVAIT CHOUDHARY", "photoPath": "...", "platoonName": "PL-01" } ]
-
-    TopUnit:
-      { "success": true, "commandLabel": "Top Unit",
-        "data": { "distributionEventId": 6, "distributionDate": "2026-06-15T...",
-                  "teamId": 4, "teamName": "14 Punjab", "agniveerCount": 10 } }
-    """
-
     if subcategory == "LatestDistribution":
         inner = _unwrap_data(data) if isinstance(data, dict) else data
         if isinstance(inner, dict):
@@ -1100,7 +1041,6 @@ def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> st
                         lines.append(_plain_table(["Rank", "Name", "No.", "Class"], rows))
                     lines.append("")
             else:
-                # no teams — show flat key-value
                 pairs = [
                     (_camel_to_words(k), v)
                     for k, v in inner.items()
@@ -1122,7 +1062,6 @@ def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> st
         if not records:
             return "No unit distribution data."
 
-        # Records contain individual agniveer entries with class, rank, distributionDate
         rows = []
         for item in records:
             name    = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
@@ -1155,16 +1094,11 @@ def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> st
             platoon = _safe_str(_get(item, "platoonName", "platoon"), "-")
             rows.append([name, no_, platoon])
 
-        lines = [
-            f"Unassigned Agniveers ({len(records)})",
-            "",
-        ]
+        lines = [f"Unassigned Agniveers ({len(records)})", ""]
         lines.append(_plain_table(["Name", "No.", "Platoon"], rows))
         return "\n".join(lines)
 
     if subcategory == "TopUnit":
-        # Real shape: { "success": true, "data": { "teamName": "14 Punjab",
-        #   "agniveerCount": 10, "distributionDate": "...", ... } }
         inner = _unwrap_data(data) if isinstance(data, dict) else data
         if isinstance(inner, dict):
             team_name  = _safe_str(_get(inner, "teamName", "unit", "unitName"), "Unknown")
@@ -1197,30 +1131,11 @@ def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> st
 # =============================================================================
 
 def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
-    """
-    Real shapes:
-
-    BySport:
-      [ { "agniveerId": 605, "agniveerNo": "A0701515Y",
-          "fullName": "SHAVAIT CHOUDHARY", "photoPath": "...",
-          "sports": "Cricket, Kabaddi", "platoonName": "PL-01" } ]
-
-    ByClass:
-      [ { "agniveerId": 680, "agniveerNo": "A0701619A",
-          "fullName": "SULINDER SINGH", "photoPath": null,
-          "class": "SIKH", "platoonName": "PL-01", "bloodGroup": "AB-" } ]
-
-    BloodGroup:
-      [ { "bloodGroup": "AB-", "count": 12 } ]   (aggregate)
-      OR individual records with "bloodGroup" field
-    """
-
     if subcategory == "BySport":
         records = _extract_records(data) if not isinstance(data, list) else data
         if not records:
             return "No sport data found."
 
-        # Detect if records are individual person records or aggregates
         is_aggregate = all(
             "fullName" not in item and ("sport" in item or "count" in item)
             for item in records
@@ -1236,7 +1151,6 @@ def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
             ]
             return "Roster by Sport\n\n" + _plain_table(["Sport", "Count"], rows)
 
-        # Individual person records with "sports" field (comma-separated string)
         rows = []
         for item in records:
             name    = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
@@ -1272,7 +1186,6 @@ def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
             ]
             return "Roster by Class\n\n" + _plain_table(["Class", "Count"], rows)
 
-        # Individual person records
         rows = []
         for item in records:
             name       = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
@@ -1414,17 +1327,12 @@ _FORMATTERS = {
     "Skills":       _format_skills,
 }
 
+
 def _detect_side_label(side_data: Any) -> str:
-    """
-    Extract a human-readable label for a comparison side from its
-    commandLabel or from the leaveTypeLabel of the first record.
-    """
     if isinstance(side_data, dict):
         command_label = (side_data.get("commandLabel") or "").strip()
         if command_label:
-            # e.g. "Top 10 Highest Leave — Medical" → use as-is
             return command_label
-        # Try leaveTypeLabel from first record in data list
         records = side_data.get("data") or []
         if records and isinstance(records, list) and isinstance(records[0], dict):
             leave_type = records[0].get("leaveTypeLabel") or records[0].get("leaveType")
@@ -1434,7 +1342,6 @@ def _detect_side_label(side_data: Any) -> str:
 
 
 def _format_leave_side_records(records: List[Dict], title: str) -> str:
-    """Render leave records from one comparison side as a named table."""
     if not records:
         return f"{title}\\nNo records found."
 
@@ -1445,17 +1352,9 @@ def _format_leave_side_records(records: List[Dict], title: str) -> str:
         platoon  = _safe_str(_get(item, "platoonName", "platoon"), "-")
         from_dt  = _fmt_datetime(_get(item, "fromDate", "from"))
         to_dt    = _fmt_datetime(_get(item, "toDate", "to"))
-        # Prefer the pre-computed totalDays / totalLeaveDays field
-        days = _get(item, "totalDays", "totalLeaveDays")
-        if days is not None:
-            try:
-                days_str = str(int(days))
-            except (ValueError, TypeError):
-                days_str = str(days)
-        else:
-            computed = _calc_days(item)
-            days_str = str(computed) if computed is not None else "-"
-        remarks = _safe_str(_get(item, "remarks"), "-")
+        # FIX: prefer pre-computed totalDays / totalLeaveDays
+        days_str = _get_days_str(item)
+        remarks  = _safe_str(_get(item, "remarks"), "-")
         rows.append([f"{i}. {name}", no_, platoon, from_dt, to_dt, days_str, remarks])
 
     table = _plain_table(
@@ -1471,7 +1370,6 @@ def _format_leave_side_records(records: List[Dict], title: str) -> str:
 
 
 def _format_performance_side_records(records: List[Dict], title: str) -> str:
-    """Render performance records from one comparison side as a named table."""
     if not records:
         return f"{title}\\nNo records found."
 
@@ -1496,10 +1394,6 @@ def _format_performance_side_records(records: List[Dict], title: str) -> str:
 
 
 def _format_generic_side_records(records: List[Dict], title: str) -> str:
-    """
-    Auto-detect columns from the first record and render a generic table.
-    Skips internal/noisy fields that are not useful for display.
-    """
     if not records:
         return f"{title}\\nNo records found."
 
@@ -1539,26 +1433,6 @@ def _format_generic_side_records(records: List[Dict], title: str) -> str:
 
 
 def _format_comparison_result(data: Any, intent_result: Dict) -> str:
-    """
-    Format a comparison queryType result from result_combiner.compare_results().
-
-    Expected shape:
-        {
-            "queryType": "comparison",
-            "sides": [
-                {
-                    "label": "Leave",
-                    "data": { "commandLabel": "...", "data": [...records...] },
-                    "metrics": { "recordCount": N }
-                },
-                ...
-            ],
-            "comparedMetrics": [...]
-        }
-
-    Renders each side's actual records as a fully labelled table with a
-    clear separator between sides — instead of a generic metrics-only table.
-    """
     sides = data.get("sides") or []
     if not sides:
         return "No comparison data available."
@@ -1570,11 +1444,9 @@ def _format_comparison_result(data: Any, intent_result: Dict) -> str:
         side_label = side.get("label", f"Side {side_idx + 1}")
         metrics    = side.get("metrics") or {}
 
-        # Determine the display title for this side
         detected_label = _detect_side_label(side_data)
         title = detected_label if detected_label else side_label
 
-        # Extract records
         records: List[Dict] = []
         if isinstance(side_data, dict):
             inner = side_data.get("data") or []
@@ -1592,7 +1464,6 @@ def _format_comparison_result(data: Any, intent_result: Dict) -> str:
 
         first = records[0] if records else {}
 
-        # Choose the right renderer based on record shape
         if isinstance(first, dict):
             is_leave = any(k in first for k in (
                 "fromDate", "totalDays", "totalLeaveDays",
@@ -1609,7 +1480,6 @@ def _format_comparison_result(data: Any, intent_result: Dict) -> str:
             else:
                 block = _format_generic_side_records(records, title)
         else:
-            # List of non-dict items
             lines = [title, ""]
             for i, item in enumerate(records, 1):
                 lines.append(f"{i}. {item}")
@@ -1617,21 +1487,19 @@ def _format_comparison_result(data: Any, intent_result: Dict) -> str:
 
         section_blocks.append(block)
 
-    # Join all sides with a clear horizontal separator
     separator = "\\n\\n" + ("\u2500" * 50) + "\\n\\n"
     return separator.join(section_blocks)
+
 
 # =============================================================================
 # MAIN PUBLIC ENTRY POINT
 # =============================================================================
-# Add this code block at the beginning of `format_dotnet_response` in `admin_formatter.py`
 
 def format_dotnet_response(
     dotnet_response: Any,
     intent_result: Dict,
 ) -> str:
     """
-    [H: Response Formatter]
     Convert raw .NET response + intent into clean plain-text.
     No markdown symbols, no emojis, no bold/italic markers.
     """
@@ -1644,15 +1512,15 @@ def format_dotnet_response(
     if isinstance(dotnet_response, str):
         return dotnet_response
 
-    # ── (NEW) COMPOSITE QUERY PLANNED FORMATTING INTERCEPTION ────────────────
+    # ── COMPOSITE QUERY PLANNED FORMATTING INTERCEPTION ──────────────────────
     if isinstance(dotnet_response, dict) and "queryType" in dotnet_response:
         qt = dotnet_response["queryType"]
-        
+
         if qt == "cross_filter":
             records = dotnet_response.get("records") or []
             if not records:
                 return "No records matched the cross-filter criteria."
-            
+
             lines = [f"Cross-Filtered Results ({len(records)} matched)", ""]
             first = records[0]
             if isinstance(first, dict):
@@ -1680,10 +1548,9 @@ def format_dotnet_response(
 
         elif qt == "comparison":
             return _format_comparison_result(dotnet_response, intent_result)
-            
-    # ── END OF COMPOSITE INTERCEPTION ────────────────────────────────────────
 
-    category = intent_result.get("category")
+    # ── STANDARD DISPATCH ─────────────────────────────────────────────────────
+    category    = intent_result.get("category")
     subcategory = intent_result.get("subcategory")
 
     if not category:
