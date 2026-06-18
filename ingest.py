@@ -1,9 +1,7 @@
 """
 ingest.py
 =========
-Ingestion pipeline for AgniAI.
-Supports: PDF files, web URLs, raw text strings, .txt files, .docx files,
-          and legacy .doc files (via LibreOffice → docx, antiword, or fitz fallback).
+
 """
 
 import json

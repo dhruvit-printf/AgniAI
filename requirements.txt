@@ -33,3 +33,6 @@ rank-bm25>=0.2.2
 psutil>=5.9.0
 
 python-dotenv>=1.0.0
+
+flask-socketio>=5.3.6
+simple-websocket>=1.0.0

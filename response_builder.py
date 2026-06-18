@@ -1,11 +1,7 @@
 """
 response_builder.py
 ====================
-Response Builder Layer for the AgniAI Admin Chatbot Response Pipeline.
 
-CRITICAL CONTRACT:
-  - Input: formatted parts, combined result, intent, metadata
-  - Output: exact JSON response structure per the Phase 4 specification.
 """
 
 from __future__ import annotations

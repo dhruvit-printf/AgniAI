@@ -3,14 +3,6 @@ app_launcher.py
 ===============
 PyInstaller entry point for AgniAI.
 
-This wrapper:
-1. Fixes sys.path so all AgniAI modules resolve correctly when running
-   from inside the PyInstaller bundle (sys._MEIPASS).
-2. Sets MEIPASS-aware base paths for data/ and index/ directories so
-   FAISS, docstore, and BM25 files are written NEXT TO the executable,
-   not inside the read-only bundle.
-3. Loads .env from the same directory as the executable.
-4. Then hands off to app.py exactly as normal.
 """
 
 import os

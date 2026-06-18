@@ -1,37 +1,6 @@
 """
 admin_entity_resolver.py
 ========================
-Resolves company and platoon names mentioned in admin queries to their
-numeric IDs by calling the .NET lookup endpoints:
-
-  GET /api/CompanyDetails/Get   → list of companies
-  GET /api/PlatoonDetails/Get   → list of platoons
-
-These IDs are then injected into the /api/AiCommand/execute payload
-as  companyId  and  platoonId  so the .NET backend can filter results
-to the correct organisational unit.
-
-The user never needs to know IDs — they just say "alpha company" or
-"platoon 3" in their question and this module resolves it silently.
-
-EXPECTED API RESPONSE SHAPES
-─────────────────────────────
-CompanyDetails/Get:
-  [
-    { "companyId": 1, "companyName": "Alpha", ... },
-    { "companyId": 2, "companyName": "Bravo", ... },
-    ...
-  ]
-
-PlatoonDetails/Get:
-  [
-    { "platoonId": 1, "platoonName": "PL-01", "companyId": 1, ... },
-    { "platoonId": 2, "platoonName": "PL-02", "companyId": 1, ... },
-    ...
-  ]
-
-The field names are tried with multiple casings (camelCase / PascalCase)
-to be robust against .NET serialisation differences.
 """
 
 from __future__ import annotations

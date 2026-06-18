@@ -1,37 +1,7 @@
 """
 admin_confidence.py
 ===================
-Unified confidence framework for the AgniAI Admin Chatbot.
 
-Problem
--------
-v1 has two separate confidence systems:
-  - `classify_admin_intent()` returns a string: "high" / "medium" / "low"
-  - `plan_query()` returns a float: 0.0 – 1.0
-
-These are inconsistent and callers must handle both separately.
-
-Solution
---------
-`AdminConfidence` is a single dataclass that:
-  1. Holds both representations (float score + string label).
-  2. Is produced by `compute_confidence()` from any combination of
-     intent result and/or query plan.
-  3. Can be serialised directly into API responses.
-
-The float thresholds mirror what the existing code already uses implicitly:
-  high   ≥ 0.75
-  medium ≥ 0.50
-  low    <  0.50
-
-Usage
------
-    from admin_confidence import compute_confidence
-
-    conf = compute_confidence(intent_result=intent, plan=query_plan)
-    # conf.score  → float
-    # conf.label  → "high" | "medium" | "low"
-    # conf.to_dict() → {"score": 0.85, "label": "high"}
 """
 
 from __future__ import annotations

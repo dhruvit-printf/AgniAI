@@ -1,20 +1,7 @@
 """
 admin_routes.py
 ===============
-Admin chatbot Flask blueprint for AgniAI.
 
-INTELLIGENCE LAYER PIPELINE (per architecture spec):
-  User Query
-    → Query Planner (query_planner.py)
-    → Query Type Detection (SIMPLE / CROSS_FILTER / COMPARISON / MULTI_INDEPENDENT)
-    → Intent Generation (admin_intent.py)
-    → .NET API Call(s)
-    → Raw .NET Responses   ← NEVER sent to frontend
-    → Result Combiner      ← intersect / compare / merge / passthrough
-    → Final Combined Result (source of truth)
-    → Report Generator     ← intro + analysis + conclusion only, never modifies result
-    → Response Builder     ← exact JSON structure per spec
-    → Frontend
 """
 
 from __future__ import annotations

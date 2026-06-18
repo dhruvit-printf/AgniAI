@@ -1,14 +1,6 @@
 """
 admin_formatter.py
 ==================
-Step 5 in the AgniAI intelligence pipeline — Format Combined Result.
-
-Converts the finalResult from result_combiner into clean plain-text.
-No markdown symbols, no emojis, no bold/italic markers.
-
-Handles both:
-  - Composite shapes from result_combiner (cross_filter, comparison, multi_independent, analytics)
-  - Standard single-category .NET shapes (Performance, Leave, Medical, etc.)
 """
 
 from __future__ import annotations

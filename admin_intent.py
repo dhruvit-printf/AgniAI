@@ -1,9 +1,6 @@
 """
 admin_intent.py
 ===============
-Intent classifier for the AgniAI Admin Chatbot.
-
-Built from the OFFICIAL Agniveer AI Command API documentation.
 """
 
 from __future__ import annotations

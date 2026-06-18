@@ -1,7 +1,6 @@
 """
 query_planner.py 
-==================================
-Query Planning Layer for the AgniAI Admin Chatbot.
+
 """
 
 from __future__ import annotations

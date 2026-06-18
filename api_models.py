@@ -1,13 +1,7 @@
 """
 api_models.py
 =============
-Shared JSON response shapes for AgniAI's REST API.
 
-Every route in app.py uses these helpers so the .NET ChatController.cs
-always receives a predictable, consistent JSON structure — no surprises
-during deserialization on their side.
-
-.NET team: map these to C# record/class with these exact field names.
 """
 
 from __future__ import annotations

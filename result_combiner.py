@@ -1,17 +1,7 @@
 """
 result_combiner.py
 ==================
-Combines results from multiple .NET API calls for the Query Planning Layer.
 
-This is Step 4 in the AgniAI intelligence pipeline.
-The output — finalResult — is the SOURCE OF TRUTH passed to the Report Generator.
-The Report Generator must never modify it.
-
-Supported combination strategies:
-  CROSS_FILTER      → intersect_results   (N-way ID intersection)
-  COMPARISON        → compare_results     (side-by-side metric extraction)
-  MULTI_INDEPENDENT → merge_results       (combine independent sections)
-  SIMPLE / other    → caller passes through unchanged (no combiner needed)
 """
 
 from __future__ import annotations

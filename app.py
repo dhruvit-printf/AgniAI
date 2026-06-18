@@ -19,6 +19,7 @@ from queue import Empty, Queue
 import requests as _requests
 from flask import Flask, Response, g, jsonify, request, stream_with_context
 from flask_cors import CORS
+from flask_socketio import SocketIO
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
@@ -99,6 +100,10 @@ from rag import (
 from admin_routes import admin_bp, _register_rate_limits
 from swagger_ui import swagger_bp
 
+# ── WebSocket ──────────────────────────────────────────────────────────────
+from websocket_manager import ws_manager
+from websocket_routes import register_socketio_events
+
 logger = logging.getLogger(__name__)
 
 # ── App creation (must come before any blueprint registration) ─────────────
@@ -106,12 +111,7 @@ app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
-# ── CORS — allow all origins ───────────────────────────────────────────────
-# supports_credentials MUST be False when origins="*".
-# Browsers enforce this as a hard security rule: a wildcard origin +
-# credentials=True is rejected at the browser level, not the server level.
-# We use X-Session-Id header for session tracking (not cookies), so
-# credentials mode is not needed.
+# ── CORS ───────────────────────────────────────────────────────────────────
 CORS(
     app,
     origins="*",
@@ -120,10 +120,22 @@ CORS(
     supports_credentials=False,
 )
 
-# ── Register blueprints (after app is created) ─────────────────────────────
+# ── Register blueprints ────────────────────────────────────────────────────
 app.register_blueprint(admin_bp)
 app.register_blueprint(swagger_bp)
 
+# ── Socket.IO (WebSocket) ──────────────────────────────────────────────────
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode="threading",
+    logger=False,
+    engineio_logger=False,
+)
+ws_manager.init(socketio)
+register_socketio_events(socketio)
+
+# ── Shared state ───────────────────────────────────────────────────────────
 _memory = ConversationMemory()
 _session = _requests.Session()
 _active_model = DEFAULT_MODEL
@@ -179,7 +191,6 @@ def _limit_route(limit_value: str):
 
 
 # ── Wire admin rate limits AFTER limiter is initialised ───────────────────
-# This must happen after _limiter is created above, not at import time.
 _register_rate_limits(app)
 
 
@@ -362,10 +373,6 @@ def _build_rag_messages(
     reasoning: bool,
     history: list[dict] | None,
 ) -> list[dict]:
-    """
-    Build RAG messages — matches main.py's _build_rag_messages exactly,
-    including the explicit instruction sentence in the user turn.
-    """
     system_prompt = STRICT_RAG_PROMPT_COMPUTE if reasoning else STRICT_RAG_PROMPT
     system_prompt = f"{system_prompt}\n\n{style_structure_instruction(style)}"
 
@@ -397,11 +404,6 @@ def _build_general_messages(
     style: str,
     history: list[dict] | None,
 ) -> list[dict]:
-    """
-    Builds messages for out-of-KB queries.
-    Detects whether the query is factual/subject-based or casual/personal
-    and sets the tone accordingly.
-    """
     query_lower = query.lower().strip()
     style_key = (style or "").strip().lower()
     if style_key == "short":
@@ -462,10 +464,6 @@ def _build_chat_messages(
     style: str,
     history: list[dict] | None,
 ) -> list[dict]:
-    """
-    Build messages for non-RAG (chat / greeting) path.
-    Uses CHAT_SYSTEM_PROMPT — matches main.py exactly.
-    """
     messages: list[dict] = [
         {
             "role": "system",
@@ -1134,10 +1132,6 @@ def ingest():
 @app.route("/api/upload", methods=["POST"])
 @_limit_route(RATE_LIMIT_INGEST)
 def upload_file():
-    """
-    Accepts a file upload from the .NET backend and ingests it into the
-    FAISS index + docstore.
-    """
     if "file" not in request.files:
         return _json_error(
             "No file part in request. Send multipart/form-data with field name 'file'.",
@@ -1298,6 +1292,7 @@ if __name__ == "__main__":
     logger.info("Chat endpoint http://localhost:5000/api/chat  [POST]")
     logger.info("Upload        http://localhost:5000/api/upload  [POST multipart]")
     logger.info("Admin chat    http://localhost:5000/api/admin/chat  [POST]")
+    logger.info("Admin WS      ws://localhost:5000/socket.io  [WebSocket]")
     logger.info("Swagger UI    http://localhost:5000/docs")
     logger.info("CORS          origins=* (all frontends allowed)")
     if API_SECRET_KEY:
@@ -1307,5 +1302,5 @@ if __name__ == "__main__":
     else:
         logger.info("Knowledge base ready: %s vectors.", stats_data["vectors"])
 
-    # Production: gunicorn -w 4 -k gthread --threads 4 -b 0.0.0.0:5000 app:app
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    # Use socketio.run instead of app.run to support WebSocket connections
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False)

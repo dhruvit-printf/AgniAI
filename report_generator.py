@@ -1,14 +1,7 @@
 """
 report_generator.py
 ===================
-Report Generator Layer for the AgniAI Admin Chatbot Response Pipeline.
 
-CRITICAL CONTRACT:
-  - Input: combinedResult, queryType, intent, user_query
-  - Output: introMessage (string), analysis (dict), conclusion (dict)
-  - Enforces strict grounding guard via compact aggregate text of combinedResult.
-  - NEVER analyzes individual records — always analyzes the Combined Result.
-  - Uses query-type-specific analysis & conclusion engines.
 """
 
 from __future__ import annotations
