@@ -1,6 +1,5 @@
 """
-query_planner.py 
-
+query_planner.py
 """
 
 from __future__ import annotations
@@ -20,29 +19,21 @@ from admin_intent import (
 logger = logging.getLogger(__name__)
 
 
-# =============================================================================
-# QUERY TYPES
-# =============================================================================
-
 class QueryType(Enum):
     SIMPLE           = "simple"
     CROSS_FILTER     = "cross_filter"
     COMPARISON       = "comparison"
     MULTI_INDEPENDENT = "multi_independent"
-    ANALYTICS        = "analytics"          # NEW
+    ANALYTICS        = "analytics"
 
-
-# =============================================================================
-# DATA CLASSES
-# =============================================================================
 
 @dataclass
 class SubOperation:
     raw_fragment: str
     intent_result: Dict[str, Any] = field(default_factory=dict)
     dotnet_payload: Dict[str, Any] = field(default_factory=dict)
-    group_by: Optional[str] = None          # NEW — e.g. "section", "sport", "unit"
-    filter_fragment: Optional[str] = None   # NEW — cross-filter applied to this side
+    group_by: Optional[str] = None
+    filter_fragment: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -64,7 +55,7 @@ class QueryPlan:
     confidence: float
     raw_query: str
     reasoning: str
-    analytics_hint: Optional[str] = None    # NEW — "highest" / "rank" / "most" …
+    analytics_hint: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -79,29 +70,19 @@ class QueryPlan:
         return d
 
 
-# =============================================================================
-# KEYWORD LISTS
-# =============================================================================
-
 _COMPARISON_KEYWORDS: List[str] = [
     "compare", "comparison", " vs ", "versus", "compared to",
     "compared with", "difference between", "contrast",
 ]
 
-# Extended to cover Leave / Medical / Attendance cross-filters
 _CROSS_FILTER_KEYWORDS: List[str] = [
-    # sport
     "who plays", "who play", "that play", "that plays",
     "which play", "which plays", "having sport", "with sport",
-    # leave
     "on leave", "currently on leave", "who is on leave",
     "currently absent",
-    # medical
     "with medical", "with active medical", "with medical case",
     "active medical", "in hospital", "under treatment",
-    # attendance
     "attending today", "present today", "on campus today",
-    # generic
     "who are in", "who is in", "among", "within",
 ]
 
@@ -115,7 +96,6 @@ _MULTI_INDEPENDENT_CONNECTORS: List[str] = [
     "additionally show", "also show", "and also",
 ]
 
-# Phrases that must NOT be split
 _NO_SPLIT_PHRASES: List[str] = [
     "approved and pending leave", "approved and pending",
     "annual and medical leave", "annual and sick leave",
@@ -128,7 +108,6 @@ _NO_SPLIT_PHRASES: List[str] = [
     "pending and completed verification", "pending and completed",
 ]
 
-# ── ANALYTICS signals ──────────────────────────────────────────────────────
 _ANALYTICS_RANKING_KEYWORDS: List[str] = [
     "highest average", "lowest average",
     "best average", "worst average",
@@ -156,7 +135,6 @@ _ANALYTICS_AGGREGATE_KEYWORDS: List[str] = [
     "breakdown by section", "breakdown by unit",
 ]
 
-# ── Group-by extraction ────────────────────────────────────────────────────
 _GROUP_BY_MAP: Dict[str, str] = {
     "section": "section",
     "unit":    "unit",
@@ -167,7 +145,6 @@ _GROUP_BY_MAP: Dict[str, str] = {
     "batch":   "batch",
 }
 
-# Category signal vocabulary (same as v1)
 _CATEGORY_SIGNALS: Dict[str, List[str]] = {
     "Performance": [
         "performance", "performer", "performers", "score", "marks",
@@ -216,10 +193,6 @@ _SPORT_NAMES = {
 }
 
 
-# =============================================================================
-# HELPERS
-# =============================================================================
-
 def _detect_categories(text_lower: str) -> List[str]:
     scores: Dict[str, int] = {}
     for category, signals in _CATEGORY_SIGNALS.items():
@@ -235,7 +208,6 @@ def _has_cross_category_signal(text_lower: str, categories: List[str]) -> bool:
     for phrase in _CROSS_FILTER_KEYWORDS:
         if phrase in text_lower:
             return True
-    # Connector word between two different-category fragments
     for connector in _CROSS_FILTER_CONNECTORS:
         if re.search(r"\b" + re.escape(connector) + r"\b", text_lower):
             return True
@@ -247,7 +219,6 @@ def _detect_comparison(
 ) -> Optional[Tuple[str, str]]:
     if not any(kw in text_lower for kw in _COMPARISON_KEYWORDS):
         return None
-    # Intra-performance section comparisons stay SIMPLE
     sections_found = [
         s for s in {"bpet", "ppt", "firing", "drill"} if s in text_lower
     ]
@@ -263,11 +234,6 @@ def _detect_comparison(
 def _detect_multi_independent(
     text_lower: str, categories: List[str]
 ) -> Optional[List[str]]:
-    """
-    [D4: Multi Query Decomposition]
-    Splits the text on commas and independent connectors, verifying that
-    each fragment corresponds to a unique category, supporting N-way merges.
-    """
     for connector in _MULTI_INDEPENDENT_CONNECTORS:
         if connector in text_lower:
             parts = text_lower.split(connector, 1)
@@ -294,7 +260,6 @@ def _is_no_split_phrase(text_lower: str) -> bool:
 
 
 def _extract_group_by(text_lower: str) -> Optional[str]:
-    """Return the group-by dimension if explicitly requested."""
     patterns = [
         r"\bby\s+(\w+)\b",
         r"\bper\s+(\w+)\b",
@@ -311,24 +276,13 @@ def _extract_group_by(text_lower: str) -> Optional[str]:
 
 
 def _enrich_right(right_fragment: str) -> str:
-    """Prefix sport fragments with 'sport' so classify_admin_intent picks Skills."""
     for sport in _SPORT_NAMES:
         if sport in right_fragment:
             return f"sport {right_fragment}"
     return right_fragment
 
 
-# =============================================================================
-# ANALYTICS DETECTION  (NEW)
-# =============================================================================
-
 def _detect_analytics(text_lower: str) -> Optional[str]:
-    """
-    Return an analytics hint string if the query is an analytics/ranking query,
-    else None.
-
-    Hint is one of: "highest", "lowest", "rank", "most", "least", "best", "worst"
-    """
     for phrase in _ANALYTICS_RANKING_KEYWORDS:
         if phrase in text_lower:
             if "highest" in phrase or "best" in phrase:
@@ -350,31 +304,9 @@ def _detect_analytics(text_lower: str) -> Optional[str]:
     return None
 
 
-# =============================================================================
-# FRAGMENT EXTRACTORS
-# =============================================================================
-
 def _extract_cross_filter_fragments(
     text_lower: str, categories: List[str]
 ) -> Optional[List[str]]:
-    """
-    [D2: Query Decomposition]
-    Returns a list of 2+ fragments for N-way cross-filter.
-    Iteratively splits the query on prepositions/connectors and cleans them.
-
-    Strategy:
-    1. Split on the first strong keyword (e.g. "who plays").
-    2. Check if the right side itself contains another cross-filter signal
-       — if so, split again to produce a third fragment.
-
-    IMPORTANT: nested-pattern detection must run on the RAW (un-enriched)
-    right-hand fragment. `_enrich_right` rewrites a fragment so the sport
-    name dominates it for classification purposes; if that rewrite happens
-    *before* we search for "and is" / "and are" / etc., the trailing
-    third fragment (e.g. "...and is currently on leave") gets silently
-    discarded. So we keep the raw text for splitting and only call
-    `_enrich_right` on the final fragments that get returned.
-    """
     primary_split: Optional[Tuple[str, str]] = None
 
     for kw in _CROSS_FILTER_KEYWORDS:
@@ -405,10 +337,6 @@ def _extract_cross_filter_fragments(
     left, right = primary_split
     fragments: List[str] = [left]
 
-    # ── Nested / 3-way: look for another cross-filter signal in the right side ──
-    # e.g. "top performers in PPT who plays cricket and is currently on leave"
-    # right = "who plays cricket and is currently on leave"
-    # We try to split right on "and is" / "and currently" / "and also"
     nested_patterns = [
         r"\band is\b",
         r"\band currently\b",
@@ -426,7 +354,6 @@ def _extract_cross_filter_fragments(
                 fragments.append(_enrich_right(sub_right))
                 return fragments
 
-    # No nested split — just two fragments
     fragments.append(_enrich_right(right))
     return fragments
 
@@ -434,7 +361,6 @@ def _extract_cross_filter_fragments(
 def _extract_comparison_fragments(
     text_lower: str, categories: List[str]
 ) -> Optional[List[str]]:
-    """[D3: Comparison Decomposition]"""
     for sep in [" vs ", " versus "]:
         if sep in text_lower:
             parts = text_lower.split(sep, 1)
@@ -458,19 +384,6 @@ def _extract_comparison_fragments(
 def _extract_filtered_comparison_fragments(
     text_lower: str,
 ) -> Optional[List[str]]:
-    """
-    Detect "compare X and Y among/for/with <filter>" and return
-    [left+filter, right+filter] so each side carries the cross-filter.
-
-    Examples
-    --------
-    "compare ppt and bept performance among cricket players"
-      → ["ppt cricket", "bept cricket"]
-
-    "compare top performers in ppt and bept for sikh class"
-      → ["top performers in ppt sikh", "top performers in bept sikh"]
-    """
-    # Detect a trailing filter clause
     filter_m = re.search(
         r"\b(?:among|for|with|within|by)\s+(.+)$", text_lower
     )
@@ -478,14 +391,12 @@ def _extract_filtered_comparison_fragments(
         return None
 
     filter_text = filter_m.group(1).strip()
-    # Strip common noise
     filter_text = re.sub(r"\b(?:players?|person|agniveers?|trainees?)\b", "", filter_text).strip()
     if not filter_text:
         return None
 
     body = text_lower[: filter_m.start()].strip()
 
-    # Try to split the body on comparison keywords
     comparison_frags = _extract_comparison_fragments(body, [])
     if comparison_frags and len(comparison_frags) == 2:
         return [
@@ -493,7 +404,6 @@ def _extract_filtered_comparison_fragments(
             f"{comparison_frags[1]} {filter_text}".strip(),
         ]
 
-    # "compare X and Y" style with "among …" suffix
     m = re.search(r"\bcompare\s+(.+?)\s+and\s+(.+)", body)
     if m:
         return [
@@ -504,18 +414,11 @@ def _extract_filtered_comparison_fragments(
     return None
 
 
-# =============================================================================
-# OPERATION BUILDER
-# =============================================================================
-
 def _build_sub_operation(
     fragment: str,
     group_by: Optional[str] = None,
     filter_fragment: Optional[str] = None,
 ) -> SubOperation:
-    """
-    [D1: Intent Extraction] / [E1/E2/E3/E4: N Intent Generation]
-    """
     intent_result  = classify_admin_intent(fragment)
     dotnet_payload = format_admin_payload(intent_result)
     return SubOperation(
@@ -527,21 +430,13 @@ def _build_sub_operation(
     )
 
 
-# =============================================================================
-# MAIN PLANNER
-# =============================================================================
-
 def plan_query(query: str) -> QueryPlan:
-    """
-    [B: Query Classifier] -> [C: Query Type]
-    """
     raw_query = (query or "").strip()
     q = _normalise(raw_query)
 
     if not q:
         return QueryPlan(QueryType.SIMPLE, [], 0.0, raw_query, "Empty query")
 
-    # ── Guard: phrases that must never be split ────────────────────────────
     if _is_no_split_phrase(q):
         op = _build_sub_operation(q)
         return QueryPlan(
@@ -552,7 +447,6 @@ def plan_query(query: str) -> QueryPlan:
     categories = _detect_categories(q)
     group_by   = _extract_group_by(q)
 
-    # ── 0. ANALYTICS (NEW — checked before comparison/cross-filter) ────────
     analytics_hint = _detect_analytics(q)
     if analytics_hint:
         op = _build_sub_operation(q, group_by=group_by)
@@ -562,7 +456,6 @@ def plan_query(query: str) -> QueryPlan:
             analytics_hint=analytics_hint,
         )
 
-    # ── 1. FILTERED COMPARISON (NEW — before plain comparison) ────────────
     if any(kw in q for kw in _COMPARISON_KEYWORDS):
         filtered_frags = _extract_filtered_comparison_fragments(q)
         if filtered_frags and len(filtered_frags) >= 2:
@@ -574,7 +467,6 @@ def plan_query(query: str) -> QueryPlan:
                     "Filtered comparison: each side carries the cross-filter",
                 )
 
-    # ── 2. PLAIN COMPARISON ────────────────────────────────────────────────
     comparison_entities = _detect_comparison(q, categories)
     if comparison_entities is not None:
         fragments = _extract_comparison_fragments(q, categories)
@@ -588,7 +480,6 @@ def plan_query(query: str) -> QueryPlan:
                     f"{comparison_entities[1]}",
                 )
 
-    # ── 3. CROSS_FILTER (extended to N-way) ───────────────────────────────
     if _has_cross_category_signal(q, categories):
         fragments = _extract_cross_filter_fragments(q, categories)
         if fragments and len(fragments) >= 2:
@@ -604,7 +495,6 @@ def plan_query(query: str) -> QueryPlan:
                         f"{', '.join(sorted(op_categories))}",
                     )
 
-    # ── 4. MULTI_INDEPENDENT ──────────────────────────────────────────────
     multi_fragments = _detect_multi_independent(q, categories)
     if multi_fragments:
         ops = [_build_sub_operation(f) for f in multi_fragments]
@@ -617,7 +507,6 @@ def plan_query(query: str) -> QueryPlan:
                     f"Multi-independent: {', '.join(sorted(op_categories))}",
                 )
 
-    # ── 5. SIMPLE (default) ───────────────────────────────────────────────
     op         = _build_sub_operation(q, group_by=group_by)
     confidence = 0.95 if op.intent_result.get("category") else 0.3
     return QueryPlan(

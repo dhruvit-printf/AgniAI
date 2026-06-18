@@ -1,7 +1,6 @@
 """
 admin_context.py
 ================
-Provides session tracking and follow-up query context detection for the AgniAI Admin Chatbot.
 """
 
 from __future__ import annotations
@@ -14,9 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_ids_from_result(data: Any) -> Set[int]:
-    """
-    Recursively extract all agniveerIds found in any list/dict .NET response wrapper structure.
-    """
     ids: Set[int] = set()
     if isinstance(data, list):
         for item in data:
@@ -42,16 +38,14 @@ def _extract_ids_from_result(data: Any) -> Set[int]:
             val = data.get(key)
             if val is not None:
                 ids.update(_extract_ids_from_result(val))
-        
-        # Flatten teams structure if found
+
         teams = data.get("teams") or data.get("Teams")
         if isinstance(teams, list):
             for team in teams:
                 members = team.get("members") or team.get("Members")
                 if isinstance(members, list):
                     ids.update(_extract_ids_from_result(members))
-                    
-        # Check direct dict keys for agniveerId
+
         for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
             val = data.get(key)
             if val is not None:
@@ -65,17 +59,10 @@ def _extract_ids_from_result(data: Any) -> Set[int]:
 
 class AdminSessionContext:
     def __init__(self) -> None:
-        # Maps session_id -> dict with previous query details
         self._history: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
 
     def is_followup_query(self, session_id: str, query_text: str) -> bool:
-        """
-        Determine if the current query is a follow-up to the previous query in this session.
-        A query is a follow-up if we have previous results in this session and the current query
-        contains one or more follow-up pronouns/indicators (e.g. "them", "these", "those", "their", "they", "him", "her",
-        "which of", "who among", "any of", "some of", "each of").
-        """
         with self._lock:
             if session_id not in self._history:
                 return False
@@ -97,9 +84,6 @@ class AdminSessionContext:
         intent_dict: Dict[str, Any],
         result_data: Any,
     ) -> None:
-        """
-        Store context history for the current session.
-        """
         ids = _extract_ids_from_result(result_data)
         with self._lock:
             self._history[session_id] = {
@@ -112,18 +96,12 @@ class AdminSessionContext:
         )
 
     def get_previous_ids(self, session_id: str) -> Optional[Set[int]]:
-        """
-        Get the set of Agniveer IDs from the previous result in this session.
-        """
         with self._lock:
             if session_id in self._history:
                 return self._history[session_id]["ids"]
             return None
 
     def clear(self, session_id: str) -> None:
-        """
-        Clear history for the given session.
-        """
         with self._lock:
             if session_id in self._history:
                 del self._history[session_id]
