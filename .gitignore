@@ -15,6 +15,7 @@ venv/
 env/
 ENV/
 agniai-env/
+agniai-env-broken/
 # =========================
 # Build / Packaging
 # =========================

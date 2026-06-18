@@ -9,16 +9,15 @@ import os
 import sys
 from pathlib import Path
 
-
 # ── 1. Resolve bundle root ────────────────────────────────────────────────
 # When frozen by PyInstaller, sys._MEIPASS is the temp extraction directory.
 # When running normally (dev mode), use the script's own directory.
 if getattr(sys, "frozen", False):
-    BUNDLE_DIR = Path(sys._MEIPASS)          # read-only extracted bundle
-    EXE_DIR    = Path(sys.executable).parent # writable dir next to .exe
+    BUNDLE_DIR = Path(sys._MEIPASS)  # read-only extracted bundle
+    EXE_DIR = Path(sys.executable).parent  # writable dir next to .exe
 else:
     BUNDLE_DIR = Path(__file__).resolve().parent
-    EXE_DIR    = BUNDLE_DIR
+    EXE_DIR = BUNDLE_DIR
 
 # ── 2. Prepend bundle dir to sys.path ─────────────────────────────────────
 # Ensures `import rag`, `import config`, etc. all resolve from the bundle.
@@ -30,16 +29,19 @@ if str(BUNDLE_DIR) not in sys.path:
 env_path = EXE_DIR / ".env"
 if env_path.exists():
     from dotenv import load_dotenv
+
     load_dotenv(dotenv_path=str(env_path), override=False)
     print(f"[AgniAI] Loaded .env from {env_path}")
 else:
-    print(f"[AgniAI] No .env found at {env_path} — using defaults / environment variables.")
+    print(
+        f"[AgniAI] No .env found at {env_path} — using defaults / environment variables."
+    )
 
 # ── 4. Override data and index paths to use writable exe directory ─────────
 # config.py computes DATA_DIR / INDEX_DIR relative to __file__ at import time.
 # We override them here BEFORE config is imported so FAISS writes land in
 # EXE_DIR/data and EXE_DIR/index instead of the read-only bundle.
-os.environ.setdefault("AGNIAI_DATA_DIR",  str(EXE_DIR / "data"))
+os.environ.setdefault("AGNIAI_DATA_DIR", str(EXE_DIR / "data"))
 os.environ.setdefault("AGNIAI_INDEX_DIR", str(EXE_DIR / "index"))
 
 # Ensure directories exist
@@ -58,27 +60,36 @@ print()
 # resolves correctly, but DATA_DIR / INDEX_DIR need to be writable.
 # We monkey-patch them after import so no source edit is required.
 import config as _cfg
-_cfg.DATA_DIR         = EXE_DIR / "data"
-_cfg.INDEX_DIR        = EXE_DIR / "index"
-_cfg.DOCSTORE_PATH    = _cfg.INDEX_DIR / "docstore.json"
+
+_cfg.DATA_DIR = EXE_DIR / "data"
+_cfg.INDEX_DIR = EXE_DIR / "index"
+_cfg.DOCSTORE_PATH = _cfg.INDEX_DIR / "docstore.json"
 _cfg.FAISS_INDEX_PATH = _cfg.INDEX_DIR / "agni.index"
-_cfg.BM25_INDEX_PATH  = _cfg.INDEX_DIR / "bm25.pkl"
+_cfg.BM25_INDEX_PATH = _cfg.INDEX_DIR / "bm25.pkl"
 
 # Propagate to ingest and rag modules if already partially imported
 for _mod_name in ("ingest", "rag"):
     _mod = sys.modules.get(_mod_name)
     if _mod is not None:
-        for _attr in ("DATA_DIR", "INDEX_DIR", "DOCSTORE_PATH", "FAISS_INDEX_PATH", "BM25_INDEX_PATH"):
+        for _attr in (
+            "DATA_DIR",
+            "INDEX_DIR",
+            "DOCSTORE_PATH",
+            "FAISS_INDEX_PATH",
+            "BM25_INDEX_PATH",
+        ):
             if hasattr(_mod, _attr):
                 setattr(_mod, _attr, getattr(_cfg, _attr))
 
-# ── 7. Hand off to app.py ─────────────────────────────────────────────────
-# Import app and run it — identical to `python app.py`.
-from app import app, warmup_runtime, index_stats
-from ollama_cpu_chat import _start_keepalive_heartbeat
-import requests as _requests
 import logging
 from logging.handlers import RotatingFileHandler
+
+import requests as _requests
+
+# ── 7. Hand off to app.py ─────────────────────────────────────────────────
+# Import app and run it — identical to `python app.py`.
+from app import app, index_stats, warmup_runtime
+from ollama_cpu_chat import _start_keepalive_heartbeat
 
 # Set up logging to file next to exe
 log_path = EXE_DIR / os.getenv("AGNI_LOG_FILE", "agni.log")

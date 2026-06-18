@@ -9,56 +9,27 @@ from typing import Optional, Tuple
 
 import requests
 
-from config import (
-    CHAT_SYSTEM_PROMPT,
-    DATA_DIR,
-    detect_answer_style,
-    _fuzzy_normalize_query,
-    _get_current_date_response,
-    _is_date_query,
-    GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
-    INDEX_DIR,
-    MAX_CONTEXT_CHARS,
-    MAX_CONTEXT_CHARS_DEFAULT,
-    MAX_TOKENS_DEFAULT,
-    MAX_TOKENS_STYLE,
-    MODEL_MAX_CONTEXT_TOKENS,
-    REFERENCE_FALLBACK,
-    STRICT_RAG_PROMPT,
-    STRICT_RAG_PROMPT_COMPUTE,
-    TOKEN_SAFETY_BUFFER,
-    TOP_K,
-    classify_intent,
-    estimate_message_tokens,
-    style_structure_instruction,
-    trim_to_complete_sentence,
-)
-from ingest import (
-    clear_index,
-    ingest_docx,
-    ingest_pdf,
-    ingest_text,
-    ingest_txt,
-    ingest_url,
-    list_sources,
-)
+from config import (CHAT_SYSTEM_PROMPT, DATA_DIR,
+                    GENERAL_KNOWLEDGE_FALLBACK_PROMPT, INDEX_DIR,
+                    MAX_CONTEXT_CHARS, MAX_CONTEXT_CHARS_DEFAULT,
+                    MAX_TOKENS_DEFAULT, MAX_TOKENS_STYLE,
+                    MODEL_MAX_CONTEXT_TOKENS, REFERENCE_FALLBACK,
+                    STRICT_RAG_PROMPT, STRICT_RAG_PROMPT_COMPUTE,
+                    TOKEN_SAFETY_BUFFER, TOP_K, _fuzzy_normalize_query,
+                    _get_current_date_response, _is_date_query,
+                    classify_intent, detect_answer_style,
+                    estimate_message_tokens, style_structure_instruction,
+                    trim_to_complete_sentence)
+from ingest import (clear_index, ingest_docx, ingest_pdf, ingest_text,
+                    ingest_txt, ingest_url, list_sources)
 from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL_NAME
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
-from rag import (
-    build_context,
-    build_strict_messages,
-    deterministic_policy_answer,
-    get_cached_response,
-    index_stats,
-    make_response_cache_key,
-    is_reasoning_query,
-    prepare_rag_bundle,
-    warmup_runtime,
-    set_cached_response,
-    STRICT_TOP_K,
-    LOW_RETRIEVAL_CONFIDENCE,
-)
+from rag import (LOW_RETRIEVAL_CONFIDENCE, STRICT_TOP_K, build_context,
+                 build_strict_messages, deterministic_policy_answer,
+                 get_cached_response, index_stats, is_reasoning_query,
+                 make_response_cache_key, prepare_rag_bundle,
+                 set_cached_response, warmup_runtime)
 
 logger = logging.getLogger(__name__)
 
@@ -277,18 +248,50 @@ def _build_general_messages(
     if style_key == "short":
         fallback_style = "Keep the answer concise, usually 1 short paragraph."
     elif style_key == "detail":
-        fallback_style = "Give a clear, well-organized answer without inventing specifics."
+        fallback_style = (
+            "Give a clear, well-organized answer without inventing specifics."
+        )
     else:
         fallback_style = "Give a clear answer in 1 to 3 short paragraphs."
 
     factual_signals = (
-        "what is", "what are", "who is", "who was", "when did", "when was",
-        "where is", "where was", "how does", "how do", "why does", "why do",
-        "explain", "define", "difference between", "full form", "meaning of",
-        "capital of", "president of", "prime minister", "how many", "how much",
-        "which country", "which state", "formula", "equation", "calculate",
-        "theorem", "law of", "principle of", "history of", "founder of",
-        "invented by", "discovered by", "what happens", "why is", "how is",
+        "what is",
+        "what are",
+        "who is",
+        "who was",
+        "when did",
+        "when was",
+        "where is",
+        "where was",
+        "how does",
+        "how do",
+        "why does",
+        "why do",
+        "explain",
+        "define",
+        "difference between",
+        "full form",
+        "meaning of",
+        "capital of",
+        "president of",
+        "prime minister",
+        "how many",
+        "how much",
+        "which country",
+        "which state",
+        "formula",
+        "equation",
+        "calculate",
+        "theorem",
+        "law of",
+        "principle of",
+        "history of",
+        "founder of",
+        "invented by",
+        "discovered by",
+        "what happens",
+        "why is",
+        "how is",
     )
     is_factual = any(signal in query_lower for signal in factual_signals)
 
@@ -651,9 +654,9 @@ def run_chat() -> None:
                     reasoning=reasoning,
                     history=history[-6:] if history else None,
                     context_char_budget=context_char_budget,
-                    context=bundle.get("context", "")
-                    if isinstance(bundle, dict)
-                    else "",
+                    context=(
+                        bundle.get("context", "") if isinstance(bundle, dict) else ""
+                    ),
                 )
             else:
                 messages = [

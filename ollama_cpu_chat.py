@@ -10,25 +10,20 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
-import time
 import re
+import sys
 import threading
+import time
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Optional
 
 import requests
 
-from config import (
-    MAX_CONTEXT_CHARS_DEFAULT,
-    MODEL_MAX_CONTEXT_TOKENS,
-    STRICT_RAG_PROMPT,
-    TOKEN_SAFETY_BUFFER,
-    TOP_K as _CONFIG_TOP_K,
-    estimate_message_tokens,
-    style_structure_instruction,
-    trim_to_complete_sentence,
-)
+from config import (MAX_CONTEXT_CHARS_DEFAULT, MODEL_MAX_CONTEXT_TOKENS,
+                    STRICT_RAG_PROMPT, TOKEN_SAFETY_BUFFER)
+from config import TOP_K as _CONFIG_TOP_K
+from config import (estimate_message_tokens, style_structure_instruction,
+                    trim_to_complete_sentence)
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +38,8 @@ if hasattr(sys.stderr, "reconfigure"):
 # =============================================================================
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-CHAT_ENDPOINT   = f"{OLLAMA_BASE_URL}/api/chat"
-TAGS_ENDPOINT   = f"{OLLAMA_BASE_URL}/api/tags"
+CHAT_ENDPOINT = f"{OLLAMA_BASE_URL}/api/chat"
+TAGS_ENDPOINT = f"{OLLAMA_BASE_URL}/api/tags"
 
 # CHANGED: q4_K_M quantization — 2-3x faster on CPU, ~99% factual accuracy
 MODEL_NAME = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct-q4_K_M")
@@ -65,12 +60,13 @@ OLLAMA_FIRST_TOKEN_TIMEOUT = float(os.getenv("OLLAMA_FIRST_TOKEN_TIMEOUT", "180"
 STREAM_TIMEOUT = float(os.getenv("OLLAMA_STREAM_TIMEOUT", "300"))
 MAX_RETRIES = int(os.getenv("OLLAMA_MAX_RETRIES", "2"))
 
-MAX_TOKENS      = int(os.getenv("OLLAMA_MAX_TOKENS",       "1200"))
-NUM_CTX         = int(os.getenv("OLLAMA_NUM_CTX",          "8192"))
-TEMPERATURE     = float(os.getenv("OLLAMA_TEMPERATURE",    "0.05"))
-_SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K",            "20"))
-TOP_P           = float(os.getenv("OLLAMA_TOP_P",          "0.92"))
-REPEAT_PENALTY  = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
+MAX_TOKENS = int(os.getenv("OLLAMA_MAX_TOKENS", "1200"))
+NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.05"))
+_SAMPLING_TOP_K = int(os.getenv("OLLAMA_TOP_K", "20"))
+TOP_P = float(os.getenv("OLLAMA_TOP_P", "0.92"))
+REPEAT_PENALTY = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
+
 
 # CHANGED: -1 means keep model loaded forever — never unload on idle
 def _normalized_keep_alive(raw_value: Optional[str]) -> Optional[str]:
@@ -94,6 +90,7 @@ _ACTIVE_MODEL_REF = [MODEL_NAME]
 # DATA TYPES
 # =============================================================================
 
+
 @dataclass
 class ChatResult:
     model: str
@@ -107,8 +104,10 @@ class ChatResult:
 # ERRORS
 # =============================================================================
 
+
 class OllamaError(RuntimeError):
     pass
+
 
 class PartialResponseError(OllamaError):
     def __init__(self, message: str, partial_text: str):
@@ -119,6 +118,7 @@ class PartialResponseError(OllamaError):
 # =============================================================================
 # KEEPALIVE HEARTBEAT
 # =============================================================================
+
 
 def _start_keepalive_heartbeat(
     session: requests.Session,
@@ -146,8 +146,8 @@ def _start_keepalive_heartbeat(
                     "messages": [{"role": "user", "content": "."}],
                     "stream": False,
                     "options": {
-                        "num_predict": 0,   # generate nothing
-                        "num_ctx": 64,      # tiny context for heartbeat
+                        "num_predict": 0,  # generate nothing
+                        "num_ctx": 64,  # tiny context for heartbeat
                     },
                 }
                 if KEEP_ALIVE is not None:
@@ -168,6 +168,7 @@ def _start_keepalive_heartbeat(
 # RAG HOOK (for standalone CLI usage)
 # =============================================================================
 
+
 def _truncate(text: str, limit: int) -> str:
     text = text.strip()
     if len(text) <= limit:
@@ -175,6 +176,7 @@ def _truncate(text: str, limit: int) -> str:
     head = int(limit * 0.70)
     tail = max(0, limit - head - 20)
     return f"{text[:head].rstrip()}\n\n...[truncated]...\n\n{text[-tail:].lstrip()}"
+
 
 def _default_num_thread() -> int:
     """
@@ -199,6 +201,7 @@ def _default_num_thread() -> int:
 def build_rag_context(query: str) -> str:
     try:
         from rag import prepare_rag_bundle  # type: ignore
+
         bundle = prepare_rag_bundle(
             query,
             top_k=_CONFIG_TOP_K,
@@ -211,12 +214,16 @@ def build_rag_context(query: str) -> str:
         return ""
 
 
-def build_messages(query: str, history: List[dict], style: str = "elaborate") -> List[dict]:
+def build_messages(
+    query: str, history: List[dict], style: str = "elaborate"
+) -> List[dict]:
     context = build_rag_context(query)
-    messages: List[dict] = [{
-        "role": "system",
-        "content": f"{STRICT_RAG_PROMPT}\n\n{style_structure_instruction(style)}",
-    }]
+    messages: List[dict] = [
+        {
+            "role": "system",
+            "content": f"{STRICT_RAG_PROMPT}\n\n{style_structure_instruction(style)}",
+        }
+    ]
     if history:
         messages.extend(history[-MAX_HISTORY_MESSAGES:])
     if context:
@@ -235,6 +242,7 @@ def build_messages(query: str, history: List[dict], style: str = "elaborate") ->
 # =============================================================================
 # OLLAMA CLIENT
 # =============================================================================
+
 
 def _installed_models(session: requests.Session) -> List[str]:
     global _MODEL_LIST_CACHE
@@ -301,7 +309,7 @@ def _flush_partial_stream(
     if len(buffer) >= min_chars:
         cut = max(buffer.rfind(" "), buffer.rfind("\n"))
         if cut > 0:
-            return [buffer[: cut + 1]], buffer[cut + 1:]
+            return [buffer[: cut + 1]], buffer[cut + 1 :]
     return [], buffer
 
 
@@ -347,9 +355,13 @@ def _ollama_chat_once(
     on_token: Optional[Callable[[str], None]] = None,
     max_tokens_override: Optional[int] = None,
 ) -> ChatResult:
-    effective_max_tokens = max_tokens_override if max_tokens_override is not None else MAX_TOKENS
+    effective_max_tokens = (
+        max_tokens_override if max_tokens_override is not None else MAX_TOKENS
+    )
     prompt_tokens_estimate = estimate_message_tokens(messages)
-    available_tokens = MODEL_MAX_CONTEXT_TOKENS - prompt_tokens_estimate - TOKEN_SAFETY_BUFFER
+    available_tokens = (
+        MODEL_MAX_CONTEXT_TOKENS - prompt_tokens_estimate - TOKEN_SAFETY_BUFFER
+    )
     if available_tokens > 0:
         effective_max_tokens = min(effective_max_tokens, available_tokens)
     else:
@@ -361,13 +373,13 @@ def _ollama_chat_once(
         "stream": True,
         "keep_alive": KEEP_ALIVE,
         "options": {
-            "temperature":    TEMPERATURE,
-            "num_ctx":        NUM_CTX,
-            "num_predict":    effective_max_tokens,
-            "top_k":          _SAMPLING_TOP_K,
-            "top_p":          TOP_P,
+            "temperature": TEMPERATURE,
+            "num_ctx": NUM_CTX,
+            "num_predict": effective_max_tokens,
+            "top_k": _SAMPLING_TOP_K,
+            "top_p": TOP_P,
             "repeat_penalty": REPEAT_PENALTY,
-            "num_thread":     _default_num_thread(),
+            "num_thread": _default_num_thread(),
         },
     }
     if KEEP_ALIVE is None:
@@ -398,7 +410,7 @@ def _ollama_chat_once(
                     raise OllamaError(str(event["error"]))
 
                 if event.get("done"):
-                    prompt_tokens     = event.get("prompt_eval_count", prompt_tokens)
+                    prompt_tokens = event.get("prompt_eval_count", prompt_tokens)
                     completion_tokens = event.get("eval_count", completion_tokens)
                     break
 
@@ -431,19 +443,23 @@ def _ollama_chat_once(
                     else:
                         sys.stdout.write(stream_buffer)
                         sys.stdout.flush()
-                streamed_text = "".join(pieces)  
+                streamed_text = "".join(pieces)
             stream_buffer = ""
 
     except requests.Timeout as exc:
         partial = trim_to_complete_sentence("".join(pieces) + stream_buffer)
         if partial:
-            raise PartialResponseError("Stream timeout after partial response.", partial) from exc
+            raise PartialResponseError(
+                "Stream timeout after partial response.", partial
+            ) from exc
         raise OllamaError(f"Timeout waiting for '{model}'.") from exc
 
     except requests.ConnectionError as exc:
         partial = trim_to_complete_sentence("".join(pieces) + stream_buffer)
         if partial:
-            raise PartialResponseError("Connection dropped mid-stream.", partial) from exc
+            raise PartialResponseError(
+                "Connection dropped mid-stream.", partial
+            ) from exc
         raise OllamaError("Cannot connect to Ollama. Run:  ollama serve") from exc
 
     except json.JSONDecodeError as exc:
@@ -459,8 +475,12 @@ def _ollama_chat_once(
         raise
 
     final_text = trim_to_complete_sentence("".join(pieces) + stream_buffer)
-    if stream_tokens and final_text.startswith(streamed_text) and len(final_text) > len(streamed_text):
-        tail = final_text[len(streamed_text):]
+    if (
+        stream_tokens
+        and final_text.startswith(streamed_text)
+        and len(final_text) > len(streamed_text)
+    ):
+        tail = final_text[len(streamed_text) :]
         if tail:
             if on_token is not None:
                 on_token(tail)
@@ -488,13 +508,11 @@ def chat_with_fallback(
     on_token: Optional[Callable[[str], None]] = None,
     max_tokens_override: Optional[int] = None,
 ) -> ChatResult:
-    installed  = _installed_models(session)
+    installed = _installed_models(session)
     candidates = _candidate_models(requested_model, installed)
 
     if not candidates:
-        raise OllamaError(
-            f"No Ollama models found. Run:  ollama pull {MODEL_NAME}"
-        )
+        raise OllamaError(f"No Ollama models found. Run:  ollama pull {MODEL_NAME}")
 
     last_error: Optional[str] = None
     last_error_type: Optional[str] = None
@@ -531,9 +549,10 @@ def chat_with_fallback(
 # CLI (standalone usage)
 # =============================================================================
 
+
 def main() -> int:
     session = requests.Session()
-    model   = MODEL_NAME
+    model = MODEL_NAME
     history: List[dict] = []
 
     print(
@@ -580,10 +599,10 @@ def main() -> int:
         try:
             result = chat_with_fallback(session, model, messages, stream_tokens=True)
             print()
-            history.append({"role": "user",      "content": user})
-            history.append({"role": "assistant",  "content": result.text})
+            history.append({"role": "user", "content": user})
+            history.append({"role": "assistant", "content": result.text})
             if len(history) > MAX_HISTORY_MESSAGES * 2:
-                history = history[-(MAX_HISTORY_MESSAGES * 2):]
+                history = history[-(MAX_HISTORY_MESSAGES * 2) :]
             print(
                 f"[{result.model} | {result.duration_s:.1f}s | "
                 f"prompt={result.prompt_tokens} completion={result.completion_tokens}]"

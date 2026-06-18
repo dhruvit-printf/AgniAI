@@ -22,16 +22,16 @@ This file MUST NOT:
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import time
 import uuid
 from typing import Any, Dict
 
 from flask_socketio import SocketIO
 
-from websocket_manager import ws_manager
 from admin_pipeline import execute_admin_query
+from websocket_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -41,18 +41,20 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 _STAGE_MESSAGES: Dict[str, str] = {
-    "planner":  "Understanding query...",
-    "intent":   "Building intents...",
-    "dotnet":   "Fetching records...",
+    "planner": "Understanding query...",
+    "intent": "Building intents...",
+    "dotnet": "Fetching records...",
     "combiner": "Combining results...",
-    "report":   "Generating analysis...",
+    "report": "Generating analysis...",
 }
 
 
 def _progress(sid: str, stage: str, message: str) -> None:
     """Emit a progress event to the client."""
     try:
-        ws_manager.send_json(sid, {"type": "progress", "stage": stage, "message": message})
+        ws_manager.send_json(
+            sid, {"type": "progress", "stage": stage, "message": message}
+        )
     except Exception as exc:
         logger.exception("Failed to send progress event to sid=%s: %s", sid, exc)
 
@@ -60,6 +62,7 @@ def _progress(sid: str, stage: str, message: str) -> None:
 # =============================================================================
 # PIPELINE RUNNER
 # =============================================================================
+
 
 def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
     """
@@ -75,13 +78,17 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
     ).strip() or "admin-default"
 
     # Structured entry log
-    logger.info(json.dumps({
-        "message": "WebSocket admin query entry",
-        "trace_id": trace_id,
-        "session_id": session_id,
-        "query_type": "N/A",
-        "duration_ms": None
-    }))
+    logger.info(
+        json.dumps(
+            {
+                "message": "WebSocket admin query entry",
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "query_type": "N/A",
+                "duration_ms": None,
+            }
+        )
+    )
 
     try:
         # ── Build progress callback tied to this WebSocket session ──────────
@@ -103,67 +110,96 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
 
         # ── Error ───────────────────────────────────────────────────────────
         if result_type == "error":
-            logger.error(json.dumps({
-                "message": "WebSocket admin query error response",
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "query_type": "error",
-                "duration_ms": duration_ms
-            }))
-            ws_manager.send_json(sid, {
-                "type": "error",
-                "message": "Failed to process request.",
-            })
+            logger.error(
+                json.dumps(
+                    {
+                        "message": "WebSocket admin query error response",
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": "error",
+                        "duration_ms": duration_ms,
+                    }
+                )
+            )
+            ws_manager.send_json(
+                sid,
+                {
+                    "type": "error",
+                    "message": "Failed to process request.",
+                },
+            )
             ws_manager.send_json(sid, {"type": "done"})
             return
 
         # ── Stream response sections ────────────────────────────────────────
         response_payload = result.get("response_payload", {})
 
-        logger.info(json.dumps({
-            "message": "WebSocket admin query success response",
-            "trace_id": trace_id,
-            "session_id": session_id,
-            "query_type": result_type,
-            "duration_ms": duration_ms
-        }))
+        logger.info(
+            json.dumps(
+                {
+                    "message": "WebSocket admin query success response",
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": result_type,
+                    "duration_ms": duration_ms,
+                }
+            )
+        )
 
-        ws_manager.send_json(sid, {
-            "type": "intro",
-            "data": response_payload.get("introMessage", ""),
-        })
-        ws_manager.send_json(sid, {
-            "type": "result",
-            "data": response_payload.get("result", {}),
-        })
-        ws_manager.send_json(sid, {
-            "type": "analysis",
-            "data": response_payload.get("analysis", {}),
-        })
-        ws_manager.send_json(sid, {
-            "type": "conclusion",
-            "data": response_payload.get("conclusion", {}),
-        })
+        ws_manager.send_json(
+            sid,
+            {
+                "type": "intro",
+                "data": response_payload.get("introMessage", ""),
+            },
+        )
+        ws_manager.send_json(
+            sid,
+            {
+                "type": "result",
+                "data": response_payload.get("result", {}),
+            },
+        )
+        ws_manager.send_json(
+            sid,
+            {
+                "type": "analysis",
+                "data": response_payload.get("analysis", {}),
+            },
+        )
+        ws_manager.send_json(
+            sid,
+            {
+                "type": "conclusion",
+                "data": response_payload.get("conclusion", {}),
+            },
+        )
         ws_manager.send_json(sid, {"type": "done"})
 
     except Exception as exc:
         duration_ms = round((time.time() - start_time) * 1000, 2)
-        logger.error(json.dumps({
-            "message": "WebSocket pipeline error",
-            "trace_id": trace_id,
-            "session_id": session_id,
-            "query_type": "error",
-            "duration_ms": duration_ms,
-            "error": str(exc)
-        }))
-        ws_manager.send_json(sid, {"type": "error", "message": "Failed to process request."})
+        logger.error(
+            json.dumps(
+                {
+                    "message": "WebSocket pipeline error",
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": "error",
+                    "duration_ms": duration_ms,
+                    "error": str(exc),
+                }
+            )
+        )
+        ws_manager.send_json(
+            sid, {"type": "error", "message": "Failed to process request."}
+        )
         ws_manager.send_json(sid, {"type": "done"})
-
 
 
 # =============================================================================
 # SOCKET.IO EVENT HANDLERS
 # =============================================================================
+
 
 def register_socketio_events(socketio: SocketIO) -> None:
     """
@@ -174,6 +210,7 @@ def register_socketio_events(socketio: SocketIO) -> None:
     @socketio.on("connect")
     def on_connect():
         from flask import request as flask_request
+
         sid = flask_request.sid  # type: ignore[attr-defined]
         ws_manager.register(sid)
         logger.info("WebSocket connected: sid=%s", sid)
@@ -181,6 +218,7 @@ def register_socketio_events(socketio: SocketIO) -> None:
     @socketio.on("disconnect")
     def on_disconnect():
         from flask import request as flask_request
+
         sid = flask_request.sid  # type: ignore[attr-defined]
         ws_manager.unregister(sid)
         logger.info("WebSocket disconnected: sid=%s", sid)
@@ -199,6 +237,7 @@ def register_socketio_events(socketio: SocketIO) -> None:
         """
         trace_id = uuid.uuid4().hex
         from flask import request as flask_request
+
         sid = flask_request.sid  # type: ignore[attr-defined]
 
         if not isinstance(data, dict):
@@ -207,7 +246,9 @@ def register_socketio_events(socketio: SocketIO) -> None:
 
         message = (data.get("message") or "").strip()
         if not message:
-            ws_manager.send_json(sid, {"type": "error", "message": "Message cannot be empty."})
+            ws_manager.send_json(
+                sid, {"type": "error", "message": "Message cannot be empty."}
+            )
             return
 
         # ── Immediately acknowledge receipt ────────────────────────────────

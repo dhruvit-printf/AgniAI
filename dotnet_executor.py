@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 DOTNET_API_BASE_URL = os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257")
-DOTNET_EXECUTE_URL  = f"{DOTNET_API_BASE_URL}/api/AiCommand/execute"
-DOTNET_API_KEY      = os.getenv("DOTNET_API_KEY", "")
+DOTNET_EXECUTE_URL = f"{DOTNET_API_BASE_URL}/api/AiCommand/execute"
+DOTNET_API_KEY = os.getenv("DOTNET_API_KEY", "")
 
 _skip_raw = os.getenv("DOTNET_SKIP_SSL_VERIFY", os.getenv("DOTNET_VERIFY_SSL", "0"))
 DOTNET_VERIFY_SSL = _skip_raw.strip() not in {"1", "true", "True"}
@@ -33,6 +33,7 @@ _dotnet_session = requests.Session()
 
 if not DOTNET_VERIFY_SSL:
     import urllib3
+
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
@@ -40,13 +41,17 @@ if not DOTNET_VERIFY_SSL:
 # CIRCUIT BREAKER IMPLEMENTATION
 # =============================================================================
 
+
 class CircuitBreaker:
     """
     Thread-safe Circuit Breaker.
     Trips after 5 consecutive transient failures.
     Transitions from OPEN to HALF-OPEN after a 10-second cooldown.
     """
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 10.0) -> None:
+
+    def __init__(
+        self, failure_threshold: int = 5, recovery_timeout: float = 10.0
+    ) -> None:
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.state = "CLOSED"
@@ -63,11 +68,15 @@ class CircuitBreaker:
                     old_state = self.state
                     self.state = "HALF-OPEN"
                     self.last_state_change = now
-                    logger.info(json.dumps({
-                        "message": "Circuit breaker state transition",
-                        "previous_state": old_state,
-                        "new_state": self.state
-                    }))
+                    logger.info(
+                        json.dumps(
+                            {
+                                "message": "Circuit breaker state transition",
+                                "previous_state": old_state,
+                                "new_state": self.state,
+                            }
+                        )
+                    )
                     return True
                 return False
             return True
@@ -76,11 +85,15 @@ class CircuitBreaker:
         """Reset failures and close circuit breaker on success."""
         with self._lock:
             if self.state != "CLOSED":
-                logger.info(json.dumps({
-                    "message": "Circuit breaker recovered",
-                    "previous_state": self.state,
-                    "new_state": "CLOSED"
-                }))
+                logger.info(
+                    json.dumps(
+                        {
+                            "message": "Circuit breaker recovered",
+                            "previous_state": self.state,
+                            "new_state": "CLOSED",
+                        }
+                    )
+                )
             self.state = "CLOSED"
             self.failure_count = 0
             self.last_state_change = time.time()
@@ -90,18 +103,29 @@ class CircuitBreaker:
         with self._lock:
             self.failure_count += 1
             now = time.time()
-            logger.warning(json.dumps({
-                "message": "Circuit breaker recorded failure",
-                "failure_count": self.failure_count,
-                "failure_threshold": self.failure_threshold
-            }))
-            if self.state == "HALF-OPEN" or self.failure_count >= self.failure_threshold:
+            logger.warning(
+                json.dumps(
+                    {
+                        "message": "Circuit breaker recorded failure",
+                        "failure_count": self.failure_count,
+                        "failure_threshold": self.failure_threshold,
+                    }
+                )
+            )
+            if (
+                self.state == "HALF-OPEN"
+                or self.failure_count >= self.failure_threshold
+            ):
                 if self.state != "OPEN":
-                    logger.error(json.dumps({
-                        "message": "Circuit breaker tripped",
-                        "previous_state": self.state,
-                        "new_state": "OPEN"
-                    }))
+                    logger.error(
+                        json.dumps(
+                            {
+                                "message": "Circuit breaker tripped",
+                                "previous_state": self.state,
+                                "new_state": "OPEN",
+                            }
+                        )
+                    )
                 self.state = "OPEN"
                 self.last_state_change = now
 
@@ -114,7 +138,10 @@ _cb = CircuitBreaker()
 # CALL EXECUTION WITH RETRY & TIMEOUT
 # =============================================================================
 
-def _call_dotnet(payload: Dict, trace_id: Optional[str] = None) -> Tuple[Any, Optional[str]]:
+
+def _call_dotnet(
+    payload: Dict, trace_id: Optional[str] = None
+) -> Tuple[Any, Optional[str]]:
     """
     Execute a single .NET API call.
 
@@ -127,10 +154,14 @@ def _call_dotnet(payload: Dict, trace_id: Optional[str] = None) -> Tuple[Any, Op
     effective_trace_id = trace_id or "N/A"
 
     if not _cb.allow_request():
-        logger.warning(json.dumps({
-            "message": "Request rejected: Circuit breaker is OPEN",
-            "trace_id": effective_trace_id
-        }))
+        logger.warning(
+            json.dumps(
+                {
+                    "message": "Request rejected: Circuit breaker is OPEN",
+                    "trace_id": effective_trace_id,
+                }
+            )
+        )
         return None, "Circuit breaker is open. Backend is temporarily unreachable."
 
     headers = {"Content-Type": "application/json"}
@@ -138,11 +169,15 @@ def _call_dotnet(payload: Dict, trace_id: Optional[str] = None) -> Tuple[Any, Op
         headers["X-Api-Key"] = DOTNET_API_KEY
 
     # Do NOT log the payload to preserve privacy/security
-    logger.info(json.dumps({
-        "message": "Initiating .NET API call",
-        "trace_id": effective_trace_id,
-        "api_url": DOTNET_EXECUTE_URL
-    }))
+    logger.info(
+        json.dumps(
+            {
+                "message": "Initiating .NET API call",
+                "trace_id": effective_trace_id,
+                "api_url": DOTNET_EXECUTE_URL,
+            }
+        )
+    )
 
     delays = [1.0, 2.0, 4.0]
     max_attempts = len(delays) + 1
@@ -152,13 +187,17 @@ def _call_dotnet(payload: Dict, trace_id: Optional[str] = None) -> Tuple[Any, Op
     while attempt < max_attempts:
         if attempt > 0:
             delay = delays[attempt - 1]
-            logger.info(json.dumps({
-                "message": "Retrying .NET call",
-                "trace_id": effective_trace_id,
-                "delay_sec": delay,
-                "attempt": attempt + 1,
-                "max_attempts": max_attempts
-            }))
+            logger.info(
+                json.dumps(
+                    {
+                        "message": "Retrying .NET call",
+                        "trace_id": effective_trace_id,
+                        "delay_sec": delay,
+                        "attempt": attempt + 1,
+                        "max_attempts": max_attempts,
+                    }
+                )
+            )
             time.sleep(delay)
 
         attempt += 1
@@ -186,56 +225,82 @@ def _call_dotnet(payload: Dict, trace_id: Optional[str] = None) -> Tuple[Any, Op
 
             # Only retry on 429, 502, 503, 504
             if resp.status_code in (429, 502, 503, 504):
-                logger.warning(json.dumps({
-                    "message": "Transient HTTP error. Will retry.",
-                    "trace_id": effective_trace_id,
-                    "status_code": resp.status_code
-                }))
+                logger.warning(
+                    json.dumps(
+                        {
+                            "message": "Transient HTTP error. Will retry.",
+                            "trace_id": effective_trace_id,
+                            "status_code": resp.status_code,
+                        }
+                    )
+                )
                 continue
             elif resp.status_code >= 500:
                 # Non-retriable server errors (e.g., 500) count as circuit breaker failures
-                logger.error(json.dumps({
-                    "message": "Non-retriable server error",
-                    "trace_id": effective_trace_id,
-                    "status_code": resp.status_code
-                }))
+                logger.error(
+                    json.dumps(
+                        {
+                            "message": "Non-retriable server error",
+                            "trace_id": effective_trace_id,
+                            "status_code": resp.status_code,
+                        }
+                    )
+                )
                 _cb.record_failure()
                 return None, last_error
             else:
                 # Validation or client errors (e.g., 400, 422) do not retry and do not count as system failures
-                logger.info(json.dumps({
-                    "message": "Non-retriable client error",
-                    "trace_id": effective_trace_id,
-                    "status_code": resp.status_code
-                }))
+                logger.info(
+                    json.dumps(
+                        {
+                            "message": "Non-retriable client error",
+                            "trace_id": effective_trace_id,
+                            "status_code": resp.status_code,
+                        }
+                    )
+                )
                 return None, last_error
 
         except (requests.ConnectionError, requests.Timeout) as exc:
-            last_error = f"Cannot connect to .NET backend at {DOTNET_EXECUTE_URL}. ({exc})"
-            logger.warning(json.dumps({
-                "message": "Transient connection or timeout error. Will retry.",
-                "trace_id": effective_trace_id,
-                "error": str(exc)
-            }))
+            last_error = (
+                f"Cannot connect to .NET backend at {DOTNET_EXECUTE_URL}. ({exc})"
+            )
+            logger.warning(
+                json.dumps(
+                    {
+                        "message": "Transient connection or timeout error. Will retry.",
+                        "trace_id": effective_trace_id,
+                        "error": str(exc),
+                    }
+                )
+            )
             continue
         except requests.RequestException as exc:
             # Non-transient or generic requests exception
             last_error = f"Backend request failed: {exc}"
-            logger.error(json.dumps({
-                "message": "Non-retriable RequestException",
-                "trace_id": effective_trace_id,
-                "error": str(exc)
-            }))
+            logger.error(
+                json.dumps(
+                    {
+                        "message": "Non-retriable RequestException",
+                        "trace_id": effective_trace_id,
+                        "error": str(exc),
+                    }
+                )
+            )
             _cb.record_failure()
             return None, last_error
         except ValueError as exc:
             # JSON decoding error
             last_error = f"Backend returned invalid JSON: {exc}"
-            logger.error(json.dumps({
-                "message": "Non-retriable JSON parse failure",
-                "trace_id": effective_trace_id,
-                "error": str(exc)
-            }))
+            logger.error(
+                json.dumps(
+                    {
+                        "message": "Non-retriable JSON parse failure",
+                        "trace_id": effective_trace_id,
+                        "error": str(exc),
+                    }
+                )
+            )
             _cb.record_failure()
             return None, last_error
 

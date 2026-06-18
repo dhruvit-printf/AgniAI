@@ -1,7 +1,8 @@
 """
-tests/test_admin_confidence.py  
+tests/test_admin_confidence.py
 Tests for admin_confidence.py — unified confidence scoring.
 """
+
 import pytest
 from admin_confidence import (
     AdminConfidence,
@@ -53,9 +54,11 @@ class TestAdminConfidenceProperties:
 
 class TestComputeConfidence:
     def test_high_intent_gives_high_confidence(self):
-        intent = {"category": "Performance", 
-                  "subcategory": "TopPerformers",
-                  "confidence": "high"}
+        intent = {
+            "category": "Performance",
+            "subcategory": "TopPerformers",
+            "confidence": "high",
+        }
         conf = compute_confidence(intent_result=intent)
         assert conf.label == "high"
         assert conf.score >= 0.75
@@ -74,19 +77,23 @@ class TestComputeConfidence:
     def test_plan_only_high(self):
         class Plan:
             confidence = 0.90
+
         conf = compute_confidence(plan=Plan())
         assert conf.label == "high"
 
     def test_plan_only_low(self):
         class Plan:
             confidence = 0.20
+
         conf = compute_confidence(plan=Plan())
         assert conf.label == "low"
 
     def test_combined_intent_and_plan(self):
         intent = {"category": "Medical", "confidence": "high"}
+
         class Plan:
             confidence = 0.85
+
         conf = compute_confidence(intent_result=intent, plan=Plan())
         assert conf.label == "high"
         assert conf.score > 0.75
@@ -98,22 +105,21 @@ class TestComputeConfidence:
 
     def test_score_clamped_0_to_1(self):
         intent = {"category": "Performance", "confidence": "high"}
+
         class Plan:
             confidence = 1.0
+
         conf = compute_confidence(intent_result=intent, plan=Plan())
         assert 0.0 <= conf.score <= 1.0
 
     def test_category_and_subcategory_boost(self):
         """Having both category and subcategory adds +0.05 to score."""
         intent_with_sub = {
-            "category": "Attendance", 
-            "subcategory": "PresentToday",
-            "confidence": "medium"
-        }
-        intent_without_sub = {
             "category": "Attendance",
-            "confidence": "medium"
+            "subcategory": "PresentToday",
+            "confidence": "medium",
         }
+        intent_without_sub = {"category": "Attendance", "confidence": "medium"}
         conf_with = compute_confidence(intent_result=intent_with_sub)
         conf_without = compute_confidence(intent_result=intent_without_sub)
         assert conf_with.score >= conf_without.score
@@ -126,16 +132,23 @@ class TestNormaliseIntentConfidence:
         assert isinstance(result, dict)
 
     def test_confidence_replaced_with_dict(self):
-        intent = {"category": "Skills", "subcategory": "BySport",
-                  "confidence": "medium"}
+        intent = {
+            "category": "Skills",
+            "subcategory": "BySport",
+            "confidence": "medium",
+        }
         result = normalise_intent_confidence(intent)
         assert isinstance(result["confidence"], dict)
         assert "score" in result["confidence"]
         assert "label" in result["confidence"]
 
     def test_original_fields_preserved(self):
-        intent = {"category": "Equipment", "subcategory": "OverdueEquipment",
-                  "confidence": "high", "section": "PPT"}
+        intent = {
+            "category": "Equipment",
+            "subcategory": "OverdueEquipment",
+            "confidence": "high",
+            "section": "PPT",
+        }
         result = normalise_intent_confidence(intent)
         assert result["category"] == "Equipment"
         assert result["subcategory"] == "OverdueEquipment"

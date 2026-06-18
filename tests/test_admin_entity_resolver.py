@@ -2,6 +2,7 @@
 tests/test_admin_entity_resolver.py
 Tests for entity extraction (no .NET API calls — extraction only).
 """
+
 import pytest
 from admin_entity_resolver import (
     extract_company_mention,

@@ -25,9 +25,9 @@ class WebSocketManager:
     """Thread-safe registry of active Socket.IO session IDs."""
 
     def __init__(self) -> None:
-        self._clients: Dict[str, str] = {}   # sid → session_id
+        self._clients: Dict[str, str] = {}  # sid → session_id
         self._lock = threading.RLock()
-        self._socketio = None                 # set via init()
+        self._socketio = None  # set via init()
 
     def init(self, socketio) -> None:
         """Attach the Flask-SocketIO instance (called once at startup)."""

@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 # INTERNAL RECORD UTILITIES
 # =============================================================================
 
+
 def _extract_records(data: Any) -> List[Dict]:
     """Pull the list of records out of any .NET wrapper shape."""
     if isinstance(data, list):
@@ -23,8 +24,14 @@ def _extract_records(data: Any) -> List[Dict]:
 
     if isinstance(data, dict):
         for key in (
-            "data", "Data", "result", "Result",
-            "records", "Records", "persons", "personnel",
+            "data",
+            "Data",
+            "result",
+            "Result",
+            "records",
+            "Records",
+            "persons",
+            "personnel",
         ):
             val = data.get(key)
             if isinstance(val, list):
@@ -74,17 +81,21 @@ def _safe_float(value: Any) -> Optional[float]:
 # =============================================================================
 
 _GROUP_FIELD_MAP: Dict[str, List[str]] = {
-    "section":  ["sectionName", "section", "Section"],
-    "sport":    ["sports", "sport", "Sport"],
-    "unit":     ["teamName", "unitName", "unit", "Unit"],
-    "class":    ["class", "className", "Class"],
-    "platoon":  ["platoonName", "platoon"],
-    "batch":    ["batchName", "batch"],
+    "section": ["sectionName", "section", "Section"],
+    "sport": ["sports", "sport", "Sport"],
+    "unit": ["teamName", "unitName", "unit", "Unit"],
+    "class": ["class", "className", "Class"],
+    "platoon": ["platoonName", "platoon"],
+    "batch": ["batchName", "batch"],
 }
 
 _SCORE_FIELDS = [
-    "bestTotal", "totalMarks", "score", "Score",
-    "omrInputTotal", "marksObtained",
+    "bestTotal",
+    "totalMarks",
+    "score",
+    "Score",
+    "omrInputTotal",
+    "marksObtained",
 ]
 
 
@@ -176,6 +187,7 @@ def aggregate_records(
 # N-WAY INTERSECTION (CROSS_FILTER)
 # =============================================================================
 
+
 def intersect_results(
     result_sets: List[Any],
     primary_index: int = 0,
@@ -188,15 +200,15 @@ def intersect_results(
     """
     if not result_sets:
         return {
-            "queryType":         "cross_filter",
-            "filterDepth":       0,
-            "matchCount":        0,
+            "queryType": "cross_filter",
+            "filterDepth": 0,
+            "matchCount": 0,
             "totalBeforeFilter": 0,
-            "records":           [],
+            "records": [],
         }
 
     all_record_sets = [_extract_records(rs) for rs in result_sets]
-    all_id_sets     = [_extract_agniveer_ids(recs) for recs in all_record_sets]
+    all_id_sets = [_extract_agniveer_ids(recs) for recs in all_record_sets]
 
     if not all_id_sets or any(len(ids) == 0 for ids in all_id_sets):
         common_ids: Set[int] = set()
@@ -205,9 +217,9 @@ def intersect_results(
         for id_set in all_id_sets[1:]:
             common_ids = common_ids & id_set
 
-    primary_index   = min(primary_index, len(all_record_sets) - 1)
+    primary_index = min(primary_index, len(all_record_sets) - 1)
     primary_records = all_record_sets[primary_index]
-    total_before    = len(primary_records)
+    total_before = len(primary_records)
 
     filtered: List[Dict] = []
     for record in primary_records:
@@ -225,21 +237,24 @@ def intersect_results(
 
     logger.info(
         "intersect_results: depth=%d total_before=%d matched=%d",
-        len(result_sets), total_before, len(filtered),
+        len(result_sets),
+        total_before,
+        len(filtered),
     )
 
     return {
-        "queryType":         "cross_filter",
-        "filterDepth":       len(result_sets),
-        "matchCount":        len(filtered),
+        "queryType": "cross_filter",
+        "filterDepth": len(result_sets),
+        "matchCount": len(filtered),
         "totalBeforeFilter": total_before,
-        "records":           filtered,
+        "records": filtered,
     }
 
 
 # =============================================================================
 # MERGE (MULTI_INDEPENDENT)
 # =============================================================================
+
 
 def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
     """
@@ -249,24 +264,27 @@ def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
     sections: List[Dict] = []
     for label, data in labeled_results:
         records = _extract_records(data)
-        sections.append({
-            "label":       label,
-            "data":        data,
-            "recordCount": len(records),
-        })
+        sections.append(
+            {
+                "label": label,
+                "data": data,
+                "recordCount": len(records),
+            }
+        )
 
     logger.info("merge_results: %d sections", len(sections))
 
     return {
-        "queryType":    "multi_independent",
+        "queryType": "multi_independent",
         "sectionCount": len(sections),
-        "sections":     sections,
+        "sections": sections,
     }
 
 
 # =============================================================================
 # COMPARISON
 # =============================================================================
+
 
 def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
     """
@@ -301,8 +319,8 @@ def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
         scores = [s for s in (_get_score(r) for r in records) if s is not None]
         if scores:
             metrics["averageScore"] = round(sum(scores) / len(scores), 2)
-            metrics["topScore"]     = max(scores)
-            metrics["bottomScore"]  = min(scores)
+            metrics["topScore"] = max(scores)
+            metrics["bottomScore"] = min(scores)
 
     return metrics
 
@@ -320,20 +338,23 @@ def compare_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
     for label, data in labeled_results:
         metrics = _extract_summary_metrics(data)
         all_metric_keys.update(metrics.keys())
-        sides.append({
-            "label":   label,
-            "data":    data,
-            "metrics": metrics,
-        })
+        sides.append(
+            {
+                "label": label,
+                "data": data,
+                "metrics": metrics,
+            }
+        )
 
     logger.info(
         "compare_results: %d sides, metrics=%s",
-        len(sides), sorted(all_metric_keys),
+        len(sides),
+        sorted(all_metric_keys),
     )
 
     return {
-        "queryType":       "comparison",
-        "sides":           sides,
+        "queryType": "comparison",
+        "sides": sides,
         "comparedMetrics": sorted(all_metric_keys),
     }
 
@@ -349,13 +370,19 @@ def combine_results(
     Delegates to appropriate intersection/comparison/merge strategy based on qtype_str.
     """
     if qtype_str == "cross_filter":
-        logger.info("result_combiner: intersect_results across %d sets", len(raw_results))
+        logger.info(
+            "result_combiner: intersect_results across %d sets", len(raw_results)
+        )
         return intersect_results(raw_results, primary_index=0)
     elif qtype_str == "comparison":
-        logger.info("result_combiner: compare_results across %d sides", len(labeled_results))
+        logger.info(
+            "result_combiner: compare_results across %d sides", len(labeled_results)
+        )
         return compare_results(labeled_results)
     elif qtype_str == "multi_independent":
-        logger.info("result_combiner: merge_results across %d sections", len(labeled_results))
+        logger.info(
+            "result_combiner: merge_results across %d sections", len(labeled_results)
+        )
         return merge_results(labeled_results)
     else:
         logger.info("result_combiner: simple passthrough")

@@ -6,15 +6,16 @@ report_generator.py
 
 from __future__ import annotations
 
-import re
 import json
 import logging
-import requests
+import re
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from config import OLLAMA_URL, DEFAULT_MODEL
+import requests
+
 from admin_formatter import format_dotnet_response
+from config import DEFAULT_MODEL, OLLAMA_URL
 
 logger = logging.getLogger(__name__)
 
@@ -25,45 +26,147 @@ _report_ctx = threading.local()
 # =============================================================================
 
 _INTRO_TEMPLATES: Dict[Tuple[str, str], str] = {
-    ("Performance", "TopPerformers"):      "These assessment results highlight the strongest performers in the evaluation.",
-    ("Performance", "LowestPerformers"):   "These results identify the individuals requiring additional training support.",
-    ("Performance", "AverageScore"):       "The average scores outline overall achievement levels across the group.",
-    ("Performance", "PassPercentage"):     "Pass rates reflect the percentage of trainees meeting the assessment standards.",
-    ("Performance", "FailPercentage"):     "Fail rates identify the proportion of trainees currently below standard.",
-    ("Performance", "GradeDistribution"):  "The grade filter results show performance by the selected grading category.",
-    ("Performance", "GradingSummary"):     "The grading summary provides a breakdown of performance achievements.",
-    ("Performance", "OverallPerformance"): "Overall performance metrics highlight trainee progress across all criteria.",
-    ("Performance", "Improvement"):        "These records highlight the trainees showing positive performance growth.",
-    ("Performance", "Drop"):               "These trends identify trainees experiencing a decline in assessment scores.",
-    ("Performance", "SectionSummary"):     "The section summary provides a view of performance across individual modules.",
-    ("Performance", "AttemptWise"):        "Attempt-wise statistics track trainee progress across successive evaluation cycles.",
-    ("Performance", "BestAttempt"):        "Best attempt outcomes reflect peak trainee achievements in this evaluation.",
-    ("Performance", "Comparison"):         "This comparison highlights achievement differences across the selected categories.",
-    ("Leave", "MostLeaveTaken"):           "Leave patterns highlight the person with the highest absence rate.",
-    ("Leave", "LeastLeaveTaken"):          "Leave summaries identify the person with the highest duty presence.",
-    ("Leave", "CurrentLeaveStatus"):       "Current leave records outline person availability across the unit.",
-    ("Leave", "AbscondedPerson"):          "These records flag persons currently absent without official leave.",
-    ("Medical", "ActiveCases"):            "This summary captures current active cases undergoing medical attention.",
-    ("Medical", "BMIAnalysis"):            "BMI records outline fitness levels and weight distribution across persons.",
-    ("Medical", "DiseaseStatistics"):      "Health records highlight the most common medical cases reported recently.",
-    ("Attendance", "MonthlyAttendance"):   "Monthly attendance trends provide a view of person participation.",
-    ("Attendance", "PresentToday"):        "Today's attendance records outline current person presence on campus.",
-    ("Attendance", "StrengthBreakdown"):   "The strength breakdown captures unit headcount and active person counts.",
-    ("Verification", "PendingVerification"):   "Verification files track documents currently awaiting official review.",
-    ("Verification", "CompletedVerification"): "These records confirm files that have cleared the verification process.",
-    ("Equipment", "EquipmentSummary"):     "This inventory summary reflects current equipment counts and status.",
-    ("Equipment", "OverdueEquipment"):     "These records flag issued gear currently overdue for return.",
-    ("Equipment", "PoorConditionEquipment"): "This quality review highlights equipment returned in sub-standard condition.",
-    ("Equipment", "IssuedItems"):          "Here is the complete list of items issued to Agniveers.",
-    ("Equipment", "ProcuredItems"):        "Here is the complete list of items procured by Agniveers.",
-    ("Skills", "BySport"):                   "Sport rosters track athletic participation and team assignments.",
-    ("Skills", "ByClass"):                   "Class rosters group persons by their administrative designations.",
-    ("Skills", "BloodGroup"):                "Medical profiles outline the blood group distribution across the group.",
+    (
+        "Performance",
+        "TopPerformers",
+    ): "These assessment results highlight the strongest performers in the evaluation.",
+    (
+        "Performance",
+        "LowestPerformers",
+    ): "These results identify the individuals requiring additional training support.",
+    (
+        "Performance",
+        "AverageScore",
+    ): "The average scores outline overall achievement levels across the group.",
+    (
+        "Performance",
+        "PassPercentage",
+    ): "Pass rates reflect the percentage of trainees meeting the assessment standards.",
+    (
+        "Performance",
+        "FailPercentage",
+    ): "Fail rates identify the proportion of trainees currently below standard.",
+    (
+        "Performance",
+        "GradeDistribution",
+    ): "The grade filter results show performance by the selected grading category.",
+    (
+        "Performance",
+        "GradingSummary",
+    ): "The grading summary provides a breakdown of performance achievements.",
+    (
+        "Performance",
+        "OverallPerformance",
+    ): "Overall performance metrics highlight trainee progress across all criteria.",
+    (
+        "Performance",
+        "Improvement",
+    ): "These records highlight the trainees showing positive performance growth.",
+    (
+        "Performance",
+        "Drop",
+    ): "These trends identify trainees experiencing a decline in assessment scores.",
+    (
+        "Performance",
+        "SectionSummary",
+    ): "The section summary provides a view of performance across individual modules.",
+    (
+        "Performance",
+        "AttemptWise",
+    ): "Attempt-wise statistics track trainee progress across successive evaluation cycles.",
+    (
+        "Performance",
+        "BestAttempt",
+    ): "Best attempt outcomes reflect peak trainee achievements in this evaluation.",
+    (
+        "Performance",
+        "Comparison",
+    ): "This comparison highlights achievement differences across the selected categories.",
+    (
+        "Leave",
+        "MostLeaveTaken",
+    ): "Leave patterns highlight the person with the highest absence rate.",
+    (
+        "Leave",
+        "LeastLeaveTaken",
+    ): "Leave summaries identify the person with the highest duty presence.",
+    (
+        "Leave",
+        "CurrentLeaveStatus",
+    ): "Current leave records outline person availability across the unit.",
+    (
+        "Leave",
+        "AbscondedPerson",
+    ): "These records flag persons currently absent without official leave.",
+    (
+        "Medical",
+        "ActiveCases",
+    ): "This summary captures current active cases undergoing medical attention.",
+    (
+        "Medical",
+        "BMIAnalysis",
+    ): "BMI records outline fitness levels and weight distribution across persons.",
+    (
+        "Medical",
+        "DiseaseStatistics",
+    ): "Health records highlight the most common medical cases reported recently.",
+    (
+        "Attendance",
+        "MonthlyAttendance",
+    ): "Monthly attendance trends provide a view of person participation.",
+    (
+        "Attendance",
+        "PresentToday",
+    ): "Today's attendance records outline current person presence on campus.",
+    (
+        "Attendance",
+        "StrengthBreakdown",
+    ): "The strength breakdown captures unit headcount and active person counts.",
+    (
+        "Verification",
+        "PendingVerification",
+    ): "Verification files track documents currently awaiting official review.",
+    (
+        "Verification",
+        "CompletedVerification",
+    ): "These records confirm files that have cleared the verification process.",
+    (
+        "Equipment",
+        "EquipmentSummary",
+    ): "This inventory summary reflects current equipment counts and status.",
+    (
+        "Equipment",
+        "OverdueEquipment",
+    ): "These records flag issued gear currently overdue for return.",
+    (
+        "Equipment",
+        "PoorConditionEquipment",
+    ): "This quality review highlights equipment returned in sub-standard condition.",
+    (
+        "Equipment",
+        "IssuedItems",
+    ): "Here is the complete list of items issued to Agniveers.",
+    (
+        "Equipment",
+        "ProcuredItems",
+    ): "Here is the complete list of items procured by Agniveers.",
+    (
+        "Skills",
+        "BySport",
+    ): "Sport rosters track athletic participation and team assignments.",
+    (
+        "Skills",
+        "ByClass",
+    ): "Class rosters group persons by their administrative designations.",
+    (
+        "Skills",
+        "BloodGroup",
+    ): "Medical profiles outline the blood group distribution across the group.",
 }
 
 _QUERY_TYPE_INTROS: Dict[str, str] = {
-    "cross_filter":      "Cross-filter analysis completed — records matched across the selected criteria.",
-    "comparison":        "Comparison completed between the selected categories.",
+    "cross_filter": "Cross-filter analysis completed — records matched across the selected criteria.",
+    "comparison": "Comparison completed between the selected categories.",
     "multi_independent": "Combined data successfully consolidated from multiple modules.",
 }
 
@@ -75,14 +178,21 @@ _QUERY_TYPE_INTROS: Dict[str, str] = {
 # This text is what gets passed to Ollama AND used for grounding.
 # It intentionally EXCLUDES individual record data, attempts, sections, subItems.
 
+
 def _extract_records_from_combined(data: Any) -> List[Dict]:
     """Pull the list of records out of any .NET wrapper shape."""
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
         for key in (
-            "data", "Data", "result", "Result",
-            "records", "Records", "persons", "personnel",
+            "data",
+            "Data",
+            "result",
+            "Result",
+            "records",
+            "Records",
+            "persons",
+            "personnel",
         ):
             val = data.get(key)
             if isinstance(val, list):
@@ -102,8 +212,12 @@ def _safe_float(value: Any) -> Optional[float]:
 
 
 _SCORE_FIELDS = [
-    "bestTotal", "totalMarks", "score", "Score",
-    "omrInputTotal", "marksObtained",
+    "bestTotal",
+    "totalMarks",
+    "score",
+    "Score",
+    "omrInputTotal",
+    "marksObtained",
 ]
 
 
@@ -130,7 +244,7 @@ def _build_aggregate_text(
 ) -> str:
     """
     Build a compact aggregate-only text from combinedResult.
-    
+
     This text is the ONLY data the LLM sees. It contains:
       - Counts, totals, percentages, summary metrics
       - Record names (for simple queries)
@@ -141,10 +255,26 @@ def _build_aggregate_text(
     lines: List[str] = []
 
     if query_type == "cross_filter":
-        match_count = combined_result.get("matchCount", 0) if isinstance(combined_result, dict) else 0
-        total_before = combined_result.get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
-        filter_depth = combined_result.get("filterDepth", 2) if isinstance(combined_result, dict) else 2
-        records = combined_result.get("records", []) if isinstance(combined_result, dict) else []
+        match_count = (
+            combined_result.get("matchCount", 0)
+            if isinstance(combined_result, dict)
+            else 0
+        )
+        total_before = (
+            combined_result.get("totalBeforeFilter", 0)
+            if isinstance(combined_result, dict)
+            else 0
+        )
+        filter_depth = (
+            combined_result.get("filterDepth", 2)
+            if isinstance(combined_result, dict)
+            else 2
+        )
+        records = (
+            combined_result.get("records", [])
+            if isinstance(combined_result, dict)
+            else []
+        )
 
         lines.append(f"Query Type: cross_filter")
         lines.append(f"Match Count: {match_count}")
@@ -166,8 +296,16 @@ def _build_aggregate_text(
             lines.append(f"Matched Agniveers: {', '.join(names)}")
 
     elif query_type == "comparison":
-        sides = combined_result.get("sides", []) if isinstance(combined_result, dict) else []
-        compared_metrics = combined_result.get("comparedMetrics", []) if isinstance(combined_result, dict) else []
+        sides = (
+            combined_result.get("sides", [])
+            if isinstance(combined_result, dict)
+            else []
+        )
+        compared_metrics = (
+            combined_result.get("comparedMetrics", [])
+            if isinstance(combined_result, dict)
+            else []
+        )
 
         lines.append(f"Query Type: comparison")
         lines.append(f"Number of Sides: {len(sides)}")
@@ -185,8 +323,16 @@ def _build_aggregate_text(
             lines.append(f"Compared Metrics: {', '.join(compared_metrics)}")
 
     elif query_type == "multi_independent":
-        sections = combined_result.get("sections", []) if isinstance(combined_result, dict) else []
-        section_count = combined_result.get("sectionCount", len(sections)) if isinstance(combined_result, dict) else 0
+        sections = (
+            combined_result.get("sections", [])
+            if isinstance(combined_result, dict)
+            else []
+        )
+        section_count = (
+            combined_result.get("sectionCount", len(sections))
+            if isinstance(combined_result, dict)
+            else 0
+        )
 
         lines.append(f"Query Type: multi_independent")
         lines.append(f"Section Count: {section_count}")
@@ -235,7 +381,9 @@ def _build_aggregate_text(
         if names and len(names) <= 20:
             lines.append(f"Records: {', '.join(names)}")
         elif names:
-            lines.append(f"Records: {', '.join(names[:20])} (and {len(names) - 20} more)")
+            lines.append(
+                f"Records: {', '.join(names[:20])} (and {len(names) - 20} more)"
+            )
 
     return "\n".join(lines)
 
@@ -286,19 +434,27 @@ def _strip_ungrounded_numbers(llm_text: str, grounded_text: str) -> str:
         # Drop sentences with ungrounded numbers
         if sentence_numbers and not sentence_numbers.issubset(grounded_numbers):
             bad = sentence_numbers - grounded_numbers
-            logger.info(json.dumps({
-                "message": "Grounding guard: dropped sentence with unverified numbers",
-                "trace_id": getattr(_report_ctx, "trace_id", None) or "N/A",
-                "unverified_numbers": list(bad)
-            }))
+            logger.info(
+                json.dumps(
+                    {
+                        "message": "Grounding guard: dropped sentence with unverified numbers",
+                        "trace_id": getattr(_report_ctx, "trace_id", None) or "N/A",
+                        "unverified_numbers": list(bad),
+                    }
+                )
+            )
             continue
 
         # Extra check: metric keywords with ungrounded numbers
         if _contains_ungrounded_metrics(sentence, grounded_numbers):
-            logger.info(json.dumps({
-                "message": "Grounding guard: dropped metric sentence with unverified data",
-                "trace_id": getattr(_report_ctx, "trace_id", None) or "N/A"
-            }))
+            logger.info(
+                json.dumps(
+                    {
+                        "message": "Grounding guard: dropped metric sentence with unverified data",
+                        "trace_id": getattr(_report_ctx, "trace_id", None) or "N/A",
+                    }
+                )
+            )
             continue
 
         kept.append(sentence)
@@ -315,6 +471,7 @@ def _ground_and_sanitize(text: str, grounded_text: str) -> str:
 # FALLBACK GENERATOR
 # =============================================================================
 
+
 def get_fallback_report(
     combined_result: Any,
     query_type: str,
@@ -322,22 +479,36 @@ def get_fallback_report(
 ) -> Dict[str, Any]:
     category = intent.get("category") or "Agniveer"
     subcategory = intent.get("subcategory") or ""
-    
+
     # Extract records and counts
     records = _extract_records_from_combined(combined_result)
     cnt = len(records)
-    
+
     # Base fallback values
     if query_type == "cross_filter":
-        match_count = combined_result.get("matchCount", cnt) if isinstance(combined_result, dict) else cnt
-        total_before = combined_result.get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
+        match_count = (
+            combined_result.get("matchCount", cnt)
+            if isinstance(combined_result, dict)
+            else cnt
+        )
+        total_before = (
+            combined_result.get("totalBeforeFilter", 0)
+            if isinstance(combined_result, dict)
+            else 0
+        )
         intro = f"{match_count} Agniveers matched the requested cross-filter criteria."
         summary = f"Cross-filter intersection completed with {match_count} matches."
         obs = [f"{match_count} records matched out of {total_before} primary records."]
-        insights = ["Intersection identifies trainees matching all filtered properties simultaneously."]
+        insights = [
+            "Intersection identifies trainees matching all filtered properties simultaneously."
+        ]
         conclusion = f"{match_count} trainees have been successfully cross-referenced."
     elif query_type == "comparison":
-        sides = combined_result.get("sides", []) if isinstance(combined_result, dict) else []
+        sides = (
+            combined_result.get("sides", [])
+            if isinstance(combined_result, dict)
+            else []
+        )
         labels = [s.get("label", "Section") for s in sides]
         labels_str = " and ".join(labels) if labels else "selected categories"
         intro = f"Comparison between {labels_str} has been completed."
@@ -346,18 +517,24 @@ def get_fallback_report(
         insights = ["Comparison highlights metric variances across categories."]
         conclusion = "The comparative analysis of the requested metrics is complete."
     elif query_type == "multi_independent":
-        sections = combined_result.get("sections", []) if isinstance(combined_result, dict) else []
+        sections = (
+            combined_result.get("sections", [])
+            if isinstance(combined_result, dict)
+            else []
+        )
         labels = [s.get("label", "Section") for s in sections]
         labels_str = ", ".join(labels) if labels else "multiple modules"
         intro = f"{labels_str} statistics have been consolidated."
         summary = f"Consolidated dataset generated from {len(sections)} sections."
-        obs = [f"Successfully loaded {len(sections)} independent data sections: {labels_str}."]
+        obs = [
+            f"Successfully loaded {len(sections)} independent data sections: {labels_str}."
+        ]
         insights = ["No correlation analysis is performed for independent requests."]
         conclusion = "All requested sections are merged into a single report view."
     else:
         # simple
         intro = f"{cnt} records were identified for {category.lower()}."
-        
+
         # Check specific category templates if available
         key = (category, subcategory)
         if key in _INTRO_TEMPLATES:
@@ -365,21 +542,17 @@ def get_fallback_report(
         elif query_type in _QUERY_TYPE_INTROS:
             intro = _QUERY_TYPE_INTROS[query_type]
 
-        summary = f"A total of {cnt} records are present in the {category.lower()} dataset."
+        summary = (
+            f"A total of {cnt} records are present in the {category.lower()} dataset."
+        )
         obs = [f"Found {cnt} active {category.lower()} records."]
         insights = ["The dataset matches the requested filter criteria."]
         conclusion = f"The {category.lower()} records remain stable and up to date."
-        
+
     return {
         "introMessage": intro,
-        "analysis": {
-            "summary": summary,
-            "observations": obs,
-            "insights": insights
-        },
-        "conclusion": {
-            "summary": conclusion
-        }
+        "analysis": {"summary": summary, "observations": obs, "insights": insights},
+        "conclusion": {"summary": conclusion},
     }
 
 
@@ -387,7 +560,10 @@ def get_fallback_report(
 # OLLAMA HELPERS
 # =============================================================================
 
-def _call_ollama(prompt: str, temperature: float = 0.3, max_tokens: int = 200) -> Optional[str]:
+
+def _call_ollama(
+    prompt: str, temperature: float = 0.3, max_tokens: int = 200
+) -> Optional[str]:
     """Call Ollama and return the raw text response, or None on failure."""
     try:
         payload = {
@@ -405,26 +581,32 @@ def _call_ollama(prompt: str, temperature: float = 0.3, max_tokens: int = 200) -
         raw = resp.json().get("message", {}).get("content", "").strip()
         return raw if raw else None
     except Exception as exc:
-        logger.warning(json.dumps({
-            "message": "Ollama call failed",
-            "trace_id": getattr(_report_ctx, "trace_id", None) or "N/A",
-            "error": str(exc)
-        }))
+        logger.warning(
+            json.dumps(
+                {
+                    "message": "Ollama call failed",
+                    "trace_id": getattr(_report_ctx, "trace_id", None) or "N/A",
+                    "error": str(exc),
+                }
+            )
+        )
         return None
 
 
 def parse_analysis_json(text: str) -> Dict[str, Any]:
-    start = text.find('{')
-    end = text.rfind('}')
+    start = text.find("{")
+    end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        candidate = text[start:end+1]
+        candidate = text[start : end + 1]
         try:
             val = json.loads(candidate)
             if isinstance(val, dict) and "summary" in val:
                 return {
                     "summary": str(val.get("summary") or ""),
-                    "observations": [str(x) for x in val.get("observations") or [] if x],
-                    "insights": [str(x) for x in val.get("insights") or [] if x]
+                    "observations": [
+                        str(x) for x in val.get("observations") or [] if x
+                    ],
+                    "insights": [str(x) for x in val.get("insights") or [] if x],
                 }
         except Exception:
             pass
@@ -438,11 +620,7 @@ def parse_analysis_non_json(text: str) -> Dict[str, Any]:
     summary = lines[0]
     observations = lines[1:4]
     insights = lines[4:6]
-    return {
-        "summary": summary,
-        "observations": observations,
-        "insights": insights
-    }
+    return {"summary": summary, "observations": observations, "insights": insights}
 
 
 def _parse_llm_analysis(raw: str) -> Dict[str, Any]:
@@ -479,8 +657,8 @@ def _generate_simple_analysis(aggregate_text: str, user_query: str) -> Dict[str,
         "- Summary metrics (averages, totals, counts)\n"
         "- Returned record names\n\n"
         "Do NOT focus on any single record. Do NOT mention attempts, sections, or sub-items.\n\n"
-        + _ANALYSIS_RULES_COMMON +
-        f"\nUser Query: {user_query}\n"
+        + _ANALYSIS_RULES_COMMON
+        + f"\nUser Query: {user_query}\n"
         f"Aggregate Data:\n{aggregate_text}\n\n"
         "Generate only the raw JSON."
     )
@@ -492,7 +670,9 @@ def _generate_simple_analysis(aggregate_text: str, user_query: str) -> Dict[str,
     return {}
 
 
-def _generate_cross_filter_analysis(aggregate_text: str, user_query: str) -> Dict[str, Any]:
+def _generate_cross_filter_analysis(
+    aggregate_text: str, user_query: str
+) -> Dict[str, Any]:
     """Analysis engine for cross-filter queries — focuses on matchCount, filterDepth, intersection."""
     prompt = (
         "You are AgniAI, an intelligent military assistant.\n"
@@ -505,8 +685,8 @@ def _generate_cross_filter_analysis(aggregate_text: str, user_query: str) -> Dic
         "CRITICAL: Do NOT analyze attempts, sections, subItems, marks, grades, or scores.\n"
         "Do NOT write about individual candidate performance.\n"
         "Focus on the aggregate intersection result.\n\n"
-        + _ANALYSIS_RULES_COMMON +
-        f"\nUser Query: {user_query}\n"
+        + _ANALYSIS_RULES_COMMON
+        + f"\nUser Query: {user_query}\n"
         f"Aggregate Data:\n{aggregate_text}\n\n"
         "Generate only the raw JSON."
     )
@@ -518,7 +698,9 @@ def _generate_cross_filter_analysis(aggregate_text: str, user_query: str) -> Dic
     return {}
 
 
-def _generate_comparison_analysis(aggregate_text: str, user_query: str) -> Dict[str, Any]:
+def _generate_comparison_analysis(
+    aggregate_text: str, user_query: str
+) -> Dict[str, Any]:
     """Analysis engine for comparison queries — focuses on side-by-side metrics."""
     prompt = (
         "You are AgniAI, an intelligent military assistant.\n"
@@ -528,8 +710,8 @@ def _generate_comparison_analysis(aggregate_text: str, user_query: str) -> Dict[
         "- Percentages and relative comparisons\n\n"
         "CRITICAL: Do NOT analyze individual records, nested attempts, or sub-items.\n"
         "Compare the aggregate metrics between sides.\n\n"
-        + _ANALYSIS_RULES_COMMON +
-        f"\nUser Query: {user_query}\n"
+        + _ANALYSIS_RULES_COMMON
+        + f"\nUser Query: {user_query}\n"
         f"Aggregate Data:\n{aggregate_text}\n\n"
         "Generate only the raw JSON."
     )
@@ -541,7 +723,9 @@ def _generate_comparison_analysis(aggregate_text: str, user_query: str) -> Dict[
     return {}
 
 
-def _generate_multi_independent_analysis(aggregate_text: str, user_query: str) -> Dict[str, Any]:
+def _generate_multi_independent_analysis(
+    aggregate_text: str, user_query: str
+) -> Dict[str, Any]:
     """Analysis engine for multi-independent queries — focuses on section summaries."""
     prompt = (
         "You are AgniAI, an intelligent military assistant.\n"
@@ -551,8 +735,8 @@ def _generate_multi_independent_analysis(aggregate_text: str, user_query: str) -
         "- Total sections consolidated\n\n"
         "CRITICAL: Do NOT analyze individual records or nested data within sections.\n"
         "Summarize the section-level data only.\n\n"
-        + _ANALYSIS_RULES_COMMON +
-        f"\nUser Query: {user_query}\n"
+        + _ANALYSIS_RULES_COMMON
+        + f"\nUser Query: {user_query}\n"
         f"Aggregate Data:\n{aggregate_text}\n\n"
         "Generate only the raw JSON."
     )
@@ -596,14 +780,19 @@ def _generate_conclusion(
         analysis_text_parts.append("Observations: " + "; ".join(analysis_obs))
     if analysis_ins:
         analysis_text_parts.append("Insights: " + "; ".join(analysis_ins))
-    analysis_text = "\n".join(analysis_text_parts) if analysis_text_parts else "No analysis available."
+    analysis_text = (
+        "\n".join(analysis_text_parts)
+        if analysis_text_parts
+        else "No analysis available."
+    )
 
     prompt = (
         "You are AgniAI, an intelligent military assistant.\n"
         "Generate a brief conclusion summarizing the analysis findings.\n\n"
-        + query_type_instruction + "\n\n"
-        + _CONCLUSION_RULES_COMMON +
-        f"\nUser Query: {user_query}\n"
+        + query_type_instruction
+        + "\n\n"
+        + _CONCLUSION_RULES_COMMON
+        + f"\nUser Query: {user_query}\n"
         f"Aggregate Data:\n{aggregate_text}\n\n"
         f"Analysis:\n{analysis_text}\n\n"
         "Generate only the conclusion text (2-3 sentences)."
@@ -611,41 +800,57 @@ def _generate_conclusion(
     raw = _call_ollama(prompt, temperature=0.3, max_tokens=120)
     if raw:
         # Clean up common LLM prefixes
-        cleaned = re.sub(r'^(?:CONCLUSION\s*:\s*)', '', raw, flags=re.IGNORECASE)
-        cleaned = re.sub(r'[*_`#]', '', cleaned).strip()
+        cleaned = re.sub(r"^(?:CONCLUSION\s*:\s*)", "", raw, flags=re.IGNORECASE)
+        cleaned = re.sub(r"[*_`#]", "", cleaned).strip()
         cleaned = cleaned.strip('"' + "'")
         return cleaned
     return ""
 
 
-def _generate_simple_conclusion(aggregate_text: str, analysis_data: Dict[str, Any], user_query: str) -> str:
+def _generate_simple_conclusion(
+    aggregate_text: str, analysis_data: Dict[str, Any], user_query: str
+) -> str:
     return _generate_conclusion(
-        aggregate_text, analysis_data, user_query,
-        "Focus on summarizing the record count and overall dataset findings."
+        aggregate_text,
+        analysis_data,
+        user_query,
+        "Focus on summarizing the record count and overall dataset findings.",
     )
 
 
-def _generate_cross_filter_conclusion(aggregate_text: str, analysis_data: Dict[str, Any], user_query: str) -> str:
+def _generate_cross_filter_conclusion(
+    aggregate_text: str, analysis_data: Dict[str, Any], user_query: str
+) -> str:
     return _generate_conclusion(
-        aggregate_text, analysis_data, user_query,
+        aggregate_text,
+        analysis_data,
+        user_query,
         "Focus on the cross-filter intersection result: how many matched and out of how many. "
-        "Do NOT mention individual candidate performance, attempts, or scores."
+        "Do NOT mention individual candidate performance, attempts, or scores.",
     )
 
 
-def _generate_comparison_conclusion(aggregate_text: str, analysis_data: Dict[str, Any], user_query: str) -> str:
+def _generate_comparison_conclusion(
+    aggregate_text: str, analysis_data: Dict[str, Any], user_query: str
+) -> str:
     return _generate_conclusion(
-        aggregate_text, analysis_data, user_query,
+        aggregate_text,
+        analysis_data,
+        user_query,
         "Focus on the comparison between sides: which side has more/fewer records, higher/lower metrics. "
-        "Do NOT mention individual records."
+        "Do NOT mention individual records.",
     )
 
 
-def _generate_multi_independent_conclusion(aggregate_text: str, analysis_data: Dict[str, Any], user_query: str) -> str:
+def _generate_multi_independent_conclusion(
+    aggregate_text: str, analysis_data: Dict[str, Any], user_query: str
+) -> str:
     return _generate_conclusion(
-        aggregate_text, analysis_data, user_query,
+        aggregate_text,
+        analysis_data,
+        user_query,
         "Focus on summarizing how many sections were consolidated and their respective record counts. "
-        "Do NOT analyze individual records within sections."
+        "Do NOT analyze individual records within sections.",
     )
 
 
@@ -654,16 +859,16 @@ def _generate_multi_independent_conclusion(aggregate_text: str, analysis_data: D
 # =============================================================================
 
 _ANALYSIS_ENGINES = {
-    "simple":            _generate_simple_analysis,
-    "cross_filter":      _generate_cross_filter_analysis,
-    "comparison":        _generate_comparison_analysis,
+    "simple": _generate_simple_analysis,
+    "cross_filter": _generate_cross_filter_analysis,
+    "comparison": _generate_comparison_analysis,
     "multi_independent": _generate_multi_independent_analysis,
 }
 
 _CONCLUSION_ENGINES = {
-    "simple":            _generate_simple_conclusion,
-    "cross_filter":      _generate_cross_filter_conclusion,
-    "comparison":        _generate_comparison_conclusion,
+    "simple": _generate_simple_conclusion,
+    "cross_filter": _generate_cross_filter_conclusion,
+    "comparison": _generate_comparison_conclusion,
     "multi_independent": _generate_multi_independent_conclusion,
 }
 
@@ -671,6 +876,7 @@ _CONCLUSION_ENGINES = {
 # =============================================================================
 # PUBLIC INTERFACE
 # =============================================================================
+
 
 def generate_report(
     combined_result: Any,
@@ -681,7 +887,7 @@ def generate_report(
 ) -> Dict[str, Any]:
     """
     Produce the structured report: introMessage, analysis, and conclusion.
-    
+
     CRITICAL: All analysis is based on the aggregate summary of combinedResult,
     never on individual records. The LLM only sees aggregate metrics.
     """
@@ -689,16 +895,20 @@ def generate_report(
     try:
         # Build the aggregate-only text — this is the ONLY data the LLM sees
         aggregate_text = _build_aggregate_text(combined_result, query_type, intent)
-        logger.info(json.dumps({
-            "message": "Report Generator aggregate text built",
-            "trace_id": trace_id or "N/A",
-            "text_length": len(aggregate_text) if aggregate_text else 0
-        }))
+        logger.info(
+            json.dumps(
+                {
+                    "message": "Report Generator aggregate text built",
+                    "trace_id": trace_id or "N/A",
+                    "text_length": len(aggregate_text) if aggregate_text else 0,
+                }
+            )
+        )
 
         # Also get the formatted data for the formattedData response field
         # (NOT used for LLM prompts — only for grounding validation cross-check)
         formatted_data = format_dotnet_response(combined_result, intent)
-        
+
         # Build deterministic fallback
         fallback = get_fallback_report(combined_result, query_type, intent)
 
@@ -706,7 +916,9 @@ def generate_report(
             return fallback
 
         category = intent.get("category") or "Agniveer data"
-        effective_query_type = query_type if query_type in _ANALYSIS_ENGINES else "simple"
+        effective_query_type = (
+            query_type if query_type in _ANALYSIS_ENGINES else "simple"
+        )
 
         # ── 1. Generate Intro Message ────────────────────────────────────────
         intro_prompt = (
@@ -739,7 +951,9 @@ def generate_report(
             analysis_data = fallback["analysis"]
 
         # Apply Grounding Guard to Analysis fields
-        clean_summary = _ground_and_sanitize(analysis_data.get("summary", ""), aggregate_text)
+        clean_summary = _ground_and_sanitize(
+            analysis_data.get("summary", ""), aggregate_text
+        )
         if not clean_summary:
             clean_summary = fallback["analysis"]["summary"]
 
@@ -767,8 +981,10 @@ def generate_report(
 
         # ── 3. Generate Conclusion (query-type-specific) ─────────────────────
         conclusion_engine = _CONCLUSION_ENGINES[effective_query_type]
-        raw_conclusion = conclusion_engine(aggregate_text, grounded_analysis, user_query)
-        
+        raw_conclusion = conclusion_engine(
+            aggregate_text, grounded_analysis, user_query
+        )
+
         conclusion_text = fallback["conclusion"]["summary"]
         if raw_conclusion:
             clean_conclusion = _ground_and_sanitize(raw_conclusion, aggregate_text)
@@ -778,25 +994,23 @@ def generate_report(
         return {
             "introMessage": intro_message,
             "analysis": grounded_analysis,
-            "conclusion": {
-                "summary": conclusion_text
-            }
+            "conclusion": {"summary": conclusion_text},
         }
     except Exception as exc:
-        logger.error(json.dumps({
-            "message": "LLM failure in generate_report, applying graceful degradation",
-            "trace_id": trace_id or "N/A",
-            "error": str(exc)
-        }))
+        logger.error(
+            json.dumps(
+                {
+                    "message": "LLM failure in generate_report, applying graceful degradation",
+                    "trace_id": trace_id or "N/A",
+                    "error": str(exc),
+                }
+            )
+        )
         try:
             fallback = get_fallback_report(combined_result, query_type, intent)
             intro_msg = fallback.get("introMessage", "")
         except Exception:
             intro_msg = "Report generated with partial metrics."
-        return {
-            "introMessage": intro_msg,
-            "analysis": None,
-            "conclusion": None
-        }
+        return {"introMessage": intro_msg, "analysis": None, "conclusion": None}
     finally:
         _report_ctx.trace_id = None

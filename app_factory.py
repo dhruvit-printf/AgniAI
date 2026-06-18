@@ -10,23 +10,13 @@ Import path fix: settings is at the root level (settings.py),
 not inside a config package. Use `from settings import ...`.
 """
 
-import os
 import logging
+import os
 
-from settings import (
-    AppSettings,
-    DotNetAPIConfig,
-    APIKeysConfig,
-    FeatureFlagConfig,
-    TimeoutConfig,
-    validate_critical_env,
-    get_settings,
-    get_dotnet_config,
-    get_api_keys,
-    get_feature_flags,
-    get_timeouts,
-)
-
+from settings import (APIKeysConfig, AppSettings, DotNetAPIConfig,
+                      FeatureFlagConfig, TimeoutConfig, get_api_keys,
+                      get_dotnet_config, get_feature_flags, get_settings,
+                      get_timeouts, validate_critical_env)
 
 logger = logging.getLogger(__name__)
 
@@ -37,23 +27,27 @@ def create_app() -> "Flask":  # type annotation avoids hard Flask dependency her
 
     # ── STEP 2: Parse & validate all settings (ValidationError → sys.exit) ──
     try:
-        settings: AppSettings       = get_settings()
-        dotnet:   DotNetAPIConfig   = get_dotnet_config()
-        keys:     APIKeysConfig     = get_api_keys()
-        flags:    FeatureFlagConfig = get_feature_flags()
-        timeouts: TimeoutConfig     = get_timeouts()
+        settings: AppSettings = get_settings()
+        dotnet: DotNetAPIConfig = get_dotnet_config()
+        keys: APIKeysConfig = get_api_keys()
+        flags: FeatureFlagConfig = get_feature_flags()
+        timeouts: TimeoutConfig = get_timeouts()
     except Exception as exc:
         import sys
+
         print(f"\n[FATAL] Configuration validation failed:\n{exc}\n", flush=True)
         sys.exit(1)
 
     # ── STEP 3: Bootstrap logging ─────────────────────────────────────────────
     log_level = logging.DEBUG if flags.ENABLE_DEBUG_LOGGING else logging.INFO
     logging.basicConfig(level=log_level)
-    logger.info("Starting %s v%s [%s]", settings.APP_NAME, settings.APP_VERSION, settings.ENV)
+    logger.info(
+        "Starting %s v%s [%s]", settings.APP_NAME, settings.APP_VERSION, settings.ENV
+    )
 
     # ── STEP 4: Initialise Flask ──────────────────────────────────────────────
     from flask import Flask
+
     app = Flask(__name__)
 
     if flags.ENABLE_ADMIN_CHATBOT:

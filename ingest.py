@@ -23,16 +23,9 @@ try:
 except ModuleNotFoundError:
     BeautifulSoup = None
 
-from config import (
-    CHUNK_OVERLAP,
-    CHUNK_WORDS,
-    CHUNK_MIN_WORDS,
-    BM25_INDEX_PATH,
-    DATA_DIR,
-    DOCSTORE_PATH,
-    EMBEDDING_DIM,
-    FAISS_INDEX_PATH,
-)
+from config import (BM25_INDEX_PATH, CHUNK_MIN_WORDS, CHUNK_OVERLAP,
+                    CHUNK_WORDS, DATA_DIR, DOCSTORE_PATH, EMBEDDING_DIM,
+                    FAISS_INDEX_PATH)
 from rag import embed_texts, load_docstore, load_index, save_index
 
 logger = logging.getLogger(__name__)
@@ -47,12 +40,14 @@ _FITZ_EMPTY_FILE_ERROR = getattr(fitz, "EmptyFileError", ValueError)
 
 # ── Directory helpers ──────────────────────────────────────────────────────
 
+
 def _ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     FAISS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 # ── Text utilities ─────────────────────────────────────────────────────────
+
 
 def clean_text(text: str) -> str:
     """Strip null bytes and collapse whitespace."""
@@ -193,6 +188,7 @@ def _source_already_ingested(source: str) -> bool:
 
 # ── Core append ───────────────────────────────────────────────────────────
 
+
 def _append_documents(
     chunks: Sequence[str],
     source: str,
@@ -227,10 +223,10 @@ def _append_documents(
         start_id = len(docs) + 1
         for i, chunk in enumerate(chunks, start=start_id):
             entry: Dict = {
-                "source":      normalized_source,
-                "doc_type":    doc_type,
-                "chunk_id":    str(i),
-                "text":        chunk,
+                "source": normalized_source,
+                "doc_type": doc_type,
+                "chunk_id": str(i),
+                "text": chunk,
                 "ingested_at": time.time(),
             }
             if original_filename:
@@ -255,9 +251,10 @@ def _append_documents(
 
 # ── HTML extractor ─────────────────────────────────────────────────────────
 
+
 class _VisibleTextExtractor(HTMLParser):
     _BLOCK_TAGS = {"h1", "h2", "h3", "h4", "h5", "p", "li", "td", "th", "br", "div"}
-    _SKIP_TAGS  = {"script", "style", "noscript", "header", "footer", "nav"}
+    _SKIP_TAGS = {"script", "style", "noscript", "header", "footer", "nav"}
 
     def __init__(self) -> None:
         super().__init__()
@@ -267,13 +264,17 @@ class _VisibleTextExtractor(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in self._SKIP_TAGS:
             self._skip_depth += 1
-        elif tag in self._BLOCK_TAGS and self.parts and not self.parts[-1].endswith("\n"):
+        elif (
+            tag in self._BLOCK_TAGS and self.parts and not self.parts[-1].endswith("\n")
+        ):
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
         if tag in self._SKIP_TAGS and self._skip_depth > 0:
             self._skip_depth -= 1
-        elif tag in self._BLOCK_TAGS and self.parts and not self.parts[-1].endswith("\n"):
+        elif (
+            tag in self._BLOCK_TAGS and self.parts and not self.parts[-1].endswith("\n")
+        ):
             self.parts.append("\n")
 
     def handle_data(self, data):
@@ -289,7 +290,9 @@ def _extract_visible_text(html: str) -> str:
         for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
             tag.decompose()
         parts: List[str] = []
-        for element in soup.find_all(["h1", "h2", "h3", "h4", "h5", "p", "li", "td", "th"]):
+        for element in soup.find_all(
+            ["h1", "h2", "h3", "h4", "h5", "p", "li", "td", "th"]
+        ):
             text = element.get_text(" ", strip=True)
             if text:
                 parts.append(text)
@@ -302,6 +305,7 @@ def _extract_visible_text(html: str) -> str:
 
 
 # ── Legacy .doc extractor (Word 97-2003) ──────────────────────────────────
+
 
 def _extract_doc_text(file_path: str) -> str:
     """
@@ -322,8 +326,15 @@ def _extract_doc_text(file_path: str) -> str:
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 result = subprocess.run(
-                    [soffice, "--headless", "--convert-to", "docx",
-                     "--outdir", tmpdir, str(path)],
+                    [
+                        soffice,
+                        "--headless",
+                        "--convert-to",
+                        "docx",
+                        "--outdir",
+                        tmpdir,
+                        str(path),
+                    ],
                     capture_output=True,
                     timeout=60,
                 )
@@ -331,9 +342,13 @@ def _extract_doc_text(file_path: str) -> str:
                 converted_path = Path(tmpdir) / converted_name
                 if converted_path.exists():
                     try:
-                        from docx import Document as DocxDocument  # type: ignore
+                        from docx import \
+                            Document as DocxDocument  # type: ignore
+
                         doc = DocxDocument(str(converted_path))
-                        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+                        paragraphs = [
+                            p.text.strip() for p in doc.paragraphs if p.text.strip()
+                        ]
                         text = clean_text("\n".join(paragraphs))
                         if text:
                             logger.info("Extracted .doc via LibreOffice: %s", path.name)
@@ -364,7 +379,9 @@ def _extract_doc_text(file_path: str) -> str:
     if fitz is not None:
         try:
             doc = fitz.open(str(path))
-            pages = [page.get_text("text") for page in doc if page.get_text("text").strip()]
+            pages = [
+                page.get_text("text") for page in doc if page.get_text("text").strip()
+            ]
             text = clean_text("\n".join(pages))
             if text:
                 logger.info("Extracted .doc via PyMuPDF fallback: %s", path.name)
@@ -380,6 +397,7 @@ def _extract_doc_text(file_path: str) -> str:
 
 # ── Public ingest functions ────────────────────────────────────────────────
 
+
 def ingest_pdf(
     file_path: str,
     force: bool = False,
@@ -393,9 +411,7 @@ def ingest_pdf(
         raise ValueError(f"Expected a .pdf file, got: {path.suffix}")
 
     if fitz is None:
-        raise RuntimeError(
-            "PyMuPDF is not installed. Run: pip install PyMuPDF"
-        )
+        raise RuntimeError("PyMuPDF is not installed. Run: pip install PyMuPDF")
 
     source = _path_source(path)
     dedup_source = original_filename if original_filename else source
@@ -415,7 +431,7 @@ def ingest_pdf(
             "It may be a scanned/image-only PDF."
         )
 
-    text   = clean_text("\n".join(pages))
+    text = clean_text("\n".join(pages))
     chunks = chunk_text_semantic(text)
     return _append_documents(
         chunks,
@@ -440,7 +456,7 @@ def ingest_txt(
     if not force and _source_already_ingested(dedup_source):
         return 0
 
-    text   = path.read_text(encoding="utf-8", errors="replace")
+    text = path.read_text(encoding="utf-8", errors="replace")
     chunks = chunk_text_semantic(text)
     return _append_documents(
         chunks,
@@ -558,8 +574,7 @@ def ingest_text(text: str, label: str = "manual_text") -> int:
     if label == "manual_text":
         docs = load_docstore()
         existing_count = sum(
-            1 for d in docs
-            if d.get("source", "").startswith("manual_text")
+            1 for d in docs if d.get("source", "").startswith("manual_text")
         )
         if existing_count > 0:
             label = f"manual_text_{existing_count + 1}_{time.time_ns()}"
@@ -573,16 +588,16 @@ def ingest_text(text: str, label: str = "manual_text") -> int:
 
 def list_sources() -> List[Dict]:
     """Return a summary of all ingested sources."""
-    docs   = load_docstore()
+    docs = load_docstore()
     counts: Dict[str, Dict] = {}
     for d in docs:
         src = d.get("source", "unknown")
         if src not in counts:
             counts[src] = {
-                "source":            src,
+                "source": src,
                 "original_filename": d.get("original_filename", ""),
-                "doc_type":          d.get("doc_type", "?"),
-                "chunk_count":       0,
+                "doc_type": d.get("doc_type", "?"),
+                "chunk_count": 0,
             }
         counts[src]["chunk_count"] += 1
     return list(counts.values())

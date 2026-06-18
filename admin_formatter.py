@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # GENERIC HELPERS
 # =============================================================================
 
+
 def _safe_str(value: Any, fallback: str = "N/A") -> str:
     if value is None:
         return fallback
@@ -42,18 +43,12 @@ def _plain_table(headers: List[str], rows: List[List[Any]]) -> str:
         return "No data available."
 
     all_rows = [headers] + [
-        [str(cell) if cell is not None else "" for cell in row]
-        for row in rows
+        [str(cell) if cell is not None else "" for cell in row] for row in rows
     ]
-    col_widths = [
-        max(len(str(r[i])) for r in all_rows)
-        for i in range(len(headers))
-    ]
+    col_widths = [max(len(str(r[i])) for r in all_rows) for i in range(len(headers))]
 
     lines = []
-    header_line = "  ".join(
-        str(h).ljust(col_widths[i]) for i, h in enumerate(headers)
-    )
+    header_line = "  ".join(str(h).ljust(col_widths[i]) for i, h in enumerate(headers))
     lines.append(header_line)
     lines.append("-" * len(header_line))
     for row in rows:
@@ -68,9 +63,7 @@ def _plain_table(headers: List[str], rows: List[List[Any]]) -> str:
 
 def _kv_block(pairs: List[tuple]) -> str:
     lines = [
-        f"{label}: {value}"
-        for label, value in pairs
-        if value not in (None, "", "N/A")
+        f"{label}: {value}" for label, value in pairs if value not in (None, "", "N/A")
     ]
     return "\n".join(lines) if lines else "No data available."
 
@@ -83,6 +76,7 @@ def _rank_label(rank: int) -> str:
 # =============================================================================
 # DATE HELPERS
 # =============================================================================
+
 
 def _fmt_date(value: Any) -> str:
     if not value:
@@ -110,13 +104,13 @@ def _fmt_datetime(value: Any) -> str:
 
 def _calc_days(item: Dict) -> Optional[int]:
     from_raw = _get(item, "fromDate", "from", "startDate", "sentDate")
-    to_raw   = _get(item, "toDate",   "to",   "endDate",   "receivedDate")
+    to_raw = _get(item, "toDate", "to", "endDate", "receivedDate")
     if not from_raw:
         return None
     try:
         fmt = "%Y-%m-%dT%H:%M:%S"
         dt_from = datetime.strptime(str(from_raw).split(".")[0], fmt)
-        dt_to   = (
+        dt_to = (
             datetime.strptime(str(to_raw).split(".")[0], fmt)
             if to_raw
             else datetime.now()
@@ -141,13 +135,21 @@ def _get_days_str(item: Dict) -> str:
 # RECORD EXTRACTOR
 # =============================================================================
 
+
 def _extract_records(data: Any) -> List[Dict]:
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
         for key in (
-            "data", "Data", "result", "Result",
-            "records", "Records", "person", "persons", "personnel",
+            "data",
+            "Data",
+            "result",
+            "Result",
+            "records",
+            "Records",
+            "person",
+            "persons",
+            "personnel",
         ):
             val = data.get(key)
             if isinstance(val, list):
@@ -168,27 +170,32 @@ def _unwrap_data(data: Any) -> Any:
 # PERFORMANCE — NESTED STRUCTURE HANDLERS
 # =============================================================================
 
+
 def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> str:
-    name        = _safe_str(_get(agniveer, "fullName", "name", "Name"))
+    name = _safe_str(_get(agniveer, "fullName", "name", "Name"))
     agniveer_no = _safe_str(_get(agniveer, "agniveerNo"), "")
-    batch       = _safe_str(_get(agniveer, "batchName"), "")
-    platoon     = _safe_str(_get(agniveer, "platoonName"), "")
-    cls         = _safe_str(_get(agniveer, "class"), "")
-    best_total  = _get(agniveer, "bestTotal", "totalMarks", "score", "Score")
+    batch = _safe_str(_get(agniveer, "batchName"), "")
+    platoon = _safe_str(_get(agniveer, "platoonName"), "")
+    cls = _safe_str(_get(agniveer, "class"), "")
+    best_total = _get(agniveer, "bestTotal", "totalMarks", "score", "Score")
     stored_rank = _get(agniveer, "rank")
-    attempts    = agniveer.get("attempts") or []
+    attempts = agniveer.get("attempts") or []
     exceptional = agniveer.get("exceptionalSections") or []
 
     display_rank = stored_rank if stored_rank is not None else rank
-    rank_label   = _rank_label(int(display_rank))
+    rank_label = _rank_label(int(display_rank))
 
     lines = [f"{rank_label}. {name}"]
 
     meta_parts = []
-    if agniveer_no: meta_parts.append(f"No: {agniveer_no}")
-    if batch:       meta_parts.append(f"Batch: {batch}")
-    if platoon:     meta_parts.append(f"Platoon: {platoon}")
-    if cls:         meta_parts.append(f"Class: {cls}")
+    if agniveer_no:
+        meta_parts.append(f"No: {agniveer_no}")
+    if batch:
+        meta_parts.append(f"Batch: {batch}")
+    if platoon:
+        meta_parts.append(f"Platoon: {platoon}")
+    if cls:
+        meta_parts.append(f"Class: {cls}")
     if meta_parts:
         lines.append("  " + "  |  ".join(meta_parts))
 
@@ -206,7 +213,8 @@ def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> s
         sections = attempt.get("sections") or []
         if section_filter:
             sections = [
-                s for s in sections
+                s
+                for s in sections
                 if (s.get("sectionName") or "").upper() == section_filter
             ]
 
@@ -220,7 +228,7 @@ def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> s
         lines.append(f"  Attempt {attempt_no}:")
 
         for section in sorted(sections, key=lambda s: s.get("displayOrder", 99)):
-            s_name  = _safe_str(section.get("sectionName"))
+            s_name = _safe_str(section.get("sectionName"))
             s_total = section.get("omrInputTotal")
             s_grade = _safe_str(section.get("grading"), "")
 
@@ -231,12 +239,12 @@ def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> s
             lines.append(f"    {s_name}: {s_total} pts{grade_str}")
 
             sub_items = section.get("subItems") or []
-            best_sub  = [si for si in sub_items if si.get("isBestAttempt") is True]
+            best_sub = [si for si in sub_items if si.get("isBestAttempt") is True]
             sub_parts = []
             for si in best_sub:
-                si_name  = _safe_str(si.get("subItemName"))
+                si_name = _safe_str(si.get("subItemName"))
                 obtained = si.get("marksObtained")
-                max_m    = si.get("maxMarks")
+                max_m = si.get("maxMarks")
                 if obtained is not None and max_m is not None:
                     sub_parts.append(f"{si_name}: {obtained}/{max_m}")
             if sub_parts:
@@ -245,7 +253,7 @@ def _format_single_agniveer(agniveer: Dict, rank: int, intent_result: Dict) -> s
     if exceptional:
         exc_parts = []
         for exc in exceptional:
-            exc_name  = _safe_str(exc.get("sectionName"))
+            exc_name = _safe_str(exc.get("sectionName"))
             exc_marks = exc.get("marksObtained")
             if exc_marks is not None:
                 exc_parts.append(f"{exc_name}: {exc_marks:.2f}")
@@ -262,27 +270,35 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
     if isinstance(data, dict):
         command_label = data.get("commandLabel", "")
         message_text = _safe_str(data.get("message"), "")
-        inner = data.get("data") or data.get("Data") or data.get("result") or data.get("Result") or {}
+        inner = (
+            data.get("data")
+            or data.get("Data")
+            or data.get("result")
+            or data.get("Result")
+            or {}
+        )
     elif isinstance(data, list):
         inner = data
     else:
         return "Unexpected data format."
 
-    subcategory    = intent_result.get("subcategory", "")
+    subcategory = intent_result.get("subcategory", "")
     section_filter = intent_result.get("section", "")
 
     label_map = {
-        "TopPerformers":      "Top Performers",
-        "LowestPerformers":   "Lowest Performers",
+        "TopPerformers": "Top Performers",
+        "LowestPerformers": "Lowest Performers",
         "OverallPerformance": "Overall Performance",
-        "Improvement":        "Improvement",
-        "Drop":               "Score Drop",
-        "SectionSummary":     "Section Summary",
-        "AttemptWise":        "Attempt-wise Analysis",
-        "BestAttempt":        "Best Attempt",
-        "Comparison":         "Comparison",
+        "Improvement": "Improvement",
+        "Drop": "Score Drop",
+        "SectionSummary": "Section Summary",
+        "AttemptWise": "Attempt-wise Analysis",
+        "BestAttempt": "Best Attempt",
+        "Comparison": "Comparison",
     }
-    label   = command_label or label_map.get(subcategory, subcategory or "Performance Data")
+    label = command_label or label_map.get(
+        subcategory, subcategory or "Performance Data"
+    )
     sec_str = f" - {section_filter}" if section_filter else ""
 
     if isinstance(inner, list):
@@ -292,7 +308,8 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
 
         first = records[0] if records else {}
         is_agniveer = isinstance(first, dict) and any(
-            k in first for k in ("fullName", "agniveerNo", "attempts", "bestTotal", "name")
+            k in first
+            for k in ("fullName", "agniveerNo", "attempts", "bestTotal", "name")
         )
 
         if is_agniveer:
@@ -328,7 +345,11 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
                     else:
                         row.append("-")
                 rows.append(row)
-            lines = [f"{label}{sec_str}", f"({len(records)} record{'s' if len(records) != 1 else ''})", ""]
+            lines = [
+                f"{label}{sec_str}",
+                f"({len(records)} record{'s' if len(records) != 1 else ''})",
+                "",
+            ]
             lines.append(_plain_table(headers, rows))
             if message_text:
                 lines.append("")
@@ -342,7 +363,9 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
 
     if isinstance(inner, dict):
         nested_lists = {k: v for k, v in inner.items() if isinstance(v, list) and v}
-        flat_fields  = {k: v for k, v in inner.items() if not isinstance(v, (list, dict))}
+        flat_fields = {
+            k: v for k, v in inner.items() if not isinstance(v, (list, dict))
+        }
 
         lines = [f"{label}{sec_str}", ""]
 
@@ -377,7 +400,11 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
             lines.append(message_text)
 
         result = "\n".join(lines).strip()
-        return result if result != f"{label}{sec_str}" else "No records found for this query."
+        return (
+            result
+            if result != f"{label}{sec_str}"
+            else "No records found for this query."
+        )
 
     if not inner:
         return "No records found for this query."
@@ -388,22 +415,25 @@ def _format_performance_list(data: Any, intent_result: Dict) -> str:
 # LEAVE
 # =============================================================================
 
+
 def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
     leave_type = intent_result.get("leave_type", "")
-    lt_str     = f" ({leave_type})" if leave_type else ""
+    lt_str = f" ({leave_type})" if leave_type else ""
 
     def _leave_rows(records: List[Dict], numbered: bool = True) -> List[List]:
         rows = []
         for i, item in enumerate(records, 1):
-            name        = _safe_str(_get(item, "fullName", "name", "Name"), f"Person {i}")
+            name = _safe_str(_get(item, "fullName", "name", "Name"), f"Person {i}")
             agniveer_no = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
-            from_date   = _fmt_datetime(_get(item, "fromDate", "from", "startDate"))
-            to_raw      = _get(item, "toDate", "to", "endDate")
-            to_date     = _fmt_datetime(to_raw) if to_raw else "Ongoing"
-            remarks     = _safe_str(_get(item, "remarks", "leaveType", "type"), "-")
-            days_str    = _get_days_str(item)
-            prefix      = f"{i}. " if numbered else ""
-            rows.append([f"{prefix}{name}", agniveer_no, from_date, to_date, days_str, remarks])
+            from_date = _fmt_datetime(_get(item, "fromDate", "from", "startDate"))
+            to_raw = _get(item, "toDate", "to", "endDate")
+            to_date = _fmt_datetime(to_raw) if to_raw else "Ongoing"
+            remarks = _safe_str(_get(item, "remarks", "leaveType", "type"), "-")
+            days_str = _get_days_str(item)
+            prefix = f"{i}. " if numbered else ""
+            rows.append(
+                [f"{prefix}{name}", agniveer_no, from_date, to_date, days_str, remarks]
+            )
         return rows
 
     if subcategory == "MostLeaveTaken":
@@ -427,10 +457,12 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
             f"({len(records)} record{'s' if len(records) != 1 else ''}  |  Total days: {total_days})",
             "",
         ]
-        lines.append(_plain_table(
-            ["Name", "No.", "From", "To", "Days", "Remarks"],
-            _leave_rows(records),
-        ))
+        lines.append(
+            _plain_table(
+                ["Name", "No.", "From", "To", "Days", "Remarks"],
+                _leave_rows(records),
+            )
+        )
         return "\n".join(lines)
 
     if subcategory == "LeastLeaveTaken":
@@ -454,10 +486,12 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
             f"({len(records)} record{'s' if len(records) != 1 else ''}  |  Total days: {total_days})",
             "",
         ]
-        lines.append(_plain_table(
-            ["Name", "No.", "From", "To", "Days", "Remarks"],
-            _leave_rows(records),
-        ))
+        lines.append(
+            _plain_table(
+                ["Name", "No.", "From", "To", "Days", "Remarks"],
+                _leave_rows(records),
+            )
+        )
         return "\n".join(lines)
 
     if subcategory == "CurrentLeaveStatus":
@@ -469,10 +503,12 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
             f"({len(records)} {'person' if len(records) == 1 else 'persons'})"
         )
         lines = [label, ""]
-        lines.append(_plain_table(
-            ["Name", "No.", "From", "To", "Days", "Remarks"],
-            _leave_rows(records, numbered=False),
-        ))
+        lines.append(
+            _plain_table(
+                ["Name", "No.", "From", "To", "Days", "Remarks"],
+                _leave_rows(records, numbered=False),
+            )
+        )
         return "\n".join(lines)
 
     if subcategory == "AbscondedPerson":
@@ -481,20 +517,26 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
             return "No absconded person on record."
         rows = []
         for item in records:
-            name        = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
+            name = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
             agniveer_no = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
-            since       = _fmt_datetime(_get(item, "fromDate", "since", "date", "abscondedDate"))
-            to_raw      = _get(item, "toDate", "to")
-            returned    = _fmt_date(to_raw) if to_raw else "Still Absconded"
-            days_str    = _get_days_str(item)
-            remarks     = _safe_str(_get(item, "remarks"), "-")
+            since = _fmt_datetime(
+                _get(item, "fromDate", "since", "date", "abscondedDate")
+            )
+            to_raw = _get(item, "toDate", "to")
+            returned = _fmt_date(to_raw) if to_raw else "Still Absconded"
+            days_str = _get_days_str(item)
+            remarks = _safe_str(_get(item, "remarks"), "-")
             rows.append([name, agniveer_no, since, returned, days_str, remarks])
-        label = f"Absconded {'Person' if len(records) == 1 else 'Persons'} ({len(records)})"
+        label = (
+            f"Absconded {'Person' if len(records) == 1 else 'Persons'} ({len(records)})"
+        )
         lines = [label, ""]
-        lines.append(_plain_table(
-            ["Name", "No.", "Since", "Returned", "Days", "Remarks"],
-            rows,
-        ))
+        lines.append(
+            _plain_table(
+                ["Name", "No.", "Since", "Returned", "Days", "Remarks"],
+                rows,
+            )
+        )
         return "\n".join(lines)
 
     records = _extract_records(data)
@@ -504,10 +546,12 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
             f"({len(records)} record{'s' if len(records) != 1 else ''})",
             "",
         ]
-        lines.append(_plain_table(
-            ["Name", "No.", "From", "To", "Days", "Remarks"],
-            _leave_rows(records),
-        ))
+        lines.append(
+            _plain_table(
+                ["Name", "No.", "From", "To", "Days", "Remarks"],
+                _leave_rows(records),
+            )
+        )
         return "\n".join(lines)
 
     if isinstance(data, list):
@@ -524,11 +568,14 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
 # MEDICAL
 # =============================================================================
 
+
 def _format_medical(subcategory: str, data: Any, intent_result: Dict) -> str:
 
     if subcategory == "ActiveCases":
         records = _extract_records(data)
-        total_from_dict = _get(data, "total", "count") if isinstance(data, dict) else None
+        total_from_dict = (
+            _get(data, "total", "count") if isinstance(data, dict) else None
+        )
         if total_from_dict is not None and not records:
             return f"There are currently {total_from_dict} active medical case(s)."
         if not records:
@@ -551,21 +598,32 @@ def _format_medical(subcategory: str, data: Any, intent_result: Dict) -> str:
             return "No BMI data found."
         rows = []
         for item in records:
-            name        = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
+            name = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
             agniveer_no = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
-            height      = _get(item, "heightCm", "height", "Height")
-            weight      = _get(item, "weightKg", "weight", "Weight")
-            bmi_val     = _get(item, "bmiValue", "bmi", "BMI")
-            bmi_cat     = _safe_str(_get(item, "bmiCategory", "category"), "-")
-            height_str  = f"{height} cm" if height is not None else "-"
-            weight_str  = f"{weight} kg" if weight is not None else "-"
-            bmi_str     = f"{bmi_val:.2f}" if isinstance(bmi_val, (int, float)) else _safe_str(bmi_val, "-")
-            rows.append([name, agniveer_no, height_str, weight_str, bmi_str, bmi_cat.title()])
-        lines = [f"BMI Analysis ({len(records)} record{'s' if len(records) != 1 else ''})", ""]
-        lines.append(_plain_table(
-            ["Name", "No.", "Height", "Weight", "BMI", "Category"],
-            rows,
-        ))
+            height = _get(item, "heightCm", "height", "Height")
+            weight = _get(item, "weightKg", "weight", "Weight")
+            bmi_val = _get(item, "bmiValue", "bmi", "BMI")
+            bmi_cat = _safe_str(_get(item, "bmiCategory", "category"), "-")
+            height_str = f"{height} cm" if height is not None else "-"
+            weight_str = f"{weight} kg" if weight is not None else "-"
+            bmi_str = (
+                f"{bmi_val:.2f}"
+                if isinstance(bmi_val, (int, float))
+                else _safe_str(bmi_val, "-")
+            )
+            rows.append(
+                [name, agniveer_no, height_str, weight_str, bmi_str, bmi_cat.title()]
+            )
+        lines = [
+            f"BMI Analysis ({len(records)} record{'s' if len(records) != 1 else ''})",
+            "",
+        ]
+        lines.append(
+            _plain_table(
+                ["Name", "No.", "Height", "Weight", "BMI", "Category"],
+                rows,
+            )
+        )
         return "\n".join(lines)
 
     if subcategory == "DiseaseStatistics":
@@ -596,13 +654,16 @@ def _format_medical(subcategory: str, data: Any, intent_result: Dict) -> str:
 # ATTENDANCE
 # =============================================================================
 
+
 def _format_attendance(subcategory: str, data: Any, intent_result: Dict) -> str:
 
     if subcategory == "PresentToday":
         inner = _unwrap_data(data) if isinstance(data, dict) else data
         if isinstance(inner, dict):
-            present   = _get(inner, "present", "Present", "count", "Count", "presentToday") or 0
-            total     = _get(inner, "total", "Total", "totalAgniveers")
+            present = (
+                _get(inner, "present", "Present", "count", "Count", "presentToday") or 0
+            )
+            total = _get(inner, "total", "Total", "totalAgniveers")
             total_str = f" out of {total}" if total else ""
             return (
                 f"{present} {'person is' if present == 1 else 'persons are'} "
@@ -622,7 +683,10 @@ def _format_attendance(subcategory: str, data: Any, intent_result: Dict) -> str:
                     _safe_str(_get(item, "month", "Month")),
                     (
                         f"{_get(item, 'percentage', 'attendancePercentage', 'Percentage')}%"
-                        if _get(item, "percentage", "attendancePercentage", "Percentage") is not None
+                        if _get(
+                            item, "percentage", "attendancePercentage", "Percentage"
+                        )
+                        is not None
                         else "-"
                     ),
                     _safe_str(_get(item, "present", "Present"), "-"),
@@ -650,11 +714,11 @@ def _format_attendance(subcategory: str, data: Any, intent_result: Dict) -> str:
                     continue
                 label = {
                     "totalAgniveers": "Total Agniveers",
-                    "activeCount":    "Active",
-                    "inactiveCount":  "Inactive",
-                    "presentToday":   "Present Today",
-                    "absentToday":    "Absent Today",
-                    "onLeave":        "On Leave",
+                    "activeCount": "Active",
+                    "inactiveCount": "Inactive",
+                    "presentToday": "Present Today",
+                    "absentToday": "Absent Today",
+                    "onLeave": "On Leave",
                 }.get(k, _camel_to_words(k))
                 summary_pairs.append((label, v))
 
@@ -691,10 +755,11 @@ def _format_attendance(subcategory: str, data: Any, intent_result: Dict) -> str:
 # VERIFICATION
 # =============================================================================
 
+
 def _format_verification(subcategory: str, data: Any, intent_result: Dict) -> str:
-    is_pending  = subcategory == "PendingVerification"
-    label       = "Pending" if is_pending else "Completed"
-    records     = _extract_records(data)
+    is_pending = subcategory == "PendingVerification"
+    label = "Pending" if is_pending else "Completed"
+    records = _extract_records(data)
 
     total_from_dict = _get(data, "total", "count") if isinstance(data, dict) else None
     if total_from_dict is not None and not records:
@@ -705,40 +770,47 @@ def _format_verification(subcategory: str, data: Any, intent_result: Dict) -> st
     if is_pending:
         rows = []
         for item in records:
-            name     = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
-            no_      = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
-            station  = _safe_str(_get(item, "policeStation", "station"), "-")
-            sent     = _fmt_datetime(_get(item, "sentDate", "sent", "date"))
-            days     = _calc_days({"fromDate": _get(item, "sentDate", "sent"), "toDate": None})
+            name = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
+            no_ = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
+            station = _safe_str(_get(item, "policeStation", "station"), "-")
+            sent = _fmt_datetime(_get(item, "sentDate", "sent", "date"))
+            days = _calc_days(
+                {"fromDate": _get(item, "sentDate", "sent"), "toDate": None}
+            )
             days_str = str(days) if days is not None else "-"
             rows.append([name, no_, station, sent, days_str])
         lines = [f"Pending Verifications ({len(records)})", ""]
-        lines.append(_plain_table(
-            ["Name", "No.", "Police Station", "Sent Date", "Days Pending"],
-            rows,
-        ))
+        lines.append(
+            _plain_table(
+                ["Name", "No.", "Police Station", "Sent Date", "Days Pending"],
+                rows,
+            )
+        )
         return "\n".join(lines)
     else:
         rows = []
         for item in records:
-            name     = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
-            no_      = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
-            station  = _safe_str(_get(item, "policeStation", "station"), "-")
-            sent     = _fmt_datetime(_get(item, "sentDate", "sent"))
+            name = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
+            no_ = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
+            station = _safe_str(_get(item, "policeStation", "station"), "-")
+            sent = _fmt_datetime(_get(item, "sentDate", "sent"))
             received = _fmt_datetime(_get(item, "receivedDate", "received"))
-            status   = _safe_str(_get(item, "status", "Status"), "Completed")
+            status = _safe_str(_get(item, "status", "Status"), "Completed")
             rows.append([name, no_, station, sent, received, status])
         lines = [f"Completed Verifications ({len(records)})", ""]
-        lines.append(_plain_table(
-            ["Name", "No.", "Police Station", "Sent", "Received", "Status"],
-            rows,
-        ))
+        lines.append(
+            _plain_table(
+                ["Name", "No.", "Police Station", "Sent", "Received", "Status"],
+                rows,
+            )
+        )
         return "\n".join(lines)
 
 
 # =============================================================================
 # EQUIPMENT
 # =============================================================================
+
 
 def _format_equipment(subcategory: str, data: Any, intent_result: Dict) -> str:
     if subcategory in ("IssuedItems", "ProcuredItems"):
@@ -749,8 +821,8 @@ def _format_equipment(subcategory: str, data: Any, intent_result: Dict) -> str:
         if isinstance(inner, dict):
             label_map = {
                 "totalAssigned": "Total Assigned",
-                "active":        "Active",
-                "returned":      "Returned",
+                "active": "Active",
+                "returned": "Returned",
                 "poorCondition": "Poor Condition",
             }
             pairs = []
@@ -776,9 +848,8 @@ def _format_equipment(subcategory: str, data: Any, intent_result: Dict) -> str:
             ]
             for item in records
         ]
-        return (
-            f"Overdue Equipment ({len(records)} items)\n\n"
-            + _plain_table(["Equipment", "Issued To", "Overdue By"], rows)
+        return f"Overdue Equipment ({len(records)} items)\n\n" + _plain_table(
+            ["Equipment", "Issued To", "Overdue By"], rows
         )
 
     if subcategory == "PoorConditionEquipment":
@@ -792,9 +863,8 @@ def _format_equipment(subcategory: str, data: Any, intent_result: Dict) -> str:
             ]
             for item in records
         ]
-        return (
-            f"Poor Condition Equipment ({len(records)} items)\n\n"
-            + _plain_table(["Equipment", "Condition"], rows)
+        return f"Poor Condition Equipment ({len(records)} items)\n\n" + _plain_table(
+            ["Equipment", "Condition"], rows
         )
 
     if isinstance(data, dict):
@@ -820,17 +890,16 @@ def _format_equipment(subcategory: str, data: Any, intent_result: Dict) -> str:
 def _format_item_list(subcategory: str, data: Any, intent_result: Dict) -> str:
     from admin_intent import ISSUED_ITEMS, PROCURED_ITEMS
 
-    is_issued   = subcategory == "IssuedItems"
-    label       = "Issued Items" if is_issued else "Procured Items"
+    is_issued = subcategory == "IssuedItems"
+    label = "Issued Items" if is_issued else "Procured Items"
     master_list = ISSUED_ITEMS if is_issued else PROCURED_ITEMS
-    item_name   = intent_result.get("item_name")
+    item_name = intent_result.get("item_name")
 
     if item_name:
-        in_issued   = item_name in ISSUED_ITEMS
+        in_issued = item_name in ISSUED_ITEMS
         in_procured = item_name in PROCURED_ITEMS
         category_tag = (
-            "Issued" if in_issued
-            else ("Procured" if in_procured else "Unknown")
+            "Issued" if in_issued else ("Procured" if in_procured else "Unknown")
         )
         item_detail = ""
         if isinstance(data, dict):
@@ -843,8 +912,10 @@ def _format_item_list(subcategory: str, data: Any, intent_result: Dict) -> str:
                     name_val = _safe_str(_get(entry, "name", "itemName", "item"))
                     if name_val.lower() == item_name.lower():
                         item_detail = _safe_str(
-                            entry.get("detail") or entry.get("status") or
-                            entry.get("description"), ""
+                            entry.get("detail")
+                            or entry.get("status")
+                            or entry.get("description"),
+                            "",
                         )
                         break
 
@@ -866,12 +937,14 @@ def _format_item_list(subcategory: str, data: Any, intent_result: Dict) -> str:
         if isinstance(entry, str):
             rows.append([i, entry, "-", "-"])
         elif isinstance(entry, dict):
-            rows.append([
-                i,
-                _safe_str(_get(entry, "name", "itemName", "item", "Name")),
-                _safe_str(_get(entry, "status", "Status"), "-"),
-                _safe_str(_get(entry, "quantity", "qty", "Quantity"), "-"),
-            ])
+            rows.append(
+                [
+                    i,
+                    _safe_str(_get(entry, "name", "itemName", "item", "Name")),
+                    _safe_str(_get(entry, "status", "Status"), "-"),
+                    _safe_str(_get(entry, "quantity", "qty", "Quantity"), "-"),
+                ]
+            )
         else:
             rows.append([i, _safe_str(entry), "-", "-"])
 
@@ -887,37 +960,44 @@ def _format_item_list(subcategory: str, data: Any, intent_result: Dict) -> str:
 # DISTRIBUTION
 # =============================================================================
 
+
 def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> str:
     if subcategory == "LatestDistribution":
         inner = _unwrap_data(data) if isinstance(data, dict) else data
         if isinstance(inner, dict):
-            dist_id   = _get(inner, "distributionId", "id")
+            dist_id = _get(inner, "distributionId", "id")
             dist_date = _fmt_date(_get(inner, "distributionDate", "date"))
-            teams     = inner.get("teams") or []
+            teams = inner.get("teams") or []
 
             lines = ["Latest Distribution"]
             meta = []
-            if dist_id:           meta.append(f"Distribution ID: {dist_id}")
-            if dist_date != "-":  meta.append(f"Date: {dist_date}")
+            if dist_id:
+                meta.append(f"Distribution ID: {dist_id}")
+            if dist_date != "-":
+                meta.append(f"Date: {dist_date}")
             if meta:
                 lines.append("  ".join(meta))
             lines.append("")
 
             if teams:
                 for team in teams:
-                    team_name    = _safe_str(_get(team, "teamName", "name"), "Unknown Team")
+                    team_name = _safe_str(
+                        _get(team, "teamName", "name"), "Unknown Team"
+                    )
                     member_count = _get(team, "memberCount", "count") or 0
-                    members      = team.get("members") or []
+                    members = team.get("members") or []
                     lines.append(f"Team: {team_name}  ({member_count} members)")
                     if members:
                         rows = []
                         for m in members:
-                            rank    = _get(m, "rank") or "-"
-                            name    = _safe_str(_get(m, "fullName", "name"), "Unknown")
-                            no_     = _safe_str(_get(m, "agniveerNo"), "-")
-                            cls     = _safe_str(_get(m, "class"), "-")
+                            rank = _get(m, "rank") or "-"
+                            name = _safe_str(_get(m, "fullName", "name"), "Unknown")
+                            no_ = _safe_str(_get(m, "agniveerNo"), "-")
+                            cls = _safe_str(_get(m, "class"), "-")
                             rows.append([str(rank), name, no_, cls])
-                        lines.append(_plain_table(["Rank", "Name", "No.", "Class"], rows))
+                        lines.append(
+                            _plain_table(["Rank", "Name", "No.", "Class"], rows)
+                        )
                     lines.append("")
             else:
                 pairs = [
@@ -942,21 +1022,23 @@ def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> st
             return "No unit distribution data."
         rows = []
         for item in records:
-            name    = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
-            no_     = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
-            cls     = _safe_str(_get(item, "class"), "-")
-            rank    = _get(item, "rank")
-            rank_s  = str(rank) if rank is not None else "-"
+            name = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
+            no_ = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
+            cls = _safe_str(_get(item, "class"), "-")
+            rank = _get(item, "rank")
+            rank_s = str(rank) if rank is not None else "-"
             dist_dt = _fmt_date(_get(item, "distributionDate", "date"))
             rows.append([name, no_, cls, rank_s, dist_dt])
         lines = [
             f"Distribution by Unit ({len(records)} member{'s' if len(records) != 1 else ''})",
             "",
         ]
-        lines.append(_plain_table(
-            ["Name", "No.", "Class", "Rank", "Distribution Date"],
-            rows,
-        ))
+        lines.append(
+            _plain_table(
+                ["Name", "No.", "Class", "Rank", "Distribution Date"],
+                rows,
+            )
+        )
         return "\n".join(lines)
 
     if subcategory == "UnassignedItems":
@@ -965,8 +1047,8 @@ def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> st
             return "All Agniveers have been assigned to a unit."
         rows = []
         for item in records:
-            name    = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
-            no_     = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
+            name = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
+            no_ = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
             platoon = _safe_str(_get(item, "platoonName", "platoon"), "-")
             rows.append([name, no_, platoon])
         lines = [f"Unassigned Agniveers ({len(records)})", ""]
@@ -976,9 +1058,11 @@ def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> st
     if subcategory == "TopUnit":
         inner = _unwrap_data(data) if isinstance(data, dict) else data
         if isinstance(inner, dict):
-            team_name  = _safe_str(_get(inner, "teamName", "unit", "unitName"), "Unknown")
-            count      = _get(inner, "agniveerCount", "count", "memberCount")
-            dist_date  = _fmt_date(_get(inner, "distributionDate", "date"))
+            team_name = _safe_str(
+                _get(inner, "teamName", "unit", "unitName"), "Unknown"
+            )
+            count = _get(inner, "agniveerCount", "count", "memberCount")
+            dist_date = _fmt_date(_get(inner, "distributionDate", "date"))
             lines = ["Top Unit"]
             if dist_date != "-":
                 lines.append(f"Distribution Date: {dist_date}")
@@ -1005,6 +1089,7 @@ def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> st
 # SKILLS
 # =============================================================================
 
+
 def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
     if subcategory == "BySport":
         records = _extract_records(data) if not isinstance(data, list) else data
@@ -1027,9 +1112,9 @@ def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
 
         rows = []
         for item in records:
-            name    = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
-            no_     = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
-            sports  = _safe_str(_get(item, "sports", "sport", "Sport"), "-")
+            name = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
+            no_ = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
+            sports = _safe_str(_get(item, "sports", "sport", "Sport"), "-")
             platoon = _safe_str(_get(item, "platoonName", "platoon"), "-")
             rows.append([name, no_, sports, platoon])
         lines = [
@@ -1060,17 +1145,19 @@ def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
 
         rows = []
         for item in records:
-            name       = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
-            no_        = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
-            cls        = _safe_str(_get(item, "class"), "-")
-            platoon    = _safe_str(_get(item, "platoonName", "platoon"), "-")
-            blood_grp  = _safe_str(_get(item, "bloodGroup", "blood"), "-")
+            name = _safe_str(_get(item, "fullName", "name", "Name"), "Unknown")
+            no_ = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
+            cls = _safe_str(_get(item, "class"), "-")
+            platoon = _safe_str(_get(item, "platoonName", "platoon"), "-")
+            blood_grp = _safe_str(_get(item, "bloodGroup", "blood"), "-")
             rows.append([name, no_, cls, platoon, blood_grp])
         lines = [
             f"Class Roster ({len(records)} record{'s' if len(records) != 1 else ''})",
             "",
         ]
-        lines.append(_plain_table(["Name", "No.", "Class", "Platoon", "Blood Group"], rows))
+        lines.append(
+            _plain_table(["Name", "No.", "Class", "Platoon", "Blood Group"], rows)
+        )
         return "\n".join(lines)
 
     if subcategory == "BloodGroup":
@@ -1087,7 +1174,9 @@ def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
                 ]
                 for item in records
             ]
-            return "Blood Group Distribution\n\n" + _plain_table(["Blood Group", "Count"], rows)
+            return "Blood Group Distribution\n\n" + _plain_table(
+                ["Blood Group", "Count"], rows
+            )
 
         rows = [
             [
@@ -1119,18 +1208,29 @@ def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
 # =============================================================================
 
 _PERFORMANCE_NESTED_SUBCATEGORIES = {
-    "TopPerformers", "LowestPerformers", "OverallPerformance",
-    "Improvement", "Drop", "AttemptWise", "BestAttempt", "Comparison",
+    "TopPerformers",
+    "LowestPerformers",
+    "OverallPerformance",
+    "Improvement",
+    "Drop",
+    "AttemptWise",
+    "BestAttempt",
+    "Comparison",
     "SectionSummary",
 }
 
 _PERFORMANCE_AGGREGATE_SUBCATEGORIES = {
-    "AverageScore", "PassPercentage", "FailPercentage",
-    "GradeDistribution", "GradingSummary",
+    "AverageScore",
+    "PassPercentage",
+    "FailPercentage",
+    "GradeDistribution",
+    "GradingSummary",
 }
 
 
-def _format_performance_aggregate(subcategory: str, data: Any, intent_result: Dict) -> str:
+def _format_performance_aggregate(
+    subcategory: str, data: Any, intent_result: Dict
+) -> str:
     section = intent_result.get("section", "")
     sec_str = f" for {section}" if section else ""
 
@@ -1145,8 +1245,10 @@ def _format_performance_aggregate(subcategory: str, data: Any, intent_result: Di
     if subcategory in ("PassPercentage", "FailPercentage"):
         label = "pass" if subcategory == "PassPercentage" else "fail"
         if isinstance(data, dict):
-            pct       = _get(data, "percentage", "Percentage", "passPercentage", "failPercentage")
-            total     = _get(data, "total", "Total")
+            pct = _get(
+                data, "percentage", "Percentage", "passPercentage", "failPercentage"
+            )
+            total = _get(data, "total", "Total")
             total_str = f" (out of {total} total)" if total else ""
             return f"The {label} percentage{sec_str} is {pct}%{total_str}."
         return f"{label.title()} percentage{sec_str}: {data}%"
@@ -1154,11 +1256,7 @@ def _format_performance_aggregate(subcategory: str, data: Any, intent_result: Di
     if subcategory in ("GradeDistribution", "GradingSummary"):
         title = f"Grade Distribution{' - ' + section if section else ''}"
         if isinstance(data, dict):
-            rows = [
-                [k, v]
-                for k, v in data.items()
-                if not isinstance(v, (list, dict))
-            ]
+            rows = [[k, v] for k, v in data.items() if not isinstance(v, (list, dict))]
             return f"{title}\n\n" + _plain_table(["Grade", "Count"], rows)
         if isinstance(data, list):
             rows = [
@@ -1185,13 +1283,13 @@ def _format_performance_aggregate(subcategory: str, data: Any, intent_result: Di
 # =============================================================================
 
 _FORMATTERS = {
-    "Leave":        _format_leave,
-    "Medical":      _format_medical,
-    "Attendance":   _format_attendance,
+    "Leave": _format_leave,
+    "Medical": _format_medical,
+    "Attendance": _format_attendance,
     "Verification": _format_verification,
-    "Equipment":    _format_equipment,
+    "Equipment": _format_equipment,
     "Distribution": _format_distribution,
-    "Skills":       _format_skills,
+    "Skills": _format_skills,
 }
 
 
@@ -1199,6 +1297,7 @@ _FORMATTERS = {
 # COMPOSITE QUERY TYPE FORMATTERS
 # Handle output shapes from result_combiner.py
 # =============================================================================
+
 
 def _detect_side_label(side_data: Any) -> str:
     if isinstance(side_data, dict):
@@ -1219,13 +1318,13 @@ def _format_leave_side_records(records: List[Dict], title: str) -> str:
 
     rows = []
     for i, item in enumerate(records, 1):
-        name     = _safe_str(_get(item, "fullName", "name", "Name"), f"Person {i}")
-        no_      = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
-        platoon  = _safe_str(_get(item, "platoonName", "platoon"), "-")
-        from_dt  = _fmt_datetime(_get(item, "fromDate", "from"))
-        to_dt    = _fmt_datetime(_get(item, "toDate", "to"))
+        name = _safe_str(_get(item, "fullName", "name", "Name"), f"Person {i}")
+        no_ = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
+        platoon = _safe_str(_get(item, "platoonName", "platoon"), "-")
+        from_dt = _fmt_datetime(_get(item, "fromDate", "from"))
+        to_dt = _fmt_datetime(_get(item, "toDate", "to"))
         days_str = _get_days_str(item)
-        remarks  = _safe_str(_get(item, "remarks"), "-")
+        remarks = _safe_str(_get(item, "remarks"), "-")
         rows.append([f"{i}. {name}", no_, platoon, from_dt, to_dt, days_str, remarks])
 
     table = _plain_table(
@@ -1233,11 +1332,7 @@ def _format_leave_side_records(records: List[Dict], title: str) -> str:
         rows,
     )
     count = len(records)
-    return (
-        f"{title}\n"
-        f"({count} record{'s' if count != 1 else ''})\n\n"
-        f"{table}"
-    )
+    return f"{title}\n" f"({count} record{'s' if count != 1 else ''})\n\n" f"{table}"
 
 
 def _format_performance_side_records(records: List[Dict], title: str) -> str:
@@ -1246,22 +1341,22 @@ def _format_performance_side_records(records: List[Dict], title: str) -> str:
 
     rows = []
     for i, item in enumerate(records, 1):
-        name    = _safe_str(_get(item, "fullName", "name", "Name"), f"Person {i}")
-        no_     = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
-        score   = _get(item, "bestTotal", "totalMarks", "score", "Score")
+        name = _safe_str(_get(item, "fullName", "name", "Name"), f"Person {i}")
+        no_ = _safe_str(_get(item, "agniveerNo", "AgniveerNo"), "-")
+        score = _get(item, "bestTotal", "totalMarks", "score", "Score")
         platoon = _safe_str(_get(item, "platoonName", "platoon"), "-")
-        rows.append([
-            f"{i}. {name}", no_, platoon,
-            str(score) if score is not None else "-",
-        ])
+        rows.append(
+            [
+                f"{i}. {name}",
+                no_,
+                platoon,
+                str(score) if score is not None else "-",
+            ]
+        )
 
     table = _plain_table(["Name", "No.", "Platoon", "Score"], rows)
     count = len(records)
-    return (
-        f"{title}\n"
-        f"({count} record{'s' if count != 1 else ''})\n\n"
-        f"{table}"
-    )
+    return f"{title}\n" f"({count} record{'s' if count != 1 else ''})\n\n" f"{table}"
 
 
 def _format_generic_side_records(records: List[Dict], title: str) -> str:
@@ -1269,8 +1364,15 @@ def _format_generic_side_records(records: List[Dict], title: str) -> str:
         return f"{title}\nNo records found."
 
     _SKIP_KEYS = {
-        "photoPath", "agniveerId", "isAbscondedLeave", "isHospitalized",
-        "onATTNC", "onAnnualLeave", "onEXPPG", "onMedicalLeave", "onSickLeave",
+        "photoPath",
+        "agniveerId",
+        "isAbscondedLeave",
+        "isHospitalized",
+        "onATTNC",
+        "onAnnualLeave",
+        "onEXPPG",
+        "onMedicalLeave",
+        "onSickLeave",
     }
     first = records[0]
     display_keys = [k for k in first.keys() if k not in _SKIP_KEYS][:7]
@@ -1294,11 +1396,7 @@ def _format_generic_side_records(records: List[Dict], title: str) -> str:
 
     table = _plain_table(headers, rows)
     count = len(records)
-    return (
-        f"{title}\n"
-        f"({count} record{'s' if count != 1 else ''})\n\n"
-        f"{table}"
-    )
+    return f"{title}\n" f"({count} record{'s' if count != 1 else ''})\n\n" f"{table}"
 
 
 def _format_comparison_result(data: Any, intent_result: Dict) -> str:
@@ -1310,9 +1408,9 @@ def _format_comparison_result(data: Any, intent_result: Dict) -> str:
     separator = "\n\n" + ("\u2500" * 50) + "\n\n"
 
     for side_idx, side in enumerate(sides):
-        side_data  = side.get("data") or {}
+        side_data = side.get("data") or {}
         side_label = side.get("label", f"Side {side_idx + 1}")
-        metrics    = side.get("metrics") or {}
+        metrics = side.get("metrics") or {}
 
         detected_label = _detect_side_label(side_data)
         title = detected_label if detected_label else side_label
@@ -1334,13 +1432,27 @@ def _format_comparison_result(data: Any, intent_result: Dict) -> str:
 
         first = records[0] if records else {}
         if isinstance(first, dict):
-            is_leave = any(k in first for k in (
-                "fromDate", "totalDays", "totalLeaveDays",
-                "leaveTypeLabel", "onMedicalLeave", "onAnnualLeave",
-            ))
-            is_performance = any(k in first for k in (
-                "bestTotal", "attempts", "score", "totalMarks", "omrInputTotal",
-            ))
+            is_leave = any(
+                k in first
+                for k in (
+                    "fromDate",
+                    "totalDays",
+                    "totalLeaveDays",
+                    "leaveTypeLabel",
+                    "onMedicalLeave",
+                    "onAnnualLeave",
+                )
+            )
+            is_performance = any(
+                k in first
+                for k in (
+                    "bestTotal",
+                    "attempts",
+                    "score",
+                    "totalMarks",
+                    "omrInputTotal",
+                )
+            )
 
             if is_leave:
                 block = _format_leave_side_records(records, title)
@@ -1361,8 +1473,8 @@ def _format_comparison_result(data: Any, intent_result: Dict) -> str:
 
 def _format_cross_filter_result(data: Any, intent_result: Dict) -> str:
     """Format cross-filter results from result_combiner output."""
-    records      = data.get("records") or []
-    match_count  = data.get("matchCount", len(records))
+    records = data.get("records") or []
+    match_count = data.get("matchCount", len(records))
     total_before = data.get("totalBeforeFilter", 0)
     filter_depth = data.get("filterDepth", 2)
 
@@ -1410,7 +1522,7 @@ def _format_multi_independent_result(data: Any, intent_result: Dict) -> str:
     blocks = []
 
     for sec in sections:
-        label    = sec.get("label", "Section")
+        label = sec.get("label", "Section")
         sec_data = sec.get("data")
         sec_intent = {"category": label, "subcategory": label}
         formatted_sub = format_dotnet_response(sec_data, sec_intent)
@@ -1421,7 +1533,7 @@ def _format_multi_independent_result(data: Any, intent_result: Dict) -> str:
 
 def _format_analytics_result(data: Any, intent_result: Dict) -> str:
     """Format analytics/aggregate results — uses standard category dispatch."""
-    category    = intent_result.get("category")
+    category = intent_result.get("category")
     subcategory = intent_result.get("subcategory")
 
     if category == "Performance":
@@ -1434,9 +1546,9 @@ def _format_analytics_result(data: Any, intent_result: Dict) -> str:
 
     records = _extract_records(data)
     if records and isinstance(records[0], dict):
-        keys    = list(records[0].keys())
+        keys = list(records[0].keys())
         headers = [_camel_to_words(k) for k in keys]
-        rows    = [[str(r.get(k, "-")) for k in keys] for r in records]
+        rows = [[str(r.get(k, "-")) for k in keys] for r in records]
         return _plain_table(headers, rows)
 
     try:
@@ -1448,6 +1560,7 @@ def _format_analytics_result(data: Any, intent_result: Dict) -> str:
 # =============================================================================
 # MAIN PUBLIC ENTRY POINT
 # =============================================================================
+
 
 def format_dotnet_response(
     dotnet_response: Any,
@@ -1488,7 +1601,7 @@ def format_dotnet_response(
             return _format_analytics_result(dotnet_response, intent_result)
 
     # ── STANDARD CATEGORY DISPATCH ────────────────────────────────────────
-    category    = intent_result.get("category")
+    category = intent_result.get("category")
     subcategory = intent_result.get("subcategory")
 
     if not category:
@@ -1501,7 +1614,9 @@ def format_dotnet_response(
         if subcategory in _PERFORMANCE_NESTED_SUBCATEGORIES:
             return _format_performance_list(dotnet_response, intent_result)
         elif subcategory in _PERFORMANCE_AGGREGATE_SUBCATEGORIES:
-            return _format_performance_aggregate(subcategory, dotnet_response, intent_result)
+            return _format_performance_aggregate(
+                subcategory, dotnet_response, intent_result
+            )
         else:
             return _format_performance_list(dotnet_response, intent_result)
 

@@ -41,12 +41,16 @@ def build_combined_message(
         obs = analysis.get("observations") or []
         clean_obs = [o.strip() for o in obs if o and o.strip()]
         if clean_obs:
-            analysis_parts.append("Observations:\n" + "\n".join(f"- {o}" for o in clean_obs))
+            analysis_parts.append(
+                "Observations:\n" + "\n".join(f"- {o}" for o in clean_obs)
+            )
 
         insights = analysis.get("insights") or []
         clean_ins = [i.strip() for i in insights if i and i.strip()]
         if clean_ins:
-            analysis_parts.append("Insights:\n" + "\n".join(f"- {i}" for i in clean_ins))
+            analysis_parts.append(
+                "Insights:\n" + "\n".join(f"- {i}" for i in clean_ins)
+            )
 
         if analysis_parts:
             parts.append("Analysis:\n" + "\n\n".join(analysis_parts))
@@ -98,43 +102,40 @@ def build_response(
     # ── Standard JSON schema — NO raw backend data ────────────────────────────
     payload: Dict[str, Any] = {
         "status": True,
-
         "queryType": query_type,
-
         "introMessage": intro_message,
-
         "result": {
             "processedData": combined_result if combined_result is not None else {}
         },
-
-        "analysis": {
-            "summary":      analysis.get("summary", ""),
-            "observations": list(analysis.get("observations") or []),
-            "insights":     list(analysis.get("insights") or []),
-        } if analysis is not None else None,
-
-        "conclusion": {
-            "summary": conclusion.get("summary", "")
-        } if conclusion is not None else None,
-
+        "analysis": (
+            {
+                "summary": analysis.get("summary", ""),
+                "observations": list(analysis.get("observations") or []),
+                "insights": list(analysis.get("insights") or []),
+            }
+            if analysis is not None
+            else None
+        ),
+        "conclusion": (
+            {"summary": conclusion.get("summary", "")}
+            if conclusion is not None
+            else None
+        ),
         "intent": {
-            "category":    intent.get("category", ""),
+            "category": intent.get("category", ""),
             "subcategory": intent.get("subcategory", ""),
-            "confidence":  intent_conf_float,
+            "confidence": intent_conf_float,
         },
-
         # dotnetResponse is intentionally omitted — raw backend data must
         # never be forwarded to the frontend (security requirement).
-
         "metadata": {
-            "confidence":     round(float(confidence), 2),
-            "queryType":      query_type,
+            "confidence": round(float(confidence), 2),
+            "queryType": query_type,
             "operationCount": int(operation_count),
         },
-
         # Backward-compatible fields
         "formattedData": formatted_data,
-        "message":       combined_message,
+        "message": combined_message,
     }
 
     if durations:

@@ -39,10 +39,11 @@ from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, Optional
 
-
 # ── Config ─────────────────────────────────────────────────────────────────
-AUDIT_LOG_FILE        = os.getenv("AUDIT_LOG_FILE",         "audit.log")
-AUDIT_LOG_MAX_BYTES   = int(os.getenv("AUDIT_LOG_MAX_BYTES", str(10 * 1024 * 1024)))  # 10 MB
+AUDIT_LOG_FILE = os.getenv("AUDIT_LOG_FILE", "audit.log")
+AUDIT_LOG_MAX_BYTES = int(
+    os.getenv("AUDIT_LOG_MAX_BYTES", str(10 * 1024 * 1024))
+)  # 10 MB
 AUDIT_LOG_BACKUP_COUNT = int(os.getenv("AUDIT_LOG_BACKUP_COUNT", "30"))
 AUDIT_LOG_RETENTION_DAYS = int(os.getenv("AUDIT_LOG_RETENTION_DAYS", "90"))
 
@@ -73,6 +74,7 @@ def _get_audit_logger() -> logging.Logger:
 
 # ── Schema ─────────────────────────────────────────────────────────────────
 
+
 class AuditLog:
     """
     Value object representing one audit log entry.
@@ -80,16 +82,37 @@ class AuditLog:
     """
 
     # Fields that must NEVER appear in audit logs
-    _FORBIDDEN_KEYS = frozenset({
-        "prompt", "prompts", "queryPlan", "dotnetPayload", "rawFragment",
-        "intentResult", "operations", "reasoning", "raw_response",
-        "api_key", "password", "secret", "token",
-        "traceback", "stack_trace", "exception_detail",
-    })
+    _FORBIDDEN_KEYS = frozenset(
+        {
+            "prompt",
+            "prompts",
+            "queryPlan",
+            "dotnetPayload",
+            "rawFragment",
+            "intentResult",
+            "operations",
+            "reasoning",
+            "raw_response",
+            "api_key",
+            "password",
+            "secret",
+            "token",
+            "traceback",
+            "stack_trace",
+            "exception_detail",
+        }
+    )
 
     __slots__ = (
-        "timestamp", "trace_id", "session_id", "query_type",
-        "query_duration", "success", "error_type", "username", "admin_name",
+        "timestamp",
+        "trace_id",
+        "session_id",
+        "query_type",
+        "query_duration",
+        "success",
+        "error_type",
+        "username",
+        "admin_name",
     )
 
     def __init__(
@@ -104,27 +127,27 @@ class AuditLog:
         username: Optional[str] = None,
         admin_name: Optional[str] = None,
     ) -> None:
-        self.timestamp      = datetime.now(timezone.utc).isoformat()
-        self.trace_id       = str(trace_id)[:64]
-        self.session_id     = str(session_id)[:128]
-        self.query_type     = str(query_type)[:64]
+        self.timestamp = datetime.now(timezone.utc).isoformat()
+        self.trace_id = str(trace_id)[:64]
+        self.session_id = str(session_id)[:128]
+        self.query_type = str(query_type)[:64]
         self.query_duration = round(float(query_duration), 2)
-        self.success        = bool(success)
-        self.error_type     = str(error_type)[:64] if error_type else None
-        self.username       = str(username)[:128] if username else None
-        self.admin_name     = str(admin_name)[:128] if admin_name else None
+        self.success = bool(success)
+        self.error_type = str(error_type)[:64] if error_type else None
+        self.username = str(username)[:128] if username else None
+        self.admin_name = str(admin_name)[:128] if admin_name else None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "timestamp":      self.timestamp,
-            "trace_id":       self.trace_id,
-            "session_id":     self.session_id,
-            "query_type":     self.query_type,
+            "timestamp": self.timestamp,
+            "trace_id": self.trace_id,
+            "session_id": self.session_id,
+            "query_type": self.query_type,
             "query_duration": self.query_duration,
-            "success":        self.success,
-            "error_type":     self.error_type,
-            "username":       self.username,
-            "admin_name":     self.admin_name,
+            "success": self.success,
+            "error_type": self.error_type,
+            "username": self.username,
+            "admin_name": self.admin_name,
         }
 
     def to_json(self) -> str:
@@ -132,6 +155,7 @@ class AuditLog:
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
+
 
 def write_audit_log(
     *,
@@ -150,6 +174,7 @@ def write_audit_log(
     """
     try:
         from feature_flags import flags
+
         if not flags.ENABLE_AUDIT_LOGGING:
             return
     except ImportError:

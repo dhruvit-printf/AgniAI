@@ -10,21 +10,18 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from admin_intent import (
-    _normalise,
-    classify_admin_intent,
-    format_admin_payload,
-)
+from admin_intent import (_normalise, classify_admin_intent,
+                          format_admin_payload)
 
 logger = logging.getLogger(__name__)
 
 
 class QueryType(Enum):
-    SIMPLE           = "simple"
-    CROSS_FILTER     = "cross_filter"
-    COMPARISON       = "comparison"
+    SIMPLE = "simple"
+    CROSS_FILTER = "cross_filter"
+    COMPARISON = "comparison"
     MULTI_INDEPENDENT = "multi_independent"
-    ANALYTICS        = "analytics"
+    ANALYTICS = "analytics"
 
 
 @dataclass
@@ -37,8 +34,8 @@ class SubOperation:
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
-            "rawFragment":   self.raw_fragment,
-            "intentResult":  self.intent_result,
+            "rawFragment": self.raw_fragment,
+            "intentResult": self.intent_result,
             "dotnetPayload": self.dotnet_payload,
         }
         if self.group_by:
@@ -59,11 +56,11 @@ class QueryPlan:
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
-            "queryType":      self.query_type.value,
-            "confidence":     round(self.confidence, 2),
+            "queryType": self.query_type.value,
+            "confidence": round(self.confidence, 2),
             "operationCount": len(self.operations),
-            "reasoning":      self.reasoning,
-            "operations":     [op.to_dict() for op in self.operations],
+            "reasoning": self.reasoning,
+            "operations": [op.to_dict() for op in self.operations],
         }
         if self.analytics_hint:
             d["analyticsHint"] = self.analytics_hint
@@ -71,125 +68,261 @@ class QueryPlan:
 
 
 _COMPARISON_KEYWORDS: List[str] = [
-    "compare", "comparison", " vs ", "versus", "compared to",
-    "compared with", "difference between", "contrast",
+    "compare",
+    "comparison",
+    " vs ",
+    "versus",
+    "compared to",
+    "compared with",
+    "difference between",
+    "contrast",
 ]
 
 _CROSS_FILTER_KEYWORDS: List[str] = [
-    "who plays", "who play", "that play", "that plays",
-    "which play", "which plays", "having sport", "with sport",
-    "on leave", "currently on leave", "who is on leave",
+    "who plays",
+    "who play",
+    "that play",
+    "that plays",
+    "which play",
+    "which plays",
+    "having sport",
+    "with sport",
+    "on leave",
+    "currently on leave",
+    "who is on leave",
     "currently absent",
-    "with medical", "with active medical", "with medical case",
-    "active medical", "in hospital", "under treatment",
-    "attending today", "present today", "on campus today",
-    "who are in", "who is in", "among", "within",
+    "with medical",
+    "with active medical",
+    "with medical case",
+    "active medical",
+    "in hospital",
+    "under treatment",
+    "attending today",
+    "present today",
+    "on campus today",
+    "who are in",
+    "who is in",
+    "among",
+    "within",
 ]
 
 _CROSS_FILTER_CONNECTORS: List[str] = [
-    "who", "that", "which", "having", "among", "within",
-    "currently", "with",
+    "who",
+    "that",
+    "which",
+    "having",
+    "among",
+    "within",
+    "currently",
+    "with",
 ]
 
 _MULTI_INDEPENDENT_CONNECTORS: List[str] = [
-    "along with", "as well as", "together with",
-    "additionally show", "also show", "and also",
+    "along with",
+    "as well as",
+    "together with",
+    "additionally show",
+    "also show",
+    "and also",
 ]
 
 _NO_SPLIT_PHRASES: List[str] = [
-    "approved and pending leave", "approved and pending",
-    "annual and medical leave", "annual and sick leave",
-    "medical and sick leave", "top and bottom", "top and worst",
-    "best and worst", "highest and lowest",
-    "pass and fail", "pass percentage and fail percentage",
+    "approved and pending leave",
+    "approved and pending",
+    "annual and medical leave",
+    "annual and sick leave",
+    "medical and sick leave",
+    "top and bottom",
+    "top and worst",
+    "best and worst",
+    "highest and lowest",
+    "pass and fail",
+    "pass percentage and fail percentage",
     "pass rate and fail rate",
-    "improvement and drop", "improvement and decline",
-    "issued and procured", "overdue and returned",
-    "pending and completed verification", "pending and completed",
+    "improvement and drop",
+    "improvement and decline",
+    "issued and procured",
+    "overdue and returned",
+    "pending and completed verification",
+    "pending and completed",
 ]
 
 _ANALYTICS_RANKING_KEYWORDS: List[str] = [
-    "highest average", "lowest average",
-    "best average", "worst average",
-    "which section has the highest", "which section has the lowest",
-    "which section is best", "which section is worst",
-    "rank sections", "rank units", "rank classes", "rank sports",
-    "section ranking", "unit ranking",
-    "which unit has most", "which unit has the most",
-    "which sport has the best", "which sport has most",
-    "most absconded", "most leave", "most absent",
-    "top category", "best category", "worst category",
-    "highest pass", "lowest pass", "highest fail", "lowest fail",
-    "highest score section", "lowest score section",
+    "highest average",
+    "lowest average",
+    "best average",
+    "worst average",
+    "which section has the highest",
+    "which section has the lowest",
+    "which section is best",
+    "which section is worst",
+    "rank sections",
+    "rank units",
+    "rank classes",
+    "rank sports",
+    "section ranking",
+    "unit ranking",
+    "which unit has most",
+    "which unit has the most",
+    "which sport has the best",
+    "which sport has most",
+    "most absconded",
+    "most leave",
+    "most absent",
+    "top category",
+    "best category",
+    "worst category",
+    "highest pass",
+    "lowest pass",
+    "highest fail",
+    "lowest fail",
+    "highest score section",
+    "lowest score section",
 ]
 
 _ANALYTICS_AGGREGATE_KEYWORDS: List[str] = [
-    "average by section", "average per section",
-    "average by unit", "average per unit",
-    "average by class", "average per class",
-    "average by sport", "average per sport",
-    "attendance by unit", "attendance per unit",
-    "pass percentage by", "fail percentage by",
-    "score by section", "marks by section",
-    "group by section", "group by unit", "group by class", "group by sport",
-    "breakdown by section", "breakdown by unit",
+    "average by section",
+    "average per section",
+    "average by unit",
+    "average per unit",
+    "average by class",
+    "average per class",
+    "average by sport",
+    "average per sport",
+    "attendance by unit",
+    "attendance per unit",
+    "pass percentage by",
+    "fail percentage by",
+    "score by section",
+    "marks by section",
+    "group by section",
+    "group by unit",
+    "group by class",
+    "group by sport",
+    "breakdown by section",
+    "breakdown by unit",
 ]
 
 _GROUP_BY_MAP: Dict[str, str] = {
     "section": "section",
-    "unit":    "unit",
-    "class":   "class",
-    "sport":   "sport",
-    "sports":  "sport",
+    "unit": "unit",
+    "class": "class",
+    "sport": "sport",
+    "sports": "sport",
     "platoon": "platoon",
-    "batch":   "batch",
+    "batch": "batch",
 }
 
 _CATEGORY_SIGNALS: Dict[str, List[str]] = {
     "Performance": [
-        "performance", "performer", "performers", "score", "marks",
-        "bpet", "ppt", "firing", "drill",
-        "grading", "grade", "top performer", "bottom performer",
-        "average score", "pass percentage", "fail percentage",
-        "improvement", "drop", "attempt", "section summary",
+        "performance",
+        "performer",
+        "performers",
+        "score",
+        "marks",
+        "bpet",
+        "ppt",
+        "firing",
+        "drill",
+        "grading",
+        "grade",
+        "top performer",
+        "bottom performer",
+        "average score",
+        "pass percentage",
+        "fail percentage",
+        "improvement",
+        "drop",
+        "attempt",
+        "section summary",
         "overall performance",
     ],
     "Leave": [
-        "leave", "absent", "absentee", "absconded", "awol",
-        "annual leave", "medical leave", "sick leave",
-        "on leave", "currently on leave",
+        "leave",
+        "absent",
+        "absentee",
+        "absconded",
+        "awol",
+        "annual leave",
+        "medical leave",
+        "sick leave",
+        "on leave",
+        "currently on leave",
     ],
     "Medical": [
-        "medical", "hospital", "bmi", "disease", "health",
-        "admitted", "patient", "ward", "illness",
-        "active medical", "with medical",
+        "medical",
+        "hospital",
+        "bmi",
+        "disease",
+        "health",
+        "admitted",
+        "patient",
+        "ward",
+        "illness",
+        "active medical",
+        "with medical",
     ],
     "Attendance": [
-        "attendance", "present", "campus", "strength", "headcount",
-        "monthly attendance", "present today",
+        "attendance",
+        "present",
+        "campus",
+        "strength",
+        "headcount",
+        "monthly attendance",
+        "present today",
     ],
     "Verification": [
-        "verification", "verified", "pending verification",
+        "verification",
+        "verified",
+        "pending verification",
         "completed verification",
     ],
     "Equipment": [
-        "equipment", "gear", "overdue", "inventory",
-        "issued items", "procured items", "damaged",
+        "equipment",
+        "gear",
+        "overdue",
+        "inventory",
+        "issued items",
+        "procured items",
+        "damaged",
     ],
     "Distribution": [
-        "distribution", "unit", "unassigned", "distributed",
+        "distribution",
+        "unit",
+        "unassigned",
+        "distributed",
     ],
     "Skills": [
-        "sport", "sports", "cricket", "football", "hockey",
-        "basketball", "volleyball", "kabaddi", "running",
-        "blood group", "blood type", "class", "roster",
-        "sikh", "dogra", "jat", "gurkha", "rajput", "punjabi",
+        "sport",
+        "sports",
+        "cricket",
+        "football",
+        "hockey",
+        "basketball",
+        "volleyball",
+        "kabaddi",
+        "running",
+        "blood group",
+        "blood type",
+        "class",
+        "roster",
+        "sikh",
+        "dogra",
+        "jat",
+        "gurkha",
+        "rajput",
+        "punjabi",
     ],
 }
 
 _SPORT_NAMES = {
-    "cricket", "football", "hockey", "basketball",
-    "volleyball", "kabaddi", "running",
+    "cricket",
+    "football",
+    "hockey",
+    "basketball",
+    "volleyball",
+    "kabaddi",
+    "running",
 }
 
 
@@ -219,9 +352,7 @@ def _detect_comparison(
 ) -> Optional[Tuple[str, str]]:
     if not any(kw in text_lower for kw in _COMPARISON_KEYWORDS):
         return None
-    sections_found = [
-        s for s in {"bpet", "ppt", "firing", "drill"} if s in text_lower
-    ]
+    sections_found = [s for s in {"bpet", "ppt", "firing", "drill"} if s in text_lower]
     if len(sections_found) >= 2 and (
         "Performance" in categories or len(categories) <= 1
     ):
@@ -238,15 +369,15 @@ def _detect_multi_independent(
         if connector in text_lower:
             parts = text_lower.split(connector, 1)
             if len(parts) == 2 and parts[0].strip() and parts[1].strip():
-                left_cats  = _detect_categories(parts[0])
+                left_cats = _detect_categories(parts[0])
                 right_cats = _detect_categories(parts[1])
                 if left_cats and right_cats:
                     return [parts[0].strip(), parts[1].strip()]
 
     if " and " in text_lower and len(categories) >= 2:
         for m in re.finditer(r"\band\b", text_lower):
-            left  = text_lower[: m.start()].strip()
-            right = text_lower[m.end():].strip()
+            left = text_lower[: m.start()].strip()
+            right = text_lower[m.end() :].strip()
             if left and right:
                 lc = _detect_categories(left)
                 rc = _detect_categories(right)
@@ -312,7 +443,7 @@ def _extract_cross_filter_fragments(
     for kw in _CROSS_FILTER_KEYWORDS:
         if kw in text_lower:
             idx = text_lower.index(kw)
-            left  = text_lower[:idx].strip()
+            left = text_lower[:idx].strip()
             right = text_lower[idx:].strip()
             if left and right:
                 primary_split = (left, right)
@@ -322,8 +453,8 @@ def _extract_cross_filter_fragments(
         for connector in _CROSS_FILTER_CONNECTORS:
             m = re.search(r"\b" + re.escape(connector) + r"\b", text_lower)
             if m:
-                left  = text_lower[: m.start()].strip()
-                right = text_lower[m.start():].strip()
+                left = text_lower[: m.start()].strip()
+                right = text_lower[m.start() :].strip()
                 if left and right:
                     lc = _detect_categories(left)
                     rc = _detect_categories(_enrich_right(right))
@@ -347,8 +478,8 @@ def _extract_cross_filter_fragments(
     for np in nested_patterns:
         m = re.search(np, remainder)
         if m:
-            sub_left  = remainder[: m.start()].strip()
-            sub_right = remainder[m.end():].strip()
+            sub_left = remainder[: m.start()].strip()
+            sub_right = remainder[m.end() :].strip()
             if sub_left and sub_right:
                 fragments.append(_enrich_right(sub_left))
                 fragments.append(_enrich_right(sub_right))
@@ -384,14 +515,14 @@ def _extract_comparison_fragments(
 def _extract_filtered_comparison_fragments(
     text_lower: str,
 ) -> Optional[List[str]]:
-    filter_m = re.search(
-        r"\b(?:among|for|with|within|by)\s+(.+)$", text_lower
-    )
+    filter_m = re.search(r"\b(?:among|for|with|within|by)\s+(.+)$", text_lower)
     if filter_m is None:
         return None
 
     filter_text = filter_m.group(1).strip()
-    filter_text = re.sub(r"\b(?:players?|person|agniveers?|trainees?)\b", "", filter_text).strip()
+    filter_text = re.sub(
+        r"\b(?:players?|person|agniveers?|trainees?)\b", "", filter_text
+    ).strip()
     if not filter_text:
         return None
 
@@ -419,7 +550,7 @@ def _build_sub_operation(
     group_by: Optional[str] = None,
     filter_fragment: Optional[str] = None,
 ) -> SubOperation:
-    intent_result  = classify_admin_intent(fragment)
+    intent_result = classify_admin_intent(fragment)
     dotnet_payload = format_admin_payload(intent_result)
     return SubOperation(
         raw_fragment=fragment,
@@ -440,18 +571,24 @@ def plan_query(query: str) -> QueryPlan:
     if _is_no_split_phrase(q):
         op = _build_sub_operation(q)
         return QueryPlan(
-            QueryType.SIMPLE, [op], 0.95, raw_query,
+            QueryType.SIMPLE,
+            [op],
+            0.95,
+            raw_query,
             "Contains split-prevention phrase",
         )
 
     categories = _detect_categories(q)
-    group_by   = _extract_group_by(q)
+    group_by = _extract_group_by(q)
 
     analytics_hint = _detect_analytics(q)
     if analytics_hint:
         op = _build_sub_operation(q, group_by=group_by)
         return QueryPlan(
-            QueryType.ANALYTICS, [op], 0.85, raw_query,
+            QueryType.ANALYTICS,
+            [op],
+            0.85,
+            raw_query,
             f"Analytics/ranking query detected: hint={analytics_hint}",
             analytics_hint=analytics_hint,
         )
@@ -463,7 +600,10 @@ def plan_query(query: str) -> QueryPlan:
             valid_ops = [op for op in ops if op.intent_result.get("category")]
             if len(valid_ops) >= 2:
                 return QueryPlan(
-                    QueryType.COMPARISON, valid_ops, 0.85, raw_query,
+                    QueryType.COMPARISON,
+                    valid_ops,
+                    0.85,
+                    raw_query,
                     "Filtered comparison: each side carries the cross-filter",
                 )
 
@@ -475,7 +615,10 @@ def plan_query(query: str) -> QueryPlan:
             valid_ops = [op for op in ops if op.intent_result.get("category")]
             if len(valid_ops) >= 2:
                 return QueryPlan(
-                    QueryType.COMPARISON, valid_ops, 0.85, raw_query,
+                    QueryType.COMPARISON,
+                    valid_ops,
+                    0.85,
+                    raw_query,
                     f"Comparison between {comparison_entities[0]} and "
                     f"{comparison_entities[1]}",
                 )
@@ -490,9 +633,11 @@ def plan_query(query: str) -> QueryPlan:
                 if len(op_categories) >= 2:
                     depth = "3-way" if len(valid_ops) >= 3 else "2-way"
                     return QueryPlan(
-                        QueryType.CROSS_FILTER, valid_ops, 0.85, raw_query,
-                        f"{depth} cross-filter: "
-                        f"{', '.join(sorted(op_categories))}",
+                        QueryType.CROSS_FILTER,
+                        valid_ops,
+                        0.85,
+                        raw_query,
+                        f"{depth} cross-filter: " f"{', '.join(sorted(op_categories))}",
                     )
 
     multi_fragments = _detect_multi_independent(q, categories)
@@ -503,13 +648,19 @@ def plan_query(query: str) -> QueryPlan:
             op_categories = {op.intent_result["category"] for op in valid_ops}
             if len(op_categories) >= 2:
                 return QueryPlan(
-                    QueryType.MULTI_INDEPENDENT, valid_ops, 0.80, raw_query,
+                    QueryType.MULTI_INDEPENDENT,
+                    valid_ops,
+                    0.80,
+                    raw_query,
                     f"Multi-independent: {', '.join(sorted(op_categories))}",
                 )
 
-    op         = _build_sub_operation(q, group_by=group_by)
+    op = _build_sub_operation(q, group_by=group_by)
     confidence = 0.95 if op.intent_result.get("category") else 0.3
     return QueryPlan(
-        QueryType.SIMPLE, [op], confidence, raw_query,
+        QueryType.SIMPLE,
+        [op],
+        confidence,
+        raw_query,
         "Single-intent query",
     )

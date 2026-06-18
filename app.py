@@ -30,86 +30,44 @@ except Exception:  # pragma: no cover
     Limiter = None
     get_remote_address = None
 
-from api_models import (
-    err,
-    ok_chat,
-    ok_health,
-    ok_ingest,
-    ok_message,
-    ok_sources,
-    ok_stats,
-)
-from config import (
-    ALLOWED_ORIGINS,
-    API_FIRST_TOKEN_TIMEOUT,
-    API_SECRET_KEY,
-    CHAT_SYSTEM_PROMPT,
-    detect_answer_style,
-    _fuzzy_normalize_query,
-    _get_current_date_response,
-    _is_date_query,
-    GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
-    MAX_CONTEXT_CHARS,
-    MAX_CONTEXT_CHARS_DEFAULT,
-    MAX_TOKENS_STYLE,
-    MAX_TOKENS_DEFAULT,
-    MODEL_MAX_CONTEXT_TOKENS,
-    OLLAMA_TAGS_URL,
-    REFERENCE_FALLBACK,
-    SESSION_HEADER,
-    STYLE_MIN_WORDS,
-    STRICT_RAG_PROMPT,
-    STRICT_RAG_PROMPT_COMPUTE,
-    TOKEN_SAFETY_BUFFER,
-    TOP_K,
-    classify_intent,
-    estimate_message_tokens,
-    style_structure_instruction,
-    trim_to_complete_sentence,
-)
-from ingest import (
-    clear_index,
-    ingest_docx,
-    ingest_doc,
-    ingest_pdf,
-    ingest_text,
-    ingest_txt,
-    ingest_url,
-    list_sources,
-)
+# ── Blueprints ─────────────────────────────────────────────────────────────
+from admin_routes import _register_rate_limits, admin_bp
+from api_models import (err, ok_chat, ok_health, ok_ingest, ok_message,
+                        ok_sources, ok_stats)
+from config import (ALLOWED_ORIGINS, API_FIRST_TOKEN_TIMEOUT, API_SECRET_KEY,
+                    CHAT_SYSTEM_PROMPT, GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
+                    MAX_CONTEXT_CHARS, MAX_CONTEXT_CHARS_DEFAULT,
+                    MAX_TOKENS_DEFAULT, MAX_TOKENS_STYLE,
+                    MODEL_MAX_CONTEXT_TOKENS, OLLAMA_TAGS_URL,
+                    REFERENCE_FALLBACK, SESSION_HEADER, STRICT_RAG_PROMPT,
+                    STRICT_RAG_PROMPT_COMPUTE, STYLE_MIN_WORDS,
+                    TOKEN_SAFETY_BUFFER, TOP_K, _fuzzy_normalize_query,
+                    _get_current_date_response, _is_date_query,
+                    classify_intent, detect_answer_style,
+                    estimate_message_tokens, style_structure_instruction,
+                    trim_to_complete_sentence)
+from ingest import (clear_index, ingest_doc, ingest_docx, ingest_pdf,
+                    ingest_text, ingest_txt, ingest_url, list_sources)
 from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
-from rag import (
-    LOW_RETRIEVAL_CONFIDENCE,
-    STRICT_TOP_K,
-    build_context,
-    build_strict_messages,
-    deterministic_policy_answer,
-    get_cached_response,
-    index_stats,
-    is_ready,
-    is_reasoning_query,
-    make_response_cache_key,
-    prepare_rag_bundle,
-    set_cached_response,
-    warmup_runtime,
-)
-
-# ── Blueprints ─────────────────────────────────────────────────────────────
-from admin_routes import admin_bp, _register_rate_limits
+from rag import (LOW_RETRIEVAL_CONFIDENCE, STRICT_TOP_K, build_context,
+                 build_strict_messages, deterministic_policy_answer,
+                 get_cached_response, index_stats, is_ready,
+                 is_reasoning_query, make_response_cache_key,
+                 prepare_rag_bundle, set_cached_response, warmup_runtime)
+# ── Sentry (CRITICAL FIX: wire in at import time) ─────────────────────────
+from sentry_integration import init_sentry
 from swagger_ui import swagger_bp
-
 # ── WebSocket ──────────────────────────────────────────────────────────────
 from websocket_manager import ws_manager
 from websocket_routes import register_socketio_events
 
-# ── Sentry (CRITICAL FIX: wire in at import time) ─────────────────────────
-from sentry_integration import init_sentry
 init_sentry()
 
 # ── Startup guard (CRITICAL FIX: fail fast if critical env vars missing) ──
 from settings import validate_critical_env
+
 validate_critical_env(dict(os.environ))
 
 logger = logging.getLogger(__name__)
@@ -123,7 +81,12 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 CORS(
     app,
     origins="*",
-    allow_headers=["Content-Type", "X-Api-Key", "X-Session-Id", "ngrok-skip-browser-warning"],
+    allow_headers=[
+        "Content-Type",
+        "X-Api-Key",
+        "X-Session-Id",
+        "ngrok-skip-browser-warning",
+    ],
     methods=["GET", "POST", "OPTIONS"],
     supports_credentials=False,
 )
@@ -152,8 +115,8 @@ _STREAM_SEMAPHORE = threading.Semaphore(10)
 _STREAM_WORKER_ACQUIRE_TIMEOUT = float(os.getenv("STREAM_WORKER_ACQUIRE_TIMEOUT", "5"))
 
 # Rate-limit configuration
-RATE_LIMIT_CHAT    = os.getenv("RATE_LIMIT_CHAT",    "30 per minute")
-RATE_LIMIT_INGEST  = os.getenv("RATE_LIMIT_INGEST",  "10 per minute")
+RATE_LIMIT_CHAT = os.getenv("RATE_LIMIT_CHAT", "30 per minute")
+RATE_LIMIT_INGEST = os.getenv("RATE_LIMIT_INGEST", "10 per minute")
 RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "60 per minute")
 
 # ── File Upload Helpers ────────────────────────────────────────────────────
@@ -205,6 +168,7 @@ _register_rate_limits(app, _limiter)
 # =============================================================================
 # HELPERS
 # =============================================================================
+
 
 def _validate_answer_length(answer: str, style: str) -> bool:
     min_words = STYLE_MIN_WORDS.get((style or "").strip().lower(), 0)
@@ -417,18 +381,50 @@ def _build_general_messages(
     if style_key == "short":
         fallback_style = "Keep the answer concise, usually 1 short paragraph."
     elif style_key == "detail":
-        fallback_style = "Give a clear, well-organized answer without inventing specifics."
+        fallback_style = (
+            "Give a clear, well-organized answer without inventing specifics."
+        )
     else:
         fallback_style = "Give a clear answer in 1 to 3 short paragraphs."
 
     _FACTUAL_SIGNALS = (
-        "what is", "what are", "who is", "who was", "when did", "when was",
-        "where is", "where was", "how does", "how do", "why does", "why do",
-        "explain", "define", "difference between", "full form", "meaning of",
-        "capital of", "president of", "prime minister", "how many", "how much",
-        "which country", "which state", "formula", "equation", "calculate",
-        "theorem", "law of", "principle of", "history of", "founder of",
-        "invented by", "discovered by", "what happens", "why is", "how is",
+        "what is",
+        "what are",
+        "who is",
+        "who was",
+        "when did",
+        "when was",
+        "where is",
+        "where was",
+        "how does",
+        "how do",
+        "why does",
+        "why do",
+        "explain",
+        "define",
+        "difference between",
+        "full form",
+        "meaning of",
+        "capital of",
+        "president of",
+        "prime minister",
+        "how many",
+        "how much",
+        "which country",
+        "which state",
+        "formula",
+        "equation",
+        "calculate",
+        "theorem",
+        "law of",
+        "principle of",
+        "history of",
+        "founder of",
+        "invented by",
+        "discovered by",
+        "what happens",
+        "why is",
+        "how is",
     )
     is_factual = any(signal in query_lower for signal in _FACTUAL_SIGNALS)
 
@@ -440,8 +436,7 @@ def _build_general_messages(
             "does not contain the answer, use only safe general knowledge. Keep the answer "
             "clear, realistic, and conservative. Do not guess. Do not mix reference facts "
             "with your own knowledge. If exact specifics are uncertain, say clearly that you "
-            "do not have that information.\n\n" +
-            fallback_style
+            "do not have that information.\n\n" + fallback_style
         )
     else:
         system_content = (
@@ -451,8 +446,8 @@ def _build_general_messages(
             "Respond like a warm, caring human — not like a document reader. "
             "Be genuine, encouraging, and natural. Keep it conversational. "
             "Do not use bullet points or structured formatting. "
-            "Do not say 'Answer not found in the document.' Just talk to them.\n\n" +
-            fallback_style
+            "Do not say 'Answer not found in the document.' Just talk to them.\n\n"
+            + fallback_style
         )
 
     messages: list[dict] = [{"role": "system", "content": system_content}]
@@ -532,7 +527,9 @@ def _stream_answer_response(answer_generator, status_payload: dict) -> Response:
 def _start_stream_worker(target) -> None:
     acquired = _STREAM_SEMAPHORE.acquire(timeout=_STREAM_WORKER_ACQUIRE_TIMEOUT)
     if not acquired:
-        raise RuntimeError("Too many concurrent streaming requests. Please retry shortly.")
+        raise RuntimeError(
+            "Too many concurrent streaming requests. Please retry shortly."
+        )
 
     def _wrapped_target() -> None:
         try:
@@ -563,14 +560,17 @@ def health():
         ollama_ok = False
 
     if not ollama_ok:
-        return jsonify(
-            ok_health(
-                vectors=stats_data["vectors"],
-                chunks=stats_data["chunks"],
-                model=_active_model,
-                status="ollama_unreachable",
-            )
-        ), 503
+        return (
+            jsonify(
+                ok_health(
+                    vectors=stats_data["vectors"],
+                    chunks=stats_data["chunks"],
+                    model=_active_model,
+                    status="ollama_unreachable",
+                )
+            ),
+            503,
+        )
 
     return jsonify(
         ok_health(
@@ -593,8 +593,12 @@ def ready():
 @app.route("/api/metrics")
 def prometheus_metrics():
     from metrics import metrics_collector
-    return metrics_collector.generate_prometheus_text(), 200, {"Content-Type": "text/plain; version=0.0.4"}
 
+    return (
+        metrics_collector.generate_prometheus_text(),
+        200,
+        {"Content-Type": "text/plain; version=0.0.4"},
+    )
 
 
 @app.route("/api/chat", methods=["POST"])
@@ -629,6 +633,7 @@ def chat():
         if model:
             _active_model = model
             from ollama_cpu_chat import _ACTIVE_MODEL_REF
+
             _ACTIVE_MODEL_REF[0] = model
         current_model = _active_model
 
@@ -638,8 +643,10 @@ def chat():
         _memory.add("user", message, session_id=session_id)
         _memory.add("assistant", answer, session_id=session_id)
         if stream:
+
             def _gen():
                 yield answer
+
             return _stream_answer_response(
                 answer_generator=_gen,
                 status_payload={
@@ -691,7 +698,9 @@ def chat():
                         "mode": "general",
                     },
                 )
-            return jsonify(ok_chat(answer=cached_answer, style=style_name, session_id=session_id))
+            return jsonify(
+                ok_chat(answer=cached_answer, style=style_name, session_id=session_id)
+            )
 
         token_limit = _get_token_limit(style_name)
 
@@ -1108,12 +1117,12 @@ def ingest():
         return _json_error("target field is required (file path or URL).", 400)
 
     fn_map = {
-        "pdf":  ingest_pdf,
-        "url":  ingest_url,
-        "txt":  ingest_txt,
+        "pdf": ingest_pdf,
+        "url": ingest_url,
+        "txt": ingest_txt,
         "text": ingest_text,
         "docx": ingest_docx,
-        "doc":  ingest_doc,
+        "doc": ingest_doc,
     }
     if kind not in fn_map:
         return _json_error(
@@ -1157,7 +1166,9 @@ def upload_file():
     uploaded = request.files["file"]
 
     if not uploaded.filename:
-        return _json_error("No filename provided. The 'file' field appears to be empty.", 400)
+        return _json_error(
+            "No filename provided. The 'file' field appears to be empty.", 400
+        )
 
     filename = secure_filename(uploaded.filename)
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -1172,10 +1183,10 @@ def upload_file():
     kind = kind_override if kind_override in {"pdf", "txt", "docx"} else ext
 
     fn_map = {
-        "pdf":  ingest_pdf,
-        "txt":  ingest_txt,
+        "pdf": ingest_pdf,
+        "txt": ingest_txt,
         "docx": ingest_docx,
-        "doc":  ingest_doc,
+        "doc": ingest_doc,
     }
 
     if kind not in fn_map:
@@ -1221,7 +1232,9 @@ def upload_file():
             try:
                 os.unlink(tmp_path)
             except OSError as cleanup_err:
-                logger.warning("Could not delete temp file %s: %s", tmp_path, cleanup_err)
+                logger.warning(
+                    "Could not delete temp file %s: %s", tmp_path, cleanup_err
+                )
 
     if count == 0:
         return jsonify(
@@ -1287,13 +1300,14 @@ if __name__ == "__main__":
                 maxBytes=5 * 1024 * 1024,
                 backupCount=10,
                 encoding="utf-8",
-            )
+            ),
         ],
     )
 
     warmup_runtime(async_load=False)
 
     from ollama_cpu_chat import _start_keepalive_heartbeat
+
     _start_keepalive_heartbeat(_session, interval_seconds=300)
 
     stats_data = index_stats()
@@ -1301,8 +1315,10 @@ if __name__ == "__main__":
     logger.info("AgniAI REST API")
     logger.info("=" * 50)
     logger.info("Python / Flask listens on  http://0.0.0.0:5000")
-    logger.info(".NET AiCommand runs on     %s  (set DOTNET_API_BASE_URL in .env)",
-                os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257"))
+    logger.info(
+        ".NET AiCommand runs on     %s  (set DOTNET_API_BASE_URL in .env)",
+        os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257"),
+    )
     logger.info("=" * 50)
     logger.info("Health check  http://localhost:5000/api/health")
     logger.info("Chat endpoint http://localhost:5000/api/chat  [POST]")

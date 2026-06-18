@@ -4,6 +4,7 @@ admin_context.py
 """
 
 from __future__ import annotations
+
 import logging
 import re
 import threading
@@ -32,8 +33,18 @@ def _extract_ids_from_result(data: Any) -> Set[int]:
                     pass
     elif isinstance(data, dict):
         for key in (
-            "data", "Data", "result", "Result", "records", "Records",
-            "personnel", "persons", "teams", "Teams", "members", "Members"
+            "data",
+            "Data",
+            "result",
+            "Result",
+            "records",
+            "Records",
+            "personnel",
+            "persons",
+            "teams",
+            "Teams",
+            "members",
+            "Members",
         ):
             val = data.get(key)
             if val is not None:
@@ -69,8 +80,18 @@ class AdminSessionContext:
 
             q = (query_text or "").lower()
             indicators = {
-                "them", "those", "these", "their", "they", "him", "her",
-                "which of", "who among", "any of", "some of", "each of"
+                "them",
+                "those",
+                "these",
+                "their",
+                "they",
+                "him",
+                "her",
+                "which of",
+                "who among",
+                "any of",
+                "some of",
+                "each of",
             }
             for ind in indicators:
                 if re.search(r"\b" + re.escape(ind) + r"\b", q):
@@ -91,9 +112,7 @@ class AdminSessionContext:
                 "intent": intent_dict,
                 "ids": ids,
             }
-        logger.debug(
-            "Updated session %s history: %d ids stored", session_id, len(ids)
-        )
+        logger.debug("Updated session %s history: %d ids stored", session_id, len(ids))
 
     def get_previous_ids(self, session_id: str) -> Optional[Set[int]]:
         with self._lock:

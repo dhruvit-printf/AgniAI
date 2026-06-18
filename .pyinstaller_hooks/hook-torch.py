@@ -1,24 +1,43 @@
 # .pyinstaller_hooks/hook-torch.py
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.hooks import (collect_data_files, collect_dynamic_libs,
+                                     collect_submodules)
 
 binaries = collect_dynamic_libs("torch")
 
-datas = collect_data_files("torch", excludes=[
-    "test", "tests", "utils/tensorboard",
-])
+datas = collect_data_files(
+    "torch",
+    excludes=[
+        "test",
+        "tests",
+        "utils/tensorboard",
+    ],
+)
 
 hiddenimports = [
-    "torch", "torch.nn", "torch.nn.functional",
-    "torch.nn.modules", "torch.nn.modules.linear",
-    "torch.nn.modules.normalization", "torch.nn.modules.activation",
+    "torch",
+    "torch.nn",
+    "torch.nn.functional",
+    "torch.nn.modules",
+    "torch.nn.modules.linear",
+    "torch.nn.modules.normalization",
+    "torch.nn.modules.activation",
     "torch.nn.modules.pooling",
-    "torch.cuda", "torch.jit", "torch._C", "torch._tensor",
-    "torch.storage", "torch.serialization",
-    "torch.utils", "torch.utils.data", "torch.utils.data.dataloader",
-    "torch.distributed", "torch.distributed.distributed_c10d",
-    "torch._jit_internal", "torch._sources",
-    "torch.jit._builtins", "torch.jit.annotations",
+    "torch.cuda",
+    "torch.jit",
+    "torch._C",
+    "torch._tensor",
+    "torch.storage",
+    "torch.serialization",
+    "torch.utils",
+    "torch.utils.data",
+    "torch.utils.data.dataloader",
+    "torch.distributed",
+    "torch.distributed.distributed_c10d",
+    "torch._jit_internal",
+    "torch._sources",
+    "torch.jit._builtins",
+    "torch.jit.annotations",
     "torch.utils._config_module",
     # dynamo + all polyfills
     "torch._dynamo",
@@ -43,21 +62,21 @@ hiddenimports = [
 
 # "pyc" = external .pyc, no frozen source text — prevents parse_def() crash
 module_collection_mode = {
-    "torch.nn.functional":                "pyc",
-    "torch.nn.modules.activation":        "pyc",
-    "torch.nn.modules.linear":            "pyc",
-    "torch.nn.modules.normalization":     "pyc",
-    "torch.nn.modules.pooling":           "pyc",
-    "torch.nn.modules.sparse":            "pyc",
-    "torch.nn.modules.conv":              "pyc",
-    "torch.nn.modules.rnn":               "pyc",
-    "torch._jit_internal":                "pyc",
-    "torch._sources":                     "pyc",
-    "torch.jit._builtins":                "pyc",
-    "torch.jit.annotations":              "pyc",
-    "torch.functional":                   "pyc",
-    "torch.nn.parallel.distributed":      "pyc",
+    "torch.nn.functional": "pyc",
+    "torch.nn.modules.activation": "pyc",
+    "torch.nn.modules.linear": "pyc",
+    "torch.nn.modules.normalization": "pyc",
+    "torch.nn.modules.pooling": "pyc",
+    "torch.nn.modules.sparse": "pyc",
+    "torch.nn.modules.conv": "pyc",
+    "torch.nn.modules.rnn": "pyc",
+    "torch._jit_internal": "pyc",
+    "torch._sources": "pyc",
+    "torch.jit._builtins": "pyc",
+    "torch.jit.annotations": "pyc",
+    "torch.functional": "pyc",
+    "torch.nn.parallel.distributed": "pyc",
     "torch.distributed.distributed_c10d": "pyc",
-    "torch.utils._config_module":         "pyc",
-    "torch._dynamo":                      "pyc",
+    "torch.utils._config_module": "pyc",
+    "torch._dynamo": "pyc",
 }

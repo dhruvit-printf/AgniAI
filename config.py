@@ -1,7 +1,9 @@
 """Central configuration for AgniAI."""
 
 from __future__ import annotations
+
 from dotenv import load_dotenv
+
 load_dotenv()
 import os
 import re
@@ -14,9 +16,9 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 INDEX_DIR = BASE_DIR / "index"
 
-DOCSTORE_PATH    = INDEX_DIR / "docstore.json"
+DOCSTORE_PATH = INDEX_DIR / "docstore.json"
 FAISS_INDEX_PATH = INDEX_DIR / "agni.index"
-BM25_INDEX_PATH  = INDEX_DIR / "bm25.pkl"
+BM25_INDEX_PATH = INDEX_DIR / "bm25.pkl"
 
 # ── Embeddings ─────────────────────────────────────────────────────────────
 EMBEDDING_MODEL = os.getenv(
@@ -25,14 +27,14 @@ EMBEDDING_MODEL = os.getenv(
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
 
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-USE_RERANKER   = os.getenv("USE_RERANKER", "0") not in {"0", "false", "False"}
+USE_RERANKER = os.getenv("USE_RERANKER", "0") not in {"0", "false", "False"}
 
 # ── Ollama ─────────────────────────────────────────────────────────────────
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-OLLAMA_URL      = f"{OLLAMA_BASE_URL}/api/chat"
+OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/chat"
 OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", f"{OLLAMA_BASE_URL}/api/tags")
 
-DEFAULT_MODEL            = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct-q4_K_M")
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct-q4_K_M")
 MODEL_MAX_CONTEXT_TOKENS = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 
 FALLBACK_MODELS = [
@@ -46,17 +48,17 @@ FALLBACK_MODELS = [
 ]
 
 # ── Chunking ───────────────────────────────────────────────────────────────
-CHUNK_WORDS     = int(os.getenv("CHUNK_WORDS",     "420"))
-CHUNK_OVERLAP   = int(os.getenv("CHUNK_OVERLAP",   "80"))
+CHUNK_WORDS = int(os.getenv("CHUNK_WORDS", "420"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "80"))
 CHUNK_MIN_WORDS = int(os.getenv("CHUNK_MIN_WORDS", "12"))
 
 # ── Retrieval ──────────────────────────────────────────────────────────────
-TOP_K                     = int(os.getenv("TOP_K",                     "5"))
-RERANK_TOP_K              = int(os.getenv("RERANK_TOP_K",              "4"))
-MIN_SCORE                 = float(os.getenv("MIN_SCORE",               "0.20"))
-STRICT_MIN_SCORE          = float(os.getenv("STRICT_MIN_SCORE",        "0.55"))
-STRICT_TOP_K              = int(os.getenv("STRICT_TOP_K",              "4"))
-LOW_RETRIEVAL_CONFIDENCE  = float(os.getenv("LOW_RETRIEVAL_CONFIDENCE",  "0.35"))
+TOP_K = int(os.getenv("TOP_K", "5"))
+RERANK_TOP_K = int(os.getenv("RERANK_TOP_K", "4"))
+MIN_SCORE = float(os.getenv("MIN_SCORE", "0.20"))
+STRICT_MIN_SCORE = float(os.getenv("STRICT_MIN_SCORE", "0.55"))
+STRICT_TOP_K = int(os.getenv("STRICT_TOP_K", "4"))
+LOW_RETRIEVAL_CONFIDENCE = float(os.getenv("LOW_RETRIEVAL_CONFIDENCE", "0.35"))
 HIGH_RETRIEVAL_CONFIDENCE = float(os.getenv("HIGH_RETRIEVAL_CONFIDENCE", "0.60"))
 DEDUP_SIMILARITY_THRESHOLD = float(os.getenv("DEDUP_SIMILARITY_THRESHOLD", "0.88"))
 DOMAIN_BOOST_MAX = float(os.getenv("DOMAIN_BOOST_MAX", "1.20"))
@@ -65,24 +67,26 @@ ANSWER_GROUNDING_OVERLAP_THRESHOLD = float(
 )
 
 DENSE_WEIGHT = float(os.getenv("DENSE_WEIGHT", "0.60"))
-BM25_WEIGHT  = float(os.getenv("BM25_WEIGHT",  "0.40"))
-USE_HYBRID   = os.getenv("USE_HYBRID", "1") not in {"0", "false", "False"}
+BM25_WEIGHT = float(os.getenv("BM25_WEIGHT", "0.40"))
+USE_HYBRID = os.getenv("USE_HYBRID", "1") not in {"0", "false", "False"}
 
 # ── Memory ─────────────────────────────────────────────────────────────────
 MEMORY_MAX_MESSAGES = int(os.getenv("MEMORY_MAX_MESSAGES", "20"))
 
 # ── Network and cache ──────────────────────────────────────────────────────
-REQUEST_TIMEOUT          = int(os.getenv("REQUEST_TIMEOUT", "120"))
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "120"))
 # Backward-compatible rename: prefer API_FIRST_TOKEN_TIMEOUT, fall back to legacy FIRST_TOKEN_TIMEOUT.
-API_FIRST_TOKEN_TIMEOUT  = int(os.getenv("API_FIRST_TOKEN_TIMEOUT", os.getenv("FIRST_TOKEN_TIMEOUT", "30")))
-STREAM_TIMEOUT           = int(os.getenv("STREAM_TIMEOUT", "300"))
+API_FIRST_TOKEN_TIMEOUT = int(
+    os.getenv("API_FIRST_TOKEN_TIMEOUT", os.getenv("FIRST_TOKEN_TIMEOUT", "30"))
+)
+STREAM_TIMEOUT = int(os.getenv("STREAM_TIMEOUT", "300"))
 
 RETRIEVAL_CACHE_TTL = int(os.getenv("RETRIEVAL_CACHE_TTL", "3600"))
-RESPONSE_CACHE_TTL  = int(os.getenv("RESPONSE_CACHE_TTL",  "86400"))
-EMBED_CACHE_TTL     = int(os.getenv("EMBED_CACHE_TTL",     "86400"))
-MAX_CACHE_ENTRIES   = int(os.getenv("MAX_CACHE_ENTRIES",   "2048"))
+RESPONSE_CACHE_TTL = int(os.getenv("RESPONSE_CACHE_TTL", "86400"))
+EMBED_CACHE_TTL = int(os.getenv("EMBED_CACHE_TTL", "86400"))
+MAX_CACHE_ENTRIES = int(os.getenv("MAX_CACHE_ENTRIES", "2048"))
 
-SESSION_HEADER  = os.getenv("SESSION_HEADER", "X-Session-Id")
+SESSION_HEADER = os.getenv("SESSION_HEADER", "X-Session-Id")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
 
 # ── API Security ───────────────────────────────────────────────────────────
@@ -90,19 +94,19 @@ API_SECRET_KEY = os.getenv("API_SECRET_KEY", "")
 
 # ── Context char budgets ───────────────────────────────────────────────────
 MAX_CONTEXT_CHARS = {
-    "short":     int(os.getenv("MAX_CONTEXT_CHARS_SHORT",     "1000")),
+    "short": int(os.getenv("MAX_CONTEXT_CHARS_SHORT", "1000")),
     "elaborate": int(os.getenv("MAX_CONTEXT_CHARS_ELABORATE", "1800")),
-    "detail":    int(os.getenv("MAX_CONTEXT_CHARS_DETAIL",    "2800")),
+    "detail": int(os.getenv("MAX_CONTEXT_CHARS_DETAIL", "2800")),
 }
 MAX_CONTEXT_CHARS_DEFAULT = int(os.getenv("MAX_CONTEXT_CHARS_DEFAULT", "1800"))
 
 # ── Token budgets for completion ───────────────────────────────────────────
 MAX_TOKENS_STYLE = {
-    "short":     int(os.getenv("MAX_TOKENS_SHORT",     "250")),
+    "short": int(os.getenv("MAX_TOKENS_SHORT", "250")),
     "elaborate": int(os.getenv("MAX_TOKENS_ELABORATE", "700")),
-    "detail":    int(os.getenv("MAX_TOKENS_DETAIL",    "1100")),
+    "detail": int(os.getenv("MAX_TOKENS_DETAIL", "1100")),
 }
-MAX_TOKENS_DEFAULT  = int(os.getenv("MAX_TOKENS_DEFAULT",  "600"))
+MAX_TOKENS_DEFAULT = int(os.getenv("MAX_TOKENS_DEFAULT", "600"))
 TOKEN_SAFETY_BUFFER = int(os.getenv("TOKEN_SAFETY_BUFFER", "100"))
 STYLE_MIN_WORDS = {
     "short": int(os.getenv("STYLE_MIN_WORDS_SHORT", "50")),
@@ -116,20 +120,64 @@ STYLE_MIN_WORDS = {
 
 # ── Negation signals used inside classify_intent ───────────────────────────
 _NEGATION_SIGNALS = (
-    "not", "no ", "can't", "cannot", "don't", "didn't", "failed",
-    "rejected", "disqualified", "ineligible", "without", "unable",
-    "if i don't", "if i fail", "even if", "despite",
-    "won't", "wouldn't", "couldn't", "shouldn't",
-    "over age", "overage", "under age", "underage",
-    "too old", "too young", "too short", "too light", "too heavy",
-    "someone who", "person who", "people who",
+    "not",
+    "no ",
+    "can't",
+    "cannot",
+    "don't",
+    "didn't",
+    "failed",
+    "rejected",
+    "disqualified",
+    "ineligible",
+    "without",
+    "unable",
+    "if i don't",
+    "if i fail",
+    "even if",
+    "despite",
+    "won't",
+    "wouldn't",
+    "couldn't",
+    "shouldn't",
+    "over age",
+    "overage",
+    "under age",
+    "underage",
+    "too old",
+    "too young",
+    "too short",
+    "too light",
+    "too heavy",
+    "someone who",
+    "person who",
+    "people who",
 )
 
 _NEGATION_DOMAIN_TERMS = (
-    "join", "apply", "eligible", "qualify", "pass", "medical",
-    "physical", "age", "height", "document", "certificate",
-    "salary", "training", "selection", "exam", "rally", "ncc",
-    "weight", "chest", "run", "beam", "agniveer", "agnipath",
+    "join",
+    "apply",
+    "eligible",
+    "qualify",
+    "pass",
+    "medical",
+    "physical",
+    "age",
+    "height",
+    "document",
+    "certificate",
+    "salary",
+    "training",
+    "selection",
+    "exam",
+    "rally",
+    "ncc",
+    "weight",
+    "chest",
+    "run",
+    "beam",
+    "agniveer",
+    "agnipath",
 )
 
 # ─── Fuzzy intent vocabulary ────────────────────────────────────────────────
@@ -203,107 +251,299 @@ def _fuzzy_normalize_query(query: str) -> str:
         corrected.append((canonical or word) + suffix)
     return " ".join(corrected)
 
+
 # ── Greetings — exact match ────────────────────────────────────────────────
 GREETING_PHRASES = {
-    "hi", "hello", "hey", "hii", "hiii", "heyy", "heya",
-    "hola", "howdy", "yo", "sup", "wassup", "whatsup",
-    "bye", "goodbye", "good bye", "see you", "see ya",
-    "take care", "good night", "goodnight", "good day",
-    "good morning", "good afternoon", "good evening",
-    "thanks", "thank you", "thank u", "thankyou",
-    "ty", "thx", "thanks a lot", "thank you so much",
-    "many thanks", "dhanyawad", "shukriya", "meherbani",
-    "ok", "okay", "ok thanks", "okay thanks", "alright",
-    "got it", "understood", "sure", "noted", "cool",
-    "great", "nice", "awesome", "wonderful", "amazing",
-    "fantastic", "excellent", "perfect", "good",
-    "well done", "good job", "nice work", "keep it up", "carry on",
-    "jay hind", "jai hind", "vande mataram",
-    "bharat mata ki jai", "jai bharat", "jai jawan",
-    "mera bharat mahan", "tiranga", "salute",
-    "jai mata di", "har har mahadev", "sat sri akal",
-    "jai jawan jai kisan", "jai kisan", "jai vigyan",
-    "hindustan zindabad", "bharat zindabad", "india zindabad",
-    "inquilab zindabad", "jai rajputana", "jai mahakal",
-    "waheguru ji ka khalsa", "bum bum bhole",
-    "bol bajrang bali ki jai", "durga mata ki jai",
-    "indian army zindabad", "army zindabad",
-    "namaste", "namaskar", "pranam", "namasté",
-    "jai shree ram", "jai shri ram", "ram ram", "jai siya ram",
-    "yes sir", "sir", "ma'am", "mam",
-    "attention", "at ease", "dismissed",
-    "roger", "roger that", "copy that", "wilco",
-    "over", "out", "fall in", "stand easy",
-    "you are helpful", "youre helpful", "you're great",
-    "you are great", "you are good", "youre good",
-    "nice bot", "good bot", "helpful bot", "great bot",
+    "hi",
+    "hello",
+    "hey",
+    "hii",
+    "hiii",
+    "heyy",
+    "heya",
+    "hola",
+    "howdy",
+    "yo",
+    "sup",
+    "wassup",
+    "whatsup",
+    "bye",
+    "goodbye",
+    "good bye",
+    "see you",
+    "see ya",
+    "take care",
+    "good night",
+    "goodnight",
+    "good day",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "thanks",
+    "thank you",
+    "thank u",
+    "thankyou",
+    "ty",
+    "thx",
+    "thanks a lot",
+    "thank you so much",
+    "many thanks",
+    "dhanyawad",
+    "shukriya",
+    "meherbani",
+    "ok",
+    "okay",
+    "ok thanks",
+    "okay thanks",
+    "alright",
+    "got it",
+    "understood",
+    "sure",
+    "noted",
+    "cool",
+    "great",
+    "nice",
+    "awesome",
+    "wonderful",
+    "amazing",
+    "fantastic",
+    "excellent",
+    "perfect",
+    "good",
+    "well done",
+    "good job",
+    "nice work",
+    "keep it up",
+    "carry on",
+    "jay hind",
+    "jai hind",
+    "vande mataram",
+    "bharat mata ki jai",
+    "jai bharat",
+    "jai jawan",
+    "mera bharat mahan",
+    "tiranga",
+    "salute",
+    "jai mata di",
+    "har har mahadev",
+    "sat sri akal",
+    "jai jawan jai kisan",
+    "jai kisan",
+    "jai vigyan",
+    "hindustan zindabad",
+    "bharat zindabad",
+    "india zindabad",
+    "inquilab zindabad",
+    "jai rajputana",
+    "jai mahakal",
+    "waheguru ji ka khalsa",
+    "bum bum bhole",
+    "bol bajrang bali ki jai",
+    "durga mata ki jai",
+    "indian army zindabad",
+    "army zindabad",
+    "namaste",
+    "namaskar",
+    "pranam",
+    "namasté",
+    "jai shree ram",
+    "jai shri ram",
+    "ram ram",
+    "jai siya ram",
+    "yes sir",
+    "sir",
+    "ma'am",
+    "mam",
+    "attention",
+    "at ease",
+    "dismissed",
+    "roger",
+    "roger that",
+    "copy that",
+    "wilco",
+    "over",
+    "out",
+    "fall in",
+    "stand easy",
+    "you are helpful",
+    "youre helpful",
+    "you're great",
+    "you are great",
+    "you are good",
+    "youre good",
+    "nice bot",
+    "good bot",
+    "helpful bot",
+    "great bot",
 }
 
 # ── Small talk — partial / substring match ─────────────────────────────────
 SMALL_TALK_PHRASES = (
-    "how are you", "how r you", "how are u", "how r u",
-    "how do you do", "how is it going", "how's it going",
-    "hows it going", "how are things", "how are you doing",
-    "are you okay", "you okay", "u okay",
-    "what's up", "whats up", "what is up",
-    "who are you", "what are you", "what is your name",
-    "whats your name", "what's your name", "your name",
-    "tell me about yourself", "introduce yourself",
-    "what do you do", "what can you do",
-    "what can you help", "what can you help me with",
-    "how can you help", "how can you help me",
+    "how are you",
+    "how r you",
+    "how are u",
+    "how r u",
+    "how do you do",
+    "how is it going",
+    "how's it going",
+    "hows it going",
+    "how are things",
+    "how are you doing",
+    "are you okay",
+    "you okay",
+    "u okay",
+    "what's up",
+    "whats up",
+    "what is up",
+    "who are you",
+    "what are you",
+    "what is your name",
+    "whats your name",
+    "what's your name",
+    "your name",
+    "tell me about yourself",
+    "introduce yourself",
+    "what do you do",
+    "what can you do",
+    "what can you help",
+    "what can you help me with",
+    "how can you help",
+    "how can you help me",
     "what are you capable of",
-    "are you a bot", "are you an ai", "are you human",
-    "are you real", "who made you", "who created you",
-    "who built you", "who developed you",
-    "are you chatgpt", "are you gpt",
-    "i am happy", "i am sad", "i feel good", "i feel bad",
-    "i am bored", "i am tired", "i am stressed", "i am confused",
-    "i need help", "help me", "please help", "help",
-    "nice to meet you", "nice to meet u",
-    "pleased to meet you", "great to meet you",
-    "good to meet you", "glad to meet you",
-    "you are amazing", "you are wonderful", "you are awesome",
-    "i like you", "i love you", "i love this",
-    "this is great", "this is helpful",
-    "very helpful", "so helpful", "great help", "big help",
-    "you there", "are you there", "you available",
-    "are you available", "are you online", "u there",
-    "hello there", "anyone there", "is anyone there",
-    "motivate me", "give me motivation", "i need motivation",
-    "inspire me", "give me inspiration", "encourage me", "cheer me up",
-    "have a good day", "have a nice day", "have a great day",
-    "have a wonderful day", "enjoy your day",
-    "take care of yourself", "stay safe", "stay healthy",
-    "all the best", "best of luck", "good luck",
-    "wish me luck", "fingers crossed",
+    "are you a bot",
+    "are you an ai",
+    "are you human",
+    "are you real",
+    "who made you",
+    "who created you",
+    "who built you",
+    "who developed you",
+    "are you chatgpt",
+    "are you gpt",
+    "i am happy",
+    "i am sad",
+    "i feel good",
+    "i feel bad",
+    "i am bored",
+    "i am tired",
+    "i am stressed",
+    "i am confused",
+    "i need help",
+    "help me",
+    "please help",
+    "help",
+    "nice to meet you",
+    "nice to meet u",
+    "pleased to meet you",
+    "great to meet you",
+    "good to meet you",
+    "glad to meet you",
+    "you are amazing",
+    "you are wonderful",
+    "you are awesome",
+    "i like you",
+    "i love you",
+    "i love this",
+    "this is great",
+    "this is helpful",
+    "very helpful",
+    "so helpful",
+    "great help",
+    "big help",
+    "you there",
+    "are you there",
+    "you available",
+    "are you available",
+    "are you online",
+    "u there",
+    "hello there",
+    "anyone there",
+    "is anyone there",
+    "motivate me",
+    "give me motivation",
+    "i need motivation",
+    "inspire me",
+    "give me inspiration",
+    "encourage me",
+    "cheer me up",
+    "have a good day",
+    "have a nice day",
+    "have a great day",
+    "have a wonderful day",
+    "enjoy your day",
+    "take care of yourself",
+    "stay safe",
+    "stay healthy",
+    "all the best",
+    "best of luck",
+    "good luck",
+    "wish me luck",
+    "fingers crossed",
 )
 
 # ── Patriotic / army pride — partial match ─────────────────────────────────
 PATRIOTIC_PHRASES = (
-    "jay hind", "jai hind", "vande mataram",
-    "bharat mata ki jai", "jai bharat",
-    "inquilab zindabad", "jai jawan jai kisan",
-    "jai jawan", "jai kisan", "jai vigyan",
-    "mera bharat mahan", "hindustan zindabad",
-    "bharat zindabad", "india zindabad",
-    "shaurya", "veerta", "parakram", "balidan",
-    "shaheed", "sainik", "sena", "fauj", "fauji",
-    "desh seva", "rashtra seva", "desh bhakti", "deshbhakti",
-    "watan", "tiranga", "tricolor", "national flag",
-    "republic day", "independence day", "army day",
-    "vijay diwas", "kargil vijay diwas",
-    "jai mata di", "durga mata ki jai", "har har mahadev",
-    "bum bum bhole", "sat sri akal", "waheguru ji ka khalsa",
-    "jai rajputana", "rajputana rifles", "jai mahakal",
+    "jay hind",
+    "jai hind",
+    "vande mataram",
+    "bharat mata ki jai",
+    "jai bharat",
+    "inquilab zindabad",
+    "jai jawan jai kisan",
+    "jai jawan",
+    "jai kisan",
+    "jai vigyan",
+    "mera bharat mahan",
+    "hindustan zindabad",
+    "bharat zindabad",
+    "india zindabad",
+    "shaurya",
+    "veerta",
+    "parakram",
+    "balidan",
+    "shaheed",
+    "sainik",
+    "sena",
+    "fauj",
+    "fauji",
+    "desh seva",
+    "rashtra seva",
+    "desh bhakti",
+    "deshbhakti",
+    "watan",
+    "tiranga",
+    "tricolor",
+    "national flag",
+    "republic day",
+    "independence day",
+    "army day",
+    "vijay diwas",
+    "kargil vijay diwas",
+    "jai mata di",
+    "durga mata ki jai",
+    "har har mahadev",
+    "bum bum bhole",
+    "sat sri akal",
+    "waheguru ji ka khalsa",
+    "jai rajputana",
+    "rajputana rifles",
+    "jai mahakal",
     "bol bajrang bali ki jai",
-    "indian army zindabad", "army zindabad",
-    "proud to be indian", "proud of indian army",
-    "salute to army", "salute to soldiers",
-    "respect the army", "army is great",
-    "soldiers are heroes", "our army is the best",
-    "indian army is best", "love indian army",
-    "support our troops", "army rocks", "army is life",
+    "indian army zindabad",
+    "army zindabad",
+    "proud to be indian",
+    "proud of indian army",
+    "salute to army",
+    "salute to soldiers",
+    "respect the army",
+    "army is great",
+    "soldiers are heroes",
+    "our army is the best",
+    "indian army is best",
+    "love indian army",
+    "support our troops",
+    "army rocks",
+    "army is life",
 )
 
 # ── Date/Time queries — hardcoded response ─────────────────────────────────
@@ -479,8 +719,7 @@ _WORD_BOUNDARY_RAG_TERMS = re.compile(
     # Academic / eligibility synonyms
     r"percentage|marks|aggregate|"
     # Document synonyms
-    r"document|certificate"
-    r")\b",
+    r"document|certificate" r")\b",
     re.IGNORECASE,
 )
 
@@ -836,25 +1075,61 @@ REASONING_SALARY_TERMS = (
 
 # ── Answer-style keywords ──────────────────────────────────────────────────
 STYLE_SHORT_KEYWORDS = [
-    "in short", "briefly", "brief", "quick answer", "short answer",
-    "summarise", "summarize", "tldr", "tl;dr", "in brief",
-    "give me short", "one line", "one-line", "give a short",
-    "keep it short", "summary", "summarise it", "quick summary",
+    "in short",
+    "briefly",
+    "brief",
+    "quick answer",
+    "short answer",
+    "summarise",
+    "summarize",
+    "tldr",
+    "tl;dr",
+    "in brief",
+    "give me short",
+    "one line",
+    "one-line",
+    "give a short",
+    "keep it short",
+    "summary",
+    "summarise it",
+    "quick summary",
 ]
 
 STYLE_DETAIL_KEYWORDS = [
-    "in detail", "detailed", "explain in detail", "full detail",
-    "comprehensive", "thoroughly", "exhaustive", "step by step",
-    "step-by-step", "explain fully", "tell me everything",
-    "give me detail", "elaborate in detail", "full explanation",
-    "complete explanation", "everything about", "all about",
-    "full breakdown", "break it down",
+    "in detail",
+    "detailed",
+    "explain in detail",
+    "full detail",
+    "comprehensive",
+    "thoroughly",
+    "exhaustive",
+    "step by step",
+    "step-by-step",
+    "explain fully",
+    "tell me everything",
+    "give me detail",
+    "elaborate in detail",
+    "full explanation",
+    "complete explanation",
+    "everything about",
+    "all about",
+    "full breakdown",
+    "break it down",
 ]
 
 STYLE_ELABORATE_KEYWORDS = [
-    "elaborate", "explain", "elaborate on", "tell me more",
-    "expand on", "describe", "give more", "more info",
-    "more detail", "walk me through", "how does", "how do",
+    "elaborate",
+    "explain",
+    "elaborate on",
+    "tell me more",
+    "expand on",
+    "describe",
+    "give more",
+    "more info",
+    "more detail",
+    "walk me through",
+    "how does",
+    "how do",
 ]
 
 
@@ -877,6 +1152,7 @@ def detect_answer_style(query: str) -> tuple[str, str]:
     if _style_kw_match(q, STYLE_ELABORATE_KEYWORDS):
         return "elaborate", "elaborate"
     return "elaborate", "elaborate"
+
 
 # ── Style output guidance ──────────────────────────────────────────────────
 STYLE_OUTPUT_GUIDANCE = {
@@ -912,9 +1188,9 @@ STYLE_OUTPUT_GUIDANCE = {
 }
 
 STYLE_POINT_TOKEN_BUDGET = {
-    "short":     int(os.getenv("STYLE_SHORT_POINT_TOKENS",     "0")),
+    "short": int(os.getenv("STYLE_SHORT_POINT_TOKENS", "0")),
     "elaborate": int(os.getenv("STYLE_ELABORATE_POINT_TOKENS", "80")),
-    "detail":    int(os.getenv("STYLE_DETAIL_POINT_TOKENS",    "150")),
+    "detail": int(os.getenv("STYLE_DETAIL_POINT_TOKENS", "150")),
 }
 
 # ── RAG system prompts ─────────────────────────────────────────────────────
@@ -963,7 +1239,7 @@ STRICT_RAG_PROMPT = (
     "Respond with exactly:\n"
     "\"I'm sorry, this information is not available in my reference. "
     "Please check joinindianarmy.nic.in or contact your nearest "
-    "Army Recruitment Office.\"\n\n"
+    'Army Recruitment Office."\n\n'
     "FORMAT:\n"
     "Do not repeat the question. Do not add filler phrases. "
     "Write in clear, complete paragraphs. "
@@ -979,20 +1255,17 @@ STRICT_RAG_PROMPT_COMPUTE = (
     "Use ONLY the provided reference. Do not use prior knowledge. "
     "Do not guess missing values. Do not extrapolate.\n\n"
     "HANDLING CONFLICTING SOURCES:\n"
-
     "If two retrieved chunks give different values for the same figure "
     "(for example, Year 3 in-hand salary is ₹25,550 in the official Army e-book "
     "and ₹25,580 in a 2026 lifecycle report), do NOT silently pick one. "
     "Report both, show which source says what, and note the discrepancy. "
     "Use the official Army e-book figure as primary but flag the conflict.\n\n"
-
     "COMPUTATION RULES:\n"
     "1. Before computing, identify every relevant row and figure in the reference.\n"
     "2. Only add, subtract, or multiply values explicitly present in the reference.\n"
     "3. Show your working transparently when summing across years or categories:\n"
     "   'Year 1: Rs X + Year 2: Rs Y + Year 3: Rs Z + Year 4: Rs W = Rs Total'\n"
     "   This lets the user verify your arithmetic.\n"
-
     "4. If the reference contains a numerical inconsistency "
     "   (Gross minus Deduction does not equal stated In-hand), "
     "   report it: 'Note: these figures do not balance — [show mismatch]. "
@@ -1019,10 +1292,10 @@ CONDITIONAL_RAG_PROMPT = (
     "reference fallback message."
 )
 
-SYSTEM_PROMPT_SHORT     = STRICT_RAG_PROMPT
+SYSTEM_PROMPT_SHORT = STRICT_RAG_PROMPT
 SYSTEM_PROMPT_ELABORATE = STRICT_RAG_PROMPT
-SYSTEM_PROMPT_DETAIL    = STRICT_RAG_PROMPT
-SYSTEM_PROMPT           = STRICT_RAG_PROMPT
+SYSTEM_PROMPT_DETAIL = STRICT_RAG_PROMPT
+SYSTEM_PROMPT = STRICT_RAG_PROMPT
 
 REFERENCE_FALLBACK = (
     "I'm sorry, this information is not available in my reference. "
@@ -1189,11 +1462,12 @@ CHAT_SYSTEM_PROMPT += (
 
 def style_structure_instruction(style: str) -> str:
     style_key = (style or "").strip().lower()
-    guidance  = STYLE_OUTPUT_GUIDANCE.get(style_key, STYLE_OUTPUT_GUIDANCE["elaborate"])
+    guidance = STYLE_OUTPUT_GUIDANCE.get(style_key, STYLE_OUTPUT_GUIDANCE["elaborate"])
     return f"{SOURCE_PRIORITY_PROMPT}\n\n{_PARAGRAPH_RULES}\n\n{guidance}"
 
 
 # ── Token estimation utilities ─────────────────────────────────────────────
+
 
 def estimate_text_tokens(text: str) -> int:
     text = (text or "").strip()
@@ -1251,7 +1525,7 @@ def _is_date_query(q: str) -> bool:
     """Return True for date/time queries that should get hardcoded current date/time."""
     for phrase in DATE_QUERY_PHRASES:
         # Use word boundaries to avoid matching phrases like "exam date"
-        if re.search(r'\b' + re.escape(phrase) + r'\b', q):
+        if re.search(r"\b" + re.escape(phrase) + r"\b", q):
             return True
     return False
 
@@ -1279,7 +1553,9 @@ def _is_process_rag(q: str) -> bool:
 
 def _is_domain_rag(q: str) -> bool:
     """Return True for domain-specific Agniveer questions."""
-    return any(term in q for term in DOMAIN_TERMS) or bool(_WORD_BOUNDARY_RAG_TERMS.search(q))
+    return any(term in q for term in DOMAIN_TERMS) or bool(
+        _WORD_BOUNDARY_RAG_TERMS.search(q)
+    )
 
 
 def _is_negated_domain_rag(q: str) -> bool:
@@ -1299,6 +1575,7 @@ def _is_reasoning_rag(q: str) -> bool:
 # =============================================================================
 # INTENT CLASSIFIER
 # =============================================================================
+
 
 def classify_intent(query: str) -> str:
     """

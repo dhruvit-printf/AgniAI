@@ -17,15 +17,15 @@ Fix 2: Monkey-patch torch._jit_internal._check_overload_body and _overload
 
 Fix 3: Patch torch._sources.parse_def to never raise on frozen source.
 """
-import sys
-import os
 
 # ── Fix 1: inspect patches ────────────────────────────────────────────────
 import inspect as _inspect
+import os
+import sys
 
-_orig_getsource       = _inspect.getsource
-_orig_getsourcelines  = _inspect.getsourcelines
-_orig_findsource      = _inspect.findsource
+_orig_getsource = _inspect.getsource
+_orig_getsourcelines = _inspect.getsourcelines
+_orig_findsource = _inspect.findsource
 
 
 def _safe_getsource(obj):
@@ -49,14 +49,15 @@ def _safe_findsource(obj):
         return ([], 0)
 
 
-_inspect.getsource      = _safe_getsource
+_inspect.getsource = _safe_getsource
 _inspect.getsourcelines = _safe_getsourcelines
-_inspect.findsource     = _safe_findsource
+_inspect.findsource = _safe_findsource
 
 
 # ── Fix 2: pre-patch torch._jit_internal before torch loads ──────────────
 # We install an import hook that intercepts torch._jit_internal at import
 # time and replaces the problematic functions with safe no-ops.
+
 
 class _TorchJitPatcher:
     """Import hook that patches torch._jit_internal immediately on import."""
@@ -78,6 +79,7 @@ class _TorchJitPatcher:
         sys.meta_path = [h for h in sys.meta_path if h is not self]
         try:
             import importlib
+
             mod = importlib.import_module(fullname)
         finally:
             # Re-insert ourselves at the front
@@ -85,6 +87,7 @@ class _TorchJitPatcher:
 
         # ── Patch torch._jit_internal ────────────────────────────────────
         if fullname == "torch._jit_internal":
+
             def _safe_check_overload_body(fn):
                 # Original raises RuntimeError when source can't be parsed.
                 # In a frozen bundle we just skip the check.
@@ -125,8 +128,8 @@ sys.meta_path.insert(0, _TorchJitPatcher())
 
 # ── Fix 3: environment variables that suppress torch JIT compilation ──────
 # These tell PyTorch not to attempt JIT compilation at import time.
-os.environ.setdefault("PYTORCH_JIT",           "0")
-os.environ.setdefault("TORCH_JIT_DISABLE",     "1")
+os.environ.setdefault("PYTORCH_JIT", "0")
+os.environ.setdefault("TORCH_JIT_DISABLE", "1")
 
 # Prevent torch.distributed from calling inspect.getsource at module level
 os.environ.setdefault("TORCH_DISTRIBUTED_DEBUG", "OFF")

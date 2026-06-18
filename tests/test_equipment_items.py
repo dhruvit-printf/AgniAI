@@ -7,12 +7,20 @@ Run with: pytest tests/test_equipment_items.py -v
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # ── Minimal stubs so admin_intent imports without a real Flask app ──────────
 import types
-for mod in ("flask", "flask_cors", "flask_limiter", "flask_limiter.util",
-            "dotenv", "requests"):
+
+for mod in (
+    "flask",
+    "flask_cors",
+    "flask_limiter",
+    "flask_limiter.util",
+    "dotenv",
+    "requests",
+):
     if mod not in sys.modules:
         sys.modules[mod] = types.ModuleType(mod)
 
@@ -29,17 +37,19 @@ from admin_intent import (
     _ITEM_LOOKUP,
 )
 
-
 # =============================================================================
 # Master-list sanity checks
 # =============================================================================
+
 
 def test_issued_items_count():
     assert len(ISSUED_ITEMS) == 46, f"Expected 46 issued items, got {len(ISSUED_ITEMS)}"
 
 
 def test_procured_items_count():
-    assert len(PROCURED_ITEMS) == 53, f"Expected 53 procured items, got {len(PROCURED_ITEMS)}"
+    assert (
+        len(PROCURED_ITEMS) == 53
+    ), f"Expected 53 procured items, got {len(PROCURED_ITEMS)}"
 
 
 def test_lookup_table_has_both_lists():
@@ -58,6 +68,7 @@ def test_lookup_table_has_both_lists():
 # =============================================================================
 # _extract_item_query — direct unit tests
 # =============================================================================
+
 
 def test_extract_exact_issued_item():
     name, cat = _extract_item_query("mug steel")
@@ -99,6 +110,7 @@ def test_extract_longer_key_wins():
 # =============================================================================
 # classify_admin_intent — end-to-end intent tests
 # =============================================================================
+
 
 def test_intent_issued_items_overview():
     r = classify_admin_intent("Show me all issued items")
@@ -174,6 +186,7 @@ def test_intent_kit_bag():
 # format_admin_payload — payload key tests
 # =============================================================================
 
+
 def test_payload_issued_items_keys():
     r = classify_admin_intent("Show all issued items")
     p = format_admin_payload(r)
@@ -205,6 +218,7 @@ def test_payload_no_item_name_for_general_query():
 # =============================================================================
 # Existing equipment intents still work after the change
 # =============================================================================
+
 
 def test_existing_equipment_summary_unchanged():
     r = classify_admin_intent("Give me an equipment summary")

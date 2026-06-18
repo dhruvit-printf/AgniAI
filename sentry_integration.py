@@ -41,16 +41,31 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 # ── Keys that must NEVER reach Sentry ────────────────────────────────────
-_SCRUB_KEYS = frozenset({
-    "api_key", "apikey", "x-api-key", "token", "secret", "password",
-    "prompt", "prompts", "queryplan", "dotnetpayload", "rawfragment",
-    "intentresult", "operations", "reasoning", "raw_response",
-    "rawpayload", "internalmetadata",
-})
+_SCRUB_KEYS = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "x-api-key",
+        "token",
+        "secret",
+        "password",
+        "prompt",
+        "prompts",
+        "queryplan",
+        "dotnetpayload",
+        "rawfragment",
+        "intentresult",
+        "operations",
+        "reasoning",
+        "raw_response",
+        "rawpayload",
+        "internalmetadata",
+    }
+)
 
 _SCRUB_VALUE_PATTERNS = (
-    "sk-",       # OpenAI-style keys
-    "Bearer ",   # Authorization headers
+    "sk-",  # OpenAI-style keys
+    "Bearer ",  # Authorization headers
 )
 
 _INITIALIZED = False
@@ -134,6 +149,7 @@ def init_sentry() -> bool:
 
     try:
         from feature_flags import flags
+
         if not flags.ENABLE_SENTRY:
             return False
     except ImportError:
@@ -158,8 +174,8 @@ def init_sentry() -> bool:
             integrations=[
                 FlaskIntegration(),
                 LoggingIntegration(
-                    level=logging.WARNING,       # Capture WARNING and above as breadcrumbs
-                    event_level=logging.ERROR,   # Send ERROR+ as Sentry events
+                    level=logging.WARNING,  # Capture WARNING and above as breadcrumbs
+                    event_level=logging.ERROR,  # Send ERROR+ as Sentry events
                 ),
             ],
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
@@ -186,6 +202,7 @@ def capture_exception(exc: Exception, *, trace_id: str = "N/A", **context) -> No
         return
     try:
         import sentry_sdk
+
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("trace_id", trace_id)
             for k, v in context.items():
@@ -201,6 +218,7 @@ def capture_message(message: str, level: str = "info", **context) -> None:
         return
     try:
         import sentry_sdk
+
         with sentry_sdk.push_scope() as scope:
             for k, v in context.items():
                 scope.set_extra(k, str(v))

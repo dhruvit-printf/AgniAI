@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import pickle
-import hashlib
 import re
+import threading
 import time
 import warnings
-import threading
-from difflib import SequenceMatcher
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
@@ -29,49 +29,22 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 
 _DOCSTORE_CACHE = None
 
-from config import (
-    ANSWER_GROUNDING_OVERLAP_THRESHOLD,
-    BM25_INDEX_PATH,
-    BM25_WEIGHT,
-    DEFAULT_MODEL,
-    DEDUP_SIMILARITY_THRESHOLD,
-    DENSE_WEIGHT,
-    DOCSTORE_PATH,
-    DOMAIN_BOOST_MAX,
-    EMBEDDING_DIM,
-    EMBEDDING_MODEL,
-    FAISS_INDEX_PATH,
-    FALLBACK_MODELS,
-    MIN_SCORE,
-    OLLAMA_TAGS_URL,
-    OLLAMA_URL,
-    REFERENCE_FALLBACK,
-    RERANKER_MODEL,
-    RERANK_TOP_K,
-    REQUEST_TIMEOUT,
-    STRICT_MIN_SCORE,
-    STRICT_RAG_PROMPT,
-    STRICT_RAG_PROMPT_COMPUTE,
-    STRICT_TOP_K,
-    SYSTEM_PROMPT,
-    TOP_K,
-    USE_HYBRID,
-    USE_RERANKER,
-    RETRIEVAL_CACHE_TTL,
-    RESPONSE_CACHE_TTL,
-    EMBED_CACHE_TTL,
-    MAX_CACHE_ENTRIES,
-    MAX_CONTEXT_CHARS,
-    MAX_CONTEXT_CHARS_DEFAULT,
-    MAX_TOKENS_DEFAULT,
-    MAX_TOKENS_STYLE,
-    HIGH_RETRIEVAL_CONFIDENCE,
-    LOW_RETRIEVAL_CONFIDENCE,
-    STYLE_POINT_TOKEN_BUDGET,
-    _fuzzy_normalize_query,
-    style_structure_instruction,
-    trim_to_complete_sentence,
-)
+from config import (ANSWER_GROUNDING_OVERLAP_THRESHOLD, BM25_INDEX_PATH,
+                    BM25_WEIGHT, DEDUP_SIMILARITY_THRESHOLD, DEFAULT_MODEL,
+                    DENSE_WEIGHT, DOCSTORE_PATH, DOMAIN_BOOST_MAX,
+                    EMBED_CACHE_TTL, EMBEDDING_DIM, EMBEDDING_MODEL,
+                    FAISS_INDEX_PATH, FALLBACK_MODELS,
+                    HIGH_RETRIEVAL_CONFIDENCE, LOW_RETRIEVAL_CONFIDENCE,
+                    MAX_CACHE_ENTRIES, MAX_CONTEXT_CHARS,
+                    MAX_CONTEXT_CHARS_DEFAULT, MAX_TOKENS_DEFAULT,
+                    MAX_TOKENS_STYLE, MIN_SCORE, OLLAMA_TAGS_URL, OLLAMA_URL,
+                    REFERENCE_FALLBACK, REQUEST_TIMEOUT, RERANK_TOP_K,
+                    RERANKER_MODEL, RESPONSE_CACHE_TTL, RETRIEVAL_CACHE_TTL,
+                    STRICT_MIN_SCORE, STRICT_RAG_PROMPT,
+                    STRICT_RAG_PROMPT_COMPUTE, STRICT_TOP_K,
+                    STYLE_POINT_TOKEN_BUDGET, SYSTEM_PROMPT, TOP_K, USE_HYBRID,
+                    USE_RERANKER, _fuzzy_normalize_query,
+                    style_structure_instruction, trim_to_complete_sentence)
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +66,11 @@ _DOCS: List[Dict[str, str]] = []
 _BM25 = None
 _INDEX_LOCK = threading.RLock()
 _QUERY_EMBED_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=EMBED_CACHE_TTL)
-_RETRIEVAL_CACHE   = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RETRIEVAL_CACHE_TTL)
-_RESPONSE_CACHE    = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RESPONSE_CACHE_TTL)
+_RETRIEVAL_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RETRIEVAL_CACHE_TTL)
+_RESPONSE_CACHE = TTLCache(maxsize=MAX_CACHE_ENTRIES, ttl=RESPONSE_CACHE_TTL)
 
 # Cache for BM25 score arrays keyed by query — avoids re-scoring full corpus
-_BM25_SCORE_CACHE  = TTLCache(maxsize=512, ttl=RETRIEVAL_CACHE_TTL)
+_BM25_SCORE_CACHE = TTLCache(maxsize=512, ttl=RETRIEVAL_CACHE_TTL)
 
 _MAX_STRUCTURED_POINTS = int(os.getenv("MAX_STRUCTURED_POINTS", "12"))
 _PRELOAD_THREAD: Optional[threading.Thread] = None
@@ -116,6 +89,7 @@ def _invalidate_bm25_score_cache() -> None:
     # Clear per-query BM25 scores immediately when corpus/BM25 readiness changes.
     _BM25_SCORE_CACHE.clear()
 
+
 _STEP_TEMPLATE = [
     "Registration & Preparation",
     "Online CEE (Written Exam)",
@@ -133,105 +107,158 @@ _STEP_PATTERNS = [
     (
         "Registration & Preparation",
         [
-            r"\bpreparation\b", r"\bregistration\b",
-            r"\bapply\b", r"\bapplication\b",
-            r"\bpre[- ]?rally\b", r"\bbefore rally\b",
-            r"\beligibility\b", r"\bdomicile\b",
-            r"\badmit card\b", r"\bhow to apply\b",
+            r"\bpreparation\b",
+            r"\bregistration\b",
+            r"\bapply\b",
+            r"\bapplication\b",
+            r"\bpre[- ]?rally\b",
+            r"\bbefore rally\b",
+            r"\beligibility\b",
+            r"\bdomicile\b",
+            r"\badmit card\b",
+            r"\bhow to apply\b",
             r"\bonline registration\b",
         ],
     ),
     (
         "Online CEE (Written Exam)",
         [
-            r"\bcee\b", r"\bcommon entrance exam\b",
-            r"\bonline exam\b", r"\bwritten exam\b",
-            r"\bcomputer[- ]based\b", r"\bcbt\b",
-            r"\bonline entrance\b", r"\bexamination\b",
+            r"\bcee\b",
+            r"\bcommon entrance exam\b",
+            r"\bonline exam\b",
+            r"\bwritten exam\b",
+            r"\bcomputer[- ]based\b",
+            r"\bcbt\b",
+            r"\bonline entrance\b",
+            r"\bexamination\b",
         ],
     ),
     (
         "Rally & Physical Fitness Test",
         [
-            r"\brally\b", r"\bphysical test\b",
-            r"\bphysical fitness test\b", r"\bpft\b",
-            r"\bfitness test\b", r"\b1\.6 km\b",
-            r"\brun\b", r"\bmeasurement\b",
-            r"\bheight\b", r"\bchest\b", r"\bweight\b",
-            r"\bbeam\b", r"\b9 feet\b",
+            r"\brally\b",
+            r"\bphysical test\b",
+            r"\bphysical fitness test\b",
+            r"\bpft\b",
+            r"\bfitness test\b",
+            r"\b1\.6 km\b",
+            r"\brun\b",
+            r"\bmeasurement\b",
+            r"\bheight\b",
+            r"\bchest\b",
+            r"\bweight\b",
+            r"\bbeam\b",
+            r"\b9 feet\b",
         ],
     ),
     (
         "Medical Examination",
         [
-            r"\bmedical examination\b", r"\bmedical test\b",
-            r"\bmedical\b", r"\bdoctor\b",
-            r"\bhospital\b", r"\bfitness certificate\b",
-            r"\bmedical standard\b", r"\beyesight\b",
-            r"\bhearing\b", r"\bchest x[- ]?ray\b",
+            r"\bmedical examination\b",
+            r"\bmedical test\b",
+            r"\bmedical\b",
+            r"\bdoctor\b",
+            r"\bhospital\b",
+            r"\bfitness certificate\b",
+            r"\bmedical standard\b",
+            r"\beyesight\b",
+            r"\bhearing\b",
+            r"\bchest x[- ]?ray\b",
         ],
     ),
     (
         "Document Verification",
         [
-            r"\bdocument\b", r"\bverification\b",
-            r"\bdomicile\b", r"\baadhaar\b",
-            r"\bcertificate\b", r"\bmatric\b",
-            r"\bclass 10\b", r"\bmarksheet\b",
-            r"\bcaste\b", r"\bcharacter certificate\b",
+            r"\bdocument\b",
+            r"\bverification\b",
+            r"\bdomicile\b",
+            r"\baadhaar\b",
+            r"\bcertificate\b",
+            r"\bmatric\b",
+            r"\bclass 10\b",
+            r"\bmarksheet\b",
+            r"\bcaste\b",
+            r"\bcharacter certificate\b",
         ],
     ),
     (
         "Final Merit & Selection",
         [
-            r"\bfinal selection\b", r"\bselection list\b",
-            r"\bmerit\b", r"\bmerit list\b",
-            r"\bresult\b", r"\bdispatch\b",
-            r"\bjoining\b", r"\bappointment\b",
-            r"\boffer letter\b", r"\bselected\b",
+            r"\bfinal selection\b",
+            r"\bselection list\b",
+            r"\bmerit\b",
+            r"\bmerit list\b",
+            r"\bresult\b",
+            r"\bdispatch\b",
+            r"\bjoining\b",
+            r"\bappointment\b",
+            r"\boffer letter\b",
+            r"\bselected\b",
         ],
     ),
     (
         "Reporting to Training Centre",
         [
-            r"\breporting\b", r"\breport\b",
-            r"\btraining centre\b", r"\btraining center\b",
-            r"\bjoin training\b", r"\bregimental centre\b",
-            r"\binduction\b", r"\borientation\b",
-            r"\bwhen to report\b", r"\bwhere to report\b",
+            r"\breporting\b",
+            r"\breport\b",
+            r"\btraining centre\b",
+            r"\btraining center\b",
+            r"\bjoin training\b",
+            r"\bregimental centre\b",
+            r"\binduction\b",
+            r"\borientation\b",
+            r"\bwhen to report\b",
+            r"\bwhere to report\b",
         ],
     ),
     (
         "Basic Military Training",
         [
-            r"\bbasic training\b", r"\bmilitary training\b",
-            r"\bbasic military\b", r"\bweeks of training\b",
-            r"\bmonths of training\b", r"\bdrill\b",
-            r"\bweapon training\b", r"\bfiring\b",
-            r"\bfieldcraft\b", r"\bfield craft\b",
-            r"\bmap reading\b", r"\bphysical conditioning\b",
-            r"\bcombat\b", r"\bdiscipline\b",
+            r"\bbasic training\b",
+            r"\bmilitary training\b",
+            r"\bbasic military\b",
+            r"\bweeks of training\b",
+            r"\bmonths of training\b",
+            r"\bdrill\b",
+            r"\bweapon training\b",
+            r"\bfiring\b",
+            r"\bfieldcraft\b",
+            r"\bfield craft\b",
+            r"\bmap reading\b",
+            r"\bphysical conditioning\b",
+            r"\bcombat\b",
+            r"\bdiscipline\b",
         ],
     ),
     (
         "Regimental Training",
         [
-            r"\bregimental training\b", r"\bregiment\b",
-            r"\bbattalion\b", r"\bunit training\b",
-            r"\bspecialisation\b", r"\bspecialization\b",
-            r"\barms training\b", r"\badvanced training\b",
+            r"\bregimental training\b",
+            r"\bregiment\b",
+            r"\bbattalion\b",
+            r"\bunit training\b",
+            r"\bspecialisation\b",
+            r"\bspecialization\b",
+            r"\barms training\b",
+            r"\badvanced training\b",
             r"\bposted to unit\b",
         ],
     ),
     (
         "Pass Out & Deployment",
         [
-            r"\bpass out\b", r"\bpassout\b",
-            r"\bgraduation\b", r"\bcompletion\b",
-            r"\bdeployment\b", r"\bposting\b",
-            r"\bposted\b", r"\ballotment\b",
-            r"\bunit posting\b", r"\bafter training\b",
-            r"\bwhere posted\b", r"\bdeployed\b",
+            r"\bpass out\b",
+            r"\bpassout\b",
+            r"\bgraduation\b",
+            r"\bcompletion\b",
+            r"\bdeployment\b",
+            r"\bposting\b",
+            r"\bposted\b",
+            r"\ballotment\b",
+            r"\bunit posting\b",
+            r"\bafter training\b",
+            r"\bwhere posted\b",
+            r"\bdeployed\b",
         ],
     ),
 ]
@@ -239,9 +266,26 @@ _STEP_PATTERNS = [
 _STEP_ORDER = {label: idx for idx, label in enumerate(_STEP_TEMPLATE)}
 
 _STEP_GENERIC_NOISE = {
-    "army", "result", "results", "test", "tests", "part", "chapter", "section",
-    "annexure", "appendix", "schedule", "table", "figure", "contents",
-    "introduction", "overview", "detail", "details", "important", "general",
+    "army",
+    "result",
+    "results",
+    "test",
+    "tests",
+    "part",
+    "chapter",
+    "section",
+    "annexure",
+    "appendix",
+    "schedule",
+    "table",
+    "figure",
+    "contents",
+    "introduction",
+    "overview",
+    "detail",
+    "details",
+    "important",
+    "general",
 }
 _STEP_SECTION_NOISE = (
     r"^part[-\s]*[ivxlcdm0-9]+$",
@@ -397,7 +441,9 @@ def _repair_docstore_from_lines(raw: str) -> List[Dict[str, str]]:
     try:
         json.dumps(docs)
     except (TypeError, ValueError):
-        logger.warning("Docstore line repair produced invalid JSON-serialisable data; falling back to empty docstore.")
+        logger.warning(
+            "Docstore line repair produced invalid JSON-serialisable data; falling back to empty docstore."
+        )
         docs = []
     return _normalise_docstore_docs(docs)
 
@@ -412,12 +458,61 @@ def _tokenize(text: str) -> List[str]:
 
 def _meaningful_tokens(text: str) -> List[str]:
     stopwords = {
-        "a", "an", "and", "are", "be", "by", "for", "from", "how", "i", "in",
-        "is", "it", "me", "my", "of", "on", "or", "please", "show", "tell",
-        "the", "to", "what", "when", "where", "which", "who", "why", "with",
-        "you", "your", "can", "could", "would", "should", "do", "does", "did",
-        "this", "that", "these", "those", "as", "at", "was", "were", "will",
-        "just", "about", "into", "over", "under", "up", "down",
+        "a",
+        "an",
+        "and",
+        "are",
+        "be",
+        "by",
+        "for",
+        "from",
+        "how",
+        "i",
+        "in",
+        "is",
+        "it",
+        "me",
+        "my",
+        "of",
+        "on",
+        "or",
+        "please",
+        "show",
+        "tell",
+        "the",
+        "to",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "with",
+        "you",
+        "your",
+        "can",
+        "could",
+        "would",
+        "should",
+        "do",
+        "does",
+        "did",
+        "this",
+        "that",
+        "these",
+        "those",
+        "as",
+        "at",
+        "was",
+        "were",
+        "will",
+        "just",
+        "about",
+        "into",
+        "over",
+        "under",
+        "up",
+        "down",
     }
     return [t for t in _tokenize(text) if t not in stopwords and len(t) > 1]
 
@@ -451,7 +546,10 @@ def _dedupe_docs(
         h = hashlib.md5(text.encode()).hexdigest()
         if h in seen_hashes:
             continue
-        if any(_chunk_similarity(text, d.get("text", "")) >= similarity_threshold for d in deduped):
+        if any(
+            _chunk_similarity(text, d.get("text", "")) >= similarity_threshold
+            for d in deduped
+        ):
             continue
         seen_hashes.add(h)
         deduped.append(doc)
@@ -479,7 +577,7 @@ def _split_section_candidates(text: str) -> List[str]:
                 sections.append(" ".join(current).strip())
                 current = []
             continue
-        bullet_like  = bool(re.match(r"^(\d+[\).\:-]|\-|\*|•)\s+", line))
+        bullet_like = bool(re.match(r"^(\d+[\).\:-]|\-|\*|•)\s+", line))
         heading_like = _looks_like_heading(line)
         if heading_like and current:
             sections.append(" ".join(current).strip())
@@ -534,7 +632,11 @@ def _is_noise_step_text(text: str) -> bool:
     alpha_words = [w for w in words if re.search(r"[a-z\u0900-\u097f]", w)]
     if not alpha_words:
         return True
-    if candidate.isupper() and len(words) <= 4 and _canonical_step_label(candidate) is None:
+    if (
+        candidate.isupper()
+        and len(words) <= 4
+        and _canonical_step_label(candidate) is None
+    ):
         return True
     return False
 
@@ -568,7 +670,9 @@ def _canonical_step_label(text: str, context: str = "") -> Optional[str]:
     if not haystack.strip():
         return None
     for label, patterns in _STEP_PATTERNS:
-        if any(re.search(pattern, haystack, flags=re.IGNORECASE) for pattern in patterns):
+        if any(
+            re.search(pattern, haystack, flags=re.IGNORECASE) for pattern in patterns
+        ):
             return label
     return None
 
@@ -582,7 +686,10 @@ def _step_support_snippet(text: str, label: str) -> str:
     hits = []
     for sentence in sentences:
         lowered = sentence.lower()
-        if any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in label_patterns):
+        if any(
+            re.search(pattern, lowered, flags=re.IGNORECASE)
+            for pattern in label_patterns
+        ):
             cleaned = sentence.strip()
             if cleaned:
                 hits.append(cleaned)
@@ -629,41 +736,44 @@ def _structured_step_template(
     points: List[Dict[str, str]] = []
     for label in _STEP_TEMPLATE:
         support = ""
-        source  = ""
+        source = ""
         if docs:
-            for doc in sorted(docs, key=lambda d: float(d.get("score", 0.0)), reverse=True):
+            for doc in sorted(
+                docs, key=lambda d: float(d.get("score", 0.0)), reverse=True
+            ):
                 text = (doc.get("text") or "").strip()
                 if not text:
                     continue
                 snippet = _step_support_snippet(text, label)
                 if snippet:
                     support = snippet
-                    source  = doc.get("source", "")
+                    source = doc.get("source", "")
                     break
-        points.append({
-            "title":   label,
-            "support": support,
-            "raw":     support or label,
-            "source":  source,
-            "score":   "0.0",
-        })
+        points.append(
+            {
+                "title": label,
+                "support": support,
+                "raw": support or label,
+                "source": source,
+                "score": "0.0",
+            }
+        )
     return points
 
 
 def _order_structured_points(points: Iterable[Dict[str, str]]) -> List[Dict[str, str]]:
     buckets: Dict[str, Dict[str, str]] = {}
     for point in points:
-        title = (
-            _canonical_step_label(point.get("title", ""), point.get("support", ""))
-            or _canonical_step_label(point.get("raw", ""))
-        )
+        title = _canonical_step_label(
+            point.get("title", ""), point.get("support", "")
+        ) or _canonical_step_label(point.get("raw", ""))
         if not title:
             continue
-        cleaned_title      = title
-        candidate_support  = (point.get("support") or "").strip()
-        candidate_raw      = (point.get("raw")     or "").strip()
-        candidate_source   = (point.get("source")  or "").strip()
-        candidate_score    = float(point.get("score", 0.0))
+        cleaned_title = title
+        candidate_support = (point.get("support") or "").strip()
+        candidate_raw = (point.get("raw") or "").strip()
+        candidate_source = (point.get("source") or "").strip()
+        candidate_score = float(point.get("score", 0.0))
         if cleaned_title in buckets:
             buckets[cleaned_title] = _merge_step_point(
                 buckets[cleaned_title],
@@ -674,11 +784,11 @@ def _order_structured_points(points: Iterable[Dict[str, str]]) -> List[Dict[str,
             )
         else:
             buckets[cleaned_title] = {
-                "title":   cleaned_title,
+                "title": cleaned_title,
                 "support": candidate_support,
-                "raw":     candidate_raw,
-                "source":  candidate_source,
-                "score":   str(candidate_score),
+                "raw": candidate_raw,
+                "source": candidate_source,
+                "score": str(candidate_score),
             }
     ordered = [buckets[label] for label in _STEP_TEMPLATE if label in buckets]
     return ordered[: len(_STEP_TEMPLATE)]
@@ -721,10 +831,10 @@ def _infer_support_text(section: str, title: str) -> str:
     if not section:
         return ""
     if title:
-        title_norm   = _normalise_text(title)
+        title_norm = _normalise_text(title)
         section_norm = _normalise_text(section)
         if section_norm.startswith(title_norm):
-            section = section[len(title):].lstrip(" :-—\n\t")
+            section = section[len(title) :].lstrip(" :-—\n\t")
         else:
             section = re.sub(
                 re.escape(title), "", section, count=1, flags=re.IGNORECASE
@@ -741,7 +851,7 @@ def _section_to_point(section: str) -> Optional[Dict[str, str]]:
     section = (section or "").strip()
     if not section:
         return None
-    lines      = [line.strip() for line in section.splitlines() if line.strip()]
+    lines = [line.strip() for line in section.splitlines() if line.strip()]
     first_line = lines[0] if lines else section
     if _is_noise_step_text(first_line):
         return None
@@ -767,11 +877,13 @@ def _dedupe_points(points: Iterable[Dict[str, str]]) -> List[Dict[str, str]]:
         if not key or key in seen:
             continue
         seen.add(key)
-        deduped.append({
-            "title":   title,
-            "support": (point.get("support") or "").strip(),
-            "raw":     (point.get("raw")     or "").strip(),
-        })
+        deduped.append(
+            {
+                "title": title,
+                "support": (point.get("support") or "").strip(),
+                "raw": (point.get("raw") or "").strip(),
+            }
+        )
     return deduped
 
 
@@ -786,16 +898,26 @@ def extract_key_points(
     max_points: int = _MAX_STRUCTURED_POINTS,
 ) -> List[Dict[str, str]]:
     _PROCESS_KEYWORDS = (
-        "process", "step", "procedure", "how to join", "recruitment process",
-        "selection process", "how do i apply", "how to apply",
+        "process",
+        "step",
+        "procedure",
+        "how to join",
+        "recruitment process",
+        "selection process",
+        "how do i apply",
+        "how to apply",
     )
-    _query_lower      = (query or "").lower()
+    _query_lower = (query or "").lower()
     _is_process_query = any(kw in _query_lower for kw in _PROCESS_KEYWORDS)
 
     if not docs:
-        return _structured_step_template(query=query, docs=docs) if _is_process_query else []
+        return (
+            _structured_step_template(query=query, docs=docs)
+            if _is_process_query
+            else []
+        )
 
-    ordered    = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
+    ordered = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
     candidates: List[Dict[str, str]] = []
     for doc in ordered:
         text = (doc.get("text") or "").strip()
@@ -808,14 +930,14 @@ def extract_key_points(
             point = _section_to_point(section)
             if not point:
                 continue
-            point["score"]  = str(float(doc.get("score", 0.0)))
+            point["score"] = str(float(doc.get("score", 0.0)))
             point["source"] = doc.get("source", "")
             candidates.append(point)
 
     deduped = _order_structured_points(_dedupe_points(candidates))
 
     if len(deduped) < 3:
-        fallback         = _fallback_points_from_docs(ordered)
+        fallback = _fallback_points_from_docs(ordered)
         fallback_ordered = _order_structured_points(fallback)
         if len(fallback_ordered) > len(deduped):
             deduped = fallback_ordered
@@ -835,7 +957,9 @@ def extract_key_points(
 
 def _style_point_token_budget(style: str) -> int:
     style_key = (style or "").strip().lower()
-    return int(STYLE_POINT_TOKEN_BUDGET.get(style_key, STYLE_POINT_TOKEN_BUDGET["elaborate"]))
+    return int(
+        STYLE_POINT_TOKEN_BUDGET.get(style_key, STYLE_POINT_TOKEN_BUDGET["elaborate"])
+    )
 
 
 def _limit_sentence_count(text: str, max_sentences: int) -> str:
@@ -880,9 +1004,9 @@ def _clean_generated_explanation(text: str, title: str) -> str:
     text = text.strip("*_` ")
     text = _strip_leading_marker(text)
     title_norm = _normalise_text(title)
-    text_norm  = _normalise_text(text)
+    text_norm = _normalise_text(text)
     if title_norm and text_norm.startswith(title_norm):
-        text = text[len(title):].lstrip(" :-—\n\t")
+        text = text[len(title) :].lstrip(" :-—\n\t")
     return text.strip()
 
 
@@ -921,11 +1045,11 @@ def _build_point_messages(
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_content}]
     if history:
         for msg in history:
-            role    = msg.get("role")
+            role = msg.get("role")
             content = (msg.get("content") or "").strip()
             if role in {"user", "assistant"} and content:
                 messages.append({"role": role, "content": content})
-    support      = (point.get("support") or point.get("raw") or "").strip()
+    support = (point.get("support") or point.get("raw") or "").strip()
     user_content = (
         f"Question: {query}\n"
         f"Point title: {point.get('title', '').strip()}\n"
@@ -955,12 +1079,18 @@ def _generate_point_explanation(
         return ""
     try:
         messages = _build_point_messages(
-            query=query, point=point, style=style,
-            reasoning=reasoning, history=history,
+            query=query,
+            point=point,
+            style=style,
+            reasoning=reasoning,
+            history=history,
         )
         from ollama_cpu_chat import chat_with_fallback
+
         response = chat_with_fallback(
-            session, model, messages,
+            session,
+            model,
+            messages,
             stream_tokens=False,
             max_tokens_override=_style_point_token_budget(style),
         )
@@ -983,11 +1113,13 @@ def format_structured_answer(points, explanations, style: str) -> str:
         explanation = ""
         if idx - 1 < len(explanations):
             explanation = _shape_explanation(
-                _clean_generated_explanation(explanations[idx - 1], title), style,
+                _clean_generated_explanation(explanations[idx - 1], title),
+                style,
             )
         if not explanation:
             explanation = _shape_explanation(
-                point.get("support") or point.get("raw") or "", style,
+                point.get("support") or point.get("raw") or "",
+                style,
             )
         if explanation:
             lines.append(f"   {explanation}")
@@ -1044,7 +1176,7 @@ def generate_structured_answer(
 
     if history:
         for msg in history[-6:]:
-            role    = msg.get("role")
+            role = msg.get("role")
             content = (msg.get("content") or "").strip()
             if role in {"user", "assistant"} and content:
                 messages.append({"role": role, "content": content})
@@ -1061,8 +1193,11 @@ def generate_structured_answer(
 
     try:
         from ollama_cpu_chat import chat_with_fallback
+
         result = chat_with_fallback(
-            session, model, messages,
+            session,
+            model,
+            messages,
             stream_tokens=False,
             max_tokens_override=token_budget,
         )
@@ -1075,10 +1210,10 @@ def generate_structured_answer(
         answer = REFERENCE_FALLBACK
 
     return {
-        "answer":                answer,
-        "points":                [],
-        "explanations":          [],
-        "structured":            bool(answer and answer != REFERENCE_FALLBACK),
+        "answer": answer,
+        "points": [],
+        "explanations": [],
+        "structured": bool(answer and answer != REFERENCE_FALLBACK),
         "token_budget_per_point": token_budget,
     }
 
@@ -1086,26 +1221,49 @@ def generate_structured_answer(
 def _normalize_query_for_retrieval(query: str) -> str:
     cleaned = query.lower()
     filler_phrases = (
-        "in short", "briefly", "brief", "quick answer", "short answer",
-        "summarise", "summarize", "tldr", "tl;dr", "in brief",
-        "give me short", "one line", "one-line",
-        "give a short", "keep it short", "in detail", "detailed",
-        "explain in detail", "full detail", "comprehensive", "exhaustive",
-        "step by step", "step-by-step", "explain fully", "tell me everything",
-        "give me detail", "elaborate in detail", "full explanation",
-        "full breakdown", "break it down", "please", "can you", "could you",
+        "in short",
+        "briefly",
+        "brief",
+        "quick answer",
+        "short answer",
+        "summarise",
+        "summarize",
+        "tldr",
+        "tl;dr",
+        "in brief",
+        "give me short",
+        "one line",
+        "one-line",
+        "give a short",
+        "keep it short",
+        "in detail",
+        "detailed",
+        "explain in detail",
+        "full detail",
+        "comprehensive",
+        "exhaustive",
+        "step by step",
+        "step-by-step",
+        "explain fully",
+        "tell me everything",
+        "give me detail",
+        "elaborate in detail",
+        "full explanation",
+        "full breakdown",
+        "break it down",
+        "please",
+        "can you",
+        "could you",
     )
     for phrase in sorted(filler_phrases, key=len, reverse=True):
-        cleaned = re.sub(
-            rf"\b{re.escape(phrase)}\b", " ", cleaned, flags=re.IGNORECASE
-        )
- 
+        cleaned = re.sub(rf"\b{re.escape(phrase)}\b", " ", cleaned, flags=re.IGNORECASE)
+
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,!?:;")
- 
+
     # If stripping filler left almost nothing, fall back to original query
     if len(cleaned.split()) < 3:
         cleaned = query.strip().lower()
- 
+
     # FIX: Strip negation words AFTER the short-query fallback (not inside it).
     # Negation words help classify intent but hurt vector retrieval because
     # "don't", "failed", "without" pull embeddings away from relevant docs.
@@ -1117,11 +1275,11 @@ def _normalize_query_for_retrieval(query: str) -> str:
     )
     cleaned = negation_strip.sub(" ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
- 
+
     # Guard: if negation stripping emptied the query, restore original
     if len(cleaned.split()) < 2:
         cleaned = query.strip().lower()
- 
+
     # FIX: More-specific expansions come BEFORE broader ones.
     # medical/physical must precede the broad "eligibility / can i" expansion —
     # otherwise "can i ... medical" matches the eligibility pattern first.
@@ -1138,20 +1296,29 @@ def _normalize_query_for_retrieval(query: str) -> str:
             "customised package in hand seva nidhi monthly",
         ),
         # ── Medical (before eligibility) ───────────────────────────────────
-        (r"\bmedical\b",
-         "medical examination army medical standards"),
+        (r"\bmedical\b", "medical examination army medical standards"),
         # ── Physical / fitness ────────────────────────────────────────────
-        (r"\bphysical test\b|\bpft\b|\bfitness\b|\b1\.6 km\b|\brun\b|\bbeam\b",
-         "physical fitness test pft 1.6 km run"),
+        (
+            r"\bphysical test\b|\bpft\b|\bfitness\b|\b1\.6 km\b|\brun\b|\bbeam\b",
+            "physical fitness test pft 1.6 km run",
+        ),
         # ── Age / eligibility ─────────────────────────────────────────────
-        (r"\b\d{1,2}\s*(?:years?|yrs?)\b|\b\d{1,2}\s*(?:months?|mos?)\b|\b17\s*(?:½|1/2|\.5)\b",
-         "minimum age criteria eligibility 17 1/2 22 yrs"),
-        (r"\bmarried\b|\bunmarried\b|\bmarital\b|\bmarriage\b|\bspouse\b|\bwife\b|\bhusband\b",
-         "only unmarried candidates enroll remain unmarried engagement marriage during service release"),
-        (r"\bage limit\b|\bage\b|\bhow old\b|\bover.?age\b|\bunder.?age\b|\bmaximum age\b|\bminimum age\b",
-         "required age eligibility"),
-        (r"eligibilit|\bam i eligible\b|\bqualif|\bwho can\b",
-         "eligibility criteria required age qualification"),
+        (
+            r"\b\d{1,2}\s*(?:years?|yrs?)\b|\b\d{1,2}\s*(?:months?|mos?)\b|\b17\s*(?:½|1/2|\.5)\b",
+            "minimum age criteria eligibility 17 1/2 22 yrs",
+        ),
+        (
+            r"\bmarried\b|\bunmarried\b|\bmarital\b|\bmarriage\b|\bspouse\b|\bwife\b|\bhusband\b",
+            "only unmarried candidates enroll remain unmarried engagement marriage during service release",
+        ),
+        (
+            r"\bage limit\b|\bage\b|\bhow old\b|\bover.?age\b|\bunder.?age\b|\bmaximum age\b|\bminimum age\b",
+            "required age eligibility",
+        ),
+        (
+            r"eligibilit|\bam i eligible\b|\bqualif|\bwho can\b",
+            "eligibility criteria required age qualification",
+        ),
         (
             r"\bnotification\b|\btimeline\b|\bschedule\b"
             r"|\blast date\b|\bvacancy\b|\bvacancies\b"
@@ -1162,21 +1329,28 @@ def _normalize_query_for_retrieval(query: str) -> str:
         ),
         # ── Selection / joining ───────────────────────────────────────────
         # NOTE: "can i join" removed — after negation strip it matches too broadly
-        (r"selection process|how.*select|recruitment process|how.*join|steps? to join|joining process",
-         "registration rally medical merit physical fitness"),
-        (r"how.*appl|apply|register|registration",
-         "registration application"),
+        (
+            r"selection process|how.*select|recruitment process|how.*join|steps? to join|joining process",
+            "registration rally medical merit physical fitness",
+        ),
+        (r"how.*appl|apply|register|registration", "registration application"),
         # ── Documents ─────────────────────────────────────────────────────
-        (r"documents?\b|\bcertificates?\b|\baadhaar\b|\bdomicile\b|\bmarksheet\b",
-         "documents required matric aadhaar domicile"),
+        (
+            r"documents?\b|\bcertificates?\b|\baadhaar\b|\bdomicile\b|\bmarksheet\b",
+            "documents required matric aadhaar domicile",
+        ),
         # ── Benefits ──────────────────────────────────────────────────────
-        (r"\bbonus mark",              "bonus marks ncc sports"),
-        (r"\binsurance\b",             "life insurance cover 48 lakhs"),
-        (r"\bseva nidhi\b|\bfund\b|\bcorpus\b|\bafter 4 year\b|\bexit\b",
-         "seva nidhi corpus fund exit after 4 year lakh"),
+        (r"\bbonus mark", "bonus marks ncc sports"),
+        (r"\binsurance\b", "life insurance cover 48 lakhs"),
+        (
+            r"\bseva nidhi\b|\bfund\b|\bcorpus\b|\bafter 4 year\b|\bexit\b",
+            "seva nidhi corpus fund exit after 4 year lakh",
+        ),
         # ── Training ──────────────────────────────────────────────────────
-        (r"\btraining\b|\bhow long.*train\b|\btraining.*duration\b",
-         "military training regimental centre"),
+        (
+            r"\btraining\b|\bhow long.*train\b|\btraining.*duration\b",
+            "military training regimental centre",
+        ),
         (
             r"\bheight\b|\bweight\b|\bchest\b",
             "height weight chest physical measurement standards",
@@ -1188,18 +1362,16 @@ def _normalize_query_for_retrieval(query: str) -> str:
             break
     return re.sub(r"\s+", " ", cleaned).strip() or query.strip()
 
+
 def _rewrite_query_candidates(query: str) -> List[str]:
     q = query.strip().lower()
     candidates = [q]
     if any(
-        word in q for word in (
-            "calculate", "total", "sum", "overall", "aggregate", "combined"
-        )
+        word in q
+        for word in ("calculate", "total", "sum", "overall", "aggregate", "combined")
     ):
         candidates.append(
-            re.sub(
-                r"\b(calculate|total|sum|overall|aggregate|combined)\b", " ", q
-            )
+            re.sub(r"\b(calculate|total|sum|overall|aggregate|combined)\b", " ", q)
         )
     return [re.sub(r"\s+", " ", cand).strip() for cand in candidates if cand.strip()]
 
@@ -1225,10 +1397,12 @@ def safe_rewrite_query(query: str) -> str:
     original = candidates[0]
 
     # Pre-cache all candidates so _query_similarity never re-embeds
-    uncached = [c for c in candidates if _QUERY_EMBED_CACHE.get(_query_cache_key(c)) is None]
+    uncached = [
+        c for c in candidates if _QUERY_EMBED_CACHE.get(_query_cache_key(c)) is None
+    ]
     if uncached:
-        model  = load_embedding_model()
-        vecs   = model.encode(
+        model = load_embedding_model()
+        vecs = model.encode(
             uncached,
             convert_to_numpy=True,
             normalize_embeddings=True,
@@ -1236,15 +1410,17 @@ def safe_rewrite_query(query: str) -> str:
             batch_size=len(uncached),
         )
         for text, vec in zip(uncached, vecs):
-            _QUERY_EMBED_CACHE.set(_query_cache_key(text), np.array([vec], dtype="float32"))
+            _QUERY_EMBED_CACHE.set(
+                _query_cache_key(text), np.array([vec], dtype="float32")
+            )
 
-    best       = original
+    best = original
     best_score = -1.0
     for candidate in candidates:
         score = _query_similarity(original, candidate)
         if score > best_score:
             best_score = score
-            best       = candidate
+            best = candidate
 
     if best != original and best_score < 0.88:
         return original
@@ -1256,7 +1432,7 @@ def _query_cache_key(query: str) -> str:
 
 
 def _cache_query_embedding(query: str) -> np.ndarray:
-    key    = _query_cache_key(query)
+    key = _query_cache_key(query)
     cached = _QUERY_EMBED_CACHE.get(key)
     if cached is not None:
         return cached
@@ -1271,6 +1447,7 @@ def _hash_text(text: str) -> str:
 
 def make_retrieval_cache_key(query: str, top_k: int) -> str:
     return f"{_query_cache_key(query)}|k={top_k}"
+
 
 _NEGATION_SIGNALS = (
     "not",
@@ -1291,8 +1468,9 @@ _NEGATION_SIGNALS = (
 )
 
 # BEFORE: key = style|model|normalized_query
-# "what is the age limit" and "what if i am over age limit" 
+# "what is the age limit" and "what if i am over age limit"
 # normalize to similar embeddings and could share a cache entry
+
 
 def make_response_cache_key(query, *, style, model, context, session_id=""):
     normalized = _query_cache_key(query)
@@ -1330,6 +1508,7 @@ def set_cached_response(key: str, value: str) -> None:
 # OLLAMA WARMUP
 # =============================================================================
 
+
 def _warmup_ollama() -> None:
     """
     Send a minimal 1-token request to force Ollama to load the LLM into RAM.
@@ -1363,13 +1542,15 @@ def _warmup_ollama() -> None:
         logger.info("Ollama model '%s' pre-loaded and ready.", DEFAULT_MODEL)
     except Exception as exc:
         logger.warning(
-            "Ollama warmup failed — model will load on first real query. Reason: %s", exc
+            "Ollama warmup failed — model will load on first real query. Reason: %s",
+            exc,
         )
 
 
 # =============================================================================
 # WARMUP RUNTIME
 # =============================================================================
+
 
 def warmup_runtime(*, async_load: bool = False) -> None:
     """
@@ -1432,6 +1613,7 @@ def is_ready() -> bool:
 # EMBEDDING
 # =============================================================================
 
+
 def load_embedding_model() -> SentenceTransformer:
     global _MODEL
     if _MODEL is not None:
@@ -1441,9 +1623,10 @@ def load_embedding_model() -> SentenceTransformer:
         _MODEL = SentenceTransformer(EMBEDDING_MODEL)
     return _MODEL
 
+
 def embed_texts(texts: Sequence[str]) -> np.ndarray:
     model = load_embedding_model()
-    vecs  = model.encode(
+    vecs = model.encode(
         list(texts),
         convert_to_numpy=True,
         normalize_embeddings=True,
@@ -1455,7 +1638,7 @@ def embed_texts(texts: Sequence[str]) -> np.ndarray:
 
 def embed_query(query: str) -> np.ndarray:
     model = load_embedding_model()
-    vec   = model.encode(
+    vec = model.encode(
         [query],
         convert_to_numpy=True,
         normalize_embeddings=True,
@@ -1469,12 +1652,13 @@ def embed_query(query: str) -> np.ndarray:
 # RERANKER
 # =============================================================================
 
+
 def _reranker_local_files_available(model_name: str) -> bool:
     model_path = Path(model_name)
     if model_path.exists():
         return True
     hf_hub_cache = os.getenv("HF_HUB_CACHE")
-    hf_home      = os.getenv("HF_HOME")
+    hf_home = os.getenv("HF_HOME")
     if hf_hub_cache:
         cache_root = Path(hf_hub_cache)
     elif hf_home:
@@ -1508,6 +1692,7 @@ def load_reranker():
         return None
     try:
         from sentence_transformers import CrossEncoder
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             _RERANKER = CrossEncoder(RERANKER_MODEL, local_files_only=True)
@@ -1533,7 +1718,7 @@ def rerank(query: str, docs: List[Dict], top_n: int = RERANK_TOP_K) -> List[Dict
     if reranker is None:
         return docs[:top_n]
     try:
-        pairs  = [(query, d.get("text", "")) for d in docs]
+        pairs = [(query, d.get("text", "")) for d in docs]
         scores = reranker.predict(pairs)
         ranked = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
         reranked = []
@@ -1550,6 +1735,7 @@ def rerank(query: str, docs: List[Dict], top_n: int = RERANK_TOP_K) -> List[Dict
 # =============================================================================
 # BM25
 # =============================================================================
+
 
 def load_bm25():
     global _BM25
@@ -1576,8 +1762,9 @@ def save_bm25(docs: List[Dict[str, str]]) -> None:
         global _BM25
         try:
             from rank_bm25 import BM25Okapi
+
             corpus = [_tokenize(d.get("text", "")) for d in docs_snapshot]
-            bm25   = BM25Okapi(corpus)
+            bm25 = BM25Okapi(corpus)
             _ensure_dirs()
             with open(BM25_INDEX_PATH, "wb") as f:
                 pickle.dump(bm25, f)
@@ -1595,6 +1782,7 @@ def save_bm25(docs: List[Dict[str, str]]) -> None:
 # =============================================================================
 # DOCSTORE
 # =============================================================================
+
 
 def load_docstore():
     global _DOCSTORE_CACHE
@@ -1624,11 +1812,12 @@ def _save_docstore(docs: List[Dict[str, str]]) -> None:
 # FAISS INDEX
 # =============================================================================
 
+
 def _rebuild_index_from_docs(docs: List[Dict[str, str]]) -> faiss.Index:
     index = _new_index()
     if not docs:
         return index
-    texts   = [d.get("text", "") for d in docs]
+    texts = [d.get("text", "") for d in docs]
     vectors = embed_texts(texts)
     if vectors.size == 0:
         return index
@@ -1669,9 +1858,9 @@ def save_index(index: faiss.Index, docs: List[Dict[str, str]]) -> None:
         _ensure_dirs()
         faiss.write_index(index, str(FAISS_INDEX_PATH))
         _save_docstore(docs_snapshot)
-        _DOCS            = docs_snapshot
-        _INDEX           = index
-        _DOCSTORE_CACHE  = docs_snapshot
+        _DOCS = docs_snapshot
+        _INDEX = index
+        _DOCSTORE_CACHE = docs_snapshot
     save_bm25(docs_snapshot)
 
 
@@ -1683,6 +1872,7 @@ def _index_snapshot() -> tuple[Optional[faiss.Index], List[Dict[str, str]]]:
 # =============================================================================
 # SEARCH
 # =============================================================================
+
 
 def _bm25_scores(query: str) -> np.ndarray:
     """
@@ -1706,7 +1896,8 @@ def _bm25_scores(query: str) -> np.ndarray:
         if scores.shape[0] != len(docs):
             logger.error(
                 "BM25 corpus length %d != docstore length %d; falling back to dense-only retrieval for this query.",
-                scores.shape[0], len(docs)
+                scores.shape[0],
+                len(docs),
             )
             return np.zeros(len(docs), dtype="float32")
         max_s = scores.max()
@@ -1743,24 +1934,28 @@ def _min_max_normalize(values: np.ndarray) -> np.ndarray:
 
 
 _DOMAIN_BOOSTS = [
-    (r"\d{1,2}\s*(?:years?|yrs?)|\d{1,2}\s*(?:months?|mos?)|age|eligible",
-     r"17\s*(?:½|1/2|\.5)|17\s+1/2|22\s*yrs|required age|age criteria|eligibility criteria",
-     1.00),
-    (r"married|unmarried|marital|marriage|spouse|wife|husband",
-     r"only unmarried candidates|remain unmarried|marriage during service|unmarried certificate",
-     1.20),
-    (r"\bage\b",                r"required age|eligibility",               0.70),
-    (r"eligibilit",             r"eligibility criteria|required age",       0.70),
-    (r"selection|how.*select",  r"recruitment process|flow chart",          0.90),
-    (r"how.*appl|apply",        r"registration|application",                0.70),
-    (r"salary|pay|package",     r"seva nidhi|in hand|monthly",              0.80),
-    (r"physical|pft",           r"physical fitness test|1\.6 km run",       0.80),
-    (r"bonus mark",             r"bonus marks|ncc|sports",                  0.80),
-    (r"insurance",              r"48 lakh|life insurance",                  0.80),
-    (r"training",               r"military training|regimental",            0.70),
-    (r"document",               r"documents required|matric|aadhaar|domicile", 0.70),
-    (r"medical",                r"medical examination|army medical",        0.70),
-    (r"ncc",                    r"ncc.*certificate|bonus.*ncc",             0.70),
+    (
+        r"\d{1,2}\s*(?:years?|yrs?)|\d{1,2}\s*(?:months?|mos?)|age|eligible",
+        r"17\s*(?:½|1/2|\.5)|17\s+1/2|22\s*yrs|required age|age criteria|eligibility criteria",
+        1.00,
+    ),
+    (
+        r"married|unmarried|marital|marriage|spouse|wife|husband",
+        r"only unmarried candidates|remain unmarried|marriage during service|unmarried certificate",
+        1.20,
+    ),
+    (r"\bage\b", r"required age|eligibility", 0.70),
+    (r"eligibilit", r"eligibility criteria|required age", 0.70),
+    (r"selection|how.*select", r"recruitment process|flow chart", 0.90),
+    (r"how.*appl|apply", r"registration|application", 0.70),
+    (r"salary|pay|package", r"seva nidhi|in hand|monthly", 0.80),
+    (r"physical|pft", r"physical fitness test|1\.6 km run", 0.80),
+    (r"bonus mark", r"bonus marks|ncc|sports", 0.80),
+    (r"insurance", r"48 lakh|life insurance", 0.80),
+    (r"training", r"military training|regimental", 0.70),
+    (r"document", r"documents required|matric|aadhaar|domicile", 0.70),
+    (r"medical", r"medical examination|army medical", 0.70),
+    (r"ncc", r"ncc.*certificate|bonus.*ncc", 0.70),
 ]
 
 
@@ -1790,15 +1985,15 @@ def search(
     if index.ntotal == 0:
         return []
 
-    rewritten_query  = query if normalized else _normalize_query_for_retrieval(query)
-    retrieval_query  = safe_rewrite_query(rewritten_query)
-    qvec             = _cache_query_embedding(retrieval_query)
+    rewritten_query = query if normalized else _normalize_query_for_retrieval(query)
+    retrieval_query = safe_rewrite_query(rewritten_query)
+    qvec = _cache_query_embedding(retrieval_query)
 
-    candidate_k   = min(max(top_k * 4, 10), 40, index.ntotal)
+    candidate_k = min(max(top_k * 4, 10), 40, index.ntotal)
     scores_dense, ids = index.search(qvec, candidate_k)
-    dense_scores  = scores_dense[0]
-    doc_ids       = ids[0]
-    dense_map     = {
+    dense_scores = scores_dense[0]
+    doc_ids = ids[0]
+    dense_map = {
         int(doc_id): float(score)
         for doc_id, score in zip(doc_ids, dense_scores)
         if doc_id >= 0
@@ -1806,7 +2001,7 @@ def search(
 
     if USE_HYBRID and docs_snapshot:
         # _bm25_scores is now cached — no per-query full-corpus rescan
-        bm25_all     = _bm25_scores(retrieval_query)
+        bm25_all = _bm25_scores(retrieval_query)
         bm25_top_ids = np.argsort(bm25_all)[::-1][:candidate_k]
 
         token_count = len(retrieval_query.split())
@@ -1829,11 +2024,11 @@ def search(
             [dense_map.get(doc_id, 0.0) for doc_id in candidate_ids], dtype="float32"
         )
         dense_values = _min_max_normalize(dense_values)
-        bm25_values  = np.array(
+        bm25_values = np.array(
             [float(bm25_all[doc_id]) for doc_id in candidate_ids], dtype="float32"
         )
-        query_terms  = set(_meaningful_tokens(retrieval_query))
-        query_lower  = retrieval_query.lower()
+        query_terms = set(_meaningful_tokens(retrieval_query))
+        query_lower = retrieval_query.lower()
 
         fused: List[tuple] = []
         for doc_id, ds, bs in zip(candidate_ids, dense_values, bm25_values):
@@ -1841,7 +2036,7 @@ def search(
             doc_text = docs_snapshot[doc_id].get("text", "")
             if query_terms:
                 doc_terms = set(_meaningful_tokens(doc_text))
-                overlap   = len(query_terms & doc_terms) / max(1, len(query_terms))
+                overlap = len(query_terms & doc_terms) / max(1, len(query_terms))
                 combined += 0.15 * overlap
             combined += _apply_domain_boosts(query_lower, doc_text.lower())
             if combined >= MIN_SCORE:
@@ -1850,8 +2045,8 @@ def search(
         fused.sort(key=lambda item: item[0], reverse=True)
         candidates = []
         for combined, doc_id in fused:
-            doc           = dict(docs_snapshot[doc_id])
-            doc["score"]  = round(float(combined), 4)
+            doc = dict(docs_snapshot[doc_id])
+            doc["score"] = round(float(combined), 4)
             candidates.append(doc)
     else:
         candidates = []
@@ -1860,7 +2055,7 @@ def search(
                 continue
             if float(score) < MIN_SCORE:
                 continue
-            doc          = dict(docs_snapshot[doc_id])
+            doc = dict(docs_snapshot[doc_id])
             doc["score"] = round(float(score), 4)
             candidates.append(doc)
 
@@ -1871,7 +2066,8 @@ def search(
 
     if USE_RERANKER:
         candidates = rerank(
-            query, candidates,
+            query,
+            candidates,
             top_n=min(max(top_k, RERANK_TOP_K), len(candidates)),
         )
 
@@ -1887,6 +2083,7 @@ def search(
 # =============================================================================
 # CONTEXT BUILDING
 # =============================================================================
+
 
 def build_context(
     docs: Sequence[Dict[str, str]],
@@ -1940,7 +2137,7 @@ def build_context(
         source = doc.get("source", "unknown")
         if len(source) > 60:
             source = "..." + source[-57:]
-        score  = float(doc.get("score", 0.0))
+        score = float(doc.get("score", 0.0))
         header = f"[{i}] score={score:.3f} source={source}\n"
         remaining = max_chars - total_chars - len(header)
         if remaining <= 0:
@@ -1961,17 +2158,18 @@ def build_context(
 # CONFIDENCE & MODE
 # =============================================================================
 
+
 def retrieval_confidence(docs: Sequence[Dict[str, str]], query: str) -> float:
     if not docs:
         return 0.0
-    ordered    = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
-    top_score  = float(ordered[0].get("score", 0.0))
+    ordered = sorted(docs, key=lambda doc: float(doc.get("score", 0.0)), reverse=True)
+    top_score = float(ordered[0].get("score", 0.0))
     query_terms = set(_meaningful_tokens(query))
     if not query_terms:
         return min(1.0, top_score)
-    top_text   = ordered[0].get("text", "")
-    overlap    = (
-        len(query_terms & set(_meaningful_tokens(top_text))) / max(1, len(query_terms))
+    top_text = ordered[0].get("text", "")
+    overlap = len(query_terms & set(_meaningful_tokens(top_text))) / max(
+        1, len(query_terms)
     )
     confidence = (0.65 * top_score) + (0.35 * overlap)
     if len(ordered) > 1:
@@ -1982,9 +2180,19 @@ def retrieval_confidence(docs: Sequence[Dict[str, str]], query: str) -> float:
 def is_reasoning_query(query: str) -> bool:
     q = query.lower()
     reasoning_terms = (
-        "calculate", "total", "sum", "overall", "aggregate", "combined",
-        "how much", "how many", "after 4 years", "over 4 years", "for 4 years",
-        "what happens after", "in total",
+        "calculate",
+        "total",
+        "sum",
+        "overall",
+        "aggregate",
+        "combined",
+        "how much",
+        "how many",
+        "after 4 years",
+        "over 4 years",
+        "for 4 years",
+        "what happens after",
+        "in total",
     )
     return any(term in q for term in reasoning_terms)
 
@@ -2088,8 +2296,12 @@ def _quick_summary_salary_rows_from_context(context: str) -> Dict[int, Dict[str,
         compact,
         flags=re.IGNORECASE,
     )
-    gross_by_year = {int(year): _parse_rupee_int(value) for year, value in gross_matches}
-    in_hand_by_year = {int(year): _parse_rupee_int(value) for year, value in in_hand_matches}
+    gross_by_year = {
+        int(year): _parse_rupee_int(value) for year, value in gross_matches
+    }
+    in_hand_by_year = {
+        int(year): _parse_rupee_int(value) for year, value in in_hand_matches
+    }
     rows: Dict[int, Dict[str, int]] = {}
     for year in sorted(set(gross_by_year) & set(in_hand_by_year)):
         package = gross_by_year[year]
@@ -2105,13 +2317,21 @@ def _quick_summary_salary_rows_from_context(context: str) -> Dict[int, Dict[str,
 
 def _salary_rows_any_format(context: str) -> Dict[int, Dict[str, int]]:
     rows = _salary_rows_from_context(context)
-    rows.update({year: row for year, row in _quick_summary_salary_rows_from_context(context).items() if year not in rows})
+    rows.update(
+        {
+            year: row
+            for year, row in _quick_summary_salary_rows_from_context(context).items()
+            if year not in rows
+        }
+    )
     return rows
 
 
 def _salary_percentage_from_context(context: str) -> Optional[int]:
     compact = re.sub(r"\s+", " ", context or "")
-    explicit = re.search(r"\bIn[- ]?Hand\s*\(\s*(?P<pct>\d{1,3})\s*%\s*\)", compact, re.IGNORECASE)
+    explicit = re.search(
+        r"\bIn[- ]?Hand\s*\(\s*(?P<pct>\d{1,3})\s*%\s*\)", compact, re.IGNORECASE
+    )
     if explicit:
         return int(explicit.group("pct"))
     rows = _salary_rows_any_format(context)
@@ -2135,10 +2355,19 @@ def _salary_percentage_from_context(context: str) -> Optional[int]:
 def deterministic_salary_answer(query: str, context: str) -> Optional[str]:
     """Answer salary-table questions with deterministic arithmetic, not LLM math."""
     q = (query or "").lower()
-    if not any(term in q for term in ("salary", "package", "pay", "in hand", "in-hand")):
+    if not any(
+        term in q for term in ("salary", "package", "pay", "in hand", "in-hand")
+    ):
         return None
     rows = _salary_rows_any_format(context)
-    comparison_terms = ("compare", "difference", "differ", "increase", "more", "between")
+    comparison_terms = (
+        "compare",
+        "difference",
+        "differ",
+        "increase",
+        "more",
+        "between",
+    )
     comparison_years = _parse_salary_years(query)
     if any(term in q for term in comparison_terms) and len(comparison_years) >= 2:
         first_year, second_year = comparison_years[0], comparison_years[1]
@@ -2258,7 +2487,15 @@ def deterministic_marital_status_answer(query: str, context: str) -> Optional[st
     q = (query or "").lower()
     if not any(
         term in q
-        for term in ("married", "unmarried", "marital", "marriage", "spouse", "wife", "husband")
+        for term in (
+            "married",
+            "unmarried",
+            "marital",
+            "marriage",
+            "spouse",
+            "wife",
+            "husband",
+        )
     ):
         return None
 
@@ -2266,7 +2503,10 @@ def deterministic_marital_status_answer(query: str, context: str) -> Optional[st
     compact_lower = compact.lower()
 
     has_enroll_rule = bool(
-        re.search(r"only unmarried candidates (?:can|will|are eligible to)?\s*enroll", compact_lower)
+        re.search(
+            r"only unmarried candidates (?:can|will|are eligible to)?\s*enroll",
+            compact_lower,
+        )
         or "only unmarried candidates can enroll" in compact_lower
     )
     has_remain_rule = "remain unmarried throughout the engagement" in compact_lower
@@ -2368,13 +2608,9 @@ def _age_limit_months_from_context(context: str):
         return 17 * 12 + 6, 22 * 12
 
     # "17½ – 22 yrs" (standard pattern in official e-book)
-    if _re.search(
-        r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*22\s*(?:yrs?|years?)", compact
-    ):
+    if _re.search(r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*22\s*(?:yrs?|years?)", compact):
         return 17 * 12 + 6, 22 * 12
-    if _re.search(
-        r"17\s*(?:1/2|\u00bd|½|\.5)\s*to\s*22\s*(?:yrs?|years?)", compact
-    ):
+    if _re.search(r"17\s*(?:1/2|\u00bd|½|\.5)\s*to\s*22\s*(?:yrs?|years?)", compact):
         return 17 * 12 + 6, 22 * 12
 
     # "minimum age: 17.5 … maximum age: 21"
@@ -2386,9 +2622,7 @@ def _age_limit_months_from_context(context: str):
     # "17.5 – 21 years" (Tradesman / older notifications)
     if _re.search(r"17\.5\s*[-–]\s*21\s*years?", compact):
         return 17 * 12 + 6, 21 * 12
-    if _re.search(
-        r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*21\s*(?:yrs?|years?)", compact
-    ):
+    if _re.search(r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*21\s*(?:yrs?|years?)", compact):
         return 17 * 12 + 6, 21 * 12
 
     # Fallback: "17.5 to 21-22 years" — use 22 as the upper bound when ambiguous
@@ -2401,7 +2635,10 @@ def _age_limit_months_from_context(context: str):
 def deterministic_age_eligibility_answer(query: str, context: str) -> Optional[str]:
     """Compare user's stated age with age criteria from the retrieved KB."""
     q = (query or "").lower()
-    if not any(term in q for term in ("year", "yrs", "month", "age", "old", "apply", "eligible")):
+    if not any(
+        term in q
+        for term in ("year", "yrs", "month", "age", "old", "apply", "eligible")
+    ):
         return None
     candidate_months = _parse_query_age_months(query)
     limits = _age_limit_months_from_context(context)
@@ -2448,20 +2685,39 @@ def _policy_context_from_docs(query: str, docs: Sequence[Dict[str, str]]) -> str
     q = (query or "").lower()
     if not docs:
         return ""
-    salary_policy = any(term in q for term in ("salary", "package", "pay", "in hand", "in-hand"))
+    salary_policy = any(
+        term in q for term in ("salary", "package", "pay", "in hand", "in-hand")
+    )
     if salary_policy:
         pattern = re.compile(
             r"monthly salary structure|service year\s+monthly gross|"
             r"1st\s+year.*2nd\s+year|2nd\s+year.*3rd\s+year",
             re.IGNORECASE | re.DOTALL,
         )
-    elif any(term in q for term in ("year", "yrs", "month", "age", "old", "eligible", "apply")):
+    elif any(
+        term in q
+        for term in ("year", "yrs", "month", "age", "old", "eligible", "apply")
+    ):
         pattern = re.compile(
             r"17\s*(?:1/2|\u00bd|½|\.5)\s*[-–]\s*(?:21|22)\s*(?:yrs?|years?)",
             re.IGNORECASE,
         )
-    elif any(term in q for term in ("married", "unmarried", "marital", "marriage", "spouse", "wife", "husband")):
-        pattern = re.compile(r"only unmarried candidates|remain unmarried|marriage during service", re.IGNORECASE)
+    elif any(
+        term in q
+        for term in (
+            "married",
+            "unmarried",
+            "marital",
+            "marriage",
+            "spouse",
+            "wife",
+            "husband",
+        )
+    ):
+        pattern = re.compile(
+            r"only unmarried candidates|remain unmarried|marriage during service",
+            re.IGNORECASE,
+        )
     else:
         return ""
 
@@ -2471,7 +2727,9 @@ def _policy_context_from_docs(query: str, docs: Sequence[Dict[str, str]]) -> str
         if text and pattern.search(text):
             pieces.append(text)
     if salary_policy and not pieces:
-        broad_pattern = re.compile(r"in[- ]?hand|customi[sz]ed package|corpus", re.IGNORECASE)
+        broad_pattern = re.compile(
+            r"in[- ]?hand|customi[sz]ed package|corpus", re.IGNORECASE
+        )
         for doc in docs:
             text = (doc.get("text") or "").strip()
             if text and broad_pattern.search(text):
@@ -2498,6 +2756,7 @@ def decide_answer_mode(
 # RAG BUNDLE
 # =============================================================================
 
+
 def prepare_rag_bundle(
     query: str,
     *,
@@ -2508,20 +2767,20 @@ def prepare_rag_bundle(
 ) -> Dict[str, object]:
     query = _fuzzy_normalize_query(query)
     retrieval_query = _normalize_query_for_retrieval(query)
-    docs            = search(retrieval_query, top_k=top_k, normalized=True)
-    context_limit   = (
+    docs = search(retrieval_query, top_k=top_k, normalized=True)
+    context_limit = (
         MAX_CONTEXT_CHARS.get(style, MAX_CONTEXT_CHARS_DEFAULT)
         if isinstance(MAX_CONTEXT_CHARS, dict)
         else MAX_CONTEXT_CHARS_DEFAULT
     )
     if max_context_chars is not None:
         context_limit = max(0, min(int(context_limit), int(max_context_chars)))
-    confidence         = retrieval_confidence(docs, query)
-    mode               = decide_answer_mode(query=query, docs=docs, confidence=confidence)
-    context_min_score  = (
+    confidence = retrieval_confidence(docs, query)
+    mode = decide_answer_mode(query=query, docs=docs, confidence=confidence)
+    context_min_score = (
         STRICT_MIN_SCORE if mode == "normal_answer" else LOW_RETRIEVAL_CONFIDENCE
     )
-    context            = build_context(
+    context = build_context(
         docs,
         max_chunks=max(STRICT_TOP_K, min(5, top_k)),
         min_score=context_min_score,
@@ -2537,15 +2796,15 @@ def prepare_rag_bundle(
                 f"{policy_context}\n\n---\n\n{suffix}" if suffix else policy_context
             ).strip()
     return {
-        "query":            query,
-        "retrieval_query":  retrieval_query,
-        "docs":             docs,
-        "context":          context,
-        "points":           extract_key_points(docs, query=query) if include_points else [],
-        "confidence":       confidence,
-        "mode":             mode,
-        "reasoning":        is_reasoning_query(query),
-        "style":            style,
+        "query": query,
+        "retrieval_query": retrieval_query,
+        "docs": docs,
+        "context": context,
+        "points": extract_key_points(docs, query=query) if include_points else [],
+        "confidence": confidence,
+        "mode": mode,
+        "reasoning": is_reasoning_query(query),
+        "style": style,
     }
 
 
@@ -2553,19 +2812,20 @@ def prepare_rag_bundle(
 # GROUNDING CHECK
 # =============================================================================
 
+
 def answer_is_grounded(answer: str, context: str) -> bool:
     answer = (answer or "").strip()
     if not answer:
         return False
     if not context.strip():
         return answer.lower() == REFERENCE_FALLBACK.lower()
-    answer_norm  = _normalise_text(answer)
+    answer_norm = _normalise_text(answer)
     context_norm = _normalise_text(context)
     numbers = re.findall(r"\b\d+(?:\.\d+)?%?\b", answer_norm)
     for num in numbers:
         if num not in context_norm:
             return False
-    tokens    = [tok for tok in _meaningful_tokens(answer_norm) if len(tok) >= 5]
+    tokens = [tok for tok in _meaningful_tokens(answer_norm) if len(tok) >= 5]
     if not tokens:
         return True
     supported = sum(1 for tok in tokens if tok in context_norm)
@@ -2575,6 +2835,7 @@ def answer_is_grounded(answer: str, context: str) -> bool:
 # =============================================================================
 # MESSAGE BUILDERS
 # =============================================================================
+
 
 def build_strict_messages(
     query: str,
@@ -2589,7 +2850,7 @@ def build_strict_messages(
     messages = [{"role": "system", "content": system_content}]
     if history:
         for msg in history:
-            role    = msg.get("role")
+            role = msg.get("role")
             content = msg.get("content", "").strip()
             if role in {"user", "assistant"} and content:
                 messages.append({"role": role, "content": content})
@@ -2606,6 +2867,7 @@ def build_strict_messages(
 # =============================================================================
 # STATS & LEGACY LLM CALL
 # =============================================================================
+
 
 def index_stats() -> Dict[str, int]:
     index, docs = _index_snapshot()
@@ -2661,7 +2923,7 @@ def call_llm(
     requested_models.append(DEFAULT_MODEL)
     requested_models.extend(FALLBACK_MODELS)
 
-    installed        = _installed_models(_session)
+    installed = _installed_models(_session)
     candidate_models: List[str] = []
     for requested in requested_models:
         for candidate in _candidate_models(requested, installed):
@@ -2670,7 +2932,7 @@ def call_llm(
     if not candidate_models:
         raise RuntimeError("No Ollama models found.")
 
-    messages   = _build_messages(prompt, history)
+    messages = _build_messages(prompt, history)
     last_error: Optional[str] = None
     for candidate in candidate_models:
         try:

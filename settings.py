@@ -23,12 +23,7 @@ from functools import lru_cache
 from typing import Any, List, Optional
 from urllib.parse import urlparse
 
-from pydantic import (
-    Field,
-    SecretStr,
-    field_validator,
-    model_validator,
-)
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -246,6 +241,7 @@ def validate_critical_env(env_map: dict[str, str | None]) -> None:
 
 
 # ── Cached singletons ─────────────────────────────────────────────────────
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> AppSettings:

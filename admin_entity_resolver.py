@@ -17,21 +17,21 @@ import requests as _requests
 logger = logging.getLogger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────
-_DOTNET_BASE       = os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257")
-_COMPANY_URL       = f"{_DOTNET_BASE}/api/CompanyDetails/Get"
-_PLATOON_URL       = f"{_DOTNET_BASE}/api/PlatoonDetails/Get"
-_DOTNET_API_KEY    = os.getenv("DOTNET_API_KEY", "")
-_TIMEOUT           = int(os.getenv("DOTNET_TIMEOUT", "15"))
-_CACHE_TTL_SECONDS = int(os.getenv("ENTITY_CACHE_TTL", "300"))   # 5-minute cache
+_DOTNET_BASE = os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257")
+_COMPANY_URL = f"{_DOTNET_BASE}/api/CompanyDetails/Get"
+_PLATOON_URL = f"{_DOTNET_BASE}/api/PlatoonDetails/Get"
+_DOTNET_API_KEY = os.getenv("DOTNET_API_KEY", "")
+_TIMEOUT = int(os.getenv("DOTNET_TIMEOUT", "15"))
+_CACHE_TTL_SECONDS = int(os.getenv("ENTITY_CACHE_TTL", "300"))  # 5-minute cache
 
-_skip_raw         = os.getenv("DOTNET_SKIP_SSL_VERIFY", os.getenv("DOTNET_VERIFY_SSL", "0"))
-_VERIFY_SSL       = _skip_raw.strip() not in {"1", "true", "True"}
+_skip_raw = os.getenv("DOTNET_SKIP_SSL_VERIFY", os.getenv("DOTNET_VERIFY_SSL", "0"))
+_VERIFY_SSL = _skip_raw.strip() not in {"1", "true", "True"}
 
 _session = _requests.Session()
 
 # ── In-memory cache to avoid hammering the lookup APIs on every query ──────
-_cache_lock     = threading.RLock()
-_company_cache: Optional[Tuple[float, List[Dict]]] = None   # (timestamp, data)
+_cache_lock = threading.RLock()
+_company_cache: Optional[Tuple[float, List[Dict]]] = None  # (timestamp, data)
 _platoon_cache: Optional[Tuple[float, List[Dict]]] = None
 
 
@@ -42,12 +42,50 @@ _platoon_cache: Optional[Tuple[float, List[Dict]]] = None
 # Words that appear before/after "company" / "coy" / "platoon" / "pl"
 # but are NOT part of the entity name.
 _NOISE_WORDS = {
-    "in", "for", "of", "the", "a", "an", "this", "that", "all",
-    "and", "or", "at", "to", "from", "by", "on", "with", "about",
-    "top", "best", "show", "get", "give", "is", "are", "was",
-    "my", "their", "our", "its", "status", "data", "report",
-    "attendance", "leave", "performance", "breakdown", "strength",
-    "scores", "score", "performers", "details", "info", "information",
+    "in",
+    "for",
+    "of",
+    "the",
+    "a",
+    "an",
+    "this",
+    "that",
+    "all",
+    "and",
+    "or",
+    "at",
+    "to",
+    "from",
+    "by",
+    "on",
+    "with",
+    "about",
+    "top",
+    "best",
+    "show",
+    "get",
+    "give",
+    "is",
+    "are",
+    "was",
+    "my",
+    "their",
+    "our",
+    "its",
+    "status",
+    "data",
+    "report",
+    "attendance",
+    "leave",
+    "performance",
+    "breakdown",
+    "strength",
+    "scores",
+    "score",
+    "performers",
+    "details",
+    "info",
+    "information",
 }
 
 
@@ -75,17 +113,13 @@ def extract_company_mention(text: str) -> Optional[str]:
     q = text.lower().strip()
 
     # Pattern A: 1-3 words immediately BEFORE "company" or "coy"
-    for m in re.finditer(
-        r"\b((?:\w+\s+){0,2}\w+)\s+(?:company|coy)\b", q
-    ):
+    for m in re.finditer(r"\b((?:\w+\s+){0,2}\w+)\s+(?:company|coy)\b", q):
         candidate = _clean_candidate(m.group(1))
         if candidate:
             return candidate
 
     # Pattern B: "company/coy" followed by exactly ONE word
-    for m in re.finditer(
-        r"\b(?:company|coy)\s+(\w+)\b", q
-    ):
+    for m in re.finditer(r"\b(?:company|coy)\s+(\w+)\b", q):
         candidate = m.group(1).strip()
         if candidate not in _NOISE_WORDS:
             return candidate
@@ -110,8 +144,8 @@ def extract_platoon_mention(text: str) -> Optional[str]:
     patterns = [
         r"\bplatoon\s+no\.?\s*(\w[\w-]*)\b",
         r"\bplatoon\s+(\w[\w-]*)\b",
-        r"\bpl[-\s](\w+)\b",     # "pl-2", "pl 3"
-        r"\bpl(\d+)\b",          # "pl03"
+        r"\bpl[-\s](\w+)\b",  # "pl-2", "pl 3"
+        r"\bpl(\d+)\b",  # "pl03"
         r"\b(\d+)\s+platoon\b",
     ]
     for pattern in patterns:
@@ -124,6 +158,7 @@ def extract_platoon_mention(text: str) -> Optional[str]:
 # =============================================================================
 # API FETCH WITH CACHING
 # =============================================================================
+
 
 def _dotnet_headers() -> Dict[str, str]:
     h = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -206,6 +241,7 @@ def invalidate_cache() -> None:
 # ID RESOLUTION
 # =============================================================================
 
+
 def _get_field(obj: Dict, *keys) -> Any:
     """Try multiple key casings and return the first non-None hit."""
     for key in keys:
@@ -250,9 +286,7 @@ def resolve_company_id(company_name: str) -> Optional[int]:
     """
     companies = _fetch_companies()
     for co in companies:
-        stored = str(
-            _get_field(co, "companyName", "CompanyName", "name", "Name") or ""
-        )
+        stored = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
         if stored and _name_matches(stored, company_name):
             cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
             if cid is not None:
@@ -278,9 +312,7 @@ def resolve_platoon_id(
     platoons = _fetch_platoons()
     candidates = []
     for pl in platoons:
-        stored = str(
-            _get_field(pl, "platoonName", "PlatoonName", "name", "Name") or ""
-        )
+        stored = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
         if stored and _name_matches(stored, platoon_name):
             pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
             cid = _get_field(pl, "companyId", "CompanyId")
@@ -298,7 +330,9 @@ def resolve_platoon_id(
             pid = scoped[0][0]
             logger.debug(
                 "Resolved platoon %r (in company %s) → id=%s",
-                platoon_name, company_id, pid,
+                platoon_name,
+                company_id,
+                pid,
             )
             return pid
 
@@ -310,6 +344,7 @@ def resolve_platoon_id(
 # =============================================================================
 # PUBLIC ENTRY POINT
 # =============================================================================
+
 
 def resolve_entities_from_query(
     query: str,
@@ -332,8 +367,8 @@ def resolve_entities_from_query(
     This lets the frontend still pass explicit IDs when it has them.
     """
     result: Dict[str, Any] = {
-        "companyId":   existing_company_id,
-        "platoonId":   existing_platoon_id,
+        "companyId": existing_company_id,
+        "platoonId": existing_platoon_id,
         "companyName": None,
         "platoonName": None,
     }

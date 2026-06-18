@@ -5,6 +5,7 @@ api_models.py
 """
 
 from __future__ import annotations
+
 from typing import Any, Optional
 
 
@@ -35,7 +36,7 @@ def ok_chat(
         "status": "success",
         "message": "Chat response generated.",
         "answer": answer,
-        "style": style,        # "short" | "elaborate" | "detail"
+        "style": style,  # "short" | "elaborate" | "detail"
         "data": data,
     }
     if session_id:

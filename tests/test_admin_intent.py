@@ -7,10 +7,10 @@ Unit tests for the admin chatbot intent classifier.
 import pytest
 from admin_intent import classify_admin_intent, format_admin_payload
 
-
 # =============================================================================
 # PERFORMANCE
 # =============================================================================
+
 
 def test_top_performers_basic():
     r = classify_admin_intent("Who are the top 5 performers?")
@@ -99,6 +99,7 @@ def test_grading_filter_good():
 # LEAVE
 # =============================================================================
 
+
 def test_most_leave():
     r = classify_admin_intent("Who has taken the most leaves?")
     assert r["category"] == "Leave"
@@ -138,6 +139,7 @@ def test_leave_type_annual():
 # MEDICAL
 # =============================================================================
 
+
 def test_active_cases():
     r = classify_admin_intent("How many active medical cases are there?")
     assert r["category"] == "Medical"
@@ -159,6 +161,7 @@ def test_disease_stats():
 # =============================================================================
 # ATTENDANCE
 # =============================================================================
+
 
 def test_monthly_attendance():
     r = classify_admin_intent("Show monthly attendance stats")
@@ -182,6 +185,7 @@ def test_strength_breakdown():
 # VERIFICATION
 # =============================================================================
 
+
 def test_pending_verification():
     r = classify_admin_intent("Show pending verifications")
     assert r["category"] == "Verification"
@@ -197,6 +201,7 @@ def test_completed_verification():
 # =============================================================================
 # EQUIPMENT
 # =============================================================================
+
 
 def test_equipment_summary():
     r = classify_admin_intent("Give me an equipment summary")
@@ -219,6 +224,7 @@ def test_poor_condition():
 # =============================================================================
 # DISTRIBUTION
 # =============================================================================
+
 
 def test_latest_distribution():
     r = classify_admin_intent("Show the latest distribution")
@@ -248,6 +254,7 @@ def test_top_unit():
 # SKILLS / ROSTER
 # =============================================================================
 
+
 def test_by_sport():
     r = classify_admin_intent("Show roster by sport")
     assert r["category"] == "Skills"
@@ -263,6 +270,7 @@ def test_by_class():
 # =============================================================================
 # PAYLOAD FORMAT
 # =============================================================================
+
 
 def test_payload_strips_none():
     r = classify_admin_intent("Who are the top 5 performers in BEPT?")
@@ -284,6 +292,7 @@ def test_payload_has_required_fields():
 # =============================================================================
 # UNKNOWN QUERY
 # =============================================================================
+
 
 def test_unknown_query_returns_none_category():
     r = classify_admin_intent("What is the weather today?")

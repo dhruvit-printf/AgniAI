@@ -51,11 +51,11 @@ class Metrics:
 
         # Duration summaries (milliseconds)
         self.durations: Dict[str, Dict[str, float]] = {
-            "planner_duration":  {"sum": 0.0, "count": 0.0},
-            "intent_duration":   {"sum": 0.0, "count": 0.0},
-            "dotnet_duration":   {"sum": 0.0, "count": 0.0},
+            "planner_duration": {"sum": 0.0, "count": 0.0},
+            "intent_duration": {"sum": 0.0, "count": 0.0},
+            "dotnet_duration": {"sum": 0.0, "count": 0.0},
             "combiner_duration": {"sum": 0.0, "count": 0.0},
-            "report_duration":   {"sum": 0.0, "count": 0.0},
+            "report_duration": {"sum": 0.0, "count": 0.0},
             "pipeline_duration": {"sum": 0.0, "count": 0.0},
         }
 
@@ -63,9 +63,7 @@ class Metrics:
 
     def inc_requests(self, query_type: str) -> None:
         with self._lock:
-            self.requests_total[query_type] = (
-                self.requests_total.get(query_type, 0) + 1
-            )
+            self.requests_total[query_type] = self.requests_total.get(query_type, 0) + 1
 
     def inc_success(self, query_type: str) -> None:
         with self._lock:
@@ -75,9 +73,7 @@ class Metrics:
 
     def inc_errors(self, query_type: str) -> None:
         with self._lock:
-            self.errors_total[query_type] = (
-                self.errors_total.get(query_type, 0) + 1
-            )
+            self.errors_total[query_type] = self.errors_total.get(query_type, 0) + 1
             self.failed_queries_total[query_type] = (
                 self.failed_queries_total.get(query_type, 0) + 1
             )
@@ -109,6 +105,7 @@ class Metrics:
         """Dynamically query active websockets count from the source of truth."""
         try:
             from websocket_manager import ws_manager
+
             return ws_manager.active_count
         except Exception:
             return 0

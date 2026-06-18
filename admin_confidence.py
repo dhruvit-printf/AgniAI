@@ -8,15 +8,14 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 
-
-_THRESHOLD_HIGH   = 0.75
+_THRESHOLD_HIGH = 0.75
 _THRESHOLD_MEDIUM = 0.50
 
 
 _INTENT_LABEL_TO_FLOAT: Dict[str, float] = {
-    "high":   0.90,
+    "high": 0.90,
     "medium": 0.65,
-    "low":    0.35,
+    "low": 0.35,
 }
 
 
@@ -59,10 +58,10 @@ def compute_confidence(
     plan: Any = None,
 ) -> AdminConfidence:
     intent_score: Optional[float] = None
-    plan_score:   Optional[float] = None
+    plan_score: Optional[float] = None
 
     if intent_result:
-        label        = (intent_result.get("confidence") or "low")
+        label = intent_result.get("confidence") or "low"
         intent_score = _score_from_label(label)
         if intent_result.get("category") and intent_result.get("subcategory"):
             intent_score = min(1.0, intent_score + 0.05)
@@ -79,7 +78,7 @@ def compute_confidence(
     else:
         raw = 0.30
 
-    raw   = max(0.0, min(1.0, raw))
+    raw = max(0.0, min(1.0, raw))
     label = _label_from_score(raw)
     return AdminConfidence(score=round(raw, 3), label=label)
 

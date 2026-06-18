@@ -36,10 +36,15 @@ from typing import Any, Callable, Dict, Generator, Optional
 logger = logging.getLogger(__name__)
 
 # ── Feature gate ───────────────────────────────────────────────────────────
-_OTEL_ENABLED = os.getenv("ENABLE_OPENTELEMETRY", "false").lower() in ("1", "true", "yes")
+_OTEL_ENABLED = os.getenv("ENABLE_OPENTELEMETRY", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # ── Lazy OTel imports ──────────────────────────────────────────────────────
 _tracer = None
+
 
 def _get_tracer():
     global _tracer
@@ -49,9 +54,10 @@ def _get_tracer():
         return None
     try:
         from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import \
+            OTLPSpanExporter
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
         provider = TracerProvider()
         exporter = OTLPSpanExporter(
@@ -72,19 +78,20 @@ def _get_tracer():
 
 
 # ── Span names (matches super-prompt spec) ─────────────────────────────────
-SPAN_HTTP_REQUEST            = "http_request"
-SPAN_WEBSOCKET_REQUEST       = "websocket_request"
-SPAN_EXECUTE_ADMIN_QUERY     = "admin_pipeline.execute_admin_query"
-SPAN_PLAN_QUERY              = "plan_query"
-SPAN_CLASSIFY_ADMIN_INTENT   = "classify_admin_intent"
-SPAN_CALL_DOTNET             = "_call_dotnet"
-SPAN_COMBINE_RESULTS         = "combine_results"
-SPAN_GENERATE_REPORT         = "generate_report"
-SPAN_BUILD_RESPONSE          = "build_response"
-SPAN_RESPONSE_SEND           = "response_send"
+SPAN_HTTP_REQUEST = "http_request"
+SPAN_WEBSOCKET_REQUEST = "websocket_request"
+SPAN_EXECUTE_ADMIN_QUERY = "admin_pipeline.execute_admin_query"
+SPAN_PLAN_QUERY = "plan_query"
+SPAN_CLASSIFY_ADMIN_INTENT = "classify_admin_intent"
+SPAN_CALL_DOTNET = "_call_dotnet"
+SPAN_COMBINE_RESULTS = "combine_results"
+SPAN_GENERATE_REPORT = "generate_report"
+SPAN_BUILD_RESPONSE = "build_response"
+SPAN_RESPONSE_SEND = "response_send"
 
 
 # ── Context manager ────────────────────────────────────────────────────────
+
 
 @contextmanager
 def span(
@@ -108,6 +115,7 @@ def span(
 
     try:
         from opentelemetry import trace as otel_trace
+
         with tracer.start_as_current_span(name) as s:
             if trace_id:
                 s.set_attribute("trace_id", trace_id)
@@ -138,16 +146,20 @@ def instrument(span_name: str):
         def plan_query(message):
             ...
     """
+
     def decorator(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             with span(span_name):
                 return fn(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
 # ── Timing helpers ─────────────────────────────────────────────────────────
+
 
 class SpanTimer:
     """
@@ -169,7 +181,10 @@ class SpanTimer:
         status = "error" if exc_type else "ok"
         logger.debug(
             '{"span":"%s","trace_id":"%s","duration_ms":%.2f,"status":"%s"}',
-            self.name, self.trace_id, duration_ms, status,
+            self.name,
+            self.trace_id,
+            duration_ms,
+            status,
         )
 
 
@@ -177,16 +192,28 @@ class SpanTimer:
 EXAMPLE_TRACE = {
     "traceId": "abc123def456",
     "spans": [
-        {"name": "http_request",                   "duration_ms": 342, "status": "ok"},
-        {"name": "plan_query",                     "duration_ms": 12,  "status": "ok",
-         "attributes": {"query_type": "simple", "confidence": 0.95}},
-        {"name": "classify_admin_intent",          "duration_ms": 8,   "status": "ok",
-         "attributes": {"category": "Attendance", "subcategory": "PresentToday"}},
-        {"name": "_call_dotnet",                   "duration_ms": 280, "status": "ok",
-         "attributes": {"dotnet_url": "https://host/api/AiCommand/execute"}},
-        {"name": "combine_results",                "duration_ms": 2,   "status": "ok"},
-        {"name": "generate_report",                "duration_ms": 35,  "status": "ok"},
-        {"name": "build_response",                 "duration_ms": 1,   "status": "ok"},
-        {"name": "response_send",                  "duration_ms": 2,   "status": "ok"},
+        {"name": "http_request", "duration_ms": 342, "status": "ok"},
+        {
+            "name": "plan_query",
+            "duration_ms": 12,
+            "status": "ok",
+            "attributes": {"query_type": "simple", "confidence": 0.95},
+        },
+        {
+            "name": "classify_admin_intent",
+            "duration_ms": 8,
+            "status": "ok",
+            "attributes": {"category": "Attendance", "subcategory": "PresentToday"},
+        },
+        {
+            "name": "_call_dotnet",
+            "duration_ms": 280,
+            "status": "ok",
+            "attributes": {"dotnet_url": "https://host/api/AiCommand/execute"},
+        },
+        {"name": "combine_results", "duration_ms": 2, "status": "ok"},
+        {"name": "generate_report", "duration_ms": 35, "status": "ok"},
+        {"name": "build_response", "duration_ms": 1, "status": "ok"},
+        {"name": "response_send", "duration_ms": 2, "status": "ok"},
     ],
 }

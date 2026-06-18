@@ -25,8 +25,12 @@ import unittest
 
 # ── Minimal stubs so modules import without a full Flask app ────────────────
 _STUB_MODS = [
-    "flask", "flask_cors", "flask_limiter", "flask_limiter.util",
-    "dotenv", "requests",
+    "flask",
+    "flask_cors",
+    "flask_limiter",
+    "flask_limiter.util",
+    "dotenv",
+    "requests",
 ]
 for mod in _STUB_MODS:
     try:
@@ -48,13 +52,14 @@ import result_combiner as rc
 import admin_context as ac
 import admin_confidence as acf
 
-QueryType   = qp.QueryType
-plan_query  = qp.plan_query
+QueryType = qp.QueryType
+plan_query = qp.plan_query
 
 
 # =============================================================================
 # 1. NESTED / N-WAY CROSS FILTERS
 # =============================================================================
+
 
 class TestNestedCrossFilters(unittest.TestCase):
 
@@ -110,6 +115,7 @@ class TestNestedCrossFilters(unittest.TestCase):
 # 2. MULTI-FILTER CROSS CATEGORY (leave, medical, attendance)
 # =============================================================================
 
+
 class TestMultiFilterCrossCategory(unittest.TestCase):
 
     def test_sport_cross_with_leave(self):
@@ -140,6 +146,7 @@ class TestMultiFilterCrossCategory(unittest.TestCase):
 # 3. FILTERED COMPARISON QUERIES
 # =============================================================================
 
+
 class TestFilteredComparison(unittest.TestCase):
 
     def test_compare_sections_among_cricket_players(self):
@@ -169,12 +176,13 @@ class TestFilteredComparison(unittest.TestCase):
         ]
         result = rc.compare_results([("PPT", set_a), ("BEPT", set_b)])
         self.assertIn("averageScore", result["comparedMetrics"])
-        self.assertIn("recordCount",  result["comparedMetrics"])
+        self.assertIn("recordCount", result["comparedMetrics"])
         # PPT should have higher averageScore
-        ppt_side  = next(s for s in result["sides"] if s["label"] == "PPT")
+        ppt_side = next(s for s in result["sides"] if s["label"] == "PPT")
         bept_side = next(s for s in result["sides"] if s["label"] == "BEPT")
-        self.assertGreater(ppt_side["metrics"]["averageScore"],
-                           bept_side["metrics"]["averageScore"])
+        self.assertGreater(
+            ppt_side["metrics"]["averageScore"], bept_side["metrics"]["averageScore"]
+        )
 
     def test_compare_results_top_score(self):
         """compare_results() should surface topScore for each side."""
@@ -187,6 +195,7 @@ class TestFilteredComparison(unittest.TestCase):
 # =============================================================================
 # 4. ANALYTICS QUERY TYPE
 # =============================================================================
+
 
 class TestAnalyticsQueryType(unittest.TestCase):
 
@@ -222,15 +231,14 @@ class TestAnalyticsQueryType(unittest.TestCase):
 # 5. FOLLOW-UP QUERY SUPPORT
 # =============================================================================
 
+
 class TestFollowUpQuerySupport(unittest.TestCase):
 
     def setUp(self):
         self.ctx = ac.AdminSessionContext()
 
     def test_no_history_not_followup(self):
-        self.assertFalse(
-            self.ctx.is_followup_query("sess-1", "Who plays cricket?")
-        )
+        self.assertFalse(self.ctx.is_followup_query("sess-1", "Who plays cricket?"))
 
     def test_followup_detected_after_update(self):
         self.ctx.update(
@@ -286,7 +294,9 @@ class TestFollowUpQuerySupport(unittest.TestCase):
 
     def test_history_cleared_on_clear(self):
         self.ctx.update(
-            "sess-3", "q", {"category": "Leave"},
+            "sess-3",
+            "q",
+            {"category": "Leave"},
             [{"agniveerId": 1}],
         )
         self.ctx.clear("sess-3")
@@ -297,12 +307,13 @@ class TestFollowUpQuerySupport(unittest.TestCase):
 # 6. GROUPING AND AGGREGATION
 # =============================================================================
 
+
 class TestAggregationHelper(unittest.TestCase):
 
     def _make_records(self):
         return [
-            {"agniveerId": 1, "sectionName": "PPT",  "bestTotal": 90},
-            {"agniveerId": 2, "sectionName": "PPT",  "bestTotal": 80},
+            {"agniveerId": 1, "sectionName": "PPT", "bestTotal": 90},
+            {"agniveerId": 2, "sectionName": "PPT", "bestTotal": 80},
             {"agniveerId": 3, "sectionName": "BPET", "bestTotal": 70},
             {"agniveerId": 4, "sectionName": "BPET", "bestTotal": 60},
             {"agniveerId": 5, "sectionName": "Firing", "bestTotal": 95},
@@ -328,8 +339,8 @@ class TestAggregationHelper(unittest.TestCase):
     def test_aggregate_by_sport_with_comma_separated(self):
         records = [
             {"agniveerId": 1, "sports": "Cricket, Kabaddi", "bestTotal": 80},
-            {"agniveerId": 2, "sports": "Cricket",          "bestTotal": 90},
-            {"agniveerId": 3, "sports": "Football",         "bestTotal": 70},
+            {"agniveerId": 2, "sports": "Cricket", "bestTotal": 90},
+            {"agniveerId": 3, "sports": "Football", "bestTotal": 70},
         ]
         rows = rc.aggregate_records(records, group_by="sport")
         groups = {r["group"] for r in rows}
@@ -349,14 +360,17 @@ class TestAggregationHelper(unittest.TestCase):
 # 7. COMPARISON ENGINE IMPROVEMENTS
 # =============================================================================
 
+
 class TestComparisonEngineImprovements(unittest.TestCase):
 
     def test_compare_scalar_dicts_still_works(self):
         """Backward compat: scalar dict comparison from v1."""
-        result = rc.compare_results([
-            ("PPT",  {"average": 85.5, "total": 50}),
-            ("BPET", {"average": 79.2, "total": 50}),
-        ])
+        result = rc.compare_results(
+            [
+                ("PPT", {"average": 85.5, "total": 50}),
+                ("BPET", {"average": 79.2, "total": 50}),
+            ]
+        )
         self.assertIn("average", result["comparedMetrics"])
 
     def test_compare_record_count(self):
@@ -364,7 +378,7 @@ class TestComparisonEngineImprovements(unittest.TestCase):
         set_b = [{"agniveerId": i} for i in range(10)]
         result = rc.compare_results([("Big", set_a), ("Small", set_b)])
         self.assertIn("recordCount", result["comparedMetrics"])
-        big_side   = next(s for s in result["sides"] if s["label"] == "Big")
+        big_side = next(s for s in result["sides"] if s["label"] == "Big")
         small_side = next(s for s in result["sides"] if s["label"] == "Small")
         self.assertEqual(big_side["metrics"]["recordCount"], 30)
         self.assertEqual(small_side["metrics"]["recordCount"], 10)
@@ -384,10 +398,15 @@ class TestComparisonEngineImprovements(unittest.TestCase):
 # 8. UNIFIED CONFIDENCE FRAMEWORK
 # =============================================================================
 
+
 class TestUnifiedConfidence(unittest.TestCase):
 
     def test_high_intent_gives_high_label(self):
-        intent = {"category": "Performance", "subcategory": "TopPerformers", "confidence": "high"}
+        intent = {
+            "category": "Performance",
+            "subcategory": "TopPerformers",
+            "confidence": "high",
+        }
         conf = acf.compute_confidence(intent_result=intent)
         self.assertEqual(conf.label, "high")
         self.assertGreaterEqual(conf.score, 0.75)
@@ -399,33 +418,52 @@ class TestUnifiedConfidence(unittest.TestCase):
         self.assertLess(conf.score, 0.75)
 
     def test_medium_intent(self):
-        intent = {"category": "Leave", "subcategory": "CurrentLeave", "confidence": "medium"}
+        intent = {
+            "category": "Leave",
+            "subcategory": "CurrentLeave",
+            "confidence": "medium",
+        }
         conf = acf.compute_confidence(intent_result=intent)
         self.assertIn(conf.label, ("medium", "high"))
 
     def test_plan_only(self):
         class FakePlan:
             confidence = 0.85
+
         conf = acf.compute_confidence(plan=FakePlan())
         self.assertEqual(conf.label, "high")
 
     def test_combined_intent_and_plan(self):
-        intent = {"category": "Medical", "subcategory": "ActiveCases", "confidence": "high"}
+        intent = {
+            "category": "Medical",
+            "subcategory": "ActiveCases",
+            "confidence": "high",
+        }
+
         class FakePlan:
             confidence = 0.85
+
         conf = acf.compute_confidence(intent_result=intent, plan=FakePlan())
         self.assertEqual(conf.label, "high")
         self.assertGreater(conf.score, 0.75)
 
     def test_to_dict_has_score_and_label(self):
-        intent = {"category": "Attendance", "subcategory": "PresentToday", "confidence": "high"}
+        intent = {
+            "category": "Attendance",
+            "subcategory": "PresentToday",
+            "confidence": "high",
+        }
         conf = acf.compute_confidence(intent_result=intent)
         d = conf.to_dict()
         self.assertIn("score", d)
         self.assertIn("label", d)
 
     def test_normalise_intent_confidence(self):
-        intent = {"category": "Skills", "subcategory": "BySport", "confidence": "medium"}
+        intent = {
+            "category": "Skills",
+            "subcategory": "BySport",
+            "confidence": "medium",
+        }
         updated = acf.normalise_intent_confidence(intent)
         self.assertIsInstance(updated["confidence"], dict)
         self.assertIn("score", updated["confidence"])
@@ -435,6 +473,7 @@ class TestUnifiedConfidence(unittest.TestCase):
 # =============================================================================
 # 9. BACKWARD COMPATIBILITY
 # =============================================================================
+
 
 class TestBackwardCompatibility(unittest.TestCase):
 
@@ -481,7 +520,13 @@ class TestBackwardCompatibility(unittest.TestCase):
         """plan.to_dict() must include standard keys."""
         plan = plan_query("Show top 5 performers")
         d = plan.to_dict()
-        for key in ("queryType", "confidence", "operationCount", "reasoning", "operations"):
+        for key in (
+            "queryType",
+            "confidence",
+            "operationCount",
+            "reasoning",
+            "operations",
+        ):
             self.assertIn(key, d)
 
     def test_sub_operation_to_dict_schema(self):

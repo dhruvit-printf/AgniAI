@@ -19,6 +19,7 @@ a feature at runtime — no code changes required.
 from __future__ import annotations
 
 from functools import lru_cache
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -73,6 +74,7 @@ class FeatureFlags(BaseSettings):
         is False so operators know the system is running in degraded mode.
         """
         import logging
+
         val = getattr(self, feature, False)
         if not val:
             logging.getLogger(__name__).info(
