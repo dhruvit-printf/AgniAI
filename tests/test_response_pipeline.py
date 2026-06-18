@@ -115,5 +115,130 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertEqual(resp["sessionId"], "session-123")
 
 
+class TestBuildResponseSecurity:
+    def test_dotnet_response_never_in_payload(self):
+        """SECURITY: raw backend data must never reach the frontend."""
+        from response_builder import build_response
+        intent = {"category": "Performance", 
+                  "subcategory": "TopPerformers", 
+                  "confidence": "high"}
+        resp = build_response(
+            query_type="simple",
+            intro_message="Intro",
+            combined_result={"records": [{"agniveerId": 1}]},
+            analysis={"summary": "S", "observations": [], "insights": []},
+            conclusion={"summary": "C"},
+            intent=intent,
+            raw_results=[{"secret": "data"}],
+            confidence=0.9,
+            operation_count=1,
+            formatted_data="formatted",
+        )
+        assert "dotnetResponse" not in resp
+        assert "rawResponse" not in resp
+        assert "raw_results" not in resp
+
+    def test_stack_trace_never_in_payload(self):
+        from response_builder import build_response
+        intent = {"category": "Leave", "subcategory": "CurrentLeave",
+                  "confidence": 0.8}
+        resp = build_response(
+            query_type="simple", intro_message="",
+            combined_result={}, analysis=None, conclusion=None,
+            intent=intent, raw_results=[], confidence=0.5,
+            operation_count=1, formatted_data="",
+        )
+        resp_str = str(resp)
+        assert "traceback" not in resp_str.lower()
+        assert "exception" not in resp_str.lower()
+
+
+class TestBuildCombinedMessage:
+    def test_empty_analysis_no_crash(self):
+        from response_builder import build_combined_message
+        result = build_combined_message("Intro", "Data", None, None)
+        assert "Intro" in result
+        assert "Data" in result
+
+    def test_all_parts_present(self):
+        from response_builder import build_combined_message
+        analysis = {"summary": "Sum", "observations": ["O1"], 
+                    "insights": ["I1"]}
+        conclusion = {"summary": "End"}
+        result = build_combined_message("Start", "Middle", 
+                                         analysis, conclusion)
+        assert "Start" in result
+        assert "Middle" in result
+        assert "Sum" in result
+        assert "O1" in result
+        assert "I1" in result
+        assert "End" in result
+
+    def test_empty_strings_excluded(self):
+        from response_builder import build_combined_message
+        result = build_combined_message("", "", None, None)
+        assert result.strip() == ""
+
+    def test_confidence_string_normalized_to_float(self):
+        from response_builder import build_response
+        intent = {"category": "Medical", "subcategory": "ActiveCases",
+                  "confidence": "high"}
+        resp = build_response(
+            query_type="simple", intro_message="",
+            combined_result={}, analysis=None, conclusion=None,
+            intent=intent, raw_results=[], confidence=0.9,
+            operation_count=1, formatted_data="",
+        )
+        assert resp["intent"]["confidence"] == 0.95
+        assert isinstance(resp["intent"]["confidence"], float)
+
+    def test_confidence_medium_normalized(self):
+        from response_builder import build_response
+        intent = {"category": "Leave", "subcategory": "MostLeaveTaken",
+                  "confidence": "medium"}
+        resp = build_response(
+            query_type="simple", intro_message="",
+            combined_result={}, analysis=None, conclusion=None,
+            intent=intent, raw_results=[], confidence=0.7,
+            operation_count=1, formatted_data="",
+        )
+        assert resp["intent"]["confidence"] == 0.70
+
+    def test_confidence_low_normalized(self):
+        from response_builder import build_response
+        intent = {"confidence": "low"}
+        resp = build_response(
+            query_type="simple", intro_message="",
+            combined_result={}, analysis=None, conclusion=None,
+            intent=intent, raw_results=[], confidence=0.3,
+            operation_count=1, formatted_data="",
+        )
+        assert resp["intent"]["confidence"] == 0.30
+
+    def test_session_id_omitted_when_default(self):
+        from response_builder import build_response
+        intent = {"confidence": 0.9}
+        resp = build_response(
+            query_type="simple", intro_message="",
+            combined_result={}, analysis=None, conclusion=None,
+            intent=intent, raw_results=[], confidence=0.9,
+            operation_count=1, formatted_data="",
+            session_id="admin-default",
+        )
+        assert "sessionId" not in resp
+
+    def test_session_id_included_when_not_default(self):
+        from response_builder import build_response
+        intent = {"confidence": 0.9}
+        resp = build_response(
+            query_type="simple", intro_message="",
+            combined_result={}, analysis=None, conclusion=None,
+            intent=intent, raw_results=[], confidence=0.9,
+            operation_count=1, formatted_data="",
+            session_id="real-session-abc",
+        )
+        assert resp["sessionId"] == "real-session-abc"
+
+
 if __name__ == "__main__":
     unittest.main()

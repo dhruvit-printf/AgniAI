@@ -114,6 +114,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
                 "type": "error",
                 "message": "Failed to process request.",
             })
+            ws_manager.send_json(sid, {"type": "done"})
             return
 
         # ── Stream response sections ────────────────────────────────────────
@@ -156,6 +157,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
             "error": str(exc)
         }))
         ws_manager.send_json(sid, {"type": "error", "message": "Failed to process request."})
+        ws_manager.send_json(sid, {"type": "done"})
 
 
 
