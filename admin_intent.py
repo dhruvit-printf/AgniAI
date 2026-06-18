@@ -799,6 +799,7 @@ def admin_normalize_query(query: str) -> str:
 
 _SECTION_MAP: Dict[str, str] = {
     "bpet":   "BPET",
+    "bept":   "BPET",
     "ppt":    "PPT",
     "firing": "Firing",
     "drill":  "Drill",

@@ -336,3 +336,27 @@ def compare_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
         "sides":           sides,
         "comparedMetrics": sorted(all_metric_keys),
     }
+
+
+def combine_results(
+    raw_results: List[Any],
+    labeled_results: List[Tuple[str, Any]],
+    qtype_str: str,
+    primary_intent: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Perform the result combination phase.
+    Delegates to appropriate intersection/comparison/merge strategy based on qtype_str.
+    """
+    if qtype_str == "cross_filter":
+        logger.info("result_combiner: intersect_results across %d sets", len(raw_results))
+        return intersect_results(raw_results, primary_index=0)
+    elif qtype_str == "comparison":
+        logger.info("result_combiner: compare_results across %d sides", len(labeled_results))
+        return compare_results(labeled_results)
+    elif qtype_str == "multi_independent":
+        logger.info("result_combiner: merge_results across %d sections", len(labeled_results))
+        return merge_results(labeled_results)
+    else:
+        logger.info("result_combiner: simple passthrough")
+        return raw_results[0] if raw_results else {}

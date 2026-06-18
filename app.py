@@ -191,7 +191,7 @@ def _limit_route(limit_value: str):
 
 
 # ── Wire admin rate limits AFTER limiter is initialised ───────────────────
-_register_rate_limits(app)
+_register_rate_limits(app, _limiter)
 
 
 # =============================================================================

@@ -28,34 +28,17 @@ import requests as _requests
 from admin_intent import admin_normalize_query, classify_admin_intent, format_admin_payload
 from config import _is_greeting, _is_small_talk, _is_patriotic, GREETING_PHRASES
 from query_planner import plan_query, QueryType
-from result_combiner import intersect_results, merge_results, compare_results
+from result_combiner import combine_results
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
 from admin_formatter import format_dotnet_response
 from report_generator import generate_report
 from response_builder import build_response
+from dotnet_executor import _call_dotnet
 
 logger = logging.getLogger(__name__)
 
 _session_context = AdminSessionContext()
-
-# =============================================================================
-# .NET CONFIGURATION
-# =============================================================================
-
-DOTNET_API_BASE_URL = os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257")
-DOTNET_EXECUTE_URL  = f"{DOTNET_API_BASE_URL}/api/AiCommand/execute"
-DOTNET_API_KEY      = os.getenv("DOTNET_API_KEY", "")
-DOTNET_TIMEOUT      = int(os.getenv("DOTNET_TIMEOUT", "30"))
-
-_skip_raw = os.getenv("DOTNET_SKIP_SSL_VERIFY", os.getenv("DOTNET_VERIFY_SSL", "0"))
-DOTNET_VERIFY_SSL = _skip_raw.strip() not in {"1", "true", "True"}
-
-_dotnet_session = _requests.Session()
-
-if not DOTNET_VERIFY_SSL:
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 # =============================================================================
@@ -107,43 +90,6 @@ def _get_full_name(data: Dict) -> str:
     """Extract the admin's full name from the request body."""
     return (data.get("fullName") or data.get("full_name") or "").strip()
 
-
-def _call_dotnet(payload: Dict) -> Tuple[Any, Optional[str]]:
-    """
-    Execute a single .NET API call.
-
-    Returns (data, None) on success, or (None, error_message) on failure.
-    """
-    headers = {"Content-Type": "application/json"}
-    if DOTNET_API_KEY:
-        headers["X-Api-Key"] = DOTNET_API_KEY
-
-    logger.debug("Calling .NET: payload=%s", json.dumps(payload))
-
-    try:
-        resp = _dotnet_session.post(
-            DOTNET_EXECUTE_URL,
-            json=payload,
-            headers=headers,
-            timeout=DOTNET_TIMEOUT,
-            verify=DOTNET_VERIFY_SSL,
-        )
-        if resp.status_code >= 400:
-            try:
-                err_body = resp.json()
-            except Exception:
-                err_body = resp.text[:400]
-            return None, f"Backend returned HTTP {resp.status_code}: {err_body}"
-        return resp.json(), None
-
-    except _requests.ConnectionError as exc:
-        return None, f"Cannot connect to .NET backend at {DOTNET_EXECUTE_URL}. ({exc})"
-    except _requests.Timeout:
-        return None, f"Backend timed out after {DOTNET_TIMEOUT}s."
-    except _requests.RequestException as exc:
-        return None, f"Backend request failed: {exc}"
-    except ValueError as exc:
-        return None, f"Backend returned invalid JSON: {exc}"
 
 
 # =============================================================================
@@ -293,32 +239,7 @@ def execute_admin_query(
     Execute the complete admin query pipeline.
 
     This is the ONLY orchestration function. Both HTTP and WebSocket
-    transports call this function — they differ only in how they
-    deliver the result.
-
-    Parameters
-    ----------
-    user_query : str
-        The raw user query text.
-    body : dict
-        The full request body (contains filters, names, session info).
-    session_id : str, optional
-        Override session ID. If None, extracted from body.
-    progress_callback : callable, optional
-        If provided, called with a stage name string at each pipeline step.
-        Used by WebSocket transport to emit real-time progress events.
-        HTTP transport passes None (no progress needed).
-
-    Returns
-    -------
-    dict with keys:
-        "type"              : "greeting" | "conversational" | "query" | "unrecognised" | "error"
-        "greeting_message"  : str (for greeting/conversational)
-        "response_data"     : dict (for greeting/conversational — type/sessionId)
-        "response_payload"  : dict (for query — full build_response output)
-        "combined_message"  : str (for query — the text bubble)
-        "execution_time_ms" : int (for query)
-        "error_message"     : str (for error)
+    transports call this function.
     """
     def _notify(stage: str) -> None:
         """Fire progress_callback if one was provided."""
@@ -327,329 +248,266 @@ def execute_admin_query(
                 progress_callback(stage)
             except Exception as exc:
                 logger.debug("progress_callback(%s) failed: %s", stage, exc)
+
     start_time = time.time()
+    try:
+        message = (user_query or "").strip()
+        if session_id is None:
+            session_id = _get_session_id(body)
+        id_filters = _get_id_filters(body)
+        full_name  = _get_full_name(body)
 
-    message = (user_query or "").strip()
-    if session_id is None:
-        session_id = _get_session_id(body)
-    id_filters = _get_id_filters(body)
-    full_name  = _get_full_name(body)
+        # ── Greeting / conversational short-circuit ─────────────────────────────
+        if _is_admin_conversational(message):
+            cleaned = message.lower().strip().rstrip("!?.,;")
+            if _is_greeting(cleaned):
+                response_data, greeting_message = _build_greeting_response(body, session_id)
+            else:
+                response_data, greeting_message = _build_conversational_response(message, body, session_id)
 
-    # ── Greeting / conversational short-circuit ─────────────────────────────
-    if _is_admin_conversational(message):
-        cleaned = message.lower().strip().rstrip("!?.,;")
-        if _is_greeting(cleaned):
-            response_data, greeting_message = _build_greeting_response(body, session_id)
-        else:
-            response_data, greeting_message = _build_conversational_response(message, body, session_id)
-        return {
-            "type": response_data.get("type", "greeting"),
-            "greeting_message": greeting_message,
-            "response_data": response_data,
-        }
+            # Fire progress events to maintain identical streaming behavior
+            _notify("planner")
+            _notify("intent")
+            _notify("dotnet")
+            _notify("combiner")
+            _notify("report")
 
-    if not message:
-        return {
-            "type": "error",
-            "error_message": "message field is required and cannot be empty.",
-        }
-
-    # ── Step 1: Resolve Named Entities ──────────────────────────────────────
-    _notify("planner")
-    resolved_entities = resolve_entities_from_query(
-        message,
-        existing_company_id=id_filters.get("companyId"),
-        existing_platoon_id=id_filters.get("platoonId"),
-    )
-    if resolved_entities.get("companyId") is not None:
-        id_filters["companyId"] = resolved_entities["companyId"]
-    if resolved_entities.get("platoonId") is not None:
-        id_filters["platoonId"] = resolved_entities["platoonId"]
-
-    # ── Step 2: Query Planner ───────────────────────────────────────────────
-    message    = admin_normalize_query(message)
-    query_plan = plan_query(message)
-    _notify("intent")
-
-    logger.info(
-        "Query plan: session=%s type=%s confidence=%.2f ops=%d reason=%s",
-        session_id,
-        query_plan.query_type.value,
-        query_plan.confidence,
-        len(query_plan.operations),
-        query_plan.reasoning,
-    )
-
-    # ── Step 3: Execute .NET API Call(s) ────────────────────────────────────
-    _notify("dotnet")
-    raw_results:     List[Any]             = []
-    labeled_results: List[Tuple[str, Any]] = []
-    primary_intent:  Dict[str, Any]        = {}
-    qtype_str:       str                   = "simple"
-    operation_count: int                   = 1
-
-    if (query_plan.query_type != QueryType.SIMPLE
-            and query_plan.confidence >= 0.5
-            and len(query_plan.operations) >= 2):
-
-        # MULTI-OP: one .NET call per sub-operation
-        qtype_str = map_query_type(query_plan.query_type)
-        operation_count = len(query_plan.operations)
-        logger.info(
-            "Multi-op: session=%s type=%s ops=%d",
-            session_id, qtype_str, operation_count,
-        )
-
-        for i, op in enumerate(query_plan.operations):
-            payload = dict(op.dotnet_payload)
-            payload.update(id_filters)
-            if full_name:
-                payload["fullName"] = full_name
-
-            logger.info(
-                "Multi-op %d/%d → .NET: %s",
-                i + 1, operation_count, json.dumps(payload),
-            )
-
-            dotnet_data, dotnet_error = _call_dotnet(payload)
-            if dotnet_error:
-                logger.warning("Multi-op %d/%d failed: %s", i + 1, operation_count, dotnet_error)
-                return {
-                    "type": "error",
-                    "error_message": "Unable to fetch data at the moment. Please try again shortly.",
-                }
-
-            raw_results.append(dotnet_data)
-            label = op.intent_result.get("category", f"Query {i + 1}")
-            labeled_results.append((label, dotnet_data))
-
-        primary_intent = query_plan.operations[0].intent_result
-
-    else:
-        # SIMPLE / ANALYTICS: single .NET call
-        qtype_str = "simple"
-        operation_count = 1
-
-        if (query_plan.query_type == QueryType.ANALYTICS
-                and query_plan.operations
-                and query_plan.operations[0].intent_result.get("category")):
-            primary_intent = query_plan.operations[0].intent_result
-            logger.info(
-                "Analytics intent: session=%s category=%s subcategory=%s hint=%s",
-                session_id,
-                primary_intent.get("category"),
-                primary_intent.get("subcategory"),
-                query_plan.analytics_hint,
-            )
-        else:
-            primary_intent = classify_admin_intent(message)
-            logger.info(
-                "Intent: session=%s category=%s subcategory=%s confidence=%s",
-                session_id,
-                primary_intent.get("category"),
-                primary_intent.get("subcategory"),
-                primary_intent.get("confidence"),
-            )
-
-        # Unrecognised query
-        if primary_intent.get("category") is None:
-            unrecognised_msg = (
-                "Sorry, I was unable to understand your request. "
-                "I can help with Performance, Leave, Attendance, Medical, Equipment, "
-                "Verification, Distribution, and Skills information. "
-                "Please ask a relevant question."
-            )
+            qtype = response_data.get("type", "greeting")
             response_payload = build_response(
-                query_type=qtype_str,
-                intro_message=unrecognised_msg,
+                query_type=qtype,
+                intro_message=greeting_message,
                 combined_result={},
                 analysis={"summary": "", "observations": [], "insights": []},
                 conclusion={"summary": ""},
-                intent=primary_intent,
+                intent={"category": qtype, "subcategory": "", "confidence": 1.0},
                 raw_results=[],
-                confidence=query_plan.confidence,
+                confidence=1.0,
                 operation_count=0,
                 formatted_data="",
                 session_id=session_id,
             )
+
+            execution_time_ms = round((time.time() - start_time) * 1000)
+            response_payload["metadata"]["executionTimeMs"] = execution_time_ms
+
             combined_message = response_payload.pop("message", "")
             return {
-                "type": "unrecognised",
+                "type": qtype,
                 "response_payload": response_payload,
                 "combined_message": combined_message,
+                "execution_time_ms": execution_time_ms,
             }
 
-        dotnet_payload = format_admin_payload(primary_intent)
-        dotnet_payload.update(id_filters)
-        if full_name:
-            dotnet_payload["fullName"] = full_name
-
-        if query_plan.query_type == QueryType.ANALYTICS and query_plan.operations:
-            op = query_plan.operations[0]
-            if getattr(op, "group_by", None):
-                dotnet_payload["groupBy"] = op.group_by
-            if query_plan.analytics_hint:
-                dotnet_payload["analyticsHint"] = query_plan.analytics_hint
-
-        logger.info("Sending to .NET: %s", json.dumps(dotnet_payload))
-
-        dotnet_data, dotnet_error = _call_dotnet(dotnet_payload)
-        if dotnet_error:
-            logger.warning("Admin .NET call failed: %s", dotnet_error)
+        if not message:
             return {
                 "type": "error",
-                "error_message": "Unable to fetch data at the moment. Please try again shortly.",
+                "error_message": "Failed to process request.",
             }
 
-        raw_results     = [dotnet_data]
-        labeled_results = [(primary_intent.get("category", "Result"), dotnet_data)]
-
-    # ── Step 4: Result Combiner ─────────────────────────────────────────────
-    _notify("combiner")
-    if qtype_str == "cross_filter":
-        logger.info("result_combiner: intersect_results across %d sets", len(raw_results))
-        combined_result = intersect_results(raw_results, primary_index=0)
-    elif qtype_str == "comparison":
-        logger.info("result_combiner: compare_results across %d sides", len(labeled_results))
-        combined_result = compare_results(labeled_results)
-    elif qtype_str == "multi_independent":
-        logger.info("result_combiner: merge_results across %d sections", len(labeled_results))
-        combined_result = merge_results(labeled_results)
-    else:
-        logger.info("result_combiner: simple passthrough")
-        combined_result = raw_results[0] if raw_results else {}
-
-    # ── Step 5: Format combined result to human-readable plain text ─────────
-    formatted_data = format_dotnet_response(combined_result, primary_intent)
-
-    # ── Step 6: Report Generator (intro + analysis + conclusion) ────────────
-    _notify("report")
-    report = generate_report(
-        combined_result=combined_result,
-        query_type=qtype_str,
-        intent=primary_intent,
-        user_query=message,
-    )
-
-    # ── Update session context ──────────────────────────────────────────────
-    _session_context.update(session_id, message, primary_intent, combined_result)
-
-    # ── Step 7: Response Builder ────────────────────────────────────────────
-    response_payload = build_response(
-        query_type=qtype_str,
-        intro_message=report.get("introMessage", ""),
-        combined_result=combined_result,
-        analysis=report.get("analysis") or {},
-        conclusion=report.get("conclusion") or {},
-        intent=primary_intent,
-        raw_results=raw_results,
-        confidence=query_plan.confidence,
-        operation_count=operation_count,
-        formatted_data=formatted_data,
-        session_id=session_id,
-    )
-
-    execution_time_ms = round((time.time() - start_time) * 1000)
-    response_payload["metadata"]["executionTimeMs"] = execution_time_ms
-
-    logger.info(
-        "Admin pipeline complete: session=%s elapsed=%dms",
-        session_id,
-        execution_time_ms,
-    )
-
-    combined_message = response_payload.pop("message", "")
-    return {
-        "type": "query",
-        "response_payload": response_payload,
-        "combined_message": combined_message,
-        "execution_time_ms": execution_time_ms,
-    }
-
-
-# =============================================================================
-# DEBUG / HEALTH HELPERS (used by admin_routes.py)
-# =============================================================================
-
-def classify_for_debug(
-    message: str,
-    body: Dict[str, Any],
-) -> Dict[str, Any]:
-    """
-    Classify-only helper for the /api/admin/classify debug endpoint.
-
-    Returns intent, dotnet payload, and query plan without executing .NET.
-    This keeps all planner/intent logic inside the pipeline module.
-    """
-    session_id = _get_session_id(body)
-    id_filters = _get_id_filters(body)
-    full_name  = _get_full_name(body)
-
-    # Greeting / conversational short-circuit
-    if _is_admin_conversational(message):
-        cleaned = message.lower().strip().rstrip("!?.,;")
-        if _is_greeting(cleaned):
-            response_data, greeting_message = _build_greeting_response(body, session_id)
-        else:
-            response_data, greeting_message = _build_conversational_response(message, body, session_id)
-        return {"type": "greeting", "response_data": response_data, "greeting_message": greeting_message}
-
-    # Entity resolution
-    resolved_entities = resolve_entities_from_query(
-        message,
-        existing_company_id=id_filters.get("companyId"),
-        existing_platoon_id=id_filters.get("platoonId"),
-    )
-    if resolved_entities.get("companyId") is not None:
-        id_filters["companyId"] = resolved_entities["companyId"]
-    if resolved_entities.get("platoonId") is not None:
-        id_filters["platoonId"] = resolved_entities["platoonId"]
-
-    # Classify
-    message        = admin_normalize_query(message)
-    intent_result  = classify_admin_intent(message)
-    dotnet_payload = format_admin_payload(intent_result)
-    dotnet_payload.update(id_filters)
-    if full_name:
-        dotnet_payload["fullName"] = full_name
-
-    query_plan = plan_query(message)
-
-    result: Dict[str, Any] = {
-        "type":          "classify",
-        "queryType":     query_plan.query_type.value,
-        "confidence":    round(query_plan.confidence, 2),
-        "queryPlan":     query_plan.to_dict(),
-        "intent":        intent_result,
-        "dotnetPayload": dotnet_payload,
-    }
-    if session_id and session_id != "admin-default":
-        result["sessionId"] = session_id
-
-    return result
-
-
-def check_dotnet_health() -> Dict[str, Any]:
-    """
-    Check .NET backend connectivity.
-
-    Returns a dict with reachability status and URL info.
-    This keeps the .NET session and config encapsulated in the pipeline module.
-    """
-    dotnet_ok = True
-    try:
-        resp = _dotnet_session.get(
-            f"{DOTNET_API_BASE_URL}/api/health",
-            timeout=5,
-            verify=DOTNET_VERIFY_SSL,
+        # ── Step 1: Resolve Named Entities ──────────────────────────────────────
+        _notify("planner")
+        resolved_entities = resolve_entities_from_query(
+            message,
+            existing_company_id=id_filters.get("companyId"),
+            existing_platoon_id=id_filters.get("platoonId"),
         )
-        dotnet_ok = resp.status_code < 400
-    except Exception:
-        dotnet_ok = False
+        if resolved_entities.get("companyId") is not None:
+            id_filters["companyId"] = resolved_entities["companyId"]
+        if resolved_entities.get("platoonId") is not None:
+            id_filters["platoonId"] = resolved_entities["platoonId"]
 
-    return {
-        "pythonStatus":  "ok",
-        "dotnetBackend": "reachable" if dotnet_ok else "unreachable",
-        "dotnetUrl":     DOTNET_EXECUTE_URL,
-        "pythonPort":    5000,
-    }
+        # ── Step 2: Query Planner ───────────────────────────────────────────────
+        message    = admin_normalize_query(message)
+        query_plan = plan_query(message)
+        _notify("intent")
+
+        logger.info(
+            "Query plan: session=%s type=%s confidence=%.2f ops=%d reason=%s",
+            session_id,
+            query_plan.query_type.value,
+            query_plan.confidence,
+            len(query_plan.operations),
+            query_plan.reasoning,
+        )
+
+        # ── Step 3: Execute .NET API Call(s) ────────────────────────────────────
+        _notify("dotnet")
+        raw_results:     List[Any]             = []
+        labeled_results: List[Tuple[str, Any]] = []
+        primary_intent:  Dict[str, Any]        = {}
+        qtype_str:       str                   = "simple"
+        operation_count: int                   = 1
+
+        if (query_plan.query_type != QueryType.SIMPLE
+                and query_plan.confidence >= 0.5
+                and len(query_plan.operations) >= 2):
+
+            # MULTI-OP: one .NET call per sub-operation
+            qtype_str = map_query_type(query_plan.query_type)
+            operation_count = len(query_plan.operations)
+            logger.info(
+                "Multi-op: session=%s type=%s ops=%d",
+                session_id, qtype_str, operation_count,
+            )
+
+            for i, op in enumerate(query_plan.operations):
+                payload = dict(op.dotnet_payload)
+                payload.update(id_filters)
+                if full_name:
+                    payload["fullName"] = full_name
+
+                logger.info(
+                    "Multi-op %d/%d → .NET: %s",
+                    i + 1, operation_count, json.dumps(payload),
+                )
+
+                dotnet_data, dotnet_error = _call_dotnet(payload)
+                if dotnet_error:
+                    logger.warning("Multi-op %d/%d failed: %s", i + 1, operation_count, dotnet_error)
+                    return {
+                        "type": "error",
+                        "error_message": "Failed to process request.",
+                    }
+
+                raw_results.append(dotnet_data)
+                label = op.intent_result.get("category", f"Query {i + 1}")
+                labeled_results.append((label, dotnet_data))
+
+            primary_intent = query_plan.operations[0].intent_result
+
+        else:
+            # SIMPLE / ANALYTICS: single .NET call
+            qtype_str = "simple"
+            operation_count = 1
+
+            if (query_plan.query_type == QueryType.ANALYTICS
+                    and query_plan.operations
+                    and query_plan.operations[0].intent_result.get("category")):
+                primary_intent = query_plan.operations[0].intent_result
+                logger.info(
+                    "Analytics intent: session=%s category=%s subcategory=%s hint=%s",
+                    session_id,
+                    primary_intent.get("category"),
+                    primary_intent.get("subcategory"),
+                    query_plan.analytics_hint,
+                )
+            else:
+                primary_intent = classify_admin_intent(message)
+                logger.info(
+                    "Intent: session=%s category=%s subcategory=%s confidence=%s",
+                    session_id,
+                    primary_intent.get("category"),
+                    primary_intent.get("subcategory"),
+                    primary_intent.get("confidence"),
+                )
+
+            # Unrecognised query
+            if primary_intent.get("category") is None:
+                unrecognised_msg = (
+                    "Sorry, I was unable to understand your request. "
+                    "I can help with Performance, Leave, Attendance, Medical, Equipment, "
+                    "Verification, Distribution, and Skills information. "
+                    "Please ask a relevant question."
+                )
+                response_payload = build_response(
+                    query_type=qtype_str,
+                    intro_message=unrecognised_msg,
+                    combined_result={},
+                    analysis={"summary": "", "observations": [], "insights": []},
+                    conclusion={"summary": ""},
+                    intent=primary_intent,
+                    raw_results=[],
+                    confidence=query_plan.confidence,
+                    operation_count=0,
+                    formatted_data="",
+                    session_id=session_id,
+                )
+                combined_message = response_payload.pop("message", "")
+                return {
+                    "type": "unrecognised",
+                    "response_payload": response_payload,
+                    "combined_message": combined_message,
+                }
+
+            dotnet_payload = format_admin_payload(primary_intent)
+            dotnet_payload.update(id_filters)
+            if full_name:
+                dotnet_payload["fullName"] = full_name
+
+            if query_plan.query_type == QueryType.ANALYTICS and query_plan.operations:
+                op = query_plan.operations[0]
+                if getattr(op, "group_by", None):
+                    dotnet_payload["groupBy"] = op.group_by
+                if query_plan.analytics_hint:
+                    dotnet_payload["analyticsHint"] = query_plan.analytics_hint
+
+            logger.info("Sending to .NET: %s", json.dumps(dotnet_payload))
+
+            dotnet_data, dotnet_error = _call_dotnet(dotnet_payload)
+            if dotnet_error:
+                logger.warning("Admin .NET call failed: %s", dotnet_error)
+                return {
+                    "type": "error",
+                    "error_message": "Failed to process request.",
+                }
+
+            raw_results     = [dotnet_data]
+            labeled_results = [(primary_intent.get("category", "Result"), dotnet_data)]
+
+        # ── Step 4: Result Combiner ─────────────────────────────────────────────
+        _notify("combiner")
+        combined_result = combine_results(raw_results, labeled_results, qtype_str, primary_intent)
+
+        # ── Step 5: Format combined result to human-readable plain text ─────────
+        formatted_data = format_dotnet_response(combined_result, primary_intent)
+
+        # ── Step 6: Report Generator (intro + analysis + conclusion) ────────────
+        _notify("report")
+        report = generate_report(
+            combined_result=combined_result,
+            query_type=qtype_str,
+            intent=primary_intent,
+            user_query=message,
+        )
+
+        # ── Update session context ──────────────────────────────────────────────
+        _session_context.update(session_id, message, primary_intent, combined_result)
+
+        # ── Step 7: Response Builder ────────────────────────────────────────────
+        response_payload = build_response(
+            query_type=qtype_str,
+            intro_message=report.get("introMessage", ""),
+            combined_result=combined_result,
+            analysis=report.get("analysis") or {},
+            conclusion=report.get("conclusion") or {},
+            intent=primary_intent,
+            raw_results=raw_results,
+            confidence=query_plan.confidence,
+            operation_count=operation_count,
+            formatted_data=formatted_data,
+            session_id=session_id,
+        )
+
+        execution_time_ms = round((time.time() - start_time) * 1000)
+        response_payload["metadata"]["executionTimeMs"] = execution_time_ms
+
+        logger.info(
+            "Admin pipeline complete: session=%s elapsed=%dms",
+            session_id,
+            execution_time_ms,
+        )
+
+        combined_message = response_payload.pop("message", "")
+        return {
+            "type": "query",
+            "response_payload": response_payload,
+            "combined_message": combined_message,
+            "execution_time_ms": execution_time_ms,
+        }
+    except Exception as exc:
+        logger.exception("Error in execute_admin_query: %s", exc)
+        return {
+            "type": "error",
+            "error_message": "Failed to process request."
+        }
+

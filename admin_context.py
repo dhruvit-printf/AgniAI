@@ -7,6 +7,7 @@ Provides session tracking and follow-up query context detection for the AgniAI A
 from __future__ import annotations
 import logging
 import re
+import threading
 from typing import Any, Dict, Optional, Set
 
 logger = logging.getLogger(__name__)
@@ -66,25 +67,28 @@ class AdminSessionContext:
     def __init__(self) -> None:
         # Maps session_id -> dict with previous query details
         self._history: Dict[str, Dict[str, Any]] = {}
+        self._lock = threading.Lock()
 
     def is_followup_query(self, session_id: str, query_text: str) -> bool:
         """
         Determine if the current query is a follow-up to the previous query in this session.
         A query is a follow-up if we have previous results in this session and the current query
-        contains one or more follow-up pronouns/indicators (e.g. "them", "these", "those", "their", "they", "which of").
+        contains one or more follow-up pronouns/indicators (e.g. "them", "these", "those", "their", "they", "him", "her",
+        "which of", "who among", "any of", "some of", "each of").
         """
-        if session_id not in self._history:
-            return False
+        with self._lock:
+            if session_id not in self._history:
+                return False
 
-        q = (query_text or "").lower()
-        indicators = {
-            "them", "those", "these", "their", "they", "him", "her",
-            "which of", "who among", "any of", "some of", "each of"
-        }
-        for ind in indicators:
-            if re.search(r"\b" + re.escape(ind) + r"\b", q):
-                return True
-        return False
+            q = (query_text or "").lower()
+            indicators = {
+                "them", "those", "these", "their", "they", "him", "her",
+                "which of", "who among", "any of", "some of", "each of"
+            }
+            for ind in indicators:
+                if re.search(r"\b" + re.escape(ind) + r"\b", q):
+                    return True
+            return False
 
     def update(
         self,
@@ -97,11 +101,12 @@ class AdminSessionContext:
         Store context history for the current session.
         """
         ids = _extract_ids_from_result(result_data)
-        self._history[session_id] = {
-            "query": query_text,
-            "intent": intent_dict,
-            "ids": ids,
-        }
+        with self._lock:
+            self._history[session_id] = {
+                "query": query_text,
+                "intent": intent_dict,
+                "ids": ids,
+            }
         logger.debug(
             "Updated session %s history: %d ids stored", session_id, len(ids)
         )
@@ -110,14 +115,16 @@ class AdminSessionContext:
         """
         Get the set of Agniveer IDs from the previous result in this session.
         """
-        if session_id in self._history:
-            return self._history[session_id]["ids"]
-        return None
+        with self._lock:
+            if session_id in self._history:
+                return self._history[session_id]["ids"]
+            return None
 
     def clear(self, session_id: str) -> None:
         """
         Clear history for the given session.
         """
-        if session_id in self._history:
-            del self._history[session_id]
-            logger.debug("Cleared session %s history", session_id)
+        with self._lock:
+            if session_id in self._history:
+                del self._history[session_id]
+                logger.debug("Cleared session %s history", session_id)

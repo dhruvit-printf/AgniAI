@@ -79,28 +79,12 @@ def _run_pipeline(sid: str, message: str, body: Dict) -> None:
 
         result_type = result.get("type", "error")
 
-        # ── Greeting / conversational ───────────────────────────────────────
-        if result_type in ("greeting", "conversational"):
-            ws_manager.send_json(sid, {"type": "intro", "data": result["greeting_message"]})
-            ws_manager.send_json(sid, {"type": "done"})
-            return
-
         # ── Error ───────────────────────────────────────────────────────────
         if result_type == "error":
             ws_manager.send_json(sid, {
                 "type": "error",
-                "message": result.get("error_message", "Failed to process request."),
+                "message": "Failed to process request.",
             })
-            return
-
-        # ── Unrecognised query ──────────────────────────────────────────────
-        if result_type == "unrecognised":
-            unrecognised_msg = result.get("combined_message", "")
-            ws_manager.send_json(sid, {"type": "intro",      "data": unrecognised_msg or "Sorry, I was unable to understand your request."})
-            ws_manager.send_json(sid, {"type": "result",     "data": {}})
-            ws_manager.send_json(sid, {"type": "analysis",   "data": {}})
-            ws_manager.send_json(sid, {"type": "conclusion", "data": {}})
-            ws_manager.send_json(sid, {"type": "done"})
             return
 
         # ── Stream response sections ────────────────────────────────────────
@@ -127,6 +111,7 @@ def _run_pipeline(sid: str, message: str, body: Dict) -> None:
     except Exception as exc:
         logger.exception("WebSocket pipeline error for sid=%s: %s", sid, exc)
         ws_manager.send_json(sid, {"type": "error", "message": "Failed to process request."})
+
 
 
 # =============================================================================
