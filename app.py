@@ -104,6 +104,14 @@ from swagger_ui import swagger_bp
 from websocket_manager import ws_manager
 from websocket_routes import register_socketio_events
 
+# ── Sentry (CRITICAL FIX: wire in at import time) ─────────────────────────
+from sentry_integration import init_sentry
+init_sentry()
+
+# ── Startup guard (CRITICAL FIX: fail fast if critical env vars missing) ──
+from settings import validate_critical_env
+validate_critical_env(dict(os.environ))
+
 logger = logging.getLogger(__name__)
 
 # ── App creation (must come before any blueprint registration) ─────────────
@@ -1310,5 +1318,4 @@ if __name__ == "__main__":
     else:
         logger.info("Knowledge base ready: %s vectors.", stats_data["vectors"])
 
-    # Use socketio.run instead of app.run to support WebSocket connections
     socketio.run(app, host="0.0.0.0", port=5000, debug=False)
