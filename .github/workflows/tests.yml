@@ -4,11 +4,16 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      APP_ENV: testing
+      DOTNET_API_BASE_URL: http://localhost
+      ENABLE_OLLAMA: "false"
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt
       - run: pip install pytest pytest-cov
-      - run: pytest --cov=. --cov-report=xml -v
+      - run: python -m pytest --cov=. --cov-report=xml -v
       - uses: codecov/codecov-action@v4

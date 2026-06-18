@@ -4,12 +4,14 @@ on: [push, pull_request]
 jobs:
   quality:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install black flake8 isort mypy
       - run: black --check .
-      - run: flake8 . --max-line-length=120 --exclude=.venv,dist
+      - run: flake8 .
       - run: isort --check .
       - run: mypy admin_pipeline.py dotnet_executor.py metrics.py --ignore-missing-imports
