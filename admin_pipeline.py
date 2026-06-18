@@ -11,6 +11,8 @@ This module owns:
   - Conversational / greeting detection
   - The full pipeline: Planner → Intent → .NET → Combiner → Report → Response
   - Session context management
+  - Audit logging
+  - OpenTelemetry span instrumentation (when enabled)
 
 No other module should contain pipeline orchestration logic.
 """
@@ -36,6 +38,9 @@ from admin_formatter import format_dotnet_response
 from report_generator import generate_report
 from response_builder import build_response
 from dotnet_executor import _call_dotnet
+from audit_logger import write_audit_log
+from telemetry import span, SPAN_PLAN_QUERY, SPAN_CLASSIFY_ADMIN_INTENT, SPAN_CALL_DOTNET
+from telemetry import SPAN_COMBINE_RESULTS, SPAN_GENERATE_REPORT, SPAN_BUILD_RESPONSE
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +64,7 @@ def map_query_type(qt: QueryType) -> str:
         return "multi_independent"
     else:
         return "simple"
+
 
 def _sanitize_error(err_msg: Any) -> str:
     """Scrub raw database response body or detail dumps from error messages."""
@@ -105,7 +111,6 @@ def _get_id_filters(data: Dict) -> Dict[str, int]:
 def _get_full_name(data: Dict) -> str:
     """Extract the admin's full name from the request body."""
     return (data.get("fullName") or data.get("full_name") or "").strip()
-
 
 
 # =============================================================================
@@ -274,34 +279,37 @@ def execute_admin_query(
                 logger.exception("progress_callback(%s) failed: %s", stage, exc)
 
     start_time = time.time()
-    
-    planner_duration = 0.0
-    intent_duration = 0.0
-    dotnet_duration = 0.0
+
+    planner_duration  = 0.0
+    intent_duration   = 0.0
+    dotnet_duration   = 0.0
     combiner_duration = 0.0
-    report_duration = 0.0
-    total_duration = 0.0
-    qtype_str = "simple"
-    
+    report_duration   = 0.0
+    total_duration    = 0.0
+    qtype_str         = "simple"
+    audit_success     = True
+    audit_error_type: Optional[str] = None
+
     try:
-        message = (user_query or "").strip()
+        message    = (user_query or "").strip()
         if session_id is None:
             session_id = _get_session_id(body)
         id_filters = _get_id_filters(body)
         full_name  = _get_full_name(body)
 
-        # ── Greeting / conversational short-circuit ─────────────────────────────
+        # ── Greeting / conversational short-circuit ──────────────────────────
         if _is_admin_conversational(message):
             cleaned = message.lower().strip().rstrip("!?.,;")
-            
+
             intent_start = time.time()
             if _is_greeting(cleaned):
                 response_data, greeting_message = _build_greeting_response(body, session_id)
             else:
-                response_data, greeting_message = _build_conversational_response(message, body, session_id, trace_id=trace_id)
+                response_data, greeting_message = _build_conversational_response(
+                    message, body, session_id, trace_id=trace_id
+                )
             intent_duration = time.time() - intent_start
 
-            # Fire progress events to maintain identical streaming behavior
             _notify("planner")
             _notify("intent")
             _notify("dotnet")
@@ -309,17 +317,17 @@ def execute_admin_query(
             _notify("report")
 
             qtype = response_data.get("type", "greeting")
-            
+
             total_duration = time.time() - start_time
             durations = {
-                "planner_duration": round(planner_duration * 1000, 2),
-                "intent_duration": round(intent_duration * 1000, 2),
-                "dotnet_duration": round(dotnet_duration * 1000, 2),
+                "planner_duration":  round(planner_duration  * 1000, 2),
+                "intent_duration":   round(intent_duration   * 1000, 2),
+                "dotnet_duration":   round(dotnet_duration   * 1000, 2),
                 "combiner_duration": round(combiner_duration * 1000, 2),
-                "report_duration": round(report_duration * 1000, 2),
-                "total_duration": round(total_duration * 1000, 2),
+                "report_duration":   round(report_duration   * 1000, 2),
+                "total_duration":    round(total_duration    * 1000, 2),
             }
-            
+
             response_payload = build_response(
                 query_type=qtype,
                 intro_message=greeting_message,
@@ -338,41 +346,46 @@ def execute_admin_query(
             execution_time_ms = round(total_duration * 1000)
             response_payload["metadata"]["executionTimeMs"] = execution_time_ms
 
-            # Structured completed log for short-circuit
             logger.info(json.dumps({
-                "message": "Admin pipeline complete",
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "query_type": qtype,
-                "duration": durations["total_duration"],
+                "message":          "Admin pipeline complete",
+                "trace_id":         trace_id,
+                "session_id":       session_id,
+                "query_type":       qtype,
+                "duration":         durations["total_duration"],
                 "planner_duration": durations["planner_duration"],
-                "intent_duration": durations["intent_duration"],
-                "dotnet_duration": durations["dotnet_duration"],
-                "combiner_duration": durations["combiner_duration"],
-                "report_duration": durations["report_duration"]
+                "intent_duration":  durations["intent_duration"],
+                "dotnet_duration":  durations["dotnet_duration"],
+                "combiner_duration":durations["combiner_duration"],
+                "report_duration":  durations["report_duration"],
             }))
 
-            # Record metrics
             metrics_collector.inc_requests(qtype)
             metrics_collector.record_duration("planner_duration", durations["planner_duration"])
-            metrics_collector.record_duration("intent_duration", durations["intent_duration"])
-            metrics_collector.record_duration("dotnet_duration", durations["dotnet_duration"])
-            metrics_collector.record_duration("report_duration", durations["report_duration"])
+            metrics_collector.record_duration("intent_duration",  durations["intent_duration"])
+            metrics_collector.record_duration("dotnet_duration",  durations["dotnet_duration"])
+            metrics_collector.record_duration("report_duration",  durations["report_duration"])
             metrics_collector.record_duration("pipeline_duration", durations["total_duration"])
 
-            # Slow query detection
             if total_duration > SLOW_QUERY_THRESHOLD:
                 logger.warning(json.dumps({
-                    "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": qtype,
-                    "duration_ms": round(total_duration * 1000, 2)
+                    "message":     f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                    "trace_id":    trace_id,
+                    "session_id":  session_id,
+                    "query_type":  qtype,
+                    "duration_ms": round(total_duration * 1000, 2),
                 }))
+
+            write_audit_log(
+                trace_id=trace_id,
+                session_id=session_id,
+                query_type=qtype,
+                query_duration=durations["total_duration"],
+                success=True,
+            )
 
             combined_message = response_payload.pop("message", "")
             return {
-                "type": qtype,
+                "type":             qtype,
                 "response_payload": response_payload,
                 "combined_message": combined_message,
                 "execution_time_ms": execution_time_ms,
@@ -380,399 +393,442 @@ def execute_admin_query(
 
         if not message:
             return {
-                "type": "error",
+                "type":          "error",
                 "error_message": "Failed to process request.",
             }
 
-        # ── Step 1: Resolve Named Entities & Step 2: Query Planner ──────────────────────────────────────
-        planner_start = time.time()
-        _notify("planner")
-        resolved_entities = resolve_entities_from_query(
-            message,
-            existing_company_id=id_filters.get("companyId"),
-            existing_platoon_id=id_filters.get("platoonId"),
-        )
-        if resolved_entities.get("companyId") is not None:
-            id_filters["companyId"] = resolved_entities["companyId"]
-        if resolved_entities.get("platoonId") is not None:
-            id_filters["platoonId"] = resolved_entities["platoonId"]
+        # ── Step 1: Resolve Named Entities ───────────────────────────────────
+        with span(SPAN_PLAN_QUERY, trace_id=trace_id):
+            planner_start = time.time()
+            _notify("planner")
+            resolved_entities = resolve_entities_from_query(
+                message,
+                existing_company_id=id_filters.get("companyId"),
+                existing_platoon_id=id_filters.get("platoonId"),
+            )
+            if resolved_entities.get("companyId") is not None:
+                id_filters["companyId"] = resolved_entities["companyId"]
+            if resolved_entities.get("platoonId") is not None:
+                id_filters["platoonId"] = resolved_entities["platoonId"]
 
-        message    = admin_normalize_query(message)
-        query_plan = plan_query(message)
-        planner_duration = time.time() - planner_start
+            message    = admin_normalize_query(message)
+            query_plan = plan_query(message)
+            planner_duration = time.time() - planner_start
 
         _notify("intent")
 
-        # ── Step 3: Intent Classification ───────────────────────────────────────────────
-        intent_start = time.time()
-        raw_results:     List[Any]             = []
-        labeled_results: List[Tuple[str, Any]] = []
-        primary_intent:  Dict[str, Any]        = {}
-        operation_count: int                   = 1
+        # ── Step 2: Intent Classification ────────────────────────────────────
+        with span(SPAN_CLASSIFY_ADMIN_INTENT, trace_id=trace_id):
+            intent_start     = time.time()
+            raw_results:     List[Any]             = []
+            labeled_results: List[Tuple[str, Any]] = []
+            primary_intent:  Dict[str, Any]        = {}
+            operation_count: int                   = 1
 
-        if (query_plan.query_type != QueryType.SIMPLE
-                and query_plan.confidence >= 0.5
-                and len(query_plan.operations) >= 2):
+            if (query_plan.query_type != QueryType.SIMPLE
+                    and query_plan.confidence >= 0.5
+                    and len(query_plan.operations) >= 2):
 
-            # MULTI-OP: one .NET call per sub-operation
-            qtype_str = map_query_type(query_plan.query_type)
-            operation_count = len(query_plan.operations)
-            
-            logger.info(json.dumps({
-                "message": "Query plan compiled",
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "query_type": qtype_str,
-                "confidence": query_plan.confidence,
-                "operation_count": operation_count,
-                "reasoning": query_plan.reasoning
-            }))
-
-            intent_duration = time.time() - intent_start
-
-            # ── Step 4: Execute .NET API Call(s) ────────────────────────────────────
-            dotnet_start = time.time()
-            _notify("dotnet")
-            for i, op in enumerate(query_plan.operations):
-                payload = dict(op.dotnet_payload)
-                payload.update(id_filters)
-                if full_name:
-                    payload["fullName"] = full_name
+                qtype_str       = map_query_type(query_plan.query_type)
+                operation_count = len(query_plan.operations)
 
                 logger.info(json.dumps({
-                    "message": "Sending multi-op request to .NET",
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": qtype_str,
-                    "op_index": i + 1,
-                    "total_ops": operation_count
+                    "message":         "Query plan compiled",
+                    "trace_id":        trace_id,
+                    "session_id":      session_id,
+                    "query_type":      qtype_str,
+                    "confidence":      query_plan.confidence,
+                    "operation_count": operation_count,
+                    "reasoning":       query_plan.reasoning,
                 }))
 
-                dotnet_data, dotnet_error = _call_dotnet(payload, trace_id=trace_id)
-                if dotnet_error:
-                    logger.warning(json.dumps({
-                        "message": "Multi-op failed",
-                        "trace_id": trace_id,
-                        "session_id": session_id,
-                        "query_type": qtype_str,
-                        "op_index": i + 1,
-                        "error": _sanitize_error(dotnet_error)
-                    }))
-                    
-                    # Record failure metrics
-                    metrics_collector.inc_requests(qtype_str)
-                    metrics_collector.inc_errors(qtype_str)
-                    total_duration = time.time() - start_time
-                    metrics_collector.record_duration("pipeline_duration", round(total_duration * 1000, 2))
-                    
-                    # Slow query detection
-                    if total_duration > SLOW_QUERY_THRESHOLD:
-                        logger.warning(json.dumps({
-                            "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                            "trace_id": trace_id,
+                intent_duration = time.time() - intent_start
+
+                # ── Step 3: Execute .NET API Call(s) ─────────────────────────
+                with span(SPAN_CALL_DOTNET, trace_id=trace_id):
+                    dotnet_start = time.time()
+                    _notify("dotnet")
+                    for i, op in enumerate(query_plan.operations):
+                        payload = dict(op.dotnet_payload)
+                        payload.update(id_filters)
+                        if full_name:
+                            payload["fullName"] = full_name
+
+                        logger.info(json.dumps({
+                            "message":    "Sending multi-op request to .NET",
+                            "trace_id":   trace_id,
                             "session_id": session_id,
                             "query_type": qtype_str,
-                            "duration_ms": round(total_duration * 1000, 2)
+                            "op_index":   i + 1,
+                            "total_ops":  operation_count,
                         }))
-                        
-                    return {
-                        "type": "error",
-                        "error_message": "Failed to process request.",
+
+                        dotnet_data, dotnet_error = _call_dotnet(payload, trace_id=trace_id)
+                        if dotnet_error:
+                            logger.warning(json.dumps({
+                                "message":    "Multi-op failed",
+                                "trace_id":   trace_id,
+                                "session_id": session_id,
+                                "query_type": qtype_str,
+                                "op_index":   i + 1,
+                                "error":      _sanitize_error(dotnet_error),
+                            }))
+
+                            metrics_collector.inc_requests(qtype_str)
+                            metrics_collector.inc_errors(qtype_str)
+                            total_duration = time.time() - start_time
+                            metrics_collector.record_duration(
+                                "pipeline_duration", round(total_duration * 1000, 2)
+                            )
+
+                            if total_duration > SLOW_QUERY_THRESHOLD:
+                                logger.warning(json.dumps({
+                                    "message":     f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                                    "trace_id":    trace_id,
+                                    "session_id":  session_id,
+                                    "query_type":  qtype_str,
+                                    "duration_ms": round(total_duration * 1000, 2),
+                                }))
+
+                            write_audit_log(
+                                trace_id=trace_id,
+                                session_id=session_id,
+                                query_type=qtype_str,
+                                query_duration=round(total_duration * 1000, 2),
+                                success=False,
+                                error_type="dotnet_error",
+                            )
+
+                            return {
+                                "type":          "error",
+                                "error_message": "Failed to process request.",
+                            }
+
+                        raw_results.append(dotnet_data)
+                        label = op.intent_result.get("category", f"Query {i + 1}")
+                        labeled_results.append((label, dotnet_data))
+
+                    primary_intent  = query_plan.operations[0].intent_result
+                    dotnet_duration = time.time() - dotnet_start
+
+            else:
+                # SIMPLE / ANALYTICS: single .NET call
+                qtype_str       = "simple"
+                operation_count = 1
+
+                if (query_plan.query_type == QueryType.ANALYTICS
+                        and query_plan.operations
+                        and query_plan.operations[0].intent_result.get("category")):
+                    primary_intent = query_plan.operations[0].intent_result
+                else:
+                    primary_intent = classify_admin_intent(message)
+
+                logger.info(json.dumps({
+                    "message":         "Query plan compiled",
+                    "trace_id":        trace_id,
+                    "session_id":      session_id,
+                    "query_type":      qtype_str,
+                    "confidence":      query_plan.confidence,
+                    "operation_count": operation_count,
+                    "reasoning":       query_plan.reasoning,
+                }))
+
+                # Unrecognised query
+                if primary_intent.get("category") is None:
+                    intent_duration = time.time() - intent_start
+                    unrecognised_msg = (
+                        "Sorry, I was unable to understand your request. "
+                        "I can help with Performance, Leave, Attendance, Medical, Equipment, "
+                        "Verification, Distribution, and Skills information. "
+                        "Please ask a relevant question."
+                    )
+
+                    total_duration = time.time() - start_time
+                    durations = {
+                        "planner_duration":  round(planner_duration  * 1000, 2),
+                        "intent_duration":   round(intent_duration   * 1000, 2),
+                        "dotnet_duration":   round(dotnet_duration   * 1000, 2),
+                        "combiner_duration": round(combiner_duration * 1000, 2),
+                        "report_duration":   round(report_duration   * 1000, 2),
+                        "total_duration":    round(total_duration    * 1000, 2),
                     }
 
-                raw_results.append(dotnet_data)
-                label = op.intent_result.get("category", f"Query {i + 1}")
-                labeled_results.append((label, dotnet_data))
+                    response_payload = build_response(
+                        query_type=qtype_str,
+                        intro_message=unrecognised_msg,
+                        combined_result={},
+                        analysis={"summary": "", "observations": [], "insights": []},
+                        conclusion={"summary": ""},
+                        intent=primary_intent,
+                        raw_results=[],
+                        confidence=query_plan.confidence,
+                        operation_count=0,
+                        formatted_data="",
+                        session_id=session_id,
+                        durations=durations,
+                    )
 
-            primary_intent = query_plan.operations[0].intent_result
-            dotnet_duration = time.time() - dotnet_start
-
-        else:
-            # SIMPLE / ANALYTICS: single .NET call
-            qtype_str = "simple"
-            operation_count = 1
-
-            if (query_plan.query_type == QueryType.ANALYTICS
-                    and query_plan.operations
-                    and query_plan.operations[0].intent_result.get("category")):
-                primary_intent = query_plan.operations[0].intent_result
-            else:
-                primary_intent = classify_admin_intent(message)
-
-            logger.info(json.dumps({
-                "message": "Query plan compiled",
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "query_type": qtype_str,
-                "confidence": query_plan.confidence,
-                "operation_count": operation_count,
-                "reasoning": query_plan.reasoning
-            }))
-
-            # Unrecognised query
-            if primary_intent.get("category") is None:
-                intent_duration = time.time() - intent_start
-                unrecognised_msg = (
-                    "Sorry, I was unable to understand your request. "
-                    "I can help with Performance, Leave, Attendance, Medical, Equipment, "
-                    "Verification, Distribution, and Skills information. "
-                    "Please ask a relevant question."
-                )
-                
-                total_duration = time.time() - start_time
-                durations = {
-                    "planner_duration": round(planner_duration * 1000, 2),
-                    "intent_duration": round(intent_duration * 1000, 2),
-                    "dotnet_duration": round(dotnet_duration * 1000, 2),
-                    "combiner_duration": round(combiner_duration * 1000, 2),
-                    "report_duration": round(report_duration * 1000, 2),
-                    "total_duration": round(total_duration * 1000, 2),
-                }
-
-                response_payload = build_response(
-                    query_type=qtype_str,
-                    intro_message=unrecognised_msg,
-                    combined_result={},
-                    analysis={"summary": "", "observations": [], "insights": []},
-                    conclusion={"summary": ""},
-                    intent=primary_intent,
-                    raw_results=[],
-                    confidence=query_plan.confidence,
-                    operation_count=0,
-                    formatted_data="",
-                    session_id=session_id,
-                    durations=durations,
-                )
-                
-                logger.info(json.dumps({
-                    "message": "Admin pipeline complete",
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": "unrecognised",
-                    "duration": durations["total_duration"],
-                    "planner_duration": durations["planner_duration"],
-                    "intent_duration": durations["intent_duration"],
-                    "dotnet_duration": durations["dotnet_duration"],
-                    "combiner_duration": durations["combiner_duration"],
-                    "report_duration": durations["report_duration"]
-                }))
-
-                # Record metrics
-                metrics_collector.inc_requests("unrecognised")
-                metrics_collector.record_duration("planner_duration", durations["planner_duration"])
-                metrics_collector.record_duration("intent_duration", durations["intent_duration"])
-                metrics_collector.record_duration("dotnet_duration", durations["dotnet_duration"])
-                metrics_collector.record_duration("report_duration", durations["report_duration"])
-                metrics_collector.record_duration("pipeline_duration", durations["total_duration"])
-
-                # Slow query detection
-                if total_duration > SLOW_QUERY_THRESHOLD:
-                    logger.warning(json.dumps({
-                        "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                        "trace_id": trace_id,
-                        "session_id": session_id,
-                        "query_type": "unrecognised",
-                        "duration_ms": round(total_duration * 1000, 2)
+                    logger.info(json.dumps({
+                        "message":          "Admin pipeline complete",
+                        "trace_id":         trace_id,
+                        "session_id":       session_id,
+                        "query_type":       "unrecognised",
+                        "duration":         durations["total_duration"],
+                        "planner_duration": durations["planner_duration"],
+                        "intent_duration":  durations["intent_duration"],
+                        "dotnet_duration":  durations["dotnet_duration"],
+                        "combiner_duration":durations["combiner_duration"],
+                        "report_duration":  durations["report_duration"],
                     }))
 
-                combined_message = response_payload.pop("message", "")
-                return {
-                    "type": "unrecognised",
-                    "response_payload": response_payload,
-                    "combined_message": combined_message,
-                }
+                    metrics_collector.inc_requests("unrecognised")
+                    metrics_collector.record_duration("planner_duration", durations["planner_duration"])
+                    metrics_collector.record_duration("intent_duration",  durations["intent_duration"])
+                    metrics_collector.record_duration("dotnet_duration",  durations["dotnet_duration"])
+                    metrics_collector.record_duration("report_duration",  durations["report_duration"])
+                    metrics_collector.record_duration("pipeline_duration", durations["total_duration"])
 
-            dotnet_payload = format_admin_payload(primary_intent)
-            dotnet_payload.update(id_filters)
-            if full_name:
-                dotnet_payload["fullName"] = full_name
+                    if total_duration > SLOW_QUERY_THRESHOLD:
+                        logger.warning(json.dumps({
+                            "message":     f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                            "trace_id":    trace_id,
+                            "session_id":  session_id,
+                            "query_type":  "unrecognised",
+                            "duration_ms": round(total_duration * 1000, 2),
+                        }))
 
-            if query_plan.query_type == QueryType.ANALYTICS and query_plan.operations:
-                op = query_plan.operations[0]
-                if getattr(op, "group_by", None):
-                    dotnet_payload["groupBy"] = op.group_by
-                if query_plan.analytics_hint:
-                    dotnet_payload["analyticsHint"] = query_plan.analytics_hint
+                    write_audit_log(
+                        trace_id=trace_id,
+                        session_id=session_id,
+                        query_type="unrecognised",
+                        query_duration=durations["total_duration"],
+                        success=True,
+                    )
 
-            intent_duration = time.time() - intent_start
+                    combined_message = response_payload.pop("message", "")
+                    return {
+                        "type":             "unrecognised",
+                        "response_payload": response_payload,
+                        "combined_message": combined_message,
+                    }
 
-            # ── Step 4: Execute .NET API Call ────────────────────────────────────
-            dotnet_start = time.time()
-            _notify("dotnet")
+                dotnet_payload = format_admin_payload(primary_intent)
+                dotnet_payload.update(id_filters)
+                if full_name:
+                    dotnet_payload["fullName"] = full_name
 
-            logger.info(json.dumps({
-                "message": "Sending simple request to .NET",
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "query_type": qtype_str
-            }))
+                if query_plan.query_type == QueryType.ANALYTICS and query_plan.operations:
+                    op = query_plan.operations[0]
+                    if getattr(op, "group_by", None):
+                        dotnet_payload["groupBy"] = op.group_by
+                    if query_plan.analytics_hint:
+                        dotnet_payload["analyticsHint"] = query_plan.analytics_hint
 
-            dotnet_data, dotnet_error = _call_dotnet(dotnet_payload, trace_id=trace_id)
-            if dotnet_error:
-                logger.warning(json.dumps({
-                    "message": "Admin .NET call failed",
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": qtype_str,
-                    "error": _sanitize_error(dotnet_error)
-                }))
-                
-                # Record failure metrics
-                metrics_collector.inc_requests(qtype_str)
-                metrics_collector.inc_errors(qtype_str)
-                total_duration = time.time() - start_time
-                metrics_collector.record_duration("pipeline_duration", round(total_duration * 1000, 2))
-                
-                # Slow query detection
-                if total_duration > SLOW_QUERY_THRESHOLD:
-                    logger.warning(json.dumps({
-                        "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                        "trace_id": trace_id,
+                intent_duration = time.time() - intent_start
+
+                # ── Step 3: Execute .NET API Call ─────────────────────────────
+                with span(SPAN_CALL_DOTNET, trace_id=trace_id):
+                    dotnet_start = time.time()
+                    _notify("dotnet")
+
+                    logger.info(json.dumps({
+                        "message":    "Sending simple request to .NET",
+                        "trace_id":   trace_id,
                         "session_id": session_id,
                         "query_type": qtype_str,
-                        "duration_ms": round(total_duration * 1000, 2)
                     }))
-                    
-                return {
-                    "type": "error",
-                    "error_message": "Failed to process request.",
+
+                    dotnet_data, dotnet_error = _call_dotnet(dotnet_payload, trace_id=trace_id)
+                    if dotnet_error:
+                        logger.warning(json.dumps({
+                            "message":    "Admin .NET call failed",
+                            "trace_id":   trace_id,
+                            "session_id": session_id,
+                            "query_type": qtype_str,
+                            "error":      _sanitize_error(dotnet_error),
+                        }))
+
+                        metrics_collector.inc_requests(qtype_str)
+                        metrics_collector.inc_errors(qtype_str)
+                        total_duration = time.time() - start_time
+                        metrics_collector.record_duration(
+                            "pipeline_duration", round(total_duration * 1000, 2)
+                        )
+
+                        if total_duration > SLOW_QUERY_THRESHOLD:
+                            logger.warning(json.dumps({
+                                "message":     f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                                "trace_id":    trace_id,
+                                "session_id":  session_id,
+                                "query_type":  qtype_str,
+                                "duration_ms": round(total_duration * 1000, 2),
+                            }))
+
+                        write_audit_log(
+                            trace_id=trace_id,
+                            session_id=session_id,
+                            query_type=qtype_str,
+                            query_duration=round(total_duration * 1000, 2),
+                            success=False,
+                            error_type="dotnet_error",
+                        )
+
+                        return {
+                            "type":          "error",
+                            "error_message": "Failed to process request.",
+                        }
+
+                    raw_results     = [dotnet_data]
+                    labeled_results = [(primary_intent.get("category", "Result"), dotnet_data)]
+                    dotnet_duration = time.time() - dotnet_start
+
+        # ── Step 4: Result Combiner & Formatting ──────────────────────────────
+        with span(SPAN_COMBINE_RESULTS, trace_id=trace_id):
+            combiner_start  = time.time()
+            _notify("combiner")
+            combined_result = combine_results(raw_results, labeled_results, qtype_str, primary_intent)
+            formatted_data  = format_dotnet_response(combined_result, primary_intent)
+            combiner_duration = time.time() - combiner_start
+
+        # ── Step 5: Report Generator ──────────────────────────────────────────
+        with span(SPAN_GENERATE_REPORT, trace_id=trace_id):
+            report_start = time.time()
+            _notify("report")
+            try:
+                report = generate_report(
+                    combined_result=combined_result,
+                    query_type=qtype_str,
+                    intent=primary_intent,
+                    user_query=message,
+                    trace_id=trace_id,
+                )
+            except Exception as report_exc:
+                logger.error(json.dumps({
+                    "message":    "Unexpected exception from generate_report",
+                    "trace_id":   trace_id,
+                    "session_id": session_id,
+                    "query_type": qtype_str,
+                    "error":      str(report_exc),
+                }))
+                report = {
+                    "introMessage": "Report generated with partial metrics.",
+                    "analysis":     None,
+                    "conclusion":   None,
                 }
+            report_duration = time.time() - report_start
 
-            raw_results     = [dotnet_data]
-            labeled_results = [(primary_intent.get("category", "Result"), dotnet_data)]
-            dotnet_duration = time.time() - dotnet_start
-
-        # ── Step 5: Result Combiner & Formatting ─────────────────────────────────────────────
-        combiner_start = time.time()
-        _notify("combiner")
-        combined_result = combine_results(raw_results, labeled_results, qtype_str, primary_intent)
-        formatted_data = format_dotnet_response(combined_result, primary_intent)
-        combiner_duration = time.time() - combiner_start
-
-        # ── Step 6: Report Generator (intro + analysis + conclusion) ────────────
-        report_start = time.time()
-        _notify("report")
-        try:
-            report = generate_report(
-                combined_result=combined_result,
-                query_type=qtype_str,
-                intent=primary_intent,
-                user_query=message,
-                trace_id=trace_id,
-            )
-        except Exception as report_exc:
-            logger.error(json.dumps({
-                "message": "Unexpected exception from generate_report",
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "query_type": qtype_str,
-                "error": str(report_exc)
-            }))
-            report = {
-                "introMessage": "Report generated with partial metrics.",
-                "analysis": None,
-                "conclusion": None
-            }
-        report_duration = time.time() - report_start
-
-        # ── Update session context ──────────────────────────────────────────────
+        # ── Update session context ────────────────────────────────────────────
         _session_context.update(session_id, message, primary_intent, combined_result)
 
         total_duration = time.time() - start_time
         durations = {
-            "planner_duration": round(planner_duration * 1000, 2),
-            "intent_duration": round(intent_duration * 1000, 2),
-            "dotnet_duration": round(dotnet_duration * 1000, 2),
+            "planner_duration":  round(planner_duration  * 1000, 2),
+            "intent_duration":   round(intent_duration   * 1000, 2),
+            "dotnet_duration":   round(dotnet_duration   * 1000, 2),
             "combiner_duration": round(combiner_duration * 1000, 2),
-            "report_duration": round(report_duration * 1000, 2),
-            "total_duration": round(total_duration * 1000, 2),
+            "report_duration":   round(report_duration   * 1000, 2),
+            "total_duration":    round(total_duration    * 1000, 2),
         }
 
-        # ── Step 7: Response Builder ────────────────────────────────────────────
-        response_payload = build_response(
-            query_type=qtype_str,
-            intro_message=report.get("introMessage", ""),
-            combined_result=combined_result,
-            analysis=report.get("analysis"),
-            conclusion=report.get("conclusion"),
-            intent=primary_intent,
-            raw_results=raw_results,
-            confidence=query_plan.confidence,
-            operation_count=operation_count,
-            formatted_data=formatted_data,
-            session_id=session_id,
-            durations=durations,
-        )
+        # ── Step 6: Response Builder ──────────────────────────────────────────
+        with span(SPAN_BUILD_RESPONSE, trace_id=trace_id):
+            response_payload = build_response(
+                query_type=qtype_str,
+                intro_message=report.get("introMessage", ""),
+                combined_result=combined_result,
+                analysis=report.get("analysis"),
+                conclusion=report.get("conclusion"),
+                intent=primary_intent,
+                raw_results=raw_results,
+                confidence=query_plan.confidence,
+                operation_count=operation_count,
+                formatted_data=formatted_data,
+                session_id=session_id,
+                durations=durations,
+            )
 
         execution_time_ms = round(total_duration * 1000)
         response_payload["metadata"]["executionTimeMs"] = execution_time_ms
 
         logger.info(json.dumps({
-            "message": "Admin pipeline complete",
-            "trace_id": trace_id,
-            "session_id": session_id,
-            "query_type": qtype_str,
-            "duration": durations["total_duration"],
+            "message":          "Admin pipeline complete",
+            "trace_id":         trace_id,
+            "session_id":       session_id,
+            "query_type":       qtype_str,
+            "duration":         durations["total_duration"],
             "planner_duration": durations["planner_duration"],
-            "intent_duration": durations["intent_duration"],
-            "dotnet_duration": durations["dotnet_duration"],
-            "combiner_duration": durations["combiner_duration"],
-            "report_duration": durations["report_duration"]
+            "intent_duration":  durations["intent_duration"],
+            "dotnet_duration":  durations["dotnet_duration"],
+            "combiner_duration":durations["combiner_duration"],
+            "report_duration":  durations["report_duration"],
         }))
 
-        # Record metrics
         metrics_collector.inc_requests(qtype_str)
-        metrics_collector.record_duration("planner_duration", durations["planner_duration"])
-        metrics_collector.record_duration("intent_duration", durations["intent_duration"])
-        metrics_collector.record_duration("dotnet_duration", durations["dotnet_duration"])
-        metrics_collector.record_duration("report_duration", durations["report_duration"])
+        metrics_collector.record_duration("planner_duration",  durations["planner_duration"])
+        metrics_collector.record_duration("intent_duration",   durations["intent_duration"])
+        metrics_collector.record_duration("dotnet_duration",   durations["dotnet_duration"])
+        metrics_collector.record_duration("report_duration",   durations["report_duration"])
         metrics_collector.record_duration("pipeline_duration", durations["total_duration"])
 
-        # Slow query detection
         if total_duration > SLOW_QUERY_THRESHOLD:
             logger.warning(json.dumps({
-                "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "query_type": qtype_str,
-                "duration_ms": round(total_duration * 1000, 2)
+                "message":     f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                "trace_id":    trace_id,
+                "session_id":  session_id,
+                "query_type":  qtype_str,
+                "duration_ms": round(total_duration * 1000, 2),
             }))
+
+        write_audit_log(
+            trace_id=trace_id,
+            session_id=session_id,
+            query_type=qtype_str,
+            query_duration=durations["total_duration"],
+            success=True,
+        )
 
         combined_message = response_payload.pop("message", "")
         return {
-            "type": "query",
-            "response_payload": response_payload,
-            "combined_message": combined_message,
+            "type":              "query",
+            "response_payload":  response_payload,
+            "combined_message":  combined_message,
             "execution_time_ms": execution_time_ms,
         }
+
     except Exception as exc:
         total_duration = time.time() - start_time
         logger.error(json.dumps({
-            "message": "Error in execute_admin_query",
-            "trace_id": trace_id,
-            "session_id": session_id or "admin-default",
-            "query_type": "error",
+            "message":     "Error in execute_admin_query",
+            "trace_id":    trace_id,
+            "session_id":  session_id or "admin-default",
+            "query_type":  "error",
             "duration_ms": round(total_duration * 1000, 2),
-            "error": str(exc)
+            "error":       str(exc),
         }))
-        
-        # Record metrics
+
         metrics_collector.inc_requests("error")
         metrics_collector.inc_errors("error")
         metrics_collector.record_duration("pipeline_duration", round(total_duration * 1000, 2))
-        
-        # Slow query detection
+
         if total_duration > SLOW_QUERY_THRESHOLD:
             logger.warning(json.dumps({
-                "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                "trace_id": trace_id,
-                "session_id": session_id or "admin-default",
-                "query_type": "error",
-                "duration_ms": round(total_duration * 1000, 2)
+                "message":     f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                "trace_id":    trace_id,
+                "session_id":  session_id or "admin-default",
+                "query_type":  "error",
+                "duration_ms": round(total_duration * 1000, 2),
             }))
-            
-        return {
-            "type": "error",
-            "error_message": "Failed to process request."
-        }
 
+        write_audit_log(
+            trace_id=trace_id,
+            session_id=session_id or "admin-default",
+            query_type="error",
+            query_duration=round(total_duration * 1000, 2),
+            success=False,
+            error_type="pipeline_exception",
+        )
+
+        return {
+            "type":          "error",
+            "error_message": "Failed to process request.",
+        }

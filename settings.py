@@ -1,13 +1,17 @@
 """
-config/settings.py
-==================
-AgniAI — Configuration Safety Layer (Phase 12).
+settings.py
+===========
+AgniAI — Configuration Safety Layer.
 
 Pydantic Settings with full validation, environment profiles,
 and startup-time failure guarantee.
 
 Application FAILS during startup if critical values are missing.
 Never fails after first request.
+
+CRITICAL_VARS reflects only what AgniAI actually requires:
+  - DOTNET_API_BASE_URL   (required for admin pipeline)
+No DATABASE_URL or INTERNAL_SERVICE_KEY required by the base app.
 """
 
 from __future__ import annotations
@@ -16,11 +20,10 @@ import re
 import sys
 from enum import Enum
 from functools import lru_cache
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Optional
 from urllib.parse import urlparse
 
 from pydantic import (
-    AnyHttpUrl,
     Field,
     SecretStr,
     field_validator,
@@ -65,7 +68,7 @@ class DotNetAPIConfig(BaseSettings):
 
 
 class APIKeysConfig(BaseSettings):
-    """Secret credentials — never logged, never serialised to plain text."""
+    """Optional secret credentials."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -73,23 +76,11 @@ class APIKeysConfig(BaseSettings):
         extra="ignore",
     )
 
-    OLLAMA_API_KEY: Optional[SecretStr] = Field(default=None)
-    INTERNAL_SERVICE_KEY: SecretStr = Field(
-        ..., description="Shared secret for service-to-service auth."
-    )
+    # Optional — only required if the app is deployed with WhatsApp integration
+    INTERNAL_SERVICE_KEY: Optional[SecretStr] = Field(default=None)
     WHATSAPP_TOKEN: Optional[SecretStr] = Field(default=None)
     WHATSAPP_VERIFY_TOKEN: Optional[SecretStr] = Field(default=None)
-
-    @field_validator("INTERNAL_SERVICE_KEY", mode="before")
-    @classmethod
-    def validate_key_strength(cls, v: str) -> str:
-        raw = v.get_secret_value() if hasattr(v, "get_secret_value") else str(v)
-        if len(raw) < 32:
-            raise ValueError(
-                "INTERNAL_SERVICE_KEY must be at least 32 characters. "
-                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
-            )
-        return v
+    OLLAMA_API_KEY: Optional[SecretStr] = Field(default=None)
 
 
 class TimeoutConfig(BaseSettings):
@@ -175,7 +166,7 @@ class OtelConfig(BaseSettings):
 class AppSettings(BaseSettings):
     """
     Single source of truth for AgniAI.
-    Loaded once at startup; any missing CRITICAL variable causes sys.exit(1).
+    Only DOTNET_API_BASE_URL is truly critical for the admin pipeline.
     """
 
     model_config = SettingsConfigDict(
@@ -189,9 +180,8 @@ class AppSettings(BaseSettings):
     APP_VERSION: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
     ENV: Environment = Field(default=Environment.DEVELOPMENT)
 
-    DATABASE_URL: str = Field(..., description="SQLAlchemy connection string.")
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434")
-    OLLAMA_MODEL: str = Field(default="llama3")
+    OLLAMA_MODEL: str = Field(default="mistral:7b-instruct-q4_K_M")
     MIN_SCORE: float = Field(default=0.35, ge=0.0, le=1.0)
 
     HOST: str = Field(default="0.0.0.0")
@@ -202,45 +192,10 @@ class AppSettings(BaseSettings):
         default=["http://localhost:3000", "http://localhost:5173"]
     )
 
-    @field_validator("DATABASE_URL", mode="before")
-    @classmethod
-    def validate_db_url(cls, v: str) -> str:
-        allowed = ("sqlite", "postgresql", "mssql", "mysql")
-        if not any(v.startswith(p) for p in allowed):
-            raise ValueError(
-                f"DATABASE_URL must start with one of {allowed}. Got: {v[:20]}…"
-            )
-        return v
-
     @field_validator("OLLAMA_BASE_URL", mode="before")
     @classmethod
     def strip_ollama_slash(cls, v: str) -> str:
         return str(v).rstrip("/")
-
-    @model_validator(mode="after")
-    def validate_feature_flags_for_env(self) -> "AppSettings":
-        if self.ENV == Environment.PRODUCTION:
-            flags = FeatureFlagConfig()
-            errors: list[str] = []
-
-            if flags.ENABLE_SWAGGER_UI:
-                errors.append("FEATURE_ENABLE_SWAGGER_UI must be False in production.")
-            if flags.ENABLE_DEBUG_LOGGING:
-                errors.append("FEATURE_ENABLE_DEBUG_LOGGING must be False in production.")
-            if "sqlite" in self.DATABASE_URL:
-                errors.append("SQLite is not allowed in production. Use PostgreSQL or MSSQL.")
-
-            parsed = urlparse(str(self.OLLAMA_BASE_URL))
-            if parsed.hostname in ("localhost", "127.0.0.1") and flags.ENABLE_RAG:
-                errors.append(
-                    "OLLAMA_BASE_URL points to localhost in production with RAG enabled."
-                )
-            if errors:
-                raise ValueError(
-                    "Production config violations detected:\n"
-                    + "\n".join(f"  • {e}" for e in errors)
-                )
-        return self
 
     @model_validator(mode="after")
     def validate_workers_vs_env(self) -> "AppSettings":
@@ -261,16 +216,14 @@ class AppSettings(BaseSettings):
 
     def safe_repr(self) -> dict[str, Any]:
         """Return config dict with secrets masked — safe for logs."""
-        d = self.model_dump()
-        d["DATABASE_URL"] = re.sub(r"://[^@]+@", "://<redacted>@", d["DATABASE_URL"])
-        return d
+        return self.model_dump()
 
 
 # ── Critical startup guard ────────────────────────────────────────────────
 
+# Only the vars that AgniAI ACTUALLY needs to function.
+# DATABASE_URL and INTERNAL_SERVICE_KEY are not required by the base app.
 CRITICAL_VARS = [
-    "DATABASE_URL",
-    "INTERNAL_SERVICE_KEY",
     "DOTNET_API_BASE_URL",
 ]
 

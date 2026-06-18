@@ -1,12 +1,16 @@
 """
 response_builder.py
 ====================
+Assembles the final JSON response payload for the admin pipeline.
 
+Security: dotnetResponse.rawResponse is NOT included in the payload
+returned to the frontend. Raw backend data must never leave the server.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+
 
 def build_combined_message(
     intro_message: str,
@@ -19,39 +23,39 @@ def build_combined_message(
     string that the frontend reads for the text bubble.
     """
     parts = []
-    
+
     intro = (intro_message or "").strip()
     if intro:
         parts.append(intro)
-        
+
     data_text = (formatted_data or "").strip()
     if data_text:
         parts.append(data_text)
-        
+
     analysis_parts = []
     if analysis:
         summary = (analysis.get("summary") or "").strip()
         if summary:
             analysis_parts.append(summary)
-            
+
         obs = analysis.get("observations") or []
         clean_obs = [o.strip() for o in obs if o and o.strip()]
         if clean_obs:
             analysis_parts.append("Observations:\n" + "\n".join(f"- {o}" for o in clean_obs))
-            
+
         insights = analysis.get("insights") or []
         clean_ins = [i.strip() for i in insights if i and i.strip()]
         if clean_ins:
             analysis_parts.append("Insights:\n" + "\n".join(f"- {i}" for i in clean_ins))
-            
+
         if analysis_parts:
             parts.append("Analysis:\n" + "\n\n".join(analysis_parts))
-        
+
     if conclusion:
         conclusion_summary = (conclusion.get("summary") or "").strip()
         if conclusion_summary:
             parts.append(f"Conclusion:\n{conclusion_summary}")
-        
+
     return "\n\n".join(parts)
 
 
@@ -70,7 +74,11 @@ def build_response(
     durations: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """
-    Assembles the exact JSON response structure per the Phase 4 specification.
+    Assembles the JSON response structure for the frontend.
+
+    Security guarantee: raw .NET API responses are NEVER included in the
+    returned payload. The 'dotnetResponse' key is omitted entirely to
+    prevent internal data leakage.
     """
     # ── Normalize intent confidence to float ─────────────────────────────────
     intent_conf = intent.get("confidence")
@@ -82,58 +90,51 @@ def build_response(
     else:
         intent_conf_float = 0.95
 
-    # ── Normalize rawResponse value ──────────────────────────────────────────
-    if len(raw_results) == 1:
-        raw_response_val = raw_results[0]
-    elif len(raw_results) > 1:
-        raw_response_val = {"results": raw_results}
-    else:
-        raw_response_val = {}
-
     # ── Build the message bubble string ──────────────────────────────────────
-    combined_message = build_combined_message(intro_message, formatted_data, analysis, conclusion)
+    combined_message = build_combined_message(
+        intro_message, formatted_data, analysis, conclusion
+    )
 
-    # ── Standard JSON schema ────────────────────────────────────────────────
+    # ── Standard JSON schema — NO raw backend data ────────────────────────────
     payload: Dict[str, Any] = {
         "status": True,
-        
+
         "queryType": query_type,
-        
+
         "introMessage": intro_message,
-        
+
         "result": {
             "processedData": combined_result if combined_result is not None else {}
         },
-        
+
         "analysis": {
-            "summary": analysis.get("summary", ""),
+            "summary":      analysis.get("summary", ""),
             "observations": list(analysis.get("observations") or []),
-            "insights": list(analysis.get("insights") or [])
+            "insights":     list(analysis.get("insights") or []),
         } if analysis is not None else None,
-        
+
         "conclusion": {
             "summary": conclusion.get("summary", "")
         } if conclusion is not None else None,
-        
+
         "intent": {
-            "category": intent.get("category", ""),
+            "category":    intent.get("category", ""),
             "subcategory": intent.get("subcategory", ""),
-            "confidence": intent_conf_float
+            "confidence":  intent_conf_float,
         },
-        
-        "dotnetResponse": {
-            "rawResponse": raw_response_val
-        },
-        
+
+        # dotnetResponse is intentionally omitted — raw backend data must
+        # never be forwarded to the frontend (security requirement).
+
         "metadata": {
-            "confidence": round(float(confidence), 2),
-            "queryType": query_type,
-            "operationCount": int(operation_count)
+            "confidence":     round(float(confidence), 2),
+            "queryType":      query_type,
+            "operationCount": int(operation_count),
         },
-        
-        # Backward-compatible extra fields
+
+        # Backward-compatible fields
         "formattedData": formatted_data,
-        "message": combined_message
+        "message":       combined_message,
     }
 
     if durations:

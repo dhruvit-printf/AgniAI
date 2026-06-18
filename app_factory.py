@@ -1,13 +1,19 @@
 """
-AgniAI — Application Factory
+app_factory.py
+==============
+AgniAI — Application Factory.
+
 Demonstrates startup validation: the app NEVER reaches runtime
 if critical environment variables are absent.
+
+Import path fix: settings is at the root level (settings.py),
+not inside a config package. Use `from settings import ...`.
 """
 
 import os
 import logging
 
-from config.settings import (
+from settings import (
     AppSettings,
     DotNetAPIConfig,
     APIKeysConfig,
@@ -31,11 +37,11 @@ def create_app() -> "Flask":  # type annotation avoids hard Flask dependency her
 
     # ── STEP 2: Parse & validate all settings (ValidationError → sys.exit) ──
     try:
-        settings: AppSettings         = get_settings()
-        dotnet:   DotNetAPIConfig     = get_dotnet_config()
-        keys:     APIKeysConfig       = get_api_keys()
-        flags:    FeatureFlagConfig   = get_feature_flags()
-        timeouts: TimeoutConfig       = get_timeouts()
+        settings: AppSettings       = get_settings()
+        dotnet:   DotNetAPIConfig   = get_dotnet_config()
+        keys:     APIKeysConfig     = get_api_keys()
+        flags:    FeatureFlagConfig = get_feature_flags()
+        timeouts: TimeoutConfig     = get_timeouts()
     except Exception as exc:
         import sys
         print(f"\n[FATAL] Configuration validation failed:\n{exc}\n", flush=True)
@@ -45,16 +51,12 @@ def create_app() -> "Flask":  # type annotation avoids hard Flask dependency her
     log_level = logging.DEBUG if flags.ENABLE_DEBUG_LOGGING else logging.INFO
     logging.basicConfig(level=log_level)
     logger.info("Starting %s v%s [%s]", settings.APP_NAME, settings.APP_VERSION, settings.ENV)
-    logger.info("Config snapshot: %s", settings.safe_repr())
 
-    # ── STEP 4: Initialise Flask (or FastAPI) ────────────────────────────────
+    # ── STEP 4: Initialise Flask ──────────────────────────────────────────────
     from flask import Flask
     app = Flask(__name__)
 
-    # Register blueprints / routers based on feature flags
     if flags.ENABLE_ADMIN_CHATBOT:
-        # from routes.admin_chat import admin_bp
-        # app.register_blueprint(admin_bp, url_prefix="/api/admin")
         logger.info("Admin chatbot routes registered.")
 
     if flags.ENABLE_WHATSAPP_BOT:
@@ -62,8 +64,6 @@ def create_app() -> "Flask":  # type annotation avoids hard Flask dependency her
             raise RuntimeError(
                 "FEATURE_ENABLE_WHATSAPP_BOT is True but WHATSAPP_TOKEN is not set."
             )
-        # from routes.whatsapp import wa_bp
-        # app.register_blueprint(wa_bp, url_prefix="/webhook")
         logger.info("WhatsApp bot routes registered.")
 
     if flags.ENABLE_SWAGGER_UI and not settings.is_production():
@@ -74,5 +74,5 @@ def create_app() -> "Flask":  # type annotation avoids hard Flask dependency her
 
 if __name__ == "__main__":
     app = create_app()
-    s   = get_settings()
+    s = get_settings()
     app.run(host=s.HOST, port=s.PORT, debug=s.is_development())
