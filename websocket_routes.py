@@ -1,111 +1,53 @@
 """
 websocket_routes.py
 ===================
-WebSocket transport layer for AgniAI Admin Chatbot.
+WebSocket transport layer for the AgniAI Admin Chatbot.
+
+This file contains ONLY WebSocket routing logic. All business logic lives in
+admin_pipeline.py, which is the single source of truth for query execution.
 
 Responsibilities:
   - Accept WebSocket connections via Socket.IO.
   - Receive user queries from the frontend.
-  - Call the existing pipeline in the correct order.
-  - Stream progress events and final response sections back.
+  - Emit progress events (UX indicators) via progress_callback.
+  - Call execute_admin_query() — the ONLY pipeline function.
+  - Stream response sections back to the client.
 
-STRICT CONTRACT — this file MUST NOT:
-  - Modify query_planner.py, admin_intent.py, result_combiner.py,
-    report_generator.py, or response_builder.py.
+This file MUST NOT:
   - Contain any query processing logic.
-  - Contain any formatting or analysis generation.
-  - Make direct .NET API calls outside of what admin_routes already does.
+  - Make direct .NET API calls.
+  - Duplicate planner, combiner, report, or response builder logic.
   - Expose stack traces to the frontend.
-
-The pipeline called here is the exact same one used in admin_routes.py.
-WebSocket is only a transport mechanism — a thin streaming wrapper.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict
 
-import requests as _requests
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO
 
 from websocket_manager import ws_manager
+from admin_pipeline import execute_admin_query
 
 logger = logging.getLogger(__name__)
 
-# ── .NET config (mirrors admin_routes.py) ────────────────────────────────────
-DOTNET_API_BASE_URL = os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257")
-DOTNET_EXECUTE_URL  = f"{DOTNET_API_BASE_URL}/api/AiCommand/execute"
-DOTNET_API_KEY      = os.getenv("DOTNET_API_KEY", "")
-DOTNET_TIMEOUT      = int(os.getenv("DOTNET_TIMEOUT", "30"))
-
-_skip_raw = os.getenv("DOTNET_SKIP_SSL_VERIFY", os.getenv("DOTNET_VERIFY_SSL", "0"))
-DOTNET_VERIFY_SSL = _skip_raw.strip() not in {"1", "true", "True"}
-
-_dotnet_session = _requests.Session()
-
-if not DOTNET_VERIFY_SSL:
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 
 # =============================================================================
-# INTERNAL HELPERS  (mirrors admin_routes._call_dotnet)
+# PROGRESS HELPER
 # =============================================================================
 
-def _call_dotnet(payload: Dict) -> Tuple[Any, Optional[str]]:
-    headers = {"Content-Type": "application/json"}
-    if DOTNET_API_KEY:
-        headers["X-Api-Key"] = DOTNET_API_KEY
-    try:
-        resp = _dotnet_session.post(
-            DOTNET_EXECUTE_URL,
-            json=payload,
-            headers=headers,
-            timeout=DOTNET_TIMEOUT,
-            verify=DOTNET_VERIFY_SSL,
-        )
-        if resp.status_code >= 400:
-            try:
-                err_body = resp.json()
-            except Exception:
-                err_body = resp.text[:400]
-            return None, f"Backend returned HTTP {resp.status_code}: {err_body}"
-        return resp.json(), None
-    except _requests.ConnectionError as exc:
-        return None, f"Cannot connect to .NET backend. ({exc})"
-    except _requests.Timeout:
-        return None, f"Backend timed out after {DOTNET_TIMEOUT}s."
-    except _requests.RequestException as exc:
-        return None, f"Backend request failed: {exc}"
-    except ValueError as exc:
-        return None, f"Backend returned invalid JSON: {exc}"
-
-
-def _get_id_filters(data: Dict) -> Dict[str, int]:
-    def _safe_int(v) -> Optional[int]:
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            return None
-
-    filters = {}
-    for key_pair in [
-        ("commandId",  "command_id"),
-        ("batchId",    "batch_id"),
-        ("platoonId",  "platoon_id"),
-        ("companyId",  "company_id"),
-    ]:
-        val = _safe_int(data.get(key_pair[0], data.get(key_pair[1])))
-        if val is not None:
-            filters[key_pair[0]] = val
-    return filters
+_STAGE_MESSAGES: Dict[str, str] = {
+    "planner":  "Understanding query...",
+    "intent":   "Building intents...",
+    "dotnet":   "Fetching records...",
+    "combiner": "Combining results...",
+    "report":   "Generating analysis...",
+}
 
 
 def _progress(sid: str, stage: str, message: str) -> None:
+    """Emit a progress event to the client."""
     ws_manager.send_json(sid, {"type": "progress", "stage": stage, "message": message})
 
 
@@ -115,189 +57,55 @@ def _progress(sid: str, stage: str, message: str) -> None:
 
 def _run_pipeline(sid: str, message: str, body: Dict) -> None:
     """
-    Execute the complete AgniAI admin pipeline and stream results back.
+    Execute the admin pipeline and stream results back via WebSocket.
 
-    Mirrors admin_routes.admin_chat() exactly — only the *transport* differs.
-    The pipeline modules are called in the same order with the same arguments.
+    This is a thin transport wrapper around execute_admin_query().
+    Progress events are emitted at each real pipeline stage via the
+    progress_callback parameter — not pre-fired.
     """
-    from admin_intent import admin_normalize_query, classify_admin_intent, format_admin_payload
-    from config import _is_greeting, _is_small_talk, _is_patriotic
-    from query_planner import plan_query, QueryType
-    from result_combiner import intersect_results, merge_results, compare_results
-    from admin_entity_resolver import resolve_entities_from_query
-    from admin_formatter import format_dotnet_response
-    from report_generator import generate_report
-    from response_builder import build_response
-    from admin_routes import (
-        _is_admin_conversational,
-        _build_greeting_response,
-        _build_conversational_response,
-        map_query_type,
-        _get_session_id,
-    )
-
-    session_id  = _get_session_id(body)
-    id_filters  = _get_id_filters(body)
-    full_name   = (body.get("fullName") or body.get("full_name") or "").strip()
-
     try:
-        # ── Greeting / conversational short-circuit ───────────────────────
-        if _is_admin_conversational(message):
-            cleaned = message.lower().strip().rstrip("!?.,;")
-            if _is_greeting(cleaned):
-                _data, greeting_msg = _build_greeting_response(body, session_id)
-            else:
-                _data, greeting_msg = _build_conversational_response(message, body, session_id)
-            ws_manager.send_json(sid, {"type": "intro", "data": greeting_msg})
+        # ── Build progress callback tied to this WebSocket session ──────────
+        def emit_progress(stage: str) -> None:
+            """Called by the pipeline at each stage to emit real-time progress."""
+            stage_message = _STAGE_MESSAGES.get(stage, "Processing...")
+            _progress(sid, stage, stage_message)
+
+        # ── Call the unified pipeline with progress callback ────────────────
+        result = execute_admin_query(
+            user_query=message,
+            body=body,
+            progress_callback=emit_progress,
+        )
+
+        result_type = result.get("type", "error")
+
+        # ── Greeting / conversational ───────────────────────────────────────
+        if result_type in ("greeting", "conversational"):
+            ws_manager.send_json(sid, {"type": "intro", "data": result["greeting_message"]})
             ws_manager.send_json(sid, {"type": "done"})
             return
 
-        if not message:
-            ws_manager.send_json(sid, {"type": "error", "message": "Message cannot be empty."})
+        # ── Error ───────────────────────────────────────────────────────────
+        if result_type == "error":
+            ws_manager.send_json(sid, {
+                "type": "error",
+                "message": result.get("error_message", "Failed to process request."),
+            })
             return
 
-        # ── Resolve named entities ─────────────────────────────────────────
-        resolved = resolve_entities_from_query(
-            message,
-            existing_company_id=id_filters.get("companyId"),
-            existing_platoon_id=id_filters.get("platoonId"),
-        )
-        if resolved.get("companyId") is not None:
-            id_filters["companyId"] = resolved["companyId"]
-        if resolved.get("platoonId") is not None:
-            id_filters["platoonId"] = resolved["platoonId"]
+        # ── Unrecognised query ──────────────────────────────────────────────
+        if result_type == "unrecognised":
+            unrecognised_msg = result.get("combined_message", "")
+            ws_manager.send_json(sid, {"type": "intro",      "data": unrecognised_msg or "Sorry, I was unable to understand your request."})
+            ws_manager.send_json(sid, {"type": "result",     "data": {}})
+            ws_manager.send_json(sid, {"type": "analysis",   "data": {}})
+            ws_manager.send_json(sid, {"type": "conclusion", "data": {}})
+            ws_manager.send_json(sid, {"type": "done"})
+            return
 
-        # ── Step 1: Query Planner ──────────────────────────────────────────
-        _progress(sid, "planner", "Understanding query...")
-        message      = admin_normalize_query(message)
-        query_plan   = plan_query(message)
+        # ── Stream response sections ────────────────────────────────────────
+        response_payload = result.get("response_payload", {})
 
-        qtype_str      = "simple"
-        operation_count = 1
-        raw_results: List[Any]             = []
-        labeled_results: List[Tuple]       = []
-        primary_intent: Dict[str, Any]     = {}
-
-        if (query_plan.query_type != QueryType.SIMPLE
-                and query_plan.confidence >= 0.5
-                and len(query_plan.operations) >= 2):
-
-            qtype_str       = map_query_type(query_plan.query_type)
-            operation_count = len(query_plan.operations)
-
-            # ── Step 2: Intent Builder (multi-op) ─────────────────────────
-            _progress(sid, "intent", "Building intents...")
-
-            # ── Step 3: .NET API Executor ──────────────────────────────────
-            _progress(sid, "dotnet", "Fetching records...")
-
-            for i, op in enumerate(query_plan.operations):
-                payload = dict(op.dotnet_payload)
-                payload.update(id_filters)
-                if full_name:
-                    payload["fullName"] = full_name
-
-                dotnet_data, dotnet_error = _call_dotnet(payload)
-                if dotnet_error:
-                    logger.warning("WS multi-op %d/%d failed: %s", i + 1, operation_count, dotnet_error)
-                    ws_manager.send_json(sid, {"type": "error", "message": "Failed to process request."})
-                    return
-
-                raw_results.append(dotnet_data)
-                label = op.intent_result.get("category", f"Query {i + 1}")
-                labeled_results.append((label, dotnet_data))
-
-            primary_intent = query_plan.operations[0].intent_result
-
-        else:
-            qtype_str       = "simple"
-            operation_count = 1
-
-            if (query_plan.query_type.value == "analytics"
-                    and query_plan.operations
-                    and query_plan.operations[0].intent_result.get("category")):
-                primary_intent = query_plan.operations[0].intent_result
-            else:
-                # ── Step 2: Intent Builder (simple) ───────────────────────
-                _progress(sid, "intent", "Building intents...")
-                primary_intent = classify_admin_intent(message)
-
-            if primary_intent.get("category") is None:
-                unrecognised = (
-                    "Sorry, I was unable to understand your request. "
-                    "I can help with Performance, Leave, Attendance, Medical, Equipment, "
-                    "Verification, Distribution, and Skills information."
-                )
-                ws_manager.send_json(sid, {"type": "intro",      "data": unrecognised})
-                ws_manager.send_json(sid, {"type": "result",     "data": {}})
-                ws_manager.send_json(sid, {"type": "analysis",   "data": {}})
-                ws_manager.send_json(sid, {"type": "conclusion", "data": {}})
-                ws_manager.send_json(sid, {"type": "done"})
-                return
-
-            dotnet_payload = format_admin_payload(primary_intent)
-            dotnet_payload.update(id_filters)
-            if full_name:
-                dotnet_payload["fullName"] = full_name
-
-            if query_plan.query_type.value == "analytics" and query_plan.operations:
-                op = query_plan.operations[0]
-                if getattr(op, "group_by", None):
-                    dotnet_payload["groupBy"] = op.group_by
-                if query_plan.analytics_hint:
-                    dotnet_payload["analyticsHint"] = query_plan.analytics_hint
-
-            # ── Step 3: .NET API Executor ──────────────────────────────────
-            _progress(sid, "dotnet", "Fetching records...")
-            dotnet_data, dotnet_error = _call_dotnet(dotnet_payload)
-            if dotnet_error:
-                logger.warning("WS .NET call failed: %s", dotnet_error)
-                ws_manager.send_json(sid, {"type": "error", "message": "Failed to process request."})
-                return
-
-            raw_results     = [dotnet_data]
-            labeled_results = [(primary_intent.get("category", "Result"), dotnet_data)]
-
-        # ── Step 4: Result Combiner ────────────────────────────────────────
-        _progress(sid, "combiner", "Combining results...")
-
-        if qtype_str == "cross_filter":
-            combined_result = intersect_results(raw_results, primary_index=0)
-        elif qtype_str == "comparison":
-            combined_result = compare_results(labeled_results)
-        elif qtype_str == "multi_independent":
-            combined_result = merge_results(labeled_results)
-        else:
-            combined_result = raw_results[0] if raw_results else {}
-
-        # ── Step 5: Format data ───────────────────────────────────────────
-        formatted_data = format_dotnet_response(combined_result, primary_intent)
-
-        # ── Step 6: Report Generator ──────────────────────────────────────
-        _progress(sid, "report", "Generating analysis...")
-        report = generate_report(
-            combined_result=combined_result,
-            query_type=qtype_str,
-            intent=primary_intent,
-            user_query=message,
-        )
-
-        # ── Step 7: Response Builder ──────────────────────────────────────
-        response_payload = build_response(
-            query_type=qtype_str,
-            intro_message=report.get("introMessage", ""),
-            combined_result=combined_result,
-            analysis=report.get("analysis") or {},
-            conclusion=report.get("conclusion") or {},
-            intent=primary_intent,
-            raw_results=raw_results,
-            confidence=query_plan.confidence,
-            operation_count=operation_count,
-            formatted_data=formatted_data,
-            session_id=session_id,
-        )
-
-        # ── Step 8: Stream sections back to frontend ──────────────────────
         ws_manager.send_json(sid, {
             "type": "intro",
             "data": response_payload.get("introMessage", ""),

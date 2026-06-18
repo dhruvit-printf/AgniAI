@@ -143,14 +143,14 @@ class TestMultiFilterCrossCategory(unittest.TestCase):
 class TestFilteredComparison(unittest.TestCase):
 
     def test_compare_sections_among_cricket_players(self):
-        """Compare PPT and BEPT performance among cricket players."""
-        plan = plan_query("Compare PPT and BEPT performance among cricket players")
+        """Compare PPT and BPET performance among cricket players."""
+        plan = plan_query("Compare PPT and BPET performance among cricket players")
         self.assertEqual(plan.query_type, QueryType.COMPARISON)
         self.assertEqual(len(plan.operations), 2)
 
     def test_compare_two_sections_for_sikh_class(self):
-        """Compare BEPT and PPT for Sikh class."""
-        plan = plan_query("Compare BEPT and PPT for Sikh class")
+        """Compare BPET and PPT for Sikh class."""
+        plan = plan_query("Compare BPET and PPT for Sikh class")
         self.assertEqual(plan.query_type, QueryType.COMPARISON)
         self.assertEqual(len(plan.operations), 2)
         # Each operation fragment should mention the filter

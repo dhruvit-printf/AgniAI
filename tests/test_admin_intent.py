@@ -20,11 +20,11 @@ def test_top_performers_basic():
 
 
 def test_top_performers_with_section():
-    r = classify_admin_intent("Show top 10 performers in BEPT section")
+    r = classify_admin_intent("Show top 10 performers in BPET section")
     assert r["category"] == "Performance"
     assert r["subcategory"] == "TopPerformers"
     assert r["number"] == 10
-    assert r["section"] == "BEPT"
+    assert r["section"] == "BPET"
 
 
 def test_lowest_performers():

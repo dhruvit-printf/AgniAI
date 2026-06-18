@@ -30,7 +30,7 @@ class TestResultCombiner(unittest.TestCase):
     def test_compare_results(self):
         labeled = [
             ("PPT", {"average": 85.5, "total": 50}),
-            ("BEPT", {"average": 79.2, "total": 50})
+            ("BPET", {"average": 79.2, "total": 50})
         ]
         compared = compare_results(labeled)
         self.assertIn("average", compared["comparedMetrics"])
