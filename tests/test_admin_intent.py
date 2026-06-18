@@ -278,7 +278,7 @@ def test_payload_has_required_fields():
     assert payload["category"] == "Performance"
     assert payload["operation"] == "Top"
     assert payload["n"] == 5
-    assert payload["section"] == "BEPT"
+    assert payload["section"] == "BPET"
 
 
 # =============================================================================

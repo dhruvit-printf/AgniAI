@@ -581,6 +581,14 @@ def ready():
     return jsonify({"success": True, "status": "ready"})
 
 
+@app.route("/metrics")
+@app.route("/api/metrics")
+def prometheus_metrics():
+    from metrics import metrics_collector
+    return metrics_collector.generate_prometheus_text(), 200, {"Content-Type": "text/plain; version=0.0.4"}
+
+
+
 @app.route("/api/chat", methods=["POST"])
 @app.route("/api/chat/", methods=["POST"])
 @app.route("/chat", methods=["POST"])

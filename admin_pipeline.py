@@ -39,6 +39,9 @@ from dotnet_executor import _call_dotnet
 
 logger = logging.getLogger(__name__)
 
+SLOW_QUERY_THRESHOLD = float(os.getenv("SLOW_QUERY_THRESHOLD_SEC", "5.0"))
+from metrics import metrics_collector
+
 _session_context = AdminSessionContext()
 
 
@@ -349,6 +352,24 @@ def execute_admin_query(
                 "report_duration": durations["report_duration"]
             }))
 
+            # Record metrics
+            metrics_collector.inc_requests(qtype)
+            metrics_collector.record_duration("planner_duration", durations["planner_duration"])
+            metrics_collector.record_duration("intent_duration", durations["intent_duration"])
+            metrics_collector.record_duration("dotnet_duration", durations["dotnet_duration"])
+            metrics_collector.record_duration("report_duration", durations["report_duration"])
+            metrics_collector.record_duration("pipeline_duration", durations["total_duration"])
+
+            # Slow query detection
+            if total_duration > SLOW_QUERY_THRESHOLD:
+                logger.warning(json.dumps({
+                    "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": qtype,
+                    "duration_ms": round(total_duration * 1000, 2)
+                }))
+
             combined_message = response_payload.pop("message", "")
             return {
                 "type": qtype,
@@ -437,6 +458,23 @@ def execute_admin_query(
                         "op_index": i + 1,
                         "error": _sanitize_error(dotnet_error)
                     }))
+                    
+                    # Record failure metrics
+                    metrics_collector.inc_requests(qtype_str)
+                    metrics_collector.inc_errors(qtype_str)
+                    total_duration = time.time() - start_time
+                    metrics_collector.record_duration("pipeline_duration", round(total_duration * 1000, 2))
+                    
+                    # Slow query detection
+                    if total_duration > SLOW_QUERY_THRESHOLD:
+                        logger.warning(json.dumps({
+                            "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                            "trace_id": trace_id,
+                            "session_id": session_id,
+                            "query_type": qtype_str,
+                            "duration_ms": round(total_duration * 1000, 2)
+                        }))
+                        
                     return {
                         "type": "error",
                         "error_message": "Failed to process request.",
@@ -519,6 +557,24 @@ def execute_admin_query(
                     "report_duration": durations["report_duration"]
                 }))
 
+                # Record metrics
+                metrics_collector.inc_requests("unrecognised")
+                metrics_collector.record_duration("planner_duration", durations["planner_duration"])
+                metrics_collector.record_duration("intent_duration", durations["intent_duration"])
+                metrics_collector.record_duration("dotnet_duration", durations["dotnet_duration"])
+                metrics_collector.record_duration("report_duration", durations["report_duration"])
+                metrics_collector.record_duration("pipeline_duration", durations["total_duration"])
+
+                # Slow query detection
+                if total_duration > SLOW_QUERY_THRESHOLD:
+                    logger.warning(json.dumps({
+                        "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": "unrecognised",
+                        "duration_ms": round(total_duration * 1000, 2)
+                    }))
+
                 combined_message = response_payload.pop("message", "")
                 return {
                     "type": "unrecognised",
@@ -560,6 +616,23 @@ def execute_admin_query(
                     "query_type": qtype_str,
                     "error": _sanitize_error(dotnet_error)
                 }))
+                
+                # Record failure metrics
+                metrics_collector.inc_requests(qtype_str)
+                metrics_collector.inc_errors(qtype_str)
+                total_duration = time.time() - start_time
+                metrics_collector.record_duration("pipeline_duration", round(total_duration * 1000, 2))
+                
+                # Slow query detection
+                if total_duration > SLOW_QUERY_THRESHOLD:
+                    logger.warning(json.dumps({
+                        "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": qtype_str,
+                        "duration_ms": round(total_duration * 1000, 2)
+                    }))
+                    
                 return {
                     "type": "error",
                     "error_message": "Failed to process request.",
@@ -647,6 +720,24 @@ def execute_admin_query(
             "report_duration": durations["report_duration"]
         }))
 
+        # Record metrics
+        metrics_collector.inc_requests(qtype_str)
+        metrics_collector.record_duration("planner_duration", durations["planner_duration"])
+        metrics_collector.record_duration("intent_duration", durations["intent_duration"])
+        metrics_collector.record_duration("dotnet_duration", durations["dotnet_duration"])
+        metrics_collector.record_duration("report_duration", durations["report_duration"])
+        metrics_collector.record_duration("pipeline_duration", durations["total_duration"])
+
+        # Slow query detection
+        if total_duration > SLOW_QUERY_THRESHOLD:
+            logger.warning(json.dumps({
+                "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "query_type": qtype_str,
+                "duration_ms": round(total_duration * 1000, 2)
+            }))
+
         combined_message = response_payload.pop("message", "")
         return {
             "type": "query",
@@ -664,6 +755,22 @@ def execute_admin_query(
             "duration_ms": round(total_duration * 1000, 2),
             "error": str(exc)
         }))
+        
+        # Record metrics
+        metrics_collector.inc_requests("error")
+        metrics_collector.inc_errors("error")
+        metrics_collector.record_duration("pipeline_duration", round(total_duration * 1000, 2))
+        
+        # Slow query detection
+        if total_duration > SLOW_QUERY_THRESHOLD:
+            logger.warning(json.dumps({
+                "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                "trace_id": trace_id,
+                "session_id": session_id or "admin-default",
+                "query_type": "error",
+                "duration_ms": round(total_duration * 1000, 2)
+            }))
+            
         return {
             "type": "error",
             "error_message": "Failed to process request."

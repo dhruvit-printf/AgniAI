@@ -120,3 +120,74 @@ def admin_chat():
     }))
 
     return _success_response(result["response_payload"], message=combined_message)
+
+
+# =============================================================================
+# SUBSYSTEM HEALTH CHECKS
+# =============================================================================
+
+def check_python_health() -> str:
+    try:
+        from config import FAISS_INDEX_PATH
+        if FAISS_INDEX_PATH.exists():
+            return "healthy"
+        return "unhealthy"
+    except Exception:
+        return "unhealthy"
+
+
+def check_dotnet_health() -> str:
+    from dotnet_executor import _cb, DOTNET_API_BASE_URL, DOTNET_VERIFY_SSL
+    if _cb.state == "OPEN":
+        return "unhealthy"
+    try:
+        import requests
+        # Perform GET on base URL to check reachability
+        requests.get(DOTNET_API_BASE_URL, timeout=2, verify=DOTNET_VERIFY_SSL)
+        return "healthy"
+    except Exception:
+        return "unhealthy"
+
+
+def check_llm_health() -> str:
+    from config import OLLAMA_TAGS_URL
+    try:
+        import requests
+        resp = requests.get(OLLAMA_TAGS_URL, timeout=2)
+        if resp.status_code < 400:
+            return "healthy"
+        return "unhealthy"
+    except Exception:
+        return "unhealthy"
+
+
+def check_database_health() -> str:
+    try:
+        from rag import index_stats, is_ready
+        stats = index_stats()
+        if stats and stats.get("vectors", 0) > 0 and is_ready():
+            return "healthy"
+        return "unhealthy"
+    except Exception:
+        return "unhealthy"
+
+
+@admin_bp.route("/health", methods=["GET"])
+def admin_health():
+    py_h = check_python_health()
+    dn_h = check_dotnet_health()
+    llm_h = check_llm_health()
+    db_h = check_database_health()
+    
+    payload = {
+        "python": py_h,
+        "dotnet": dn_h,
+        "llm": llm_h,
+        "database": db_h
+    }
+    
+    status_code = 200
+    if "unhealthy" in payload.values():
+        status_code = 503
+        
+    return jsonify(payload), status_code
