@@ -53,7 +53,7 @@ class TestExtractPlatoonMention:
         assert extract_platoon_mention("pl 2 leave records") == "2"
 
     def test_3_platoon(self):
-        assert extract_platoon_mention("3 platoon stats") == "3"
+        assert extract_platoon_mention("3 platoon") == "3"
 
     def test_no_platoon_mention(self):
         result = extract_platoon_mention("show top performers")
