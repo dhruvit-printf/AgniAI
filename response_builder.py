@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional
 def build_combined_message(
     intro_message: str,
     formatted_data: str,
-    analysis: Dict[str, Any],
-    conclusion: Dict[str, Any],
+    analysis: Optional[Dict[str, Any]],
+    conclusion: Optional[Dict[str, Any]],
 ) -> str:
     """
     Merge introMessage + formatted_data + analysis + conclusion into one
@@ -29,26 +29,28 @@ def build_combined_message(
         parts.append(data_text)
         
     analysis_parts = []
-    summary = (analysis.get("summary") or "").strip()
-    if summary:
-        analysis_parts.append(summary)
+    if analysis:
+        summary = (analysis.get("summary") or "").strip()
+        if summary:
+            analysis_parts.append(summary)
+            
+        obs = analysis.get("observations") or []
+        clean_obs = [o.strip() for o in obs if o and o.strip()]
+        if clean_obs:
+            analysis_parts.append("Observations:\n" + "\n".join(f"- {o}" for o in clean_obs))
+            
+        insights = analysis.get("insights") or []
+        clean_ins = [i.strip() for i in insights if i and i.strip()]
+        if clean_ins:
+            analysis_parts.append("Insights:\n" + "\n".join(f"- {i}" for i in clean_ins))
+            
+        if analysis_parts:
+            parts.append("Analysis:\n" + "\n\n".join(analysis_parts))
         
-    obs = analysis.get("observations") or []
-    clean_obs = [o.strip() for o in obs if o and o.strip()]
-    if clean_obs:
-        analysis_parts.append("Observations:\n" + "\n".join(f"- {o}" for o in clean_obs))
-        
-    insights = analysis.get("insights") or []
-    clean_ins = [i.strip() for i in insights if i and i.strip()]
-    if clean_ins:
-        analysis_parts.append("Insights:\n" + "\n".join(f"- {i}" for i in clean_ins))
-        
-    if analysis_parts:
-        parts.append("Analysis:\n" + "\n\n".join(analysis_parts))
-        
-    conclusion_summary = (conclusion.get("summary") or "").strip()
-    if conclusion_summary:
-        parts.append(f"Conclusion:\n{conclusion_summary}")
+    if conclusion:
+        conclusion_summary = (conclusion.get("summary") or "").strip()
+        if conclusion_summary:
+            parts.append(f"Conclusion:\n{conclusion_summary}")
         
     return "\n\n".join(parts)
 
@@ -57,14 +59,15 @@ def build_response(
     query_type: str,
     intro_message: str,
     combined_result: Any,
-    analysis: Dict[str, Any],
-    conclusion: Dict[str, Any],
+    analysis: Optional[Dict[str, Any]],
+    conclusion: Optional[Dict[str, Any]],
     intent: Dict[str, Any],
     raw_results: List[Any],
     confidence: float,
     operation_count: int,
     formatted_data: str,
     session_id: Optional[str] = None,
+    durations: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """
     Assembles the exact JSON response structure per the Phase 4 specification.
@@ -106,11 +109,11 @@ def build_response(
             "summary": analysis.get("summary", ""),
             "observations": list(analysis.get("observations") or []),
             "insights": list(analysis.get("insights") or [])
-        },
+        } if analysis is not None else None,
         
         "conclusion": {
             "summary": conclusion.get("summary", "")
-        },
+        } if conclusion is not None else None,
         
         "intent": {
             "category": intent.get("category", ""),
@@ -132,6 +135,9 @@ def build_response(
         "formattedData": formatted_data,
         "message": combined_message
     }
+
+    if durations:
+        payload["metadata"].update(durations)
 
     if session_id and session_id != "admin-default":
         payload["sessionId"] = session_id

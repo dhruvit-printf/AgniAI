@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests as _requests
@@ -55,6 +56,18 @@ def map_query_type(qt: QueryType) -> str:
         return "multi_independent"
     else:
         return "simple"
+
+def _sanitize_error(err_msg: Any) -> str:
+    """Scrub raw database response body or detail dumps from error messages."""
+    if not err_msg:
+        return ""
+    err_str = str(err_msg)
+    if "Backend returned HTTP" in err_str:
+        # e.g. "Backend returned HTTP 400: <json-body>" -> "Backend returned HTTP 400"
+        parts = err_str.split(":", 1)
+        if len(parts) > 0:
+            return parts[0]
+    return err_str
 
 
 def _get_session_id(data: Dict) -> str:
@@ -163,7 +176,7 @@ def _build_greeting_response(body: Dict, session_id: str) -> Tuple[Dict, str]:
     return response_data, random.choice(greetings)
 
 
-def _build_conversational_response(message: str, body: Dict, session_id: str) -> Tuple[Dict, str]:
+def _build_conversational_response(message: str, body: Dict, session_id: str, trace_id: Optional[str] = None) -> Tuple[Dict, str]:
     """Build a conversational response using LLM or fallback."""
     import random
     import datetime as _dt
@@ -210,7 +223,11 @@ def _build_conversational_response(message: str, body: Dict, session_id: str) ->
                 response_data["sessionId"] = session_id
             return response_data, llm_reply
     except Exception as exc:
-        logger.debug("LLM conversational reply failed, using fallback: %s", exc)
+        logger.warning(json.dumps({
+            "message": "LLM conversational reply failed, using fallback",
+            "trace_id": trace_id or "N/A",
+            "error": str(exc)
+        }))
 
     fallbacks = [
         f"{time_greeting}, {admin_name}. I'm here and ready to help. What data would you like to review?",
@@ -234,6 +251,7 @@ def execute_admin_query(
     body: Dict[str, Any],
     session_id: Optional[str] = None,
     progress_callback: Optional[Callable[[str], None]] = None,
+    trace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Execute the complete admin query pipeline.
@@ -241,15 +259,27 @@ def execute_admin_query(
     This is the ONLY orchestration function. Both HTTP and WebSocket
     transports call this function.
     """
+    if not trace_id:
+        trace_id = uuid.uuid4().hex
+
     def _notify(stage: str) -> None:
         """Fire progress_callback if one was provided."""
         if progress_callback is not None:
             try:
                 progress_callback(stage)
             except Exception as exc:
-                logger.debug("progress_callback(%s) failed: %s", stage, exc)
+                logger.exception("progress_callback(%s) failed: %s", stage, exc)
 
     start_time = time.time()
+    
+    planner_duration = 0.0
+    intent_duration = 0.0
+    dotnet_duration = 0.0
+    combiner_duration = 0.0
+    report_duration = 0.0
+    total_duration = 0.0
+    qtype_str = "simple"
+    
     try:
         message = (user_query or "").strip()
         if session_id is None:
@@ -260,10 +290,13 @@ def execute_admin_query(
         # ── Greeting / conversational short-circuit ─────────────────────────────
         if _is_admin_conversational(message):
             cleaned = message.lower().strip().rstrip("!?.,;")
+            
+            intent_start = time.time()
             if _is_greeting(cleaned):
                 response_data, greeting_message = _build_greeting_response(body, session_id)
             else:
-                response_data, greeting_message = _build_conversational_response(message, body, session_id)
+                response_data, greeting_message = _build_conversational_response(message, body, session_id, trace_id=trace_id)
+            intent_duration = time.time() - intent_start
 
             # Fire progress events to maintain identical streaming behavior
             _notify("planner")
@@ -273,6 +306,17 @@ def execute_admin_query(
             _notify("report")
 
             qtype = response_data.get("type", "greeting")
+            
+            total_duration = time.time() - start_time
+            durations = {
+                "planner_duration": round(planner_duration * 1000, 2),
+                "intent_duration": round(intent_duration * 1000, 2),
+                "dotnet_duration": round(dotnet_duration * 1000, 2),
+                "combiner_duration": round(combiner_duration * 1000, 2),
+                "report_duration": round(report_duration * 1000, 2),
+                "total_duration": round(total_duration * 1000, 2),
+            }
+            
             response_payload = build_response(
                 query_type=qtype,
                 intro_message=greeting_message,
@@ -285,10 +329,25 @@ def execute_admin_query(
                 operation_count=0,
                 formatted_data="",
                 session_id=session_id,
+                durations=durations,
             )
 
-            execution_time_ms = round((time.time() - start_time) * 1000)
+            execution_time_ms = round(total_duration * 1000)
             response_payload["metadata"]["executionTimeMs"] = execution_time_ms
+
+            # Structured completed log for short-circuit
+            logger.info(json.dumps({
+                "message": "Admin pipeline complete",
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "query_type": qtype,
+                "duration": durations["total_duration"],
+                "planner_duration": durations["planner_duration"],
+                "intent_duration": durations["intent_duration"],
+                "dotnet_duration": durations["dotnet_duration"],
+                "combiner_duration": durations["combiner_duration"],
+                "report_duration": durations["report_duration"]
+            }))
 
             combined_message = response_payload.pop("message", "")
             return {
@@ -304,7 +363,8 @@ def execute_admin_query(
                 "error_message": "Failed to process request.",
             }
 
-        # ── Step 1: Resolve Named Entities ──────────────────────────────────────
+        # ── Step 1: Resolve Named Entities & Step 2: Query Planner ──────────────────────────────────────
+        planner_start = time.time()
         _notify("planner")
         resolved_entities = resolve_entities_from_query(
             message,
@@ -316,26 +376,17 @@ def execute_admin_query(
         if resolved_entities.get("platoonId") is not None:
             id_filters["platoonId"] = resolved_entities["platoonId"]
 
-        # ── Step 2: Query Planner ───────────────────────────────────────────────
         message    = admin_normalize_query(message)
         query_plan = plan_query(message)
+        planner_duration = time.time() - planner_start
+
         _notify("intent")
 
-        logger.info(
-            "Query plan: session=%s type=%s confidence=%.2f ops=%d reason=%s",
-            session_id,
-            query_plan.query_type.value,
-            query_plan.confidence,
-            len(query_plan.operations),
-            query_plan.reasoning,
-        )
-
-        # ── Step 3: Execute .NET API Call(s) ────────────────────────────────────
-        _notify("dotnet")
+        # ── Step 3: Intent Classification ───────────────────────────────────────────────
+        intent_start = time.time()
         raw_results:     List[Any]             = []
         labeled_results: List[Tuple[str, Any]] = []
         primary_intent:  Dict[str, Any]        = {}
-        qtype_str:       str                   = "simple"
         operation_count: int                   = 1
 
         if (query_plan.query_type != QueryType.SIMPLE
@@ -345,25 +396,47 @@ def execute_admin_query(
             # MULTI-OP: one .NET call per sub-operation
             qtype_str = map_query_type(query_plan.query_type)
             operation_count = len(query_plan.operations)
-            logger.info(
-                "Multi-op: session=%s type=%s ops=%d",
-                session_id, qtype_str, operation_count,
-            )
+            
+            logger.info(json.dumps({
+                "message": "Query plan compiled",
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "query_type": qtype_str,
+                "confidence": query_plan.confidence,
+                "operation_count": operation_count,
+                "reasoning": query_plan.reasoning
+            }))
 
+            intent_duration = time.time() - intent_start
+
+            # ── Step 4: Execute .NET API Call(s) ────────────────────────────────────
+            dotnet_start = time.time()
+            _notify("dotnet")
             for i, op in enumerate(query_plan.operations):
                 payload = dict(op.dotnet_payload)
                 payload.update(id_filters)
                 if full_name:
                     payload["fullName"] = full_name
 
-                logger.info(
-                    "Multi-op %d/%d → .NET: %s",
-                    i + 1, operation_count, json.dumps(payload),
-                )
+                logger.info(json.dumps({
+                    "message": "Sending multi-op request to .NET",
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": qtype_str,
+                    "op_index": i + 1,
+                    "total_ops": operation_count
+                }))
 
-                dotnet_data, dotnet_error = _call_dotnet(payload)
+                dotnet_data, dotnet_error = _call_dotnet(payload, trace_id=trace_id)
                 if dotnet_error:
-                    logger.warning("Multi-op %d/%d failed: %s", i + 1, operation_count, dotnet_error)
+                    logger.warning(json.dumps({
+                        "message": "Multi-op failed",
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": qtype_str,
+                        "op_index": i + 1,
+                        "error": _sanitize_error(dotnet_error)
+                    }))
                     return {
                         "type": "error",
                         "error_message": "Failed to process request.",
@@ -374,6 +447,7 @@ def execute_admin_query(
                 labeled_results.append((label, dotnet_data))
 
             primary_intent = query_plan.operations[0].intent_result
+            dotnet_duration = time.time() - dotnet_start
 
         else:
             # SIMPLE / ANALYTICS: single .NET call
@@ -384,31 +458,39 @@ def execute_admin_query(
                     and query_plan.operations
                     and query_plan.operations[0].intent_result.get("category")):
                 primary_intent = query_plan.operations[0].intent_result
-                logger.info(
-                    "Analytics intent: session=%s category=%s subcategory=%s hint=%s",
-                    session_id,
-                    primary_intent.get("category"),
-                    primary_intent.get("subcategory"),
-                    query_plan.analytics_hint,
-                )
             else:
                 primary_intent = classify_admin_intent(message)
-                logger.info(
-                    "Intent: session=%s category=%s subcategory=%s confidence=%s",
-                    session_id,
-                    primary_intent.get("category"),
-                    primary_intent.get("subcategory"),
-                    primary_intent.get("confidence"),
-                )
+
+            logger.info(json.dumps({
+                "message": "Query plan compiled",
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "query_type": qtype_str,
+                "confidence": query_plan.confidence,
+                "operation_count": operation_count,
+                "reasoning": query_plan.reasoning
+            }))
 
             # Unrecognised query
             if primary_intent.get("category") is None:
+                intent_duration = time.time() - intent_start
                 unrecognised_msg = (
                     "Sorry, I was unable to understand your request. "
                     "I can help with Performance, Leave, Attendance, Medical, Equipment, "
                     "Verification, Distribution, and Skills information. "
                     "Please ask a relevant question."
                 )
+                
+                total_duration = time.time() - start_time
+                durations = {
+                    "planner_duration": round(planner_duration * 1000, 2),
+                    "intent_duration": round(intent_duration * 1000, 2),
+                    "dotnet_duration": round(dotnet_duration * 1000, 2),
+                    "combiner_duration": round(combiner_duration * 1000, 2),
+                    "report_duration": round(report_duration * 1000, 2),
+                    "total_duration": round(total_duration * 1000, 2),
+                }
+
                 response_payload = build_response(
                     query_type=qtype_str,
                     intro_message=unrecognised_msg,
@@ -421,7 +503,22 @@ def execute_admin_query(
                     operation_count=0,
                     formatted_data="",
                     session_id=session_id,
+                    durations=durations,
                 )
+                
+                logger.info(json.dumps({
+                    "message": "Admin pipeline complete",
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": "unrecognised",
+                    "duration": durations["total_duration"],
+                    "planner_duration": durations["planner_duration"],
+                    "intent_duration": durations["intent_duration"],
+                    "dotnet_duration": durations["dotnet_duration"],
+                    "combiner_duration": durations["combiner_duration"],
+                    "report_duration": durations["report_duration"]
+                }))
+
                 combined_message = response_payload.pop("message", "")
                 return {
                     "type": "unrecognised",
@@ -441,11 +538,28 @@ def execute_admin_query(
                 if query_plan.analytics_hint:
                     dotnet_payload["analyticsHint"] = query_plan.analytics_hint
 
-            logger.info("Sending to .NET: %s", json.dumps(dotnet_payload))
+            intent_duration = time.time() - intent_start
 
-            dotnet_data, dotnet_error = _call_dotnet(dotnet_payload)
+            # ── Step 4: Execute .NET API Call ────────────────────────────────────
+            dotnet_start = time.time()
+            _notify("dotnet")
+
+            logger.info(json.dumps({
+                "message": "Sending simple request to .NET",
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "query_type": qtype_str
+            }))
+
+            dotnet_data, dotnet_error = _call_dotnet(dotnet_payload, trace_id=trace_id)
             if dotnet_error:
-                logger.warning("Admin .NET call failed: %s", dotnet_error)
+                logger.warning(json.dumps({
+                    "message": "Admin .NET call failed",
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": qtype_str,
+                    "error": _sanitize_error(dotnet_error)
+                }))
                 return {
                     "type": "error",
                     "error_message": "Failed to process request.",
@@ -453,49 +567,85 @@ def execute_admin_query(
 
             raw_results     = [dotnet_data]
             labeled_results = [(primary_intent.get("category", "Result"), dotnet_data)]
+            dotnet_duration = time.time() - dotnet_start
 
-        # ── Step 4: Result Combiner ─────────────────────────────────────────────
+        # ── Step 5: Result Combiner & Formatting ─────────────────────────────────────────────
+        combiner_start = time.time()
         _notify("combiner")
         combined_result = combine_results(raw_results, labeled_results, qtype_str, primary_intent)
-
-        # ── Step 5: Format combined result to human-readable plain text ─────────
         formatted_data = format_dotnet_response(combined_result, primary_intent)
+        combiner_duration = time.time() - combiner_start
 
         # ── Step 6: Report Generator (intro + analysis + conclusion) ────────────
+        report_start = time.time()
         _notify("report")
-        report = generate_report(
-            combined_result=combined_result,
-            query_type=qtype_str,
-            intent=primary_intent,
-            user_query=message,
-        )
+        try:
+            report = generate_report(
+                combined_result=combined_result,
+                query_type=qtype_str,
+                intent=primary_intent,
+                user_query=message,
+                trace_id=trace_id,
+            )
+        except Exception as report_exc:
+            logger.error(json.dumps({
+                "message": "Unexpected exception from generate_report",
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "query_type": qtype_str,
+                "error": str(report_exc)
+            }))
+            report = {
+                "introMessage": "Report generated with partial metrics.",
+                "analysis": None,
+                "conclusion": None
+            }
+        report_duration = time.time() - report_start
 
         # ── Update session context ──────────────────────────────────────────────
         _session_context.update(session_id, message, primary_intent, combined_result)
+
+        total_duration = time.time() - start_time
+        durations = {
+            "planner_duration": round(planner_duration * 1000, 2),
+            "intent_duration": round(intent_duration * 1000, 2),
+            "dotnet_duration": round(dotnet_duration * 1000, 2),
+            "combiner_duration": round(combiner_duration * 1000, 2),
+            "report_duration": round(report_duration * 1000, 2),
+            "total_duration": round(total_duration * 1000, 2),
+        }
 
         # ── Step 7: Response Builder ────────────────────────────────────────────
         response_payload = build_response(
             query_type=qtype_str,
             intro_message=report.get("introMessage", ""),
             combined_result=combined_result,
-            analysis=report.get("analysis") or {},
-            conclusion=report.get("conclusion") or {},
+            analysis=report.get("analysis"),
+            conclusion=report.get("conclusion"),
             intent=primary_intent,
             raw_results=raw_results,
             confidence=query_plan.confidence,
             operation_count=operation_count,
             formatted_data=formatted_data,
             session_id=session_id,
+            durations=durations,
         )
 
-        execution_time_ms = round((time.time() - start_time) * 1000)
+        execution_time_ms = round(total_duration * 1000)
         response_payload["metadata"]["executionTimeMs"] = execution_time_ms
 
-        logger.info(
-            "Admin pipeline complete: session=%s elapsed=%dms",
-            session_id,
-            execution_time_ms,
-        )
+        logger.info(json.dumps({
+            "message": "Admin pipeline complete",
+            "trace_id": trace_id,
+            "session_id": session_id,
+            "query_type": qtype_str,
+            "duration": durations["total_duration"],
+            "planner_duration": durations["planner_duration"],
+            "intent_duration": durations["intent_duration"],
+            "dotnet_duration": durations["dotnet_duration"],
+            "combiner_duration": durations["combiner_duration"],
+            "report_duration": durations["report_duration"]
+        }))
 
         combined_message = response_payload.pop("message", "")
         return {
@@ -505,7 +655,15 @@ def execute_admin_query(
             "execution_time_ms": execution_time_ms,
         }
     except Exception as exc:
-        logger.exception("Error in execute_admin_query: %s", exc)
+        total_duration = time.time() - start_time
+        logger.error(json.dumps({
+            "message": "Error in execute_admin_query",
+            "trace_id": trace_id,
+            "session_id": session_id or "admin-default",
+            "query_type": "error",
+            "duration_ms": round(total_duration * 1000, 2),
+            "error": str(exc)
+        }))
         return {
             "type": "error",
             "error_message": "Failed to process request."

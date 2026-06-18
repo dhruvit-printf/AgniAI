@@ -9,8 +9,11 @@ admin_pipeline.py, which is the single source of truth for query execution.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import time
+import uuid
 from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request
@@ -65,16 +68,41 @@ def admin_chat():
     Delegates ALL processing to execute_admin_query() in admin_pipeline.py.
     This function is HTTP transport only.
     """
+    trace_id = uuid.uuid4().hex
+    start_time = time.time()
+
     body    = request.get_json(force=True, silent=True) or {}
     message = (body.get("message") or "").strip()
+    
+    # Extract session ID for context (flat default if none found)
+    session_id = (
+        body.get("session_id") or body.get("sessionId") or ""
+    ).strip() or "admin-default"
+
+    # Structured entry log
+    logger.info(json.dumps({
+        "message": "HTTP admin chat entry",
+        "trace_id": trace_id,
+        "session_id": session_id,
+        "query_type": "N/A",
+        "duration_ms": None
+    }))
 
     # ── Call the unified pipeline ───────────────────────────────────────────
-    result = execute_admin_query(user_query=message, body=body)
+    result = execute_admin_query(user_query=message, body=body, trace_id=trace_id)
 
     result_type = result.get("type", "error")
+    duration_ms = round((time.time() - start_time) * 1000, 2)
 
     # ── Error ───────────────────────────────────────────────────────────────
     if result_type == "error":
+        logger.error(json.dumps({
+            "message": "HTTP admin chat error response",
+            "trace_id": trace_id,
+            "session_id": session_id,
+            "query_type": "error",
+            "duration_ms": duration_ms
+        }))
         return jsonify({
             "type": "error",
             "message": "Failed to process request."
@@ -82,4 +110,13 @@ def admin_chat():
 
     # ── Successful query / greeting / conversational ────────────────────────
     combined_message = result.get("combined_message", "")
+    
+    logger.info(json.dumps({
+        "message": "HTTP admin chat success response",
+        "trace_id": trace_id,
+        "session_id": session_id,
+        "query_type": result_type,
+        "duration_ms": duration_ms
+    }))
+
     return _success_response(result["response_payload"], message=combined_message)

@@ -23,6 +23,9 @@ This file MUST NOT:
 from __future__ import annotations
 
 import logging
+import json
+import time
+import uuid
 from typing import Any, Dict
 
 from flask_socketio import SocketIO
@@ -48,14 +51,17 @@ _STAGE_MESSAGES: Dict[str, str] = {
 
 def _progress(sid: str, stage: str, message: str) -> None:
     """Emit a progress event to the client."""
-    ws_manager.send_json(sid, {"type": "progress", "stage": stage, "message": message})
+    try:
+        ws_manager.send_json(sid, {"type": "progress", "stage": stage, "message": message})
+    except Exception as exc:
+        logger.exception("Failed to send progress event to sid=%s: %s", sid, exc)
 
 
 # =============================================================================
 # PIPELINE RUNNER
 # =============================================================================
 
-def _run_pipeline(sid: str, message: str, body: Dict) -> None:
+def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
     """
     Execute the admin pipeline and stream results back via WebSocket.
 
@@ -63,6 +69,20 @@ def _run_pipeline(sid: str, message: str, body: Dict) -> None:
     Progress events are emitted at each real pipeline stage via the
     progress_callback parameter — not pre-fired.
     """
+    start_time = time.time()
+    session_id = (
+        body.get("session_id") or body.get("sessionId") or ""
+    ).strip() or "admin-default"
+
+    # Structured entry log
+    logger.info(json.dumps({
+        "message": "WebSocket admin query entry",
+        "trace_id": trace_id,
+        "session_id": session_id,
+        "query_type": "N/A",
+        "duration_ms": None
+    }))
+
     try:
         # ── Build progress callback tied to this WebSocket session ──────────
         def emit_progress(stage: str) -> None:
@@ -75,12 +95,21 @@ def _run_pipeline(sid: str, message: str, body: Dict) -> None:
             user_query=message,
             body=body,
             progress_callback=emit_progress,
+            trace_id=trace_id,
         )
 
         result_type = result.get("type", "error")
+        duration_ms = round((time.time() - start_time) * 1000, 2)
 
         # ── Error ───────────────────────────────────────────────────────────
         if result_type == "error":
+            logger.error(json.dumps({
+                "message": "WebSocket admin query error response",
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "query_type": "error",
+                "duration_ms": duration_ms
+            }))
             ws_manager.send_json(sid, {
                 "type": "error",
                 "message": "Failed to process request.",
@@ -89,6 +118,14 @@ def _run_pipeline(sid: str, message: str, body: Dict) -> None:
 
         # ── Stream response sections ────────────────────────────────────────
         response_payload = result.get("response_payload", {})
+
+        logger.info(json.dumps({
+            "message": "WebSocket admin query success response",
+            "trace_id": trace_id,
+            "session_id": session_id,
+            "query_type": result_type,
+            "duration_ms": duration_ms
+        }))
 
         ws_manager.send_json(sid, {
             "type": "intro",
@@ -109,7 +146,15 @@ def _run_pipeline(sid: str, message: str, body: Dict) -> None:
         ws_manager.send_json(sid, {"type": "done"})
 
     except Exception as exc:
-        logger.exception("WebSocket pipeline error for sid=%s: %s", sid, exc)
+        duration_ms = round((time.time() - start_time) * 1000, 2)
+        logger.error(json.dumps({
+            "message": "WebSocket pipeline error",
+            "trace_id": trace_id,
+            "session_id": session_id,
+            "query_type": "error",
+            "duration_ms": duration_ms,
+            "error": str(exc)
+        }))
         ws_manager.send_json(sid, {"type": "error", "message": "Failed to process request."})
 
 
@@ -150,6 +195,7 @@ def register_socketio_events(socketio: SocketIO) -> None:
                 ... (any other fields forwarded to the pipeline)
             }
         """
+        trace_id = uuid.uuid4().hex
         from flask import request as flask_request
         sid = flask_request.sid  # type: ignore[attr-defined]
 
@@ -166,4 +212,4 @@ def register_socketio_events(socketio: SocketIO) -> None:
         ws_manager.send_json(sid, {"type": "query_received"})
 
         # ── Run pipeline in background thread to avoid blocking the event loop
-        socketio.start_background_task(_run_pipeline, sid, message, data)
+        socketio.start_background_task(_run_pipeline, sid, message, data, trace_id)
