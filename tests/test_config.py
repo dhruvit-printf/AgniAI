@@ -122,5 +122,3 @@ def test_critical_vars_contains_only_dotnet():
     # AgniAI has no database; these must NOT be critical
     assert "DATABASE_URL" not in CRITICAL_VARS
     assert "INTERNAL_SERVICE_KEY" not in CRITICAL_VARS
-
-

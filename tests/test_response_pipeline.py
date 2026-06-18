@@ -107,7 +107,10 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertEqual(resp["analysis"]["observations"], ["O"])
         self.assertEqual(resp["conclusion"]["summary"], "Conc")
         self.assertEqual(resp["intent"]["confidence"], 0.95)
-        self.assertEqual(resp["dotnetResponse"]["rawResponse"], {"data": 123})
+        # dotnetResponse is intentionally omitted for security — raw backend
+        # data must never reach the frontend. Verify it is absent.
+        self.assertNotIn("dotnetResponse", resp)
+        self.assertNotIn("rawResponse", resp)
         self.assertEqual(resp["metadata"]["operationCount"], 1)
         self.assertEqual(resp["sessionId"], "session-123")
 
