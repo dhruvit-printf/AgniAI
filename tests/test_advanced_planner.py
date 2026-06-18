@@ -18,8 +18,8 @@ Run with:
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
 import types
 import unittest
 
@@ -47,10 +47,10 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+import admin_confidence as acf
+import admin_context as ac
 import query_planner as qp
 import result_combiner as rc
-import admin_context as ac
-import admin_confidence as acf
 
 QueryType = qp.QueryType
 plan_query = qp.plan_query

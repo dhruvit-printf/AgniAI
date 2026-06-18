@@ -10,8 +10,8 @@ from unittest.mock import patch
 from report_generator import (
     _extract_numbers_from_text,
     _strip_ungrounded_numbers,
-    get_fallback_report,
     generate_report,
+    get_fallback_report,
 )
 from response_builder import (
     build_combined_message,

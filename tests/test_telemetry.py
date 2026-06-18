@@ -5,8 +5,9 @@ Unit tests for telemetry.py — OpenTelemetry span instrumentation.
 
 import os
 import time
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestSpanContextManager:

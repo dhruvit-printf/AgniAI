@@ -1,7 +1,10 @@
 # .pyinstaller_hooks/hook-torch.py
 
-from PyInstaller.utils.hooks import (collect_data_files, collect_dynamic_libs,
-                                     collect_submodules)
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+)
 
 binaries = collect_dynamic_libs("torch")
 

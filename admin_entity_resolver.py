@@ -350,7 +350,7 @@ def resolve_entities_from_query(
     query: str,
     existing_company_id: Optional[int] = None,
     existing_platoon_id: Optional[int] = None,
-) -> Dict[str, Optional[int]]:
+) -> Dict[str, Any]:
     """
     Extract company / platoon mentions from *query*, resolve them to IDs,
     and return a dict with keys:

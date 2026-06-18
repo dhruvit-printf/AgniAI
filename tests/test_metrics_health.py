@@ -3,8 +3,8 @@ import logging
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app import app
 from admin_pipeline import execute_admin_query
+from app import app
 from metrics import metrics_collector
 
 

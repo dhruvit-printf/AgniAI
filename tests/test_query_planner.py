@@ -1,5 +1,6 @@
 import unittest
-from query_planner import plan_query, QueryType
+
+from query_planner import QueryType, plan_query
 
 
 class TestQueryPlanner(unittest.TestCase):

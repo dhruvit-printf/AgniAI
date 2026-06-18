@@ -32,33 +32,76 @@ except Exception:  # pragma: no cover
 
 # ── Blueprints ─────────────────────────────────────────────────────────────
 from admin_routes import _register_rate_limits, admin_bp
-from api_models import (err, ok_chat, ok_health, ok_ingest, ok_message,
-                        ok_sources, ok_stats)
-from config import (ALLOWED_ORIGINS, API_FIRST_TOKEN_TIMEOUT, API_SECRET_KEY,
-                    CHAT_SYSTEM_PROMPT, GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
-                    MAX_CONTEXT_CHARS, MAX_CONTEXT_CHARS_DEFAULT,
-                    MAX_TOKENS_DEFAULT, MAX_TOKENS_STYLE,
-                    MODEL_MAX_CONTEXT_TOKENS, OLLAMA_TAGS_URL,
-                    REFERENCE_FALLBACK, SESSION_HEADER, STRICT_RAG_PROMPT,
-                    STRICT_RAG_PROMPT_COMPUTE, STYLE_MIN_WORDS,
-                    TOKEN_SAFETY_BUFFER, TOP_K, _fuzzy_normalize_query,
-                    _get_current_date_response, _is_date_query,
-                    classify_intent, detect_answer_style,
-                    estimate_message_tokens, style_structure_instruction,
-                    trim_to_complete_sentence)
-from ingest import (clear_index, ingest_doc, ingest_docx, ingest_pdf,
-                    ingest_text, ingest_txt, ingest_url, list_sources)
+from api_models import (
+    err,
+    ok_chat,
+    ok_health,
+    ok_ingest,
+    ok_message,
+    ok_sources,
+    ok_stats,
+)
+from config import (
+    ALLOWED_ORIGINS,
+    API_FIRST_TOKEN_TIMEOUT,
+    API_SECRET_KEY,
+    CHAT_SYSTEM_PROMPT,
+    GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
+    MAX_CONTEXT_CHARS,
+    MAX_CONTEXT_CHARS_DEFAULT,
+    MAX_TOKENS_DEFAULT,
+    MAX_TOKENS_STYLE,
+    MODEL_MAX_CONTEXT_TOKENS,
+    OLLAMA_TAGS_URL,
+    REFERENCE_FALLBACK,
+    SESSION_HEADER,
+    STRICT_RAG_PROMPT,
+    STRICT_RAG_PROMPT_COMPUTE,
+    STYLE_MIN_WORDS,
+    TOKEN_SAFETY_BUFFER,
+    TOP_K,
+    _fuzzy_normalize_query,
+    _get_current_date_response,
+    _is_date_query,
+    classify_intent,
+    detect_answer_style,
+    estimate_message_tokens,
+    style_structure_instruction,
+    trim_to_complete_sentence,
+)
+from ingest import (
+    clear_index,
+    ingest_doc,
+    ingest_docx,
+    ingest_pdf,
+    ingest_text,
+    ingest_txt,
+    ingest_url,
+    list_sources,
+)
 from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
-from rag import (LOW_RETRIEVAL_CONFIDENCE, STRICT_TOP_K, build_context,
-                 build_strict_messages, deterministic_policy_answer,
-                 get_cached_response, index_stats, is_ready,
-                 is_reasoning_query, make_response_cache_key,
-                 prepare_rag_bundle, set_cached_response, warmup_runtime)
+from rag import (
+    LOW_RETRIEVAL_CONFIDENCE,
+    STRICT_TOP_K,
+    build_context,
+    build_strict_messages,
+    deterministic_policy_answer,
+    get_cached_response,
+    index_stats,
+    is_ready,
+    is_reasoning_query,
+    make_response_cache_key,
+    prepare_rag_bundle,
+    set_cached_response,
+    warmup_runtime,
+)
+
 # ── Sentry (CRITICAL FIX: wire in at import time) ─────────────────────────
 from sentry_integration import init_sentry
 from swagger_ui import swagger_bp
+
 # ── WebSocket ──────────────────────────────────────────────────────────────
 from websocket_manager import ws_manager
 from websocket_routes import register_socketio_events

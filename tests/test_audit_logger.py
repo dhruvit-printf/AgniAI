@@ -6,8 +6,9 @@ Unit tests for audit_logger.py — structured audit trail system.
 import json
 import os
 import time
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestAuditLogSchema:

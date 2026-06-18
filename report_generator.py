@@ -566,7 +566,7 @@ def _call_ollama(
 ) -> Optional[str]:
     """Call Ollama and return the raw text response, or None on failure."""
     try:
-        payload = {
+        payload: Dict[str, Any] = {
             "model": DEFAULT_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,

@@ -23,9 +23,16 @@ try:
 except ModuleNotFoundError:
     BeautifulSoup = None
 
-from config import (BM25_INDEX_PATH, CHUNK_MIN_WORDS, CHUNK_OVERLAP,
-                    CHUNK_WORDS, DATA_DIR, DOCSTORE_PATH, EMBEDDING_DIM,
-                    FAISS_INDEX_PATH)
+from config import (
+    BM25_INDEX_PATH,
+    CHUNK_MIN_WORDS,
+    CHUNK_OVERLAP,
+    CHUNK_WORDS,
+    DATA_DIR,
+    DOCSTORE_PATH,
+    EMBEDDING_DIM,
+    FAISS_INDEX_PATH,
+)
 from rag import embed_texts, load_docstore, load_index, save_index
 
 logger = logging.getLogger(__name__)
@@ -342,8 +349,7 @@ def _extract_doc_text(file_path: str) -> str:
                 converted_path = Path(tmpdir) / converted_name
                 if converted_path.exists():
                     try:
-                        from docx import \
-                            Document as DocxDocument  # type: ignore
+                        from docx import Document as DocxDocument  # type: ignore
 
                         doc = DocxDocument(str(converted_path))
                         paragraphs = [

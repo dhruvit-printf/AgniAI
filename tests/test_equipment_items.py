@@ -5,8 +5,8 @@ Unit tests for IssuedItems / ProcuredItems intent classification.
 Run with: pytest tests/test_equipment_items.py -v
 """
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -29,12 +29,12 @@ sys.modules["dotenv"].load_dotenv = lambda *a, **kw: None  # type: ignore
 
 # ── Now we can import ────────────────────────────────────────────────────────
 from admin_intent import (
-    classify_admin_intent,
-    format_admin_payload,
+    _ITEM_LOOKUP,
     ISSUED_ITEMS,
     PROCURED_ITEMS,
     _extract_item_query,
-    _ITEM_LOOKUP,
+    classify_admin_intent,
+    format_admin_payload,
 )
 
 # =============================================================================

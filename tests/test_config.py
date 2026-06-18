@@ -5,8 +5,9 @@ Tests for AgniAI settings.py — validates what actually exists.
 
 import os
 import sys
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 def test_validate_critical_env_passes_with_dotnet_url():
@@ -53,8 +54,9 @@ def test_dotnet_api_config_strips_trailing_slash():
 
 
 def test_dotnet_api_config_rejects_non_http_scheme():
-    from settings import DotNetAPIConfig
     from pydantic import ValidationError
+
+    from settings import DotNetAPIConfig
 
     with patch.dict(
         os.environ, {"DOTNET_API_BASE_URL": "ftp://localhost:5001"}, clear=True
@@ -93,8 +95,9 @@ def test_timeout_config_defaults():
 
 
 def test_timeout_config_rejects_too_low_llm():
-    from settings import TimeoutConfig
     from pydantic import ValidationError
+
+    from settings import TimeoutConfig
 
     with patch.dict(os.environ, {"TIMEOUT_LLM_INFERENCE": "5.0"}, clear=True):
         with pytest.raises(ValidationError):

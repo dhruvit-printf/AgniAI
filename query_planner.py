@@ -10,8 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from admin_intent import (_normalise, classify_admin_intent,
-                          format_admin_payload)
+from admin_intent import _normalise, classify_admin_intent, format_admin_payload
 
 logger = logging.getLogger(__name__)
 

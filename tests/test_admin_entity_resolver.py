@@ -4,12 +4,13 @@ Tests for entity extraction (no .NET API calls — extraction only).
 """
 
 import pytest
+
 from admin_entity_resolver import (
+    _name_matches,
+    _normalise_name,
     extract_company_mention,
     extract_platoon_mention,
     resolve_entities_from_query,
-    _name_matches,
-    _normalise_name,
 )
 
 

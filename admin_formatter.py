@@ -556,7 +556,7 @@ def _format_leave(subcategory: str, data: Any, intent_result: Dict) -> str:
 
     if isinstance(data, list):
         rows = [
-            [i, _safe_str(_get(item, "fullName", "name", "Name"))]
+            [str(i), _safe_str(_get(item, "fullName", "name", "Name"))]
             for i, item in enumerate(data, 1)
         ]
         return "Leave Data\n\n" + _plain_table(["#", "Name"], rows)
@@ -632,7 +632,7 @@ def _format_medical(subcategory: str, data: Any, intent_result: Dict) -> str:
             return "No disease statistics available."
         rows = [
             [
-                i,
+                str(i),
                 _safe_str(_get(item, "disease", "name", "condition", "diagnosis")),
                 _safe_str(_get(item, "count", "cases", "total"), "-"),
             ]
@@ -879,7 +879,7 @@ def _format_equipment(subcategory: str, data: Any, intent_result: Dict) -> str:
 
     if isinstance(data, list):
         rows = [
-            [i, _safe_str(_get(item, "name", "equipment", "itemName"))]
+            [str(i), _safe_str(_get(item, "name", "equipment", "itemName"))]
             for i, item in enumerate(data, 1)
         ]
         return "Equipment Records\n\n" + _plain_table(["#", "Item"], rows)
@@ -1011,7 +1011,7 @@ def _format_distribution(subcategory: str, data: Any, intent_result: Dict) -> st
 
         if isinstance(data, list):
             rows = [
-                [i, _safe_str(_get(item, "fullName", "name", "Name"))]
+                [str(i), _safe_str(_get(item, "fullName", "name", "Name"))]
                 for i, item in enumerate(data, 1)
             ]
             return "Latest Distribution\n\n" + _plain_table(["#", "Name"], rows)
@@ -1196,7 +1196,7 @@ def _format_skills(subcategory: str, data: Any, intent_result: Dict) -> str:
 
     if isinstance(data, list):
         rows = [
-            [i, _safe_str(_get(item, "name", "Name", "fullName"))]
+            [str(i), _safe_str(_get(item, "name", "Name", "fullName"))]
             for i, item in enumerate(data, 1)
         ]
         return "Skills / Roster\n\n" + _plain_table(["#", "Name"], rows)
@@ -1542,7 +1542,7 @@ def _format_analytics_result(data: Any, intent_result: Dict) -> str:
         return _format_performance_aggregate(subcategory or "", data, intent_result)
 
     if category in _FORMATTERS:
-        return _FORMATTERS[category](subcategory, data, intent_result)
+        return _FORMATTERS[category](subcategory or "", data, intent_result)
 
     records = _extract_records(data)
     if records and isinstance(records[0], dict):
@@ -1621,7 +1621,7 @@ def format_dotnet_response(
             return _format_performance_list(dotnet_response, intent_result)
 
     if category in _FORMATTERS:
-        return _FORMATTERS[category](subcategory, dotnet_response, intent_result)
+        return _FORMATTERS[category](subcategory or "", dotnet_response, intent_result)
 
     try:
         return json.dumps(dotnet_response, indent=2, ensure_ascii=False)

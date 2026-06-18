@@ -1,5 +1,6 @@
 import unittest
-from result_combiner import intersect_results, merge_results, compare_results
+
+from result_combiner import compare_results, intersect_results, merge_results
 
 
 class TestResultCombiner(unittest.TestCase):

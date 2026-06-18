@@ -3,8 +3,9 @@ tests/test_websocket_routes.py
 Tests for websocket_routes.py transport layer.
 """
 
+from unittest.mock import MagicMock, call, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, call
 
 
 class TestRunPipelineSuccessPath:

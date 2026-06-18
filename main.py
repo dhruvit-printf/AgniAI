@@ -9,27 +9,56 @@ from typing import Optional, Tuple
 
 import requests
 
-from config import (CHAT_SYSTEM_PROMPT, DATA_DIR,
-                    GENERAL_KNOWLEDGE_FALLBACK_PROMPT, INDEX_DIR,
-                    MAX_CONTEXT_CHARS, MAX_CONTEXT_CHARS_DEFAULT,
-                    MAX_TOKENS_DEFAULT, MAX_TOKENS_STYLE,
-                    MODEL_MAX_CONTEXT_TOKENS, REFERENCE_FALLBACK,
-                    STRICT_RAG_PROMPT, STRICT_RAG_PROMPT_COMPUTE,
-                    TOKEN_SAFETY_BUFFER, TOP_K, _fuzzy_normalize_query,
-                    _get_current_date_response, _is_date_query,
-                    classify_intent, detect_answer_style,
-                    estimate_message_tokens, style_structure_instruction,
-                    trim_to_complete_sentence)
-from ingest import (clear_index, ingest_docx, ingest_pdf, ingest_text,
-                    ingest_txt, ingest_url, list_sources)
+from config import (
+    CHAT_SYSTEM_PROMPT,
+    DATA_DIR,
+    GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
+    INDEX_DIR,
+    MAX_CONTEXT_CHARS,
+    MAX_CONTEXT_CHARS_DEFAULT,
+    MAX_TOKENS_DEFAULT,
+    MAX_TOKENS_STYLE,
+    MODEL_MAX_CONTEXT_TOKENS,
+    REFERENCE_FALLBACK,
+    STRICT_RAG_PROMPT,
+    STRICT_RAG_PROMPT_COMPUTE,
+    TOKEN_SAFETY_BUFFER,
+    TOP_K,
+    _fuzzy_normalize_query,
+    _get_current_date_response,
+    _is_date_query,
+    classify_intent,
+    detect_answer_style,
+    estimate_message_tokens,
+    style_structure_instruction,
+    trim_to_complete_sentence,
+)
+from ingest import (
+    clear_index,
+    ingest_docx,
+    ingest_pdf,
+    ingest_text,
+    ingest_txt,
+    ingest_url,
+    list_sources,
+)
 from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL_NAME
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
-from rag import (LOW_RETRIEVAL_CONFIDENCE, STRICT_TOP_K, build_context,
-                 build_strict_messages, deterministic_policy_answer,
-                 get_cached_response, index_stats, is_reasoning_query,
-                 make_response_cache_key, prepare_rag_bundle,
-                 set_cached_response, warmup_runtime)
+from rag import (
+    LOW_RETRIEVAL_CONFIDENCE,
+    STRICT_TOP_K,
+    build_context,
+    build_strict_messages,
+    deterministic_policy_answer,
+    get_cached_response,
+    index_stats,
+    is_reasoning_query,
+    make_response_cache_key,
+    prepare_rag_bundle,
+    set_cached_response,
+    warmup_runtime,
+)
 
 logger = logging.getLogger(__name__)
 

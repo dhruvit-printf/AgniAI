@@ -13,10 +13,19 @@ not inside a config package. Use `from settings import ...`.
 import logging
 import os
 
-from settings import (APIKeysConfig, AppSettings, DotNetAPIConfig,
-                      FeatureFlagConfig, TimeoutConfig, get_api_keys,
-                      get_dotnet_config, get_feature_flags, get_settings,
-                      get_timeouts, validate_critical_env)
+from settings import (
+    APIKeysConfig,
+    AppSettings,
+    DotNetAPIConfig,
+    FeatureFlagConfig,
+    TimeoutConfig,
+    get_api_keys,
+    get_dotnet_config,
+    get_feature_flags,
+    get_settings,
+    get_timeouts,
+    validate_critical_env,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -10,6 +10,10 @@ jobs:
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt
       - run: python -c "import app; print('Import OK')"
+        env:
+          DOTNET_API_BASE_URL: http://localhost
+          ENABLE_SENTRY: "false"
+          ENABLE_OPENTELEMETRY: "false"
       - uses: actions/upload-artifact@v4
         with:
           name: agniai-source

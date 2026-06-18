@@ -31,19 +31,27 @@ import requests as _requests
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
 from admin_formatter import format_dotnet_response
-from admin_intent import (admin_normalize_query, classify_admin_intent,
-                          format_admin_payload)
+from admin_intent import (
+    admin_normalize_query,
+    classify_admin_intent,
+    format_admin_payload,
+)
 from audit_logger import write_audit_log
-from config import (GREETING_PHRASES, _is_greeting, _is_patriotic,
-                    _is_small_talk)
+from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
 from dotnet_executor import _call_dotnet
 from query_planner import QueryType, plan_query
 from report_generator import generate_report
 from response_builder import build_response
 from result_combiner import combine_results
-from telemetry import (SPAN_BUILD_RESPONSE, SPAN_CALL_DOTNET,
-                       SPAN_CLASSIFY_ADMIN_INTENT, SPAN_COMBINE_RESULTS,
-                       SPAN_GENERATE_REPORT, SPAN_PLAN_QUERY, span)
+from telemetry import (
+    SPAN_BUILD_RESPONSE,
+    SPAN_CALL_DOTNET,
+    SPAN_CLASSIFY_ADMIN_INTENT,
+    SPAN_COMBINE_RESULTS,
+    SPAN_GENERATE_REPORT,
+    SPAN_PLAN_QUERY,
+    span,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +279,7 @@ def _build_conversational_response(
             f"professionally in 1-2 sentences. Offer to help with Agniveer data.\n"
             f"No markdown, no bullets."
         )
-        payload = {
+        payload: Dict[str, Any] = {
             "model": DEFAULT_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
@@ -488,10 +496,12 @@ def execute_admin_query(
                 existing_company_id=id_filters.get("companyId"),
                 existing_platoon_id=id_filters.get("platoonId"),
             )
-            if resolved_entities.get("companyId") is not None:
-                id_filters["companyId"] = resolved_entities["companyId"]
-            if resolved_entities.get("platoonId") is not None:
-                id_filters["platoonId"] = resolved_entities["platoonId"]
+            resolved_company = resolved_entities.get("companyId")
+            if resolved_company is not None:
+                id_filters["companyId"] = int(resolved_company)
+            resolved_platoon = resolved_entities.get("platoonId")
+            if resolved_platoon is not None:
+                id_filters["platoonId"] = int(resolved_platoon)
 
             message = admin_normalize_query(message)
             query_plan = plan_query(message)

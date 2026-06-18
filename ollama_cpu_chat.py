@@ -19,11 +19,18 @@ from typing import Callable, Iterable, List, Optional
 
 import requests
 
-from config import (MAX_CONTEXT_CHARS_DEFAULT, MODEL_MAX_CONTEXT_TOKENS,
-                    STRICT_RAG_PROMPT, TOKEN_SAFETY_BUFFER)
+from config import (
+    MAX_CONTEXT_CHARS_DEFAULT,
+    MODEL_MAX_CONTEXT_TOKENS,
+    STRICT_RAG_PROMPT,
+    TOKEN_SAFETY_BUFFER,
+)
 from config import TOP_K as _CONFIG_TOP_K
-from config import (estimate_message_tokens, style_structure_instruction,
-                    trim_to_complete_sentence)
+from config import (
+    estimate_message_tokens,
+    style_structure_instruction,
+    trim_to_complete_sentence,
+)
 
 logger = logging.getLogger(__name__)
 

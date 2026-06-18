@@ -4,8 +4,9 @@ Unit tests for feature_flags.py — centralized feature flag system.
 """
 
 import os
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 class TestFeatureFlagsDefaults:
@@ -113,7 +114,7 @@ class TestGetFlagsSingleton:
         get_flags.cache_clear()
 
     def test_get_flags_returns_feature_flags_instance(self):
-        from feature_flags import get_flags, FeatureFlags
+        from feature_flags import FeatureFlags, get_flags
 
         f = get_flags()
         assert isinstance(f, FeatureFlags)
@@ -127,6 +128,7 @@ class TestGetFlagsSingleton:
 
     def test_module_level_flags_alias(self):
         import importlib
+
         import feature_flags
 
         importlib.reload(feature_flags)

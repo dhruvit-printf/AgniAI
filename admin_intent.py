@@ -2256,8 +2256,8 @@ def _match_intent(
     query_lower: str,
     intent_list: List[Tuple[str, str, Tuple[str, ...]]],
 ) -> Optional[Tuple[str, str]]:
-    best_name = None
-    best_code = None
+    best_name: Optional[str] = None
+    best_code: Optional[str] = None
     best_score = 0
     for name, code, keywords in intent_list:
         score = _score_intent(query_lower, keywords)
@@ -2265,7 +2265,9 @@ def _match_intent(
             best_score = score
             best_name = name
             best_code = code
-    return (best_name, best_code) if best_score > 0 else None
+    if best_score > 0 and best_name is not None and best_code is not None:
+        return (best_name, best_code)
+    return None
 
 
 def classify_admin_intent(query: str) -> Dict[str, Any]:
