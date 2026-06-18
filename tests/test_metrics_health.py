@@ -112,7 +112,7 @@ class TestMetricsHealth(unittest.TestCase):
 
     @patch('admin_pipeline._call_dotnet')
     @patch('admin_pipeline.generate_report')
-    @patch('admin_pipeline.SLOW_QUERY_THRESHOLD', 0.0001)  # Set threshold extremely low to trigger log
+    @patch('admin_pipeline.SLOW_QUERY_THRESHOLD', -1.0)  # Set threshold extremely low to trigger log
     def test_slow_query_detection_warning(self, mock_gen_report, mock_call_dotnet):
         mock_call_dotnet.return_value = ({"records": []}, None)
         mock_gen_report.return_value = {
