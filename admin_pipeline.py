@@ -52,6 +52,7 @@ from telemetry import (
     SPAN_PLAN_QUERY,
     span,
 )
+from visualization_engine import generate_widgets
 
 logger = logging.getLogger(__name__)
 
@@ -66,16 +67,37 @@ _session_context = AdminSessionContext()
 # =============================================================================
 
 
+def ensure_agniveer_no_in_data(data: Any) -> None:
+    """Recursively ensure that all records inside data contain agniveerNo if agniveerId is present."""
+    if isinstance(data, list):
+        for item in data:
+            ensure_agniveer_no_in_data(item)
+    elif isinstance(data, dict):
+        id_val = None
+        for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+            if key in data and data[key] is not None:
+                id_val = data[key]
+                break
+        if "agniveerNo" not in data and id_val is not None:
+            data["agniveerNo"] = str(id_val)
+        
+        for v in data.values():
+            if isinstance(v, (dict, list)):
+                ensure_agniveer_no_in_data(v)
+
+
 def map_query_type(qt: QueryType) -> str:
     """Map QueryType enum to string label for the response."""
-    if qt == QueryType.CROSS_FILTER:
-        return "cross_filter"
+    if qt == QueryType.FILTER_QUERY or qt == QueryType.CROSS_FILTER or qt == QueryType.SIMPLE:
+        return "filter_query"
+    elif qt == QueryType.MULTI_OPERATION or qt == QueryType.MULTI_INDEPENDENT:
+        return "multi_operation"
     elif qt == QueryType.COMPARISON:
         return "comparison"
-    elif qt == QueryType.MULTI_INDEPENDENT:
-        return "multi_independent"
+    elif qt == QueryType.ANALYTICS:
+        return "analytics"
     else:
-        return "simple"
+        return "filter_query"
 
 
 def _sanitize_error(err_msg: Any) -> str:
@@ -618,6 +640,7 @@ def execute_admin_query(
                                 "error_message": "Failed to process request.",
                             }
 
+                        ensure_agniveer_no_in_data(dotnet_data)
                         raw_results.append(dotnet_data)
                         label = op.intent_result.get("category", f"Query {i + 1}")
                         labeled_results.append((label, dotnet_data))
@@ -833,6 +856,7 @@ def execute_admin_query(
                             "error_message": "Failed to process request.",
                         }
 
+                    ensure_agniveer_no_in_data(dotnet_data)
                     raw_results = [dotnet_data]
                     labeled_results = [
                         (primary_intent.get("category", "Result"), dotnet_data)
@@ -893,7 +917,13 @@ def execute_admin_query(
             "total_duration": round(total_duration * 1000, 2),
         }
 
-        # ── Step 6: Response Builder ──────────────────────────────────────────
+        # ── Step 6: Response Builder & Visualization ──────────────────────────
+        widgets = generate_widgets(
+            combined_result=combined_result,
+            query_plan=query_plan,
+            analysis=report.get("analysis"),
+        )
+
         with span(SPAN_BUILD_RESPONSE, trace_id=trace_id):
             response_payload = build_response(
                 query_type=qtype_str,
@@ -908,24 +938,43 @@ def execute_admin_query(
                 formatted_data=formatted_data,
                 session_id=session_id,
                 durations=durations,
+                widgets=widgets,
             )
 
         execution_time_ms = round(total_duration * 1000)
         response_payload["metadata"]["executionTimeMs"] = execution_time_ms
 
+        # Extract combiner strategy details
+        if qtype_str in ("multi_independent", "multi_operation"):
+            combiner_strategy = "merge"
+        elif qtype_str == "comparison":
+            combiner_strategy = "comparison"
+        elif qtype_str == "cross_filter":
+            combiner_strategy = "intersect"
+        else:
+            combiner_strategy = "passthrough"
+
+        # Log all 10 required audit metrics
         logger.info(
             json.dumps(
                 {
                     "message": "Admin pipeline complete",
                     "trace_id": trace_id,
                     "session_id": session_id,
+                    "main_intent": {
+                        "category": primary_intent.get("category", ""),
+                        "operation": primary_intent.get("subcategory", "") or primary_intent.get("operation", ""),
+                    },
+                    "filters": query_plan.filters if query_plan else {},
                     "query_type": qtype_str,
-                    "duration": durations["total_duration"],
-                    "planner_duration": durations["planner_duration"],
-                    "intent_duration": durations["intent_duration"],
-                    "dotnet_duration": durations["dotnet_duration"],
-                    "combiner_duration": durations["combiner_duration"],
+                    "operation_count": operation_count,
+                    "payload_sent": [format_admin_payload(op.intent_result) for op in query_plan.operations] if query_plan else [],
+                    "combiner_strategy": combiner_strategy,
+                    "visualization_decisions": [w["type"] for w in widgets],
+                    "widget_count": len(widgets),
                     "report_duration": durations["report_duration"],
+                    "dotnet_duration": durations["dotnet_duration"],
+                    "total_duration": durations["total_duration"],
                 }
             )
         )

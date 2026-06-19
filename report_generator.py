@@ -576,7 +576,7 @@ def _call_ollama(
                 "num_ctx": 1024,
             },
         }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=(8, 30))
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=(1.0, 5.0))
         resp.raise_for_status()
         raw = resp.json().get("message", {}).get("content", "").strip()
         return raw if raw else None
@@ -893,6 +893,23 @@ def generate_report(
     """
     _report_ctx.trace_id = trace_id
     try:
+        # Check record count first
+        records = _extract_records_from_combined(combined_result)
+        if not records:
+            logger.info("Report Generator: 0 records found. Skipping LLM.")
+            return {
+                "summary": "No matching records found.",
+                "introMessage": "No matching records found.",
+                "analysis": {
+                    "summary": "No matching records found.",
+                    "observations": [],
+                    "insights": []
+                },
+                "conclusion": {
+                    "summary": "No matching records found."
+                }
+            }
+
         # Build the aggregate-only text — this is the ONLY data the LLM sees
         aggregate_text = _build_aggregate_text(combined_result, query_type, intent)
         logger.info(
@@ -905,69 +922,76 @@ def generate_report(
             )
         )
 
-        # Also get the formatted data for the formattedData response field
-        # (NOT used for LLM prompts — only for grounding validation cross-check)
-        formatted_data = format_dotnet_response(combined_result, intent)
-
-        # Build deterministic fallback
         fallback = get_fallback_report(combined_result, query_type, intent)
 
         if not aggregate_text or len(aggregate_text.strip()) < 10:
             return fallback
 
-        category = intent.get("category") or "Agniveer data"
-        effective_query_type = (
-            query_type if query_type in _ANALYSIS_ENGINES else "simple"
-        )
-
-        # ── 1. Generate Intro Message ────────────────────────────────────────
-        intro_prompt = (
+        prompt = (
             "You are AgniAI, an intelligent military assistant.\n"
-            "Generate a short introductory summary (1-2 sentences) describing what data was retrieved.\n\n"
+            "Generate a complete query report in JSON format based on the AGGREGATE data summary below.\n\n"
             "STRICT RULES:\n"
-            "1. Maximum 1-2 sentences. End with a period.\n"
-            "2. No analysis, recommendations, or assumptions.\n"
-            "3. State only what has been identified or fetched.\n"
-            "4. You can mention count numbers if they are in the Aggregate Data, but do not calculate or guess other numbers.\n\n"
+            "1. Base your response 100% on the Aggregate Data below. Never hallucinate, never invent details.\n"
+            "2. Only mention numbers/metrics that appear verbatim in the Aggregate Data.\n"
+            "3. Do NOT mention any person's name unless it appears in the Aggregate Data.\n"
+            "4. Do NOT analyze individual records, attempts, sections, subItems, marks, or grades.\n"
+            "5. You must output a single JSON object with EXACTLY the following structure:\n"
+            "{\n"
+            '  "introMessage": "A short 1-2 sentence description of what data was retrieved.",\n'
+            '  "analysis": {\n'
+            '    "summary": "A single sentence overview of the aggregate metrics.",\n'
+            '    "observations": ["1-3 key data points/metrics from the aggregate data"],\n'
+            '    "insights": ["1-2 trends or insights based on the aggregate data"]\n'
+            '  },\n'
+            '  "conclusion": "A brief conclusion summarizing the analysis (1-2 sentences)."\n'
+            "}\n\n"
             f"User Query: {user_query}\n"
             f"Query Type: {query_type}\n"
             f"Aggregate Data:\n{aggregate_text}\n\n"
-            "Generate only the introductory sentence."
+            "Generate only the raw JSON, do not include markdown formatting (such as ```json) or any extra text."
         )
 
-        intro_message = fallback["introMessage"]
-        raw_intro = _call_ollama(intro_prompt, temperature=0.2, max_tokens=80)
-        if raw_intro:
-            raw_intro = raw_intro.strip('"' + "'")
-            clean_intro = _ground_and_sanitize(raw_intro, aggregate_text)
-            if clean_intro and len(clean_intro) > 5:
-                intro_message = clean_intro
+        # Call Ollama exactly once
+        raw_response = _call_ollama(prompt, temperature=0.2, max_tokens=350)
+        if not raw_response:
+            return fallback
 
-        # ── 2. Generate Analysis (query-type-specific) ───────────────────────
-        analysis_engine = _ANALYSIS_ENGINES[effective_query_type]
-        analysis_data = analysis_engine(aggregate_text, user_query)
+        # Parse JSON
+        parsed_report = None
+        start = raw_response.find("{")
+        end = raw_response.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidate = raw_response[start : end + 1]
+            try:
+                parsed_report = json.loads(candidate)
+            except Exception:
+                pass
 
-        if not analysis_data or not analysis_data.get("summary"):
-            analysis_data = fallback["analysis"]
+        if not parsed_report or not isinstance(parsed_report, dict):
+            return fallback
 
-        # Apply Grounding Guard to Analysis fields
-        clean_summary = _ground_and_sanitize(
-            analysis_data.get("summary", ""), aggregate_text
-        )
-        if not clean_summary:
-            clean_summary = fallback["analysis"]["summary"]
+        intro_message = parsed_report.get("introMessage")
+        if not intro_message or not isinstance(intro_message, str):
+            intro_message = fallback["introMessage"]
+        intro_message = _ground_and_sanitize(intro_message, aggregate_text) or fallback["introMessage"]
+
+        analysis_dict = parsed_report.get("analysis") or {}
+        if not isinstance(analysis_dict, dict):
+            analysis_dict = {}
+
+        clean_summary = _ground_and_sanitize(analysis_dict.get("summary", ""), aggregate_text) or fallback["analysis"]["summary"]
 
         clean_obs = []
-        for obs in analysis_data.get("observations", []):
-            san = _ground_and_sanitize(obs, aggregate_text)
+        for obs in analysis_dict.get("observations") or []:
+            san = _ground_and_sanitize(str(obs), aggregate_text)
             if san:
                 clean_obs.append(san)
         if not clean_obs:
             clean_obs = fallback["analysis"]["observations"]
 
         clean_ins = []
-        for ins in analysis_data.get("insights", []):
-            san = _ground_and_sanitize(ins, aggregate_text)
+        for ins in analysis_dict.get("insights") or []:
+            san = _ground_and_sanitize(str(ins), aggregate_text)
             if san:
                 clean_ins.append(san)
         if not clean_ins:
@@ -979,23 +1003,22 @@ def generate_report(
             "insights": clean_ins,
         }
 
-        # ── 3. Generate Conclusion (query-type-specific) ─────────────────────
-        conclusion_engine = _CONCLUSION_ENGINES[effective_query_type]
-        raw_conclusion = conclusion_engine(
-            aggregate_text, grounded_analysis, user_query
-        )
+        conclusion_val = parsed_report.get("conclusion")
+        if isinstance(conclusion_val, dict):
+            conclusion_text = conclusion_val.get("summary") or fallback["conclusion"]["summary"]
+        elif isinstance(conclusion_val, str):
+            conclusion_text = conclusion_val
+        else:
+            conclusion_text = fallback["conclusion"]["summary"]
 
-        conclusion_text = fallback["conclusion"]["summary"]
-        if raw_conclusion:
-            clean_conclusion = _ground_and_sanitize(raw_conclusion, aggregate_text)
-            if clean_conclusion and len(clean_conclusion) > 5:
-                conclusion_text = clean_conclusion
+        conclusion_text = _ground_and_sanitize(conclusion_text, aggregate_text) or fallback["conclusion"]["summary"]
 
         return {
             "introMessage": intro_message,
             "analysis": grounded_analysis,
             "conclusion": {"summary": conclusion_text},
         }
+
     except Exception as exc:
         logger.error(
             json.dumps(

@@ -21,6 +21,8 @@ class QueryType(Enum):
     COMPARISON = "comparison"
     MULTI_INDEPENDENT = "multi_independent"
     ANALYTICS = "analytics"
+    FILTER_QUERY = "filter_query"
+    MULTI_OPERATION = "multi_operation"
 
 
 @dataclass
@@ -51,6 +53,7 @@ class QueryPlan:
     confidence: float
     raw_query: str
     reasoning: str
+    filters: Dict[str, Any] = field(default_factory=dict)
     analytics_hint: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -60,6 +63,7 @@ class QueryPlan:
             "operationCount": len(self.operations),
             "reasoning": self.reasoning,
             "operations": [op.to_dict() for op in self.operations],
+            "filters": self.filters,
         }
         if self.analytics_hint:
             d["analyticsHint"] = self.analytics_hint
@@ -378,6 +382,11 @@ def _detect_multi_independent(
             left = text_lower[: m.start()].strip()
             right = text_lower[m.end() :].strip()
             if left and right:
+                if re.match(
+                    r"^(?:is|are|has|have|was|were|play|plays|who|which|that|with|on|in|under|currently|active|admitted|absent|present|attending)\b",
+                    right
+                ):
+                    continue
                 lc = _detect_categories(left)
                 rc = _detect_categories(right)
                 if lc and rc and lc[0] != rc[0]:
@@ -544,6 +553,39 @@ def _extract_filtered_comparison_fragments(
     return None
 
 
+def _extract_filters_dict(intent: Dict[str, Any]) -> Dict[str, Any]:
+    filters = {}
+    mapping = {
+        "sport": "sport",
+        "class": "class",
+        "section": "section",
+        "sub_section": "subSection",
+        "attempt_no": "attemptNo",
+        "from_attempt": "fromAttempt",
+        "to_attempt": "toAttempt",
+        "leave_type": "leaveType",
+        "company_id": "companyId",
+        "platoon_id": "platoonId",
+        "batch_id": "batchId",
+        "date": "date",
+        "from_date": "fromDate",
+        "to_date": "toDate",
+        "agniveer_no": "agniveerNo",
+        "bmi_category": "bmiCategory",
+        "medical_status": "medicalStatus",
+        "number": "n",
+    }
+    for key, filter_name in mapping.items():
+        val = intent.get(key)
+        if val is not None:
+            filters[filter_name] = val
+
+    if intent.get("leave_type") == "Current":
+        filters["leaveStatus"] = "Current"
+
+    return filters
+
+
 def _build_sub_operation(
     fragment: str,
     group_by: Optional[str] = None,
@@ -565,16 +607,18 @@ def plan_query(query: str) -> QueryPlan:
     q = _normalise(raw_query)
 
     if not q:
-        return QueryPlan(QueryType.SIMPLE, [], 0.0, raw_query, "Empty query")
+        return QueryPlan(QueryType.FILTER_QUERY, [], 0.0, raw_query, "Empty query")
 
     if _is_no_split_phrase(q):
         op = _build_sub_operation(q)
+        filters = _extract_filters_dict(op.intent_result)
         return QueryPlan(
-            QueryType.SIMPLE,
+            QueryType.FILTER_QUERY,
             [op],
             0.95,
             raw_query,
             "Contains split-prevention phrase",
+            filters=filters,
         )
 
     categories = _detect_categories(q)
@@ -583,12 +627,14 @@ def plan_query(query: str) -> QueryPlan:
     analytics_hint = _detect_analytics(q)
     if analytics_hint:
         op = _build_sub_operation(q, group_by=group_by)
+        filters = _extract_filters_dict(op.intent_result)
         return QueryPlan(
             QueryType.ANALYTICS,
             [op],
             0.85,
             raw_query,
             f"Analytics/ranking query detected: hint={analytics_hint}",
+            filters=filters,
             analytics_hint=analytics_hint,
         )
 
@@ -598,12 +644,16 @@ def plan_query(query: str) -> QueryPlan:
             ops = [_build_sub_operation(f) for f in filtered_frags]
             valid_ops = [op for op in ops if op.intent_result.get("category")]
             if len(valid_ops) >= 2:
+                combined_filters = {}
+                for op in valid_ops:
+                    combined_filters.update(_extract_filters_dict(op.intent_result))
                 return QueryPlan(
                     QueryType.COMPARISON,
                     valid_ops,
                     0.85,
                     raw_query,
                     "Filtered comparison: each side carries the cross-filter",
+                    filters=combined_filters,
                 )
 
     comparison_entities = _detect_comparison(q, categories)
@@ -613,6 +663,9 @@ def plan_query(query: str) -> QueryPlan:
             ops = [_build_sub_operation(f) for f in fragments]
             valid_ops = [op for op in ops if op.intent_result.get("category")]
             if len(valid_ops) >= 2:
+                combined_filters = {}
+                for op in valid_ops:
+                    combined_filters.update(_extract_filters_dict(op.intent_result))
                 return QueryPlan(
                     QueryType.COMPARISON,
                     valid_ops,
@@ -620,24 +673,8 @@ def plan_query(query: str) -> QueryPlan:
                     raw_query,
                     f"Comparison between {comparison_entities[0]} and "
                     f"{comparison_entities[1]}",
+                    filters=combined_filters,
                 )
-
-    if _has_cross_category_signal(q, categories):
-        fragments = _extract_cross_filter_fragments(q, categories)
-        if fragments and len(fragments) >= 2:
-            ops = [_build_sub_operation(f) for f in fragments]
-            valid_ops = [op for op in ops if op.intent_result.get("category")]
-            if len(valid_ops) >= 2:
-                op_categories = {op.intent_result["category"] for op in valid_ops}
-                if len(op_categories) >= 2:
-                    depth = "3-way" if len(valid_ops) >= 3 else "2-way"
-                    return QueryPlan(
-                        QueryType.CROSS_FILTER,
-                        valid_ops,
-                        0.85,
-                        raw_query,
-                        f"{depth} cross-filter: " f"{', '.join(sorted(op_categories))}",
-                    )
 
     multi_fragments = _detect_multi_independent(q, categories)
     if multi_fragments:
@@ -646,20 +683,26 @@ def plan_query(query: str) -> QueryPlan:
         if len(valid_ops) >= 2:
             op_categories = {op.intent_result["category"] for op in valid_ops}
             if len(op_categories) >= 2:
+                combined_filters = {}
+                for op in valid_ops:
+                    combined_filters.update(_extract_filters_dict(op.intent_result))
                 return QueryPlan(
-                    QueryType.MULTI_INDEPENDENT,
+                    QueryType.MULTI_OPERATION,
                     valid_ops,
                     0.80,
                     raw_query,
                     f"Multi-independent: {', '.join(sorted(op_categories))}",
+                    filters=combined_filters,
                 )
 
     op = _build_sub_operation(q, group_by=group_by)
     confidence = 0.95 if op.intent_result.get("category") else 0.3
+    filters = _extract_filters_dict(op.intent_result)
     return QueryPlan(
-        QueryType.SIMPLE,
+        QueryType.FILTER_QUERY,
         [op],
         confidence,
         raw_query,
-        "Single-intent query",
+        "Single-intent query with filters",
+        filters=filters,
     )

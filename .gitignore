@@ -70,6 +70,7 @@ Desktop.ini
 # Flask
 # =========================
 instance/
+.flake8
 
 # =========================
 # Runtime Data

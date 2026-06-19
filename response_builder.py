@@ -76,6 +76,7 @@ def build_response(
     formatted_data: str,
     session_id: Optional[str] = None,
     durations: Optional[Dict[str, float]] = None,
+    widgets: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     """
     Assembles the JSON response structure for the frontend.
@@ -126,6 +127,7 @@ def build_response(
             "subcategory": intent.get("subcategory", ""),
             "confidence": intent_conf_float,
         },
+        "widgets": widgets or [],
         # dotnetResponse is intentionally omitted — raw backend data must
         # never be forwarded to the frontend (security requirement).
         "metadata": {

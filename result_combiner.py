@@ -53,17 +53,18 @@ def _extract_records(data: Any) -> List[Dict]:
     return []
 
 
-def _extract_agniveer_ids(records: List[Dict]) -> Set[int]:
-    ids: Set[int] = set()
+def _extract_agniveer_ids(records: List[Dict]) -> Set[str]:
+    ids: Set[str] = set()
     for record in records:
-        for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-            val = record.get(key)
-            if val is not None:
-                try:
-                    ids.add(int(val))
-                except (ValueError, TypeError):
-                    pass
-                break
+        val = record.get("agniveerNo")
+        if val is not None:
+            ids.add(str(val).strip())
+        else:
+            for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+                fallback_val = record.get(key)
+                if fallback_val is not None:
+                    ids.add(str(fallback_val).strip())
+                    break
     return ids
 
 
@@ -193,7 +194,7 @@ def intersect_results(
     primary_index: int = 0,
 ) -> Dict[str, Any]:
     """
-    Compute the N-way intersection of result sets by agniveerId.
+    Compute the N-way intersection of result sets by agniveerNo (with agniveerId fallback).
 
     The primary_index set supplies the full record objects for the filtered list.
     All other sets are used only for their ID sets.
@@ -211,7 +212,7 @@ def intersect_results(
     all_id_sets = [_extract_agniveer_ids(recs) for recs in all_record_sets]
 
     if not all_id_sets or any(len(ids) == 0 for ids in all_id_sets):
-        common_ids: Set[int] = set()
+        common_ids: Set[str] = set()
     else:
         common_ids = all_id_sets[0]
         for id_set in all_id_sets[1:]:
@@ -223,16 +224,14 @@ def intersect_results(
 
     filtered: List[Dict] = []
     for record in primary_records:
-        record_id: Optional[int] = None
-        for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-            val = record.get(key)
-            if val is not None:
-                try:
-                    record_id = int(val)
-                except (ValueError, TypeError):
-                    pass
-                break
-        if record_id is not None and record_id in common_ids:
+        record_id: Optional[str] = record.get("agniveerNo")
+        if record_id is None:
+            for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+                val = record.get(key)
+                if val is not None:
+                    record_id = str(val).strip()
+                    break
+        if record_id is not None and str(record_id).strip() in common_ids:
             filtered.append(record)
 
     logger.info(
@@ -379,7 +378,7 @@ def combine_results(
             "result_combiner: compare_results across %d sides", len(labeled_results)
         )
         return compare_results(labeled_results)
-    elif qtype_str == "multi_independent":
+    elif qtype_str in ("multi_independent", "multi_operation"):
         logger.info(
             "result_combiner: merge_results across %d sections", len(labeled_results)
         )

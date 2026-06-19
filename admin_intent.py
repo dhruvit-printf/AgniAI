@@ -1540,6 +1540,13 @@ _LEAVE_TYPE_MAP: Dict[str, str] = {
     "ex ppg": "ExPPG",
     "exppg": "ExPPG",
     "ex-ppg": "ExPPG",
+    "on leave": "Current",
+    "currently on leave": "Current",
+    "leave today": "Current",
+    "current leave": "Current",
+    "absent today": "Current",
+    "currently absent": "Current",
+    "leave status": "Current",
 }
 
 _SPORT_MAP: Dict[str, str] = {
@@ -2066,16 +2073,23 @@ def _extract_grading(text_lower: str) -> Optional[str]:
 def _extract_leave_type(
     text_lower: str, category: Optional[str] = None
 ) -> Optional[str]:
+    new_type_phrases = {
+        "attnc",
+        "attenc",
+        "attn c",
+        "att nc",
+        "ex ppg",
+        "exppg",
+        "ex-ppg",
+        "on leave",
+        "currently on leave",
+        "leave today",
+        "current leave",
+        "absent today",
+        "currently absent",
+        "leave status",
+    }
     if category and category not in ("Leave", None):
-        new_type_phrases = {
-            "attnc",
-            "attenc",
-            "attn c",
-            "att nc",
-            "ex ppg",
-            "exppg",
-            "ex-ppg",
-        }
         found = None
         best_len = 0
         for phrase, code in _LEAVE_TYPE_MAP.items():
@@ -2219,6 +2233,69 @@ def _extract_date(text: str) -> Optional[str]:
     return None
 
 
+def _extract_company_id(text_lower: str) -> Optional[int]:
+    m = re.search(r"\b(?:company|co)\s*(?:id)?\s*(\d+)\b", text_lower)
+    return int(m.group(1)) if m else None
+
+
+def _extract_platoon_id(text_lower: str) -> Optional[int]:
+    m = re.search(r"\b(?:platoon|pl)\s*(?:id)?\s*(\d+)\b", text_lower)
+    return int(m.group(1)) if m else None
+
+
+def _extract_batch_id(text_lower: str) -> Optional[int]:
+    m = re.search(r"\b(?:batch|bt)\s*(?:id)?\s*(\d+)\b", text_lower)
+    return int(m.group(1)) if m else None
+
+
+def _extract_from_date(text_lower: str) -> Optional[str]:
+    patterns = [
+        r"\b(?:from|after|since|start)\s+(\d{4}-\d{2}-\d{2})\b",
+        r"\b(?:from|after|since|start)\s+(\d{2}/\d{2}/\d{4})\b",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text_lower)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _extract_to_date(text_lower: str) -> Optional[str]:
+    patterns = [
+        r"\b(?:to|before|until|end)\s+(\d{4}-\d{2}-\d{2})\b",
+        r"\b(?:to|before|until|end)\s+(\d{2}/\d{2}/\d{4})\b",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text_lower)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _extract_agniveer_no(text: str) -> Optional[str]:
+    text_lower = text.lower()
+    m = re.search(r"\bagniveer\s*(?:no\.?|number)?\s*([a-z0-9_-]+)\b", text_lower)
+    if m:
+        start, end = m.span(1)
+        return text[start:end].strip()
+    return None
+
+
+def _extract_bmi_category(text_lower: str) -> Optional[str]:
+    for cat in ("overweight", "underweight", "obese", "normal"):
+        if cat in text_lower:
+            return cat.title()
+    return None
+
+
+def _extract_medical_status(text_lower: str) -> Optional[str]:
+    if "active" in text_lower:
+        return "Active"
+    if "hospital" in text_lower or "admitted" in text_lower or "sick" in text_lower:
+        return "Active"
+    return None
+
+
 def _score_intent(query_lower: str, keywords: Tuple[str, ...]) -> int:
     score = 0
     for kw in keywords:
@@ -2240,16 +2317,32 @@ def _match_module(query_lower: str) -> Optional[str]:
     if len(tied) == 1:
         return tied[0]
 
+    # Tie-breaker 1: Choose the module with the earliest matching trigger in the query
+    earliest_indices: Dict[str, int] = {}
+    for module in tied:
+        triggers, _ = _MODULES[module]
+        min_idx = len(query_lower)
+        for kw in triggers:
+            idx = query_lower.find(kw)
+            if idx != -1 and idx < min_idx:
+                min_idx = idx
+        earliest_indices[module] = min_idx
+
+    min_pos = min(earliest_indices.values())
+    earliest_tied = [m for m, pos in earliest_indices.items() if pos == min_pos]
+    if len(earliest_tied) == 1:
+        return earliest_tied[0]
+
     best_module = None
     best_intent_score = -1
-    for module in tied:
+    for module in earliest_tied:
         _, intent_list = _MODULES[module]
         intent_score = sum(_score_intent(query_lower, kws) for _, _, kws in intent_list)
         if intent_score > best_intent_score:
             best_intent_score = intent_score
             best_module = module
 
-    return best_module or next((m for m in _MODULES if m in tied), tied[0])
+    return best_module or next((m for m in _MODULES if m in earliest_tied), earliest_tied[0])
 
 
 def _match_intent(
@@ -2291,6 +2384,14 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         "date": None,
         "item_name": None,
         "item_category": None,
+        "company_id": None,
+        "platoon_id": None,
+        "batch_id": None,
+        "from_date": None,
+        "to_date": None,
+        "agniveer_no": None,
+        "bmi_category": None,
+        "medical_status": None,
         "raw_query": raw_query,
         "confidence": "low",
     }
@@ -2335,6 +2436,16 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     result["from_attempt"] = _extract_from_attempt(q)
     result["to_attempt"] = _extract_to_attempt(q)
     result["date"] = _extract_date(raw_query)
+
+    # Extract additional filters
+    result["company_id"] = _extract_company_id(q)
+    result["platoon_id"] = _extract_platoon_id(q)
+    result["batch_id"] = _extract_batch_id(q)
+    result["from_date"] = _extract_from_date(q)
+    result["to_date"] = _extract_to_date(q)
+    result["agniveer_no"] = _extract_agniveer_no(raw_query)
+    result["bmi_category"] = _extract_bmi_category(q)
+    result["medical_status"] = _extract_medical_status(q)
 
     item_name, item_cat = _extract_item_query(q)
     result["item_name"] = item_name
@@ -2409,5 +2520,30 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
 
     if intent_result.get("item_category"):
         payload["itemCategory"] = intent_result["item_category"]
+
+    # Format additional filters
+    if intent_result.get("company_id") is not None:
+        payload["companyId"] = intent_result["company_id"]
+
+    if intent_result.get("platoon_id") is not None:
+        payload["platoonId"] = intent_result["platoon_id"]
+
+    if intent_result.get("batch_id") is not None:
+        payload["batchId"] = intent_result["batch_id"]
+
+    if intent_result.get("from_date"):
+        payload["fromDate"] = intent_result["from_date"]
+
+    if intent_result.get("to_date"):
+        payload["toDate"] = intent_result["to_date"]
+
+    if intent_result.get("agniveer_no"):
+        payload["agniveerNo"] = intent_result["agniveer_no"]
+
+    if intent_result.get("bmi_category"):
+        payload["bmiCategory"] = intent_result["bmi_category"]
+
+    if intent_result.get("medical_status"):
+        payload["medicalStatus"] = intent_result["medical_status"]
 
     return payload
