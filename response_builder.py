@@ -181,6 +181,33 @@ def build_response(
     # Support compatibility properties
     payload["result"] = {"processedData": combined_result}
     
+    # Normalize intent confidence for compatibility/tests
+    intent_dict = dict(intent) if intent else {}
+    conf_val = intent_dict.get("confidence")
+    if isinstance(conf_val, str):
+        conf_lower = conf_val.lower()
+        if "high" in conf_lower:
+            intent_dict["confidence"] = 0.95
+        elif "medium" in conf_lower:
+            intent_dict["confidence"] = 0.70
+        elif "low" in conf_lower:
+            intent_dict["confidence"] = 0.30
+        else:
+            try:
+                intent_dict["confidence"] = float(conf_val)
+            except ValueError:
+                intent_dict["confidence"] = float(confidence)
+    elif conf_val is not None:
+        try:
+            intent_dict["confidence"] = float(conf_val)
+        except (TypeError, ValueError):
+            intent_dict["confidence"] = float(confidence)
+    else:
+        intent_dict["confidence"] = float(confidence)
+    
+    payload["intent"] = intent_dict
+
+    
     # Extra metadata values
     payload["metadata"]["confidence"] = round(float(confidence), 2)
     payload["metadata"]["queryType"] = query_type

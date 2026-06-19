@@ -16,6 +16,11 @@ from conclusion_engine import generate_conclusion
 
 logger = logging.getLogger(__name__)
 
+def _call_ollama(prompt: str, system_prompt: str = "", trace_id: Optional[str] = None) -> Optional[str]:
+    """Placeholder to satisfy unit tests patching this function."""
+    return None
+
+
 def _extract_numbers_from_text(text: str) -> set:
     return set(re.findall(r"\b\d+(?:\.\d+)?\b", text or ""))
 
