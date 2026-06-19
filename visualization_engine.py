@@ -117,38 +117,58 @@ def generate_widgets(
     if isinstance(qtype, str):
         qtype = qtype.lower()
 
-    if qtype == "comparison":
-        widgets.append({"type": "BAR_CHART", "priority": 60})
-    elif qtype == "cross_filter":
-        widgets.append({"type": "TABLE", "priority": 100})
-    elif qtype == "analytics":
-        # Check group_by/groupBy in query_plan or if combined_result indicates grouping
-        is_grouped = "group" in keys
-        if hasattr(query_plan, "operations") and query_plan.operations:
-            if any(
-                getattr(op, "group_by", None) is not None
-                for op in query_plan.operations
-            ):
-                is_grouped = True
-        elif isinstance(query_plan, dict) and "operations" in query_plan:
-            for op in query_plan["operations"]:
-                if isinstance(op, dict) and (op.get("group_by") or op.get("groupBy")):
-                    is_grouped = True
-        if (
-            hasattr(query_plan, "group_by")
-            and getattr(query_plan, "group_by", None) is not None
-        ):
-            is_grouped = True
-        elif isinstance(query_plan, dict) and (
-            query_plan.get("group_by") or query_plan.get("groupBy")
-        ):
-            is_grouped = True
+    def count_records(data):
+        if isinstance(data, list):
+            return len(data)
+        if isinstance(data, dict):
+            for key in ("records", "Records", "data", "Data", "result", "Result"):
+                val = data.get(key)
+                if isinstance(val, list):
+                    return len(val)
+                if isinstance(val, dict):
+                    return count_records(val)
+            if "sides" in data and isinstance(data["sides"], list):
+                total = 0
+                for side in data["sides"]:
+                    total += count_records(side)
+                return total
+            if "sections" in data and isinstance(data["sections"], list):
+                total = 0
+                for sec in data["sections"]:
+                    total += count_records(sec)
+                return total
+        return 0
 
-        if is_grouped:
-            widgets.append({"type": "BAR_CHART", "priority": 60})
-            widgets.append({"type": "PIE_CHART", "priority": 60})
-    elif qtype in ("multi_operation", "multi_independent"):
-        widgets.append({"type": "TABLE", "priority": 100})
+    rec_count = count_records(combined_result)
+
+    if qtype in ("comparison", "compare"):
+        widgets.append({"type": "TABLE", "priority": 110})
+        widgets.append({"type": "BAR_CHART", "priority": 105})
+    elif qtype == "trend":
+        widgets.append({"type": "LINE_CHART", "priority": 110})
+        widgets.append({"type": "AREA_CHART", "priority": 105})
+    elif qtype == "distribution":
+        widgets.append({"type": "PIE_CHART", "priority": 110})
+        widgets.append({"type": "BAR_CHART", "priority": 105})
+    elif qtype == "cross_filter":
+        widgets.append({"type": "TABLE", "priority": 110})
+    elif qtype in ("multi_independent", "multi_operation"):
+        widgets.append({"type": "TABLE", "priority": 110})
+        if isinstance(combined_result, dict) and "sections" in combined_result:
+            for sec in combined_result["sections"]:
+                sec_rec_count = count_records(sec)
+                if sec_rec_count == 1:
+                    widgets.append({"type": "CARD", "priority": 102})
+                elif sec_rec_count > 1:
+                    widgets.append({"type": "TABLE", "priority": 102})
+    elif qtype == "analytics":
+        widgets.append({"type": "BAR_CHART", "priority": 105})
+        widgets.append({"type": "PIE_CHART", "priority": 105})
+    else:
+        if rec_count == 1:
+            widgets.append({"type": "CARD", "priority": 110})
+        elif rec_count > 1:
+            widgets.append({"type": "TABLE", "priority": 110})
 
     # Extract per-section or operation widget hints if any
     hints = []

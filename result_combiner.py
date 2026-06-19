@@ -7,7 +7,7 @@ result_combiner.py
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 logger = logging.getLogger(__name__)
 
@@ -369,10 +369,208 @@ def compare_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
         sorted(all_metric_keys),
     )
 
-    return {
+    combined: Dict[str, Any] = {
         "queryType": "comparison",
         "sides": sides,
         "comparedMetrics": sorted(all_metric_keys),
+    }
+
+    if len(sides) >= 1:
+        combined["left"] = sides[0]
+    if len(sides) >= 2:
+        combined["right"] = sides[1]
+
+    comparison_metrics = {}
+    for metric in all_metric_keys:
+        valid_sides_with_metric = []
+        for side in sides:
+            val = _safe_float(side["metrics"].get(metric))
+            if val is not None:
+                valid_sides_with_metric.append((side["label"], val))
+
+        if len(valid_sides_with_metric) >= 2:
+            valid_sides_with_metric.sort(key=lambda x: x[1])
+            lowest_label, lowest_val = valid_sides_with_metric[0]
+            highest_label, highest_val = valid_sides_with_metric[-1]
+
+            diff = highest_val - lowest_val
+            pct = (diff / lowest_val * 100.0) if lowest_val != 0 else 0.0
+
+            comparison_metrics[metric] = {
+                "higher": highest_label,
+                "lower": lowest_label,
+                "difference": round(diff, 2),
+                "percentage": round(pct, 2),
+            }
+        elif len(valid_sides_with_metric) == 1:
+            label, val = valid_sides_with_metric[0]
+            comparison_metrics[metric] = {
+                "higher": label,
+                "lower": "N/A",
+                "difference": 0.0,
+                "percentage": 0.0,
+            }
+
+    combined["comparison"] = comparison_metrics
+    return combined
+
+
+def _extract_chronological_key(record: Dict) -> Any:
+    for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp"):
+        val = record.get(k)
+        if val:
+            return str(val)
+    for k in ("attempt", "attemptNo", "Attempt", "AttemptNo"):
+        val = _safe_float(record.get(k))
+        if val is not None:
+            return val
+    month = record.get("month") or record.get("Month")
+    year = record.get("year") or record.get("Year")
+    if year is not None:
+        if month is not None:
+            return (year, month)
+        return year
+    return None
+
+
+def process_trend(raw_results: List[Any], intent: Dict[str, Any]) -> Dict[str, Any]:
+    records = []
+    for res in raw_results:
+        records.extend(_extract_records(res))
+
+    granularity = "daily"
+    for k in ("date", "Date"):
+        if any(k in r for r in records):
+            granularity = "daily"
+    for k in ("month", "Month"):
+        if any(k in r for r in records):
+            granularity = "monthly"
+
+    points: Dict[Any, List[float]] = {}
+    for r in records:
+        key = _extract_chronological_key(r)
+        if key is not None:
+            score = _get_score(r)
+            if score is None:
+                present = r.get("present") or r.get("Present")
+                if present is not None:
+                    score = 1.0 if present else 0.0
+                else:
+                    score = 1.0
+            points.setdefault(key, []).append(score)
+
+    sorted_keys = sorted(points.keys())
+    chart_data = []
+    for k in sorted_keys:
+        vals = points[k]
+        avg_val = round(sum(vals) / len(vals), 2) if vals else 0.0
+        if isinstance(k, tuple):
+            label = f"{k[0]}-{k[1]}"
+        else:
+            label = str(k)
+        chart_data.append({"label": label, "value": avg_val})
+
+    trend_direction = "stable"
+    increase = False
+    decrease = False
+    stable = True
+
+    if len(chart_data) >= 2:
+        first_val = cast(float, chart_data[0]["value"])
+        last_val = cast(float, chart_data[-1]["value"])
+        diff = last_val - first_val
+        threshold = max(2.0, abs(first_val) * 0.05)
+        if abs(diff) > threshold:
+            stable = False
+            if diff > 0:
+                trend_direction = "increase"
+                increase = True
+            else:
+                trend_direction = "decrease"
+                decrease = True
+
+    return {
+        "queryType": "trend",
+        "granularity": granularity,
+        "trendDirection": trend_direction,
+        "increase": increase,
+        "decrease": decrease,
+        "stable": stable,
+        "chartData": chart_data,
+        "records": records,
+    }
+
+
+def process_distribution(
+    raw_results: List[Any], intent: Dict[str, Any]
+) -> Dict[str, Any]:
+    records = []
+    for res in raw_results:
+        records.extend(_extract_records(res))
+
+    group_by = intent.get("group_by") or intent.get("groupBy")
+    if not group_by:
+        sample = records[0] if records else {}
+        for dim, fields in _GROUP_FIELD_MAP.items():
+            if any(f in sample for f in fields):
+                group_by = dim
+                break
+        if not group_by:
+            for k in (
+                "leaveType",
+                "leave_type",
+                "leaveStatus",
+                "category",
+                "sport",
+                "class",
+                "platoon",
+                "batch",
+            ):
+                if any(k in r for r in records):
+                    group_by = k
+                    break
+            if not group_by:
+                group_by = "category"
+
+    buckets: Dict[str, int] = {}
+    field_candidates = _GROUP_FIELD_MAP.get(group_by, [group_by])
+
+    for r in records:
+        group_val = None
+        for field_candidate in field_candidates:
+            val = r.get(field_candidate)
+            if val is not None:
+                group_val = str(val).strip()
+                break
+
+        if group_val is None:
+            for k in (group_by, group_by.lower(), group_by.capitalize()):
+                val = r.get(k)
+                if val is not None:
+                    group_val = str(val).strip()
+                    break
+
+        if not group_val:
+            group_val = "Unknown"
+
+        if "," in group_val:
+            for part in group_val.split(","):
+                part = part.strip()
+                if part:
+                    buckets[part] = buckets.get(part, 0) + 1
+        else:
+            buckets[group_val] = buckets.get(group_val, 0) + 1
+
+    sorted_buckets = sorted(buckets.items(), key=lambda x: x[1], reverse=True)
+    labels = [item[0] for item in sorted_buckets]
+    values = [item[1] for item in sorted_buckets]
+
+    return {
+        "queryType": "distribution",
+        "groupBy": group_by,
+        "labels": labels,
+        "values": values,
+        "records": records,
     }
 
 
@@ -384,14 +582,14 @@ def combine_results(
 ) -> Dict[str, Any]:
     """
     Perform the result combination phase.
-    Delegates to appropriate intersection/comparison/merge strategy based on qtype_str.
+    Delegates to appropriate intersection/comparison/merge/trend/distribution strategy based on qtype_str.
     """
     if qtype_str == "cross_filter":
         logger.info(
             "result_combiner: intersect_results across %d sets", len(raw_results)
         )
         return intersect_results(raw_results, primary_index=0)
-    elif qtype_str == "comparison":
+    elif qtype_str in ("comparison", "compare"):
         logger.info(
             "result_combiner: compare_results across %d sides", len(labeled_results)
         )
@@ -401,6 +599,12 @@ def combine_results(
             "result_combiner: merge_results across %d sections", len(labeled_results)
         )
         return merge_results(labeled_results)
+    elif qtype_str == "trend":
+        logger.info("result_combiner: process_trend")
+        return process_trend(raw_results, primary_intent)
+    elif qtype_str == "distribution":
+        logger.info("result_combiner: process_distribution")
+        return process_distribution(raw_results, primary_intent)
     else:
         logger.info("result_combiner: simple passthrough")
         return raw_results[0] if raw_results else {}

@@ -113,6 +113,7 @@ def build_response(
         "status": True,
         "queryType": query_type,
         "introMessage": intro_message,
+        "answer": combined_message,
         "result": {
             "processedData": combined_result if combined_result is not None else {}
         },

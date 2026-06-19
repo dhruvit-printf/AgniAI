@@ -91,14 +91,16 @@ def ensure_agniveer_no_in_data(data: Any) -> None:
 
 def map_query_type(qt: QueryType) -> str:
     """Map QueryType enum to string label for the response."""
-    if qt == QueryType.FILTER_QUERY:
-        return "filter_query"
-    elif qt == QueryType.CROSS_FILTER:
+    if qt == QueryType.CROSS_FILTER:
         return "cross_filter"
-    elif qt == QueryType.MULTI_OPERATION:
-        return "multi_operation"
-    elif qt == QueryType.COMPARISON:
+    elif qt in (QueryType.COMPARE, QueryType.COMPARISON):
         return "comparison"
+    elif qt in (QueryType.MULTI_INDEPENDENT, QueryType.MULTI_OPERATION):
+        return "multi_operation"
+    elif qt == QueryType.TREND:
+        return "trend"
+    elif qt == QueryType.DISTRIBUTION:
+        return "distribution"
     elif qt == QueryType.ANALYTICS:
         return "analytics"
     else:

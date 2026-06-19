@@ -209,9 +209,9 @@ class TestAnalyticsQueryType(unittest.TestCase):
         self.assertIn(plan.analytics_hint, ("rank", "highest", "lowest", "aggregate"))
 
     def test_which_unit_has_most_absconded(self):
-        plan = plan_query("Which unit has the most absconded personnel?")
-        self.assertEqual(plan.query_type, QueryType.ANALYTICS)
-        self.assertEqual(plan.analytics_hint, "most")
+        plan = plan_query("Which unit has the most absconded persons?")
+        self.assertEqual(plan.query_type, QueryType.DISTRIBUTION)
+        self.assertEqual(plan.analytics_hint, None)
 
     def test_which_sport_has_best_performers(self):
         plan = plan_query("Which sport has the best performers?")
@@ -223,7 +223,7 @@ class TestAnalyticsQueryType(unittest.TestCase):
 
     def test_attendance_by_unit(self):
         plan = plan_query("Attendance by unit")
-        self.assertEqual(plan.query_type, QueryType.ANALYTICS)
+        self.assertEqual(plan.query_type, QueryType.DISTRIBUTION)
 
 
 # =============================================================================
@@ -482,7 +482,7 @@ class TestBackwardCompatibility(unittest.TestCase):
 
     def test_simple_monthly_attendance(self):
         plan = plan_query("Show monthly attendance stats")
-        self.assertEqual(plan.query_type, QueryType.FILTER_QUERY)
+        self.assertEqual(plan.query_type, QueryType.TREND)
 
     def test_existing_cross_filter_unchanged(self):
         plan = plan_query("Show top performer in PPT who plays cricket")

@@ -17,10 +17,15 @@ logger = logging.getLogger(__name__)
 
 class QueryType(Enum):
     FILTER_QUERY = "filter_query"
+    SIMPLE = "filter_query"
     CROSS_FILTER = "cross_filter"
     COMPARISON = "comparison"
+    COMPARE = "comparison"
     ANALYTICS = "analytics"
     MULTI_OPERATION = "multi_operation"
+    MULTI_INDEPENDENT = "multi_operation"
+    TREND = "trend"
+    DISTRIBUTION = "distribution"
 
 
 @dataclass
@@ -476,6 +481,45 @@ def _detect_analytics(text_lower: str) -> Optional[str]:
     return None
 
 
+def _is_trend_query(text_lower: str) -> bool:
+    trend_kws = {
+        "trend",
+        "trends",
+        "over time",
+        "chronological",
+        "timeline",
+        "timeline wise",
+        "timelinewise",
+        "daily",
+        "weekly",
+        "monthly",
+        "yearly",
+        "last 7 days",
+        "last 30 days",
+        "last 14 days",
+    }
+    return any(kw in text_lower for kw in trend_kws)
+
+
+def _is_distribution_query(
+    text_lower: str, categories: List[str], group_by: Optional[str]
+) -> bool:
+    dist_kws = {
+        "distribution",
+        "distributions",
+        "breakdown",
+        "distribute",
+        "distributed",
+    }
+    if any(kw in text_lower for kw in dist_kws):
+        return True
+    if group_by in ("platoon", "class", "batch", "category") and "by" in text_lower:
+        return True
+    if "Distribution" in categories:
+        return True
+    return False
+
+
 def _extract_cross_filter_fragments(
     text_lower: str, categories: List[str]
 ) -> Optional[List[str]]:
@@ -707,6 +751,30 @@ def plan_query(query: str) -> QueryPlan:
 
     categories = _detect_categories(q)
     group_by = _extract_group_by(q)
+
+    if _is_trend_query(q):
+        op = _build_sub_operation(q, group_by=group_by)
+        filters = _extract_filters_dict(op.intent_result)
+        return QueryPlan(
+            QueryType.TREND,
+            [op],
+            0.85,
+            raw_query,
+            "Trend/timeline query detected",
+            filters=filters,
+        )
+
+    if _is_distribution_query(q, categories, group_by):
+        op = _build_sub_operation(q, group_by=group_by)
+        filters = _extract_filters_dict(op.intent_result)
+        return QueryPlan(
+            QueryType.DISTRIBUTION,
+            [op],
+            0.85,
+            raw_query,
+            "Distribution/breakdown query detected",
+            filters=filters,
+        )
 
     analytics_hint = _detect_analytics(q)
     if analytics_hint:
