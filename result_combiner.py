@@ -9,6 +9,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
+from cross_filter_engine import cross_filter_datasets
+from compare_engine import compare_datasets
+
 logger = logging.getLogger(__name__)
 
 
@@ -258,28 +261,18 @@ def intersect_results(
 def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
     """
     Combine independent query results into a multi-section response.
-    Each section retains its label and full data for the formatter.
+    Each section retains its label and flat data array.
     """
     sections: List[Dict] = []
     for label, data in labeled_results:
-        if isinstance(data, dict) and data.get("unavailable") is True:
-            sections.append(
-                {
-                    "label": label,
-                    "data": data,
-                    "recordCount": 0,
-                    "unavailable": True,
-                }
-            )
-        else:
-            records = _extract_records(data)
-            sections.append(
-                {
-                    "label": label,
-                    "data": data,
-                    "recordCount": len(records),
-                }
-            )
+        records = _extract_records(data)
+        sections.append(
+            {
+                "label": label,
+                "type": "multi_independent",
+                "data": records,
+            }
+        )
 
     logger.info("merge_results: %d sections", len(sections))
 
@@ -586,14 +579,14 @@ def combine_results(
     """
     if qtype_str == "cross_filter":
         logger.info(
-            "result_combiner: intersect_results across %d sets", len(raw_results)
+            "result_combiner: cross_filter_datasets across %d sets", len(raw_results)
         )
-        return intersect_results(raw_results, primary_index=0)
+        return cross_filter_datasets(raw_results, primary_index=0)
     elif qtype_str in ("comparison", "compare"):
         logger.info(
-            "result_combiner: compare_results across %d sides", len(labeled_results)
+            "result_combiner: compare_datasets across %d sides", len(labeled_results)
         )
-        return compare_results(labeled_results)
+        return compare_datasets(labeled_results)
     elif qtype_str in ("multi_independent", "multi_operation"):
         logger.info(
             "result_combiner: merge_results across %d sections", len(labeled_results)

@@ -16,16 +16,19 @@ logger = logging.getLogger(__name__)
 
 
 class QueryType(Enum):
-    FILTER_QUERY = "filter_query"
-    SIMPLE = "filter_query"
+    SIMPLE = "simple"
+    MULTI_INDEPENDENT = "multi_independent"
     CROSS_FILTER = "cross_filter"
-    COMPARISON = "comparison"
-    COMPARE = "comparison"
-    ANALYTICS = "analytics"
-    MULTI_OPERATION = "multi_operation"
-    MULTI_INDEPENDENT = "multi_operation"
+    COMPARE = "compare"
     TREND = "trend"
     DISTRIBUTION = "distribution"
+
+    # Backward compatibility aliases
+    FILTER_QUERY = "simple"
+    ANALYTICS = "simple"
+    COMPARISON = "compare"
+    MULTI_OPERATION = "multi_independent"
+
 
 
 @dataclass
@@ -735,13 +738,13 @@ def plan_query(query: str) -> QueryPlan:
     q = _normalise(raw_query)
 
     if not q:
-        return QueryPlan(QueryType.FILTER_QUERY, [], 0.0, raw_query, "Empty query")
+        return QueryPlan(QueryType.SIMPLE, [], 0.0, raw_query, "Empty query")
 
     if _is_no_split_phrase(q):
         op = _build_sub_operation(q)
         filters = _extract_filters_dict(op.intent_result)
         return QueryPlan(
-            QueryType.FILTER_QUERY,
+            QueryType.SIMPLE,
             [op],
             0.95,
             raw_query,
@@ -780,8 +783,9 @@ def plan_query(query: str) -> QueryPlan:
     if analytics_hint:
         op = _build_sub_operation(q, group_by=group_by)
         filters = _extract_filters_dict(op.intent_result)
+        qtype = QueryType.DISTRIBUTION if group_by else QueryType.SIMPLE
         return QueryPlan(
-            QueryType.ANALYTICS,
+            qtype,
             [op],
             0.85,
             raw_query,
@@ -800,7 +804,7 @@ def plan_query(query: str) -> QueryPlan:
                 for op in valid_ops:
                     combined_filters.update(_extract_filters_dict(op.intent_result))
                 return QueryPlan(
-                    QueryType.COMPARISON,
+                    QueryType.COMPARE,
                     valid_ops,
                     0.85,
                     raw_query,
@@ -827,7 +831,7 @@ def plan_query(query: str) -> QueryPlan:
                 for op in valid_ops:
                     combined_filters.update(_extract_filters_dict(op.intent_result))
                 return QueryPlan(
-                    QueryType.COMPARISON,
+                    QueryType.COMPARE,
                     valid_ops,
                     0.85,
                     raw_query,
@@ -868,7 +872,7 @@ def plan_query(query: str) -> QueryPlan:
                 for op in valid_ops:
                     combined_filters.update(_extract_filters_dict(op.intent_result))
                 return QueryPlan(
-                    QueryType.MULTI_OPERATION,
+                    QueryType.MULTI_INDEPENDENT,
                     valid_ops,
                     0.80,
                     raw_query,
@@ -880,7 +884,7 @@ def plan_query(query: str) -> QueryPlan:
     confidence = 0.95 if op.intent_result.get("category") else 0.3
     filters = _extract_filters_dict(op.intent_result)
     return QueryPlan(
-        QueryType.FILTER_QUERY,
+        QueryType.SIMPLE,
         [op],
         confidence,
         raw_query,

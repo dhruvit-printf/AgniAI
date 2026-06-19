@@ -1,6 +1,6 @@
 import unittest
 
-from report_generator import _ground_and_sanitize, generate_rule_based_predictions
+from prediction_engine import _ground_and_sanitize, generate_rule_based_predictions
 
 
 class TestPredictions(unittest.TestCase):

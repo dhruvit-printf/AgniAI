@@ -31,7 +31,6 @@ import requests as _requests
 
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
-from admin_formatter import format_dotnet_response
 from admin_intent import (
     admin_normalize_query,
     classify_admin_intent,
@@ -43,9 +42,9 @@ from dotnet_executor import _call_dotnet
 from feature_flags import get_flags
 from query_planner import QueryType, plan_query
 from report_generator import generate_report
-from response_builder import build_response
+from response_builder import build_response, build_answer
 from result_combiner import _extract_records, combine_results
-from suggested_questions import generate_suggested_questions
+from suggested_question_engine import generate_suggested_questions
 from telemetry import (
     SPAN_BUILD_RESPONSE,
     SPAN_CALL_DOTNET,
@@ -55,7 +54,7 @@ from telemetry import (
     SPAN_PLAN_QUERY,
     span,
 )
-from visualization_engine import generate_widgets
+from widget_engine import generate_widgets
 
 logger = logging.getLogger(__name__)
 
@@ -939,6 +938,25 @@ def execute_admin_query(
             )
             if (
                 qtype_str == "cross_filter"
+                and isinstance(combined_result, dict)
+                and combined_result.get("status") is False
+            ):
+                # Return empty/no matches status false response
+                total_duration = time.time() - start_time
+                response_payload = {
+                    "status": False,
+                    "queryType": qtype_str,
+                    "message": combined_result.get("message", "No matching records found")
+                }
+                return {
+                    "type": qtype_str,
+                    "response_payload": response_payload,
+                    "combined_message": combined_result.get("message", "No matching records found"),
+                    "execution_time_ms": round(total_duration * 1000)
+                }
+
+            if (
+                qtype_str == "cross_filter"
                 and "failed_filters" in locals()
                 and failed_filters
             ):
@@ -973,6 +991,7 @@ def execute_admin_query(
                 report = {
                     "introMessage": "Report generated with partial metrics.",
                     "analysis": None,
+                    "prediction": None,
                     "conclusion": None,
                 }
             report_duration = time.time() - report_start
@@ -992,28 +1011,16 @@ def execute_admin_query(
 
         # ── Step 6: Response Builder & Visualization ──────────────────────────
         widgets = generate_widgets(
-            combined_result=combined_result,
-            query_plan=query_plan,
-            analysis=report.get("analysis"),
+            answer=build_answer(qtype_str, combined_result, primary_intent),
+            query_type=qtype_str,
+            intent=primary_intent,
         )
 
         suggested = generate_suggested_questions(
-            qtype_str, primary_intent, combined_result
+            qtype_str, primary_intent, build_answer(qtype_str, combined_result, primary_intent)
         )
 
         formatted_data = ""
-        try:
-            formatted_data = format_dotnet_response(combined_result, primary_intent)
-        except Exception as fmt_exc:
-            logger.warning(
-                json.dumps(
-                    {
-                        "message": "Exception in format_dotnet_response accessibility fallback",
-                        "trace_id": trace_id or "N/A",
-                        "error": str(fmt_exc),
-                    }
-                )
-            )
 
         with span(SPAN_BUILD_RESPONSE, trace_id=trace_id):
             response_payload = build_response(
@@ -1031,6 +1038,7 @@ def execute_admin_query(
                 durations=durations,
                 widgets=widgets,
                 suggested_questions=suggested,
+                prediction=report.get("prediction"),
             )
 
         execution_time_ms = round(total_duration * 1000)
