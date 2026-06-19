@@ -45,29 +45,182 @@ def generate_widgets(
         widgets.append({"type": "TABLE", "priority": 100})
 
     # 2. Metrics -> CARD (Priority = 80)
-    metric_targets = {"count", "average", "max", "min", "score", "besttotal", "totalmarks", "marksobtained", "averagescore", "topscore", "bottomscore"}
+    metric_targets = {
+        "count",
+        "average",
+        "max",
+        "min",
+        "score",
+        "besttotal",
+        "totalmarks",
+        "marksobtained",
+        "averagescore",
+        "topscore",
+        "bottomscore",
+    }
     if any(tk in keys for tk in metric_targets):
         widgets.append({"type": "CARD", "priority": 80})
 
     # 3. Categories -> PIE_CHART / BAR_CHART (Priority = 60)
-    category_targets = {"leavetype", "grade", "sport", "sports", "bloodgroup", "bloodtype", "disease", "unitname", "teamname", "sectionname", "classname"}
+    category_targets = {
+        "leavetype",
+        "grade",
+        "sport",
+        "sports",
+        "bloodgroup",
+        "bloodtype",
+        "disease",
+        "unitname",
+        "teamname",
+        "sectionname",
+        "classname",
+    }
     if any(tk in keys for tk in category_targets):
         widgets.append({"type": "PIE_CHART", "priority": 60})
         widgets.append({"type": "BAR_CHART", "priority": 60})
 
     # 4. Time Columns -> LINE_CHART / AREA_CHART (Priority = 40)
-    time_targets = {"date", "month", "attempt", "year", "attemptno", "fromattempt", "toattempt"}
+    time_targets = {
+        "date",
+        "month",
+        "attempt",
+        "year",
+        "attemptno",
+        "fromattempt",
+        "toattempt",
+    }
     if any(tk in keys for tk in time_targets):
         widgets.append({"type": "LINE_CHART", "priority": 40})
         widgets.append({"type": "AREA_CHART", "priority": 40})
 
     # 5. Percentages -> RADIAL_CHART (Priority = 20)
-    percentage_targets = {"passpercentage", "failpercentage", "completionrate", "passrate", "failrate"}
+    percentage_targets = {
+        "passpercentage",
+        "failpercentage",
+        "completionrate",
+        "passrate",
+        "failrate",
+    }
     if any(tk in keys for tk in percentage_targets):
         widgets.append({"type": "RADIAL_CHART", "priority": 20})
+
+    # 6. Query-type and plan aware widgets (additive overrides/guarantees)
+    qtype = None
+    if query_plan is not None:
+        if isinstance(query_plan, str):
+            qtype = query_plan
+        elif hasattr(query_plan, "query_type") and query_plan.query_type is not None:
+            qtype = getattr(query_plan.query_type, "value", query_plan.query_type)
+        elif isinstance(query_plan, dict):
+            qtype = query_plan.get("queryType") or query_plan.get("query_type")
+
+    if isinstance(qtype, str):
+        qtype = qtype.lower()
+
+    if qtype == "comparison":
+        widgets.append({"type": "BAR_CHART", "priority": 60})
+    elif qtype == "cross_filter":
+        widgets.append({"type": "TABLE", "priority": 100})
+    elif qtype == "analytics":
+        # Check group_by/groupBy in query_plan or if combined_result indicates grouping
+        is_grouped = "group" in keys
+        if hasattr(query_plan, "operations") and query_plan.operations:
+            if any(
+                getattr(op, "group_by", None) is not None
+                for op in query_plan.operations
+            ):
+                is_grouped = True
+        elif isinstance(query_plan, dict) and "operations" in query_plan:
+            for op in query_plan["operations"]:
+                if isinstance(op, dict) and (op.get("group_by") or op.get("groupBy")):
+                    is_grouped = True
+        if (
+            hasattr(query_plan, "group_by")
+            and getattr(query_plan, "group_by", None) is not None
+        ):
+            is_grouped = True
+        elif isinstance(query_plan, dict) and (
+            query_plan.get("group_by") or query_plan.get("groupBy")
+        ):
+            is_grouped = True
+
+        if is_grouped:
+            widgets.append({"type": "BAR_CHART", "priority": 60})
+            widgets.append({"type": "PIE_CHART", "priority": 60})
+    elif qtype in ("multi_operation", "multi_independent"):
+        widgets.append({"type": "TABLE", "priority": 100})
+
+    # Extract per-section or operation widget hints if any
+    hints = []
+    if hasattr(query_plan, "operations") and query_plan.operations:
+        for op in query_plan.operations:
+            if hasattr(op, "intent_result") and isinstance(op.intent_result, dict):
+                h = op.intent_result.get("widget_hint") or op.intent_result.get(
+                    "widgetHint"
+                )
+                if h:
+                    hints.append(h)
+            if hasattr(op, "dotnet_payload") and isinstance(op.dotnet_payload, dict):
+                h = op.dotnet_payload.get("widget_hint") or op.dotnet_payload.get(
+                    "widgetHint"
+                )
+                if h:
+                    hints.append(h)
+    elif isinstance(query_plan, dict) and "operations" in query_plan:
+        for op in query_plan["operations"]:
+            if isinstance(op, dict):
+                h = op.get("widget_hint") or op.get("widgetHint")
+                if h:
+                    hints.append(h)
+                for inner_key in (
+                    "intent_result",
+                    "intentResult",
+                    "dotnet_payload",
+                    "dotnetPayload",
+                ):
+                    inner = op.get(inner_key)
+                    if isinstance(inner, dict):
+                        h_inner = inner.get("widget_hint") or inner.get("widgetHint")
+                        if h_inner:
+                            hints.append(h_inner)
+
+    if isinstance(combined_result, dict) and "sections" in combined_result:
+        for sec in combined_result["sections"]:
+            if isinstance(sec, dict):
+                h = sec.get("widget_hint") or sec.get("widgetHint")
+                if h:
+                    hints.append(h)
+                sec_data = sec.get("data")
+                if isinstance(sec_data, dict):
+                    h_data = sec_data.get("widget_hint") or sec_data.get("widgetHint")
+                    if h_data:
+                        hints.append(h_data)
+
+    _WIDGET_PRIORITIES = {
+        "TABLE": 100,
+        "CARD": 80,
+        "PIE_CHART": 60,
+        "BAR_CHART": 60,
+        "LINE_CHART": 40,
+        "AREA_CHART": 40,
+        "RADIAL_CHART": 20,
+    }
+    for hint in hints:
+        h_upper = str(hint).upper()
+        if h_upper in _WIDGET_PRIORITIES:
+            widgets.append({"type": h_upper, "priority": _WIDGET_PRIORITIES[h_upper]})
 
     # Sort widgets descending by priority
     widgets.sort(key=lambda w: w["priority"], reverse=True)
 
+    # Deduplicate while preserving priority order
+    seen_types = set()
+    deduped_widgets = []
+    for w in widgets:
+        w_type = w["type"]
+        if w_type not in seen_types:
+            seen_types.add(w_type)
+            deduped_widgets.append(w)
+
     # Return only the type field for each widget
-    return [{"type": w["type"]} for w in widgets]
+    return [{"type": w["type"]} for w in deduped_widgets]

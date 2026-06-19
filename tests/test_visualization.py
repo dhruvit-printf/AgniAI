@@ -7,7 +7,8 @@ Unit tests for the visualization engine widget auto-generation rules.
 from __future__ import annotations
 
 import unittest
-from visualization_engine import generate_widgets, collect_all_keys
+
+from visualization_engine import collect_all_keys, generate_widgets
 
 
 class TestVisualizationEngine(unittest.TestCase):
@@ -24,11 +25,20 @@ class TestVisualizationEngine(unittest.TestCase):
                 "records": [
                     {"agniveerNo": "12345", "details": {"bmiCategory": "Normal"}}
                 ],
-                "summary": {"count": 1}
-            }
+                "summary": {"count": 1},
+            },
         }
         keys = collect_all_keys(data)
-        expected = {"status", "data", "records", "agniveerno", "details", "bmicategory", "summary", "count"}
+        expected = {
+            "status",
+            "data",
+            "records",
+            "agniveerno",
+            "details",
+            "bmicategory",
+            "summary",
+            "count",
+        }
         self.assertTrue(expected.issubset(keys))
 
     def test_table_widget_generation(self):
@@ -79,14 +89,22 @@ class TestVisualizationEngine(unittest.TestCase):
             "count": 10,
             "grade": "A",
             "attempt": 1,
-            "completionRate": 85.5
+            "completionRate": 85.5,
         }
         widgets = generate_widgets(data)
-        expected_types = ["TABLE", "CARD", "PIE_CHART", "BAR_CHART", "LINE_CHART", "AREA_CHART", "RADIAL_CHART"]
-        
+        expected_types = [
+            "TABLE",
+            "CARD",
+            "PIE_CHART",
+            "BAR_CHART",
+            "LINE_CHART",
+            "AREA_CHART",
+            "RADIAL_CHART",
+        ]
+
         # Verify the length matches
         self.assertEqual(len(widgets), len(expected_types))
-        
+
         # Verify the order of widgets (PIE/BAR and LINE/AREA have same priority respectively, so we check group ordering)
         self.assertEqual(widgets[0]["type"], "TABLE")
         self.assertEqual(widgets[1]["type"], "CARD")

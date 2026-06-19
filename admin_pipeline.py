@@ -24,12 +24,14 @@ import logging
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests as _requests
 
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
+from admin_formatter import format_dotnet_response
 from admin_intent import (
     admin_normalize_query,
     classify_admin_intent,
@@ -38,11 +40,12 @@ from admin_intent import (
 from audit_logger import write_audit_log
 from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
 from dotnet_executor import _call_dotnet
+from feature_flags import get_flags
 from query_planner import QueryType, plan_query
 from report_generator import generate_report
 from response_builder import build_response
-from result_combiner import combine_results, _extract_records
-from feature_flags import get_flags
+from result_combiner import _extract_records, combine_results
+from suggested_questions import generate_suggested_questions
 from telemetry import (
     SPAN_BUILD_RESPONSE,
     SPAN_CALL_DOTNET,
@@ -542,7 +545,12 @@ def execute_admin_query(
             operation_count: int = 1
 
             if (
-                query_plan.query_type in (QueryType.CROSS_FILTER, QueryType.COMPARISON, QueryType.MULTI_OPERATION)
+                query_plan.query_type
+                in (
+                    QueryType.CROSS_FILTER,
+                    QueryType.COMPARISON,
+                    QueryType.MULTI_OPERATION,
+                )
                 and len(query_plan.operations) >= 2
             ):
 
@@ -569,7 +577,13 @@ def execute_admin_query(
                 with span(SPAN_CALL_DOTNET, trace_id=trace_id):
                     dotnet_start = time.time()
                     _notify("dotnet")
-                    for i, op in enumerate(query_plan.operations):
+
+                    max_workers = min(
+                        len(query_plan.operations),
+                        int(os.getenv("DOTNET_MAX_PARALLEL", "4")),
+                    )
+
+                    def run_op(idx, op):
                         payload = dict(op.dotnet_payload)
                         payload.update(id_filters)
                         if full_name:
@@ -582,51 +596,60 @@ def execute_admin_query(
                                     "trace_id": trace_id,
                                     "session_id": session_id,
                                     "query_type": qtype_str,
-                                    "op_index": i + 1,
-                                    "total_ops": operation_count,
+                                    "op_index": idx + 1,
+                                    "total_ops": len(query_plan.operations),
                                 }
                             )
                         )
 
-                        dotnet_data, dotnet_error = _call_dotnet(
-                            payload, trace_id=trace_id
-                        )
-                        if dotnet_error:
-                            logger.warning(
-                                json.dumps(
-                                    {
-                                        "message": "Multi-op failed",
-                                        "trace_id": trace_id,
-                                        "session_id": session_id,
-                                        "query_type": qtype_str,
-                                        "op_index": i + 1,
-                                        "error": _sanitize_error(dotnet_error),
-                                    }
-                                )
-                            )
+                        try:
+                            data, err = _call_dotnet(payload, trace_id=trace_id)
+                            return idx, op, data, err
+                        except Exception as exc:
+                            return idx, op, None, str(exc)
 
-                            metrics_collector.inc_requests(qtype_str)
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        futures = [
+                            executor.submit(run_op, i, op)
+                            for i, op in enumerate(query_plan.operations)
+                        ]
+                        results = [f.result() for f in futures]
+
+                    dotnet_duration = time.time() - dotnet_start
+
+                    # ── Task 2: Partial failure checks ──
+                    all_failed = all(r[3] is not None for r in results)
+                    if all_failed:
+                        for idx, op, _, err in results:
+                            metrics_collector.inc_errors(qtype_str)
+                        total_duration = time.time() - start_time
+                        metrics_collector.record_duration(
+                            "pipeline_duration", round(total_duration * 1000, 2)
+                        )
+                        write_audit_log(
+                            trace_id=trace_id,
+                            session_id=session_id,
+                            query_type=qtype_str,
+                            query_duration=round(total_duration * 1000, 2),
+                            success=False,
+                            error_type="dotnet_error",
+                        )
+                        return {
+                            "type": "error",
+                            "error_message": "Failed to process request.",
+                        }
+
+                    # CROSS_FILTER primary failure check
+                    if query_plan.query_type == QueryType.CROSS_FILTER:
+                        primary_idx, primary_op, primary_data, primary_error = results[
+                            0
+                        ]
+                        if primary_error:
                             metrics_collector.inc_errors(qtype_str)
                             total_duration = time.time() - start_time
                             metrics_collector.record_duration(
                                 "pipeline_duration", round(total_duration * 1000, 2)
                             )
-
-                            if total_duration > SLOW_QUERY_THRESHOLD:
-                                logger.warning(
-                                    json.dumps(
-                                        {
-                                            "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                                            "trace_id": trace_id,
-                                            "session_id": session_id,
-                                            "query_type": qtype_str,
-                                            "duration_ms": round(
-                                                total_duration * 1000, 2
-                                            ),
-                                        }
-                                    )
-                                )
-
                             write_audit_log(
                                 trace_id=trace_id,
                                 session_id=session_id,
@@ -635,24 +658,57 @@ def execute_admin_query(
                                 success=False,
                                 error_type="dotnet_error",
                             )
-
                             return {
                                 "type": "error",
                                 "error_message": "Failed to process request.",
                             }
 
-                        ensure_agniveer_no_in_data(dotnet_data)
-                        raw_results.append(dotnet_data)
-                        if query_plan.query_type == QueryType.COMPARISON:
+                    # Build raw_results and labeled_results preserving the order
+                    failed_filters = []
+                    for idx, op, dotnet_data, dotnet_error in results:
+                        if query_plan.query_type == QueryType.CROSS_FILTER:
+                            if dotnet_error:
+                                metrics_collector.inc_errors(qtype_str)
+                                category = op.intent_result.get(
+                                    "category", f"Filter {idx + 1}"
+                                )
+                                failed_filters.append(category)
+                            else:
+                                ensure_agniveer_no_in_data(dotnet_data)
+                                raw_results.append(dotnet_data)
+                                label = op.intent_result.get(
+                                    "category", f"Query {idx + 1}"
+                                )
+                                labeled_results.append((label, dotnet_data))
+                        elif query_plan.query_type == QueryType.COMPARISON:
                             label = (
                                 op.intent_result.get("section")
                                 or op.intent_result.get("sport")
                                 or op.intent_result.get("class")
                                 or op.raw_fragment.upper()
                             )
-                        else:
-                            label = op.intent_result.get("category", f"Query {i + 1}")
-                        labeled_results.append((label, dotnet_data))
+                            if dotnet_error:
+                                metrics_collector.inc_errors(qtype_str)
+                                data_placeholder = {"unavailable": True}
+                                raw_results.append(data_placeholder)
+                                labeled_results.append((label, data_placeholder))
+                            else:
+                                ensure_agniveer_no_in_data(dotnet_data)
+                                raw_results.append(dotnet_data)
+                                labeled_results.append((label, dotnet_data))
+                        elif query_plan.query_type == QueryType.MULTI_OPERATION:
+                            label = op.intent_result.get(
+                                "category", f"Section {idx + 1}"
+                            )
+                            if dotnet_error:
+                                metrics_collector.inc_errors(qtype_str)
+                                data_placeholder = {"unavailable": True}
+                                raw_results.append(data_placeholder)
+                                labeled_results.append((label, data_placeholder))
+                            else:
+                                ensure_agniveer_no_in_data(dotnet_data)
+                                raw_results.append(dotnet_data)
+                                labeled_results.append((label, dotnet_data))
 
                     primary_intent = query_plan.operations[0].intent_result
                     dotnet_duration = time.time() - dotnet_start
@@ -879,6 +935,13 @@ def execute_admin_query(
             combined_result = combine_results(
                 raw_results, labeled_results, qtype_str, primary_intent
             )
+            if (
+                qtype_str == "cross_filter"
+                and "failed_filters" in locals()
+                and failed_filters
+            ):
+                combined_result["degraded"] = True
+                combined_result["failedFilters"] = failed_filters
             combiner_duration = time.time() - combiner_start
 
         # ── Step 5: Report Generator ──────────────────────────────────────────
@@ -932,6 +995,24 @@ def execute_admin_query(
             analysis=report.get("analysis"),
         )
 
+        suggested = generate_suggested_questions(
+            qtype_str, primary_intent, combined_result
+        )
+
+        formatted_data = ""
+        try:
+            formatted_data = format_dotnet_response(combined_result, primary_intent)
+        except Exception as fmt_exc:
+            logger.warning(
+                json.dumps(
+                    {
+                        "message": "Exception in format_dotnet_response accessibility fallback",
+                        "trace_id": trace_id or "N/A",
+                        "error": str(fmt_exc),
+                    }
+                )
+            )
+
         with span(SPAN_BUILD_RESPONSE, trace_id=trace_id):
             response_payload = build_response(
                 query_type=qtype_str,
@@ -943,10 +1024,11 @@ def execute_admin_query(
                 raw_results=raw_results,
                 confidence=query_plan.confidence,
                 operation_count=operation_count,
-                formatted_data="",
+                formatted_data=formatted_data,
                 session_id=session_id,
                 durations=durations,
                 widgets=widgets,
+                suggested_questions=suggested,
             )
 
         execution_time_ms = round(total_duration * 1000)
@@ -981,13 +1063,23 @@ def execute_admin_query(
                     "session_id": session_id,
                     "main_intent": {
                         "category": primary_intent.get("category", ""),
-                        "operation": primary_intent.get("subcategory", "") or primary_intent.get("operation", ""),
+                        "operation": primary_intent.get("subcategory", "")
+                        or primary_intent.get("operation", ""),
                     },
                     "filters": query_plan.filters if query_plan else {},
-                    "planner_query_type": query_plan.query_type.value if query_plan else None,
+                    "planner_query_type": (
+                        query_plan.query_type.value if query_plan else None
+                    ),
                     "query_type": qtype_str,
                     "operation_count": operation_count,
-                    "payload_sent": [format_admin_payload(op.intent_result) for op in query_plan.operations] if query_plan else [],
+                    "payload_sent": (
+                        [
+                            format_admin_payload(op.intent_result)
+                            for op in query_plan.operations
+                        ]
+                        if query_plan
+                        else []
+                    ),
                     "combiner_strategy": combiner_strategy,
                     "visualization_decisions": [w["type"] for w in widgets],
                     "widget_count": len(widgets),

@@ -7,6 +7,7 @@ Unit tests for the Report Generator and Response Builder layers.
 import unittest
 from unittest.mock import patch
 
+from admin_pipeline import execute_admin_query
 from report_generator import (
     _extract_numbers_from_text,
     _strip_ungrounded_numbers,
@@ -310,6 +311,51 @@ class TestBuildCombinedMessage:
             session_id="real-session-abc",
         )
         assert resp["sessionId"] == "real-session-abc"
+
+
+class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
+
+    def test_predictions_combined_message_formatting(self):
+        analysis = {
+            "summary": "This is summary.",
+            "observations": ["Obs 1"],
+            "insights": ["Insight 1"],
+            "predictions": ["Pred 1", "Pred 2"],
+        }
+        msg = build_combined_message("Hello.", "", analysis, None)
+        self.assertIn("Predictions:\n- Pred 1\n- Pred 2", msg)
+
+    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.generate_report")
+    def test_formatted_data_is_populated_on_data_query(
+        self, mock_generate_report, mock_call_dotnet
+    ):
+        # Verification data query
+        mock_call_dotnet.return_value = (
+            [{"agniveerNo": "1", "fullName": "John Doe"}],
+            None,
+        )
+        mock_generate_report.return_value = {
+            "introMessage": "Intro.",
+            "analysis": {
+                "summary": "Summary",
+                "observations": [],
+                "insights": [],
+                "predictions": [],
+            },
+            "conclusion": {"summary": "Conclusion"},
+        }
+
+        # Query that invokes a single .NET call
+        result = execute_admin_query("Show completed verification records", {})
+        self.assertEqual(result["type"], "query")
+
+        response_payload = result["response_payload"]
+        self.assertTrue(response_payload["status"])
+
+        # Verify that formattedData is NOT empty
+        self.assertTrue(len(response_payload["formattedData"]) > 0)
+        self.assertIn("John Doe", response_payload["formattedData"])
 
 
 if __name__ == "__main__":

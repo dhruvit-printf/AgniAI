@@ -782,6 +782,21 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "ward count",
             "who is admitted",
             "who is in hospital",
+            "fever",
+            "injury",
+            "injured",
+            "sick",
+            "ill",
+            "cough",
+            "cold",
+            "infection",
+            "fracture",
+            "wound",
+            "pain",
+            "flu",
+            "malaria",
+            "dengue",
+            "typhoid",
         ),
     ),
     (
@@ -816,6 +831,8 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "DiseaseStatistics",
         (
             "disease",
+            "diseases",
+            "top diseases",
             "diagnoses",
             "diagnosis",
             "top diagnoses",
@@ -834,6 +851,21 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "health trends",
             "common ailments",
             "disease report",
+            "fever",
+            "injury",
+            "injured",
+            "sick",
+            "ill",
+            "cough",
+            "cold",
+            "infection",
+            "fracture",
+            "wound",
+            "pain",
+            "flu",
+            "malaria",
+            "dengue",
+            "typhoid",
         ),
     ),
 ]
@@ -1378,6 +1410,7 @@ ADMIN_FUZZY_VOCAB: Dict[str, str] = {
     "medicl": "medical",
     "medcal": "medical",
     "bpet": "bpet",
+    "bept": "bpet",
     "betp": "bpet",
     "pptt": "ppt",
     "fiiring": "firing",
@@ -1894,6 +1927,8 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "bmi analysis",
             "bmi outliers",
             "disease",
+            "diseases",
+            "top diseases",
             "diagnoses",
             "diagnosis",
             "top diagnoses",
@@ -1909,6 +1944,21 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "illness",
             "how many sick",
             "common disease",
+            "fever",
+            "injury",
+            "injured",
+            "sick",
+            "ill",
+            "cough",
+            "cold",
+            "infection",
+            "fracture",
+            "wound",
+            "pain",
+            "flu",
+            "malaria",
+            "dengue",
+            "typhoid",
         ),
         _MEDICAL_INTENTS,
     ),
@@ -2299,8 +2349,23 @@ def _extract_medical_status(text_lower: str) -> Optional[str]:
 def _score_intent(query_lower: str, keywords: Tuple[str, ...]) -> int:
     score = 0
     for kw in keywords:
-        if kw in query_lower:
-            score += len(kw.split())
+        if not kw:
+            continue
+        idx = query_lower.find(kw)
+        while idx != -1:
+            before_ok = True
+            if kw[0].isalnum():
+                before_ok = idx == 0 or not query_lower[idx - 1].isalnum()
+            after_ok = True
+            if kw[-1].isalnum():
+                after_ok = (
+                    idx + len(kw) == len(query_lower)
+                    or not query_lower[idx + len(kw)].isalnum()
+                )
+            if before_ok and after_ok:
+                score += len(kw.split())
+                break
+            idx = query_lower.find(kw, idx + 1)
     return score
 
 
@@ -2342,7 +2407,9 @@ def _match_module(query_lower: str) -> Optional[str]:
             best_intent_score = intent_score
             best_module = module
 
-    return best_module or next((m for m in _MODULES if m in earliest_tied), earliest_tied[0])
+    return best_module or next(
+        (m for m in _MODULES if m in earliest_tied), earliest_tied[0]
+    )
 
 
 def _match_intent(

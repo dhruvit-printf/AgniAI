@@ -32,7 +32,14 @@ class TestRunPipelineSuccessPath:
             import websocket_routes
 
             websocket_routes._run_pipeline("sid1", "show attendance", {}, "trace-001")
-        assert sent == ["intro", "result", "analysis", "conclusion", "done"]
+        assert sent == [
+            "intro",
+            "result",
+            "analysis",
+            "conclusion",
+            "suggestions",
+            "done",
+        ]
 
     def test_done_is_last_event_on_success(self):
         sent = []

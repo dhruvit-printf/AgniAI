@@ -256,6 +256,7 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "hospital",
         "bmi",
         "disease",
+        "diseases",
         "health",
         "admitted",
         "patient",
@@ -263,6 +264,21 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "illness",
         "active medical",
         "with medical",
+        "fever",
+        "injury",
+        "injured",
+        "sick",
+        "ill",
+        "cough",
+        "cold",
+        "infection",
+        "fracture",
+        "wound",
+        "pain",
+        "flu",
+        "malaria",
+        "dengue",
+        "typhoid",
     ],
     "Attendance": [
         "attendance",
@@ -331,7 +347,25 @@ _SPORT_NAMES = {
 def _detect_categories(text_lower: str) -> List[str]:
     scores: Dict[str, int] = {}
     for category, signals in _CATEGORY_SIGNALS.items():
-        score = sum(len(sig.split()) for sig in signals if sig in text_lower)
+        score = 0
+        for sig in signals:
+            if not sig:
+                continue
+            idx = text_lower.find(sig)
+            while idx != -1:
+                before_ok = True
+                if sig[0].isalnum():
+                    before_ok = idx == 0 or not text_lower[idx - 1].isalnum()
+                after_ok = True
+                if sig[-1].isalnum():
+                    after_ok = (
+                        idx + len(sig) == len(text_lower)
+                        or not text_lower[idx + len(sig)].isalnum()
+                    )
+                if before_ok and after_ok:
+                    score += len(sig.split())
+                    break
+                idx = text_lower.find(sig, idx + 1)
         if score > 0:
             scores[category] = score
     return sorted(scores.keys(), key=lambda c: scores[c], reverse=True)
@@ -354,7 +388,9 @@ def _detect_comparison(
 ) -> Optional[Tuple[str, str]]:
     if not any(kw in text_lower for kw in _COMPARISON_KEYWORDS):
         return None
-    sections_found = [s for s in {"bpet", "bpet", "ppt", "firing", "drill"} if s in text_lower]
+    sections_found = [
+        s for s in {"bpet", "bpet", "ppt", "firing", "drill"} if s in text_lower
+    ]
     if len(sections_found) >= 2:
         return ("Performance", "Performance")
     if len(categories) >= 2:
@@ -381,7 +417,7 @@ def _detect_multi_independent(
             if left and right:
                 if re.match(
                     r"^(?:is|are|has|have|was|were|play|plays|who|which|that|with|on|in|under|currently|active|admitted|absent|present|attending)\b",
-                    right
+                    right,
                 ):
                     continue
                 lc = _detect_categories(left)
@@ -443,54 +479,105 @@ def _detect_analytics(text_lower: str) -> Optional[str]:
 def _extract_cross_filter_fragments(
     text_lower: str, categories: List[str]
 ) -> Optional[List[str]]:
-    primary_split: Optional[Tuple[str, str]] = None
+    nested_patterns = [
+        r"\band is\b",
+        r"\band currently\b",
+        r"\band also\b",
+        r"\band are\b",
+        r"\band suffered\b",
+        r"\band suffering\b",
+        r"\band had\b",
+        r"\band has\b",
+        r"\band with\b",
+        r"\band who\b",
+        r"\band plays?\b",
+        r"\band on\b",
+    ]
 
+    primary_split: Optional[Tuple[str, str, str]] = None
+
+    # 1. Keywords first
     for kw in _CROSS_FILTER_KEYWORDS:
         if kw in text_lower:
             idx = text_lower.index(kw)
             left = text_lower[:idx].strip()
             right = text_lower[idx:].strip()
             if left and right:
-                primary_split = (left, right)
+                primary_split = (left, right, kw)
                 break
 
+    # 2. Connectors second (leftmost preferred)
     if primary_split is None:
+        best_match = None
         for connector in _CROSS_FILTER_CONNECTORS:
             m = re.search(r"\b" + re.escape(connector) + r"\b", text_lower)
             if m:
-                left = text_lower[: m.start()].strip()
-                right = text_lower[m.start() :].strip()
-                if left and right:
-                    lc = _detect_categories(left)
-                    rc = _detect_categories(_enrich_right(right))
-                    if lc and rc and lc[0] != rc[0]:
-                        primary_split = (left, right)
-                        break
+                if best_match is None or m.start() < best_match.start():
+                    left = text_lower[: m.start()].strip()
+                    right = text_lower[m.start() :].strip()
+                    if left and right:
+                        lc = _detect_categories(left)
+                        rc = _detect_categories(_enrich_right(right))
+                        if lc and rc and lc[0] != rc[0]:
+                            best_match = m
+        if best_match is not None:
+            primary_split = (
+                text_lower[: best_match.start()].strip(),
+                text_lower[best_match.start() :].strip(),
+                best_match.group(0),
+            )
+
+    # 3. Fallback to nested patterns for primary split if still None (leftmost preferred)
+    if primary_split is None:
+        best_match = None
+        best_pat = None
+        for pat in nested_patterns:
+            m = re.search(pat, text_lower)
+            if m:
+                if best_match is None or m.start() < best_match.start():
+                    left = text_lower[: m.start()].strip()
+                    right = text_lower[m.end() :].strip()
+                    if left and right:
+                        lc = _detect_categories(left)
+                        rc = _detect_categories(_enrich_right(right))
+                        if lc and rc and lc[0] != rc[0]:
+                            best_match = m
+                            best_pat = pat
+        if best_match is not None:
+            primary_split = (
+                text_lower[: best_match.start()].strip(),
+                text_lower[best_match.end() :].strip(),
+                best_match.group(0),
+            )
 
     if primary_split is None:
         return None
 
-    left, right = primary_split
+    left, right, matched_conn = primary_split
     fragments: List[str] = [left]
 
-    nested_patterns = [
-        r"\band is\b",
-        r"\band currently\b",
-        r"\band also\b",
-        r"\band are\b",
-    ]
+    # Iterative/recursive splits on remainder (right part)
     remainder = right
-    for np in nested_patterns:
-        m = re.search(np, remainder)
-        if m:
-            sub_left = remainder[: m.start()].strip()
-            sub_right = remainder[m.end() :].strip()
-            if sub_left and sub_right:
+    while True:
+        first_match = None
+        matched_pat = None
+        for pat in nested_patterns:
+            m = re.search(pat, remainder)
+            if m:
+                if first_match is None or m.start() < first_match.start():
+                    first_match = m
+                    matched_pat = pat
+        if first_match:
+            sub_left = remainder[: first_match.start()].strip()
+            sub_right = remainder[first_match.end() :].strip()
+            if sub_left:
                 fragments.append(_enrich_right(sub_left))
-                fragments.append(_enrich_right(sub_right))
-                return fragments
+            remainder = sub_right
+        else:
+            if remainder:
+                fragments.append(_enrich_right(remainder))
+            break
 
-    fragments.append(_enrich_right(right))
     return fragments
 
 
@@ -660,7 +747,9 @@ def plan_query(query: str) -> QueryPlan:
             ops = []
             for i, f in enumerate(fragments):
                 op = _build_sub_operation(f)
-                if not op.intent_result.get("category") and i < len(comparison_entities):
+                if not op.intent_result.get("category") and i < len(
+                    comparison_entities
+                ):
                     op.intent_result["category"] = comparison_entities[i]
                     op.dotnet_payload = format_admin_payload(op.intent_result)
                 ops.append(op)

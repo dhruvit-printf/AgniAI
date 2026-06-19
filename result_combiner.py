@@ -262,14 +262,24 @@ def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
     """
     sections: List[Dict] = []
     for label, data in labeled_results:
-        records = _extract_records(data)
-        sections.append(
-            {
-                "label": label,
-                "data": data,
-                "recordCount": len(records),
-            }
-        )
+        if isinstance(data, dict) and data.get("unavailable") is True:
+            sections.append(
+                {
+                    "label": label,
+                    "data": data,
+                    "recordCount": 0,
+                    "unavailable": True,
+                }
+            )
+        else:
+            records = _extract_records(data)
+            sections.append(
+                {
+                    "label": label,
+                    "data": data,
+                    "recordCount": len(records),
+                }
+            )
 
     logger.info("merge_results: %d sections", len(sections))
 
@@ -335,15 +345,23 @@ def compare_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
     all_metric_keys: Set[str] = set()
 
     for label, data in labeled_results:
-        metrics = _extract_summary_metrics(data)
-        all_metric_keys.update(metrics.keys())
-        sides.append(
-            {
-                "label": label,
-                "data": data,
-                "metrics": metrics,
-            }
-        )
+        is_unavailable = False
+        if isinstance(data, dict) and data.get("unavailable") is True:
+            is_unavailable = True
+            metrics = {}
+        else:
+            metrics = _extract_summary_metrics(data)
+            all_metric_keys.update(metrics.keys())
+
+        side = {
+            "label": label,
+            "data": data,
+            "metrics": metrics,
+        }
+        if is_unavailable:
+            side["unavailable"] = True
+
+        sides.append(side)
 
     logger.info(
         "compare_results: %d sides, metrics=%s",

@@ -52,6 +52,13 @@ def build_combined_message(
                 "Insights:\n" + "\n".join(f"- {i}" for i in clean_ins)
             )
 
+        pred = analysis.get("predictions") or []
+        clean_pred = [p.strip() for p in pred if p and p.strip()]
+        if clean_pred:
+            analysis_parts.append(
+                "Predictions:\n" + "\n".join(f"- {p}" for p in clean_pred)
+            )
+
         if analysis_parts:
             parts.append("Analysis:\n" + "\n\n".join(analysis_parts))
 
@@ -77,6 +84,7 @@ def build_response(
     session_id: Optional[str] = None,
     durations: Optional[Dict[str, float]] = None,
     widgets: Optional[List[Dict[str, str]]] = None,
+    suggested_questions: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Assembles the JSON response structure for the frontend.
@@ -113,6 +121,7 @@ def build_response(
                 "summary": analysis.get("summary", ""),
                 "observations": list(analysis.get("observations") or []),
                 "insights": list(analysis.get("insights") or []),
+                "predictions": list(analysis.get("predictions") or []),
             }
             if analysis is not None
             else None
@@ -122,6 +131,7 @@ def build_response(
             if conclusion is not None
             else None
         ),
+        "suggestedQuestions": suggested_questions or [],
         "intent": {
             "category": intent.get("category", ""),
             "subcategory": intent.get("subcategory", ""),

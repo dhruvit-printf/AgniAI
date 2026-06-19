@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 # .NET CONFIGURATION
 # =============================================================================
 
-DOTNET_API_BASE_URL = os.getenv("DOTNET_API_BASE_URL", "https://nhbt75gj-7257.inc1.devtunnels.ms")
+DOTNET_API_BASE_URL = os.getenv(
+    "DOTNET_API_BASE_URL", "https://nhbt75gj-7257.inc1.devtunnels.ms"
+)
 DOTNET_EXECUTE_URL = f"{DOTNET_API_BASE_URL}/api/AiCommand/execute"
 DOTNET_API_KEY = os.getenv("DOTNET_API_KEY", "")
 

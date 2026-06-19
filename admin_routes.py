@@ -18,8 +18,8 @@ from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request
 
-from admin_pipeline import execute_admin_query
 from admin_intent import classify_admin_intent, format_admin_payload
+from admin_pipeline import execute_admin_query
 
 logger = logging.getLogger(__name__)
 
@@ -218,8 +218,7 @@ def admin_classify():
     message = (body.get("message") or "").strip()
     intent = classify_admin_intent(message)
     dotnet_payload = format_admin_payload(intent)
-    return jsonify({
-        "success": True,
-        "intent": intent,
-        "dotnet_payload": dotnet_payload
-    }), 200
+    return (
+        jsonify({"success": True, "intent": intent, "dotnet_payload": dotnet_payload}),
+        200,
+    )

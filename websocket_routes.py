@@ -174,6 +174,13 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
                 "data": response_payload.get("conclusion", {}),
             },
         )
+        ws_manager.send_json(
+            sid,
+            {
+                "type": "suggestions",
+                "data": response_payload.get("suggestedQuestions") or [],
+            },
+        )
         ws_manager.send_json(sid, {"type": "done"})
 
     except Exception as exc:

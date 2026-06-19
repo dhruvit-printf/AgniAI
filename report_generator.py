@@ -233,7 +233,17 @@ def _extract_records_from_combined(data: Any) -> List[Dict]:
                     return sub_extracted
 
         # 4. Check for scalar aggregates / metrics in dict
-        scalar_keys = {"count", "average", "max", "min", "score", "averagescore", "passpercentage", "failpercentage", "completionrate"}
+        scalar_keys = {
+            "count",
+            "average",
+            "max",
+            "min",
+            "score",
+            "averagescore",
+            "passpercentage",
+            "failpercentage",
+            "completionrate",
+        }
         if any(k.lower() in scalar_keys or k in scalar_keys for k in data.keys()):
             return [data]
 
@@ -690,6 +700,102 @@ _ANALYSIS_RULES_COMMON = (
 
 
 # =============================================================================
+# PREDICTIONS ENGINE
+# =============================================================================
+
+
+def generate_rule_based_predictions(
+    combined_result: Any,
+    query_type: str,
+    intent: Dict[str, Any],
+    aggregate_text: str,
+) -> List[str]:
+    predictions = []
+    grounded_numbers = _extract_numbers_from_text(aggregate_text)
+
+    if query_type == "cross_filter":
+        match_count = (
+            combined_result.get("matchCount", 0)
+            if isinstance(combined_result, dict)
+            else 0
+        )
+        total_before = (
+            combined_result.get("totalBeforeFilter", 0)
+            if isinstance(combined_result, dict)
+            else 0
+        )
+        if total_before > 0 and match_count > 0:
+            pct = round((match_count / total_before) * 100, 1)
+            pct_str = f"{pct}"
+            if pct_str in grounded_numbers:
+                predictions.append(
+                    f"If the current match rate of {pct}% holds, future cross-filters are expected to return a similar proportion of records."
+                )
+        if not predictions:
+            predictions.append(
+                "Tighter cross-filtering criteria are expected to reduce the match count in future query runs."
+            )
+
+    elif query_type == "comparison":
+        sides = (
+            combined_result.get("sides", [])
+            if isinstance(combined_result, dict)
+            else []
+        )
+        if len(sides) >= 2:
+            label1 = sides[0].get("label", "Side 1")
+            label2 = sides[1].get("label", "Side 2")
+            predictions.append(
+                f"Performance or status variations between {label1} and {label2} are expected to persist in subsequent evaluations."
+            )
+        else:
+            predictions.append(
+                "Future comparison cycles are expected to show similar variances across the selected metrics."
+            )
+
+    elif query_type == "multi_independent":
+        predictions.append(
+            "Consolidated section metrics are projected to follow current trends across all monitored categories."
+        )
+
+    else:
+        # simple
+        records = _extract_records_from_combined(combined_result)
+        cnt = len(records)
+        cnt_str = f"{cnt}"
+        category = intent.get("category") or "Agniveer"
+
+        # Look for average score in aggregate_text
+        scores = [s for s in (_get_score(r) for r in records) if s is not None]
+        if scores:
+            avg_score = round(sum(scores) / len(scores), 2)
+            avg_str = f"{avg_score}"
+            if avg_str in grounded_numbers:
+                predictions.append(
+                    f"Based on the average score of {avg_score}, future group performance is projected to remain stable."
+                )
+
+        if cnt > 0 and cnt_str in grounded_numbers:
+            predictions.append(
+                f"With {cnt} active records detected, subsequent evaluations will likely require comparable tracking resources."
+            )
+
+        if not predictions:
+            predictions.append(
+                f"The {category.lower()} metrics are expected to align with historical standards in the next evaluation."
+            )
+
+    # Clean and ground-check them
+    grounded_predictions = []
+    for pred in predictions:
+        san = _ground_and_sanitize(pred, aggregate_text)
+        if san:
+            grounded_predictions.append(san)
+
+    return grounded_predictions[:3]
+
+
+# =============================================================================
 # PUBLIC INTERFACE
 # =============================================================================
 
@@ -719,11 +825,10 @@ def generate_report(
                 "analysis": {
                     "summary": "No matching records found.",
                     "observations": [],
-                    "insights": []
+                    "insights": [],
+                    "predictions": [],
                 },
-                "conclusion": {
-                    "summary": "No matching records found."
-                }
+                "conclusion": {"summary": "No matching records found."},
             }
 
         # Build the aggregate-only text — this is the ONLY data the LLM sees
@@ -739,8 +844,12 @@ def generate_report(
         )
 
         fallback = get_fallback_report(combined_result, query_type, intent)
+        rule_predictions = generate_rule_based_predictions(
+            combined_result, query_type, intent, aggregate_text
+        )
 
         if not aggregate_text or len(aggregate_text.strip()) < 10:
+            fallback["analysis"]["predictions"] = rule_predictions
             return fallback
 
         prompt = (
@@ -753,13 +862,14 @@ def generate_report(
             "4. Do NOT analyze individual records, attempts, sections, subItems, marks, or grades.\n"
             "5. You must output a single JSON object with EXACTLY the following structure:\n"
             "{\n"
-            '  "introMessage": "A short 1-2 sentence description of what data was retrieved.",\n'
+            '  "introMessage": "A short description of what data was retrieved (target 30-50 words).",\n'
             '  "analysis": {\n'
             '    "summary": "A single sentence overview of the aggregate metrics.",\n'
             '    "observations": ["1-3 key data points/metrics from the aggregate data"],\n'
-            '    "insights": ["1-2 trends or insights based on the aggregate data"]\n'
-            '  },\n'
-            '  "conclusion": "A brief conclusion summarizing the analysis (1-2 sentences)."\n'
+            '    "insights": ["1-2 trends or insights based on the aggregate data"],\n'
+            '    "predictions": ["1-3 future predictions/projections based on the aggregate data"]\n'
+            "  },\n"
+            '  "conclusion": "A brief conclusion summarizing the analysis (target 20-40 words)."\n'
             "}\n\n"
             f"User Query: {user_query}\n"
             f"Query Type: {query_type}\n"
@@ -770,6 +880,7 @@ def generate_report(
         # Call Ollama exactly once
         raw_response = _call_ollama(prompt, temperature=0.2, max_tokens=350)
         if not raw_response:
+            fallback["analysis"]["predictions"] = rule_predictions
             return fallback
 
         # Parse JSON
@@ -784,18 +895,36 @@ def generate_report(
                 pass
 
         if not parsed_report or not isinstance(parsed_report, dict):
+            fallback["analysis"]["predictions"] = rule_predictions
             return fallback
 
+        # Ground and sanitize intro
         intro_message = parsed_report.get("introMessage")
-        if not intro_message or not isinstance(intro_message, str):
-            intro_message = fallback["introMessage"]
-        intro_message = _ground_and_sanitize(intro_message, aggregate_text) or fallback["introMessage"]
+        if intro_message and isinstance(intro_message, str):
+            intro_message = _ground_and_sanitize(intro_message, aggregate_text)
+
+        # Target 30-50 words, Bounds 25-60
+        if (
+            not intro_message
+            or len(intro_message.split()) < 25
+            or len(intro_message.split()) > 60
+        ):
+            key = (intent.get("category", ""), intent.get("subcategory", ""))
+            if key in _INTRO_TEMPLATES:
+                intro_message = _INTRO_TEMPLATES[key]
+            elif query_type in _QUERY_TYPE_INTROS:
+                intro_message = _QUERY_TYPE_INTROS[query_type]
+            else:
+                intro_message = fallback["introMessage"]
 
         analysis_dict = parsed_report.get("analysis") or {}
         if not isinstance(analysis_dict, dict):
             analysis_dict = {}
 
-        clean_summary = _ground_and_sanitize(analysis_dict.get("summary", ""), aggregate_text) or fallback["analysis"]["summary"]
+        clean_summary = (
+            _ground_and_sanitize(analysis_dict.get("summary", ""), aggregate_text)
+            or fallback["analysis"]["summary"]
+        )
 
         clean_obs = []
         for obs in analysis_dict.get("observations") or []:
@@ -813,21 +942,39 @@ def generate_report(
         if not clean_ins:
             clean_ins = fallback["analysis"]["insights"]
 
+        clean_preds = []
+        for prd in analysis_dict.get("predictions") or []:
+            san = _ground_and_sanitize(str(prd), aggregate_text)
+            if san:
+                clean_preds.append(san)
+        if not clean_preds:
+            clean_preds = rule_predictions
+
         grounded_analysis = {
             "summary": clean_summary,
             "observations": clean_obs,
             "insights": clean_ins,
+            "predictions": clean_preds,
         }
 
+        # Conclusion
         conclusion_val = parsed_report.get("conclusion")
+        conclusion_text = ""
         if isinstance(conclusion_val, dict):
-            conclusion_text = conclusion_val.get("summary") or fallback["conclusion"]["summary"]
+            conclusion_text = conclusion_val.get("summary") or ""
         elif isinstance(conclusion_val, str):
             conclusion_text = conclusion_val
-        else:
-            conclusion_text = fallback["conclusion"]["summary"]
 
-        conclusion_text = _ground_and_sanitize(conclusion_text, aggregate_text) or fallback["conclusion"]["summary"]
+        if conclusion_text:
+            conclusion_text = _ground_and_sanitize(conclusion_text, aggregate_text)
+
+        # Target 20-40 words, Bounds 15-50
+        if (
+            not conclusion_text
+            or len(conclusion_text.split()) < 15
+            or len(conclusion_text.split()) > 50
+        ):
+            conclusion_text = fallback["conclusion"]["summary"]
 
         return {
             "introMessage": intro_message,
