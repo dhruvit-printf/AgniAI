@@ -180,10 +180,40 @@ _QUERY_TYPE_INTROS: Dict[str, str] = {
 
 
 def _extract_records_from_combined(data: Any) -> List[Dict]:
-    """Pull the list of records out of any .NET wrapper shape."""
+    """Pull the list of records or representations of data out of any .NET wrapper shape."""
     if isinstance(data, list):
         return data
+
     if isinstance(data, dict):
+        # 1. Check for comparison sides
+        if "sides" in data and isinstance(data["sides"], list):
+            flat_recs = []
+            for side in data["sides"]:
+                if isinstance(side, dict):
+                    recs = side.get("records") or side.get("data")
+                    if isinstance(recs, list):
+                        flat_recs.extend(recs)
+                    elif isinstance(recs, dict):
+                        flat_recs.extend(_extract_records_from_combined(recs))
+            if flat_recs:
+                return flat_recs
+            return data["sides"]
+
+        # 2. Check for multi-operation sections
+        if "sections" in data and isinstance(data["sections"], list):
+            flat_recs = []
+            for sec in data["sections"]:
+                if isinstance(sec, dict):
+                    recs = sec.get("records") or sec.get("data")
+                    if isinstance(recs, list):
+                        flat_recs.extend(recs)
+                    elif isinstance(recs, dict):
+                        flat_recs.extend(_extract_records_from_combined(recs))
+            if flat_recs:
+                return flat_recs
+            return data["sections"]
+
+        # 3. Check standard record lists in dict wrapper
         for key in (
             "data",
             "Data",
@@ -198,7 +228,15 @@ def _extract_records_from_combined(data: Any) -> List[Dict]:
             if isinstance(val, list):
                 return val
             if isinstance(val, dict):
-                return _extract_records_from_combined(val)
+                sub_extracted = _extract_records_from_combined(val)
+                if sub_extracted:
+                    return sub_extracted
+
+        # 4. Check for scalar aggregates / metrics in dict
+        scalar_keys = {"count", "average", "max", "min", "score", "averagescore", "passpercentage", "failpercentage", "completionrate"}
+        if any(k.lower() in scalar_keys or k in scalar_keys for k in data.keys()):
+            return [data]
+
     return []
 
 
@@ -648,229 +686,7 @@ _ANALYSIS_RULES_COMMON = (
 )
 
 
-def _generate_simple_analysis(aggregate_text: str, user_query: str) -> Dict[str, Any]:
-    """Analysis engine for simple queries — focuses on record count and summary metrics."""
-    prompt = (
-        "You are AgniAI, an intelligent military assistant.\n"
-        "Analyze the AGGREGATE data summary below. Focus on:\n"
-        "- Record count\n"
-        "- Summary metrics (averages, totals, counts)\n"
-        "- Returned record names\n\n"
-        "Do NOT focus on any single record. Do NOT mention attempts, sections, or sub-items.\n\n"
-        + _ANALYSIS_RULES_COMMON
-        + f"\nUser Query: {user_query}\n"
-        f"Aggregate Data:\n{aggregate_text}\n\n"
-        "Generate only the raw JSON."
-    )
-    raw = _call_ollama(prompt, temperature=0.3, max_tokens=250)
-    if raw:
-        parsed = _parse_llm_analysis(raw)
-        if parsed and parsed.get("summary"):
-            return parsed
-    return {}
-
-
-def _generate_cross_filter_analysis(
-    aggregate_text: str, user_query: str
-) -> Dict[str, Any]:
-    """Analysis engine for cross-filter queries — focuses on matchCount, filterDepth, intersection."""
-    prompt = (
-        "You are AgniAI, an intelligent military assistant.\n"
-        "Analyze the cross-filter AGGREGATE data below. Focus ONLY on:\n"
-        "- matchCount (how many records matched)\n"
-        "- totalBeforeFilter (original pool size)\n"
-        "- filterDepth (number of filter criteria applied)\n"
-        "- Match percentage\n"
-        "- Intersection results\n\n"
-        "CRITICAL: Do NOT analyze attempts, sections, subItems, marks, grades, or scores.\n"
-        "Do NOT write about individual candidate performance.\n"
-        "Focus on the aggregate intersection result.\n\n"
-        + _ANALYSIS_RULES_COMMON
-        + f"\nUser Query: {user_query}\n"
-        f"Aggregate Data:\n{aggregate_text}\n\n"
-        "Generate only the raw JSON."
-    )
-    raw = _call_ollama(prompt, temperature=0.2, max_tokens=250)
-    if raw:
-        parsed = _parse_llm_analysis(raw)
-        if parsed and parsed.get("summary"):
-            return parsed
-    return {}
-
-
-def _generate_comparison_analysis(
-    aggregate_text: str, user_query: str
-) -> Dict[str, Any]:
-    """Analysis engine for comparison queries — focuses on side-by-side metrics."""
-    prompt = (
-        "You are AgniAI, an intelligent military assistant.\n"
-        "Analyze the comparison AGGREGATE data below. Focus ONLY on:\n"
-        "- Side labels and their metrics\n"
-        "- Differences between sides (record counts, averages, scores)\n"
-        "- Percentages and relative comparisons\n\n"
-        "CRITICAL: Do NOT analyze individual records, nested attempts, or sub-items.\n"
-        "Compare the aggregate metrics between sides.\n\n"
-        + _ANALYSIS_RULES_COMMON
-        + f"\nUser Query: {user_query}\n"
-        f"Aggregate Data:\n{aggregate_text}\n\n"
-        "Generate only the raw JSON."
-    )
-    raw = _call_ollama(prompt, temperature=0.3, max_tokens=250)
-    if raw:
-        parsed = _parse_llm_analysis(raw)
-        if parsed and parsed.get("summary"):
-            return parsed
-    return {}
-
-
-def _generate_multi_independent_analysis(
-    aggregate_text: str, user_query: str
-) -> Dict[str, Any]:
-    """Analysis engine for multi-independent queries — focuses on section summaries."""
-    prompt = (
-        "You are AgniAI, an intelligent military assistant.\n"
-        "Analyze the multi-section AGGREGATE data below. Focus ONLY on:\n"
-        "- Section labels\n"
-        "- Record counts per section\n"
-        "- Total sections consolidated\n\n"
-        "CRITICAL: Do NOT analyze individual records or nested data within sections.\n"
-        "Summarize the section-level data only.\n\n"
-        + _ANALYSIS_RULES_COMMON
-        + f"\nUser Query: {user_query}\n"
-        f"Aggregate Data:\n{aggregate_text}\n\n"
-        "Generate only the raw JSON."
-    )
-    raw = _call_ollama(prompt, temperature=0.3, max_tokens=250)
-    if raw:
-        parsed = _parse_llm_analysis(raw)
-        if parsed and parsed.get("summary"):
-            return parsed
-    return {}
-
-
-# =============================================================================
-# QUERY-TYPE-SPECIFIC CONCLUSION ENGINES
-# =============================================================================
-
-_CONCLUSION_RULES_COMMON = (
-    "STRICT RULES:\n"
-    "1. Base your conclusion 100% on the Analysis and Aggregate Data below.\n"
-    "2. Maximum 2-3 sentences.\n"
-    "3. NEVER introduce new facts, numbers, or details not in the Analysis or Aggregate Data.\n"
-    "4. NEVER mention attempts, sections, subItems, marks, or grades unless they appear in the Aggregate Data.\n"
-    "5. Summarize the analysis findings concisely.\n"
-)
-
-
-def _generate_conclusion(
-    aggregate_text: str,
-    analysis_data: Dict[str, Any],
-    user_query: str,
-    query_type_instruction: str,
-) -> str:
-    """Generic conclusion generator with query-type-specific instructions."""
-    analysis_summary = analysis_data.get("summary", "")
-    analysis_obs = analysis_data.get("observations", [])
-    analysis_ins = analysis_data.get("insights", [])
-
-    analysis_text_parts = []
-    if analysis_summary:
-        analysis_text_parts.append(f"Summary: {analysis_summary}")
-    if analysis_obs:
-        analysis_text_parts.append("Observations: " + "; ".join(analysis_obs))
-    if analysis_ins:
-        analysis_text_parts.append("Insights: " + "; ".join(analysis_ins))
-    analysis_text = (
-        "\n".join(analysis_text_parts)
-        if analysis_text_parts
-        else "No analysis available."
-    )
-
-    prompt = (
-        "You are AgniAI, an intelligent military assistant.\n"
-        "Generate a brief conclusion summarizing the analysis findings.\n\n"
-        + query_type_instruction
-        + "\n\n"
-        + _CONCLUSION_RULES_COMMON
-        + f"\nUser Query: {user_query}\n"
-        f"Aggregate Data:\n{aggregate_text}\n\n"
-        f"Analysis:\n{analysis_text}\n\n"
-        "Generate only the conclusion text (2-3 sentences)."
-    )
-    raw = _call_ollama(prompt, temperature=0.3, max_tokens=120)
-    if raw:
-        # Clean up common LLM prefixes
-        cleaned = re.sub(r"^(?:CONCLUSION\s*:\s*)", "", raw, flags=re.IGNORECASE)
-        cleaned = re.sub(r"[*_`#]", "", cleaned).strip()
-        cleaned = cleaned.strip('"' + "'")
-        return cleaned
-    return ""
-
-
-def _generate_simple_conclusion(
-    aggregate_text: str, analysis_data: Dict[str, Any], user_query: str
-) -> str:
-    return _generate_conclusion(
-        aggregate_text,
-        analysis_data,
-        user_query,
-        "Focus on summarizing the record count and overall dataset findings.",
-    )
-
-
-def _generate_cross_filter_conclusion(
-    aggregate_text: str, analysis_data: Dict[str, Any], user_query: str
-) -> str:
-    return _generate_conclusion(
-        aggregate_text,
-        analysis_data,
-        user_query,
-        "Focus on the cross-filter intersection result: how many matched and out of how many. "
-        "Do NOT mention individual candidate performance, attempts, or scores.",
-    )
-
-
-def _generate_comparison_conclusion(
-    aggregate_text: str, analysis_data: Dict[str, Any], user_query: str
-) -> str:
-    return _generate_conclusion(
-        aggregate_text,
-        analysis_data,
-        user_query,
-        "Focus on the comparison between sides: which side has more/fewer records, higher/lower metrics. "
-        "Do NOT mention individual records.",
-    )
-
-
-def _generate_multi_independent_conclusion(
-    aggregate_text: str, analysis_data: Dict[str, Any], user_query: str
-) -> str:
-    return _generate_conclusion(
-        aggregate_text,
-        analysis_data,
-        user_query,
-        "Focus on summarizing how many sections were consolidated and their respective record counts. "
-        "Do NOT analyze individual records within sections.",
-    )
-
-
-# =============================================================================
-# ANALYSIS / CONCLUSION DISPATCH
-# =============================================================================
-
-_ANALYSIS_ENGINES = {
-    "simple": _generate_simple_analysis,
-    "cross_filter": _generate_cross_filter_analysis,
-    "comparison": _generate_comparison_analysis,
-    "multi_independent": _generate_multi_independent_analysis,
-}
-
-_CONCLUSION_ENGINES = {
-    "simple": _generate_simple_conclusion,
-    "cross_filter": _generate_cross_filter_conclusion,
-    "comparison": _generate_comparison_conclusion,
-    "multi_independent": _generate_multi_independent_conclusion,
-}
+# Dead code eliminated during Runtime Convergence Sprint
 
 
 # =============================================================================

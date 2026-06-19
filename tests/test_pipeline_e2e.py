@@ -1,0 +1,213 @@
+"""
+tests/test_pipeline_e2e.py
+==========================
+End-to-End runtime execution tests for execute_admin_query().
+"""
+
+from __future__ import annotations
+
+import unittest
+from unittest.mock import patch, MagicMock
+
+# ── Minimal stubs for environment compatibility ────────────────────────────
+import sys
+import os
+import types
+_STUB_MODS = ["flask", "flask_cors", "flask_limiter", "flask_limiter.util", "dotenv", "requests"]
+for mod in _STUB_MODS:
+    try:
+        __import__(mod)
+    except ImportError:
+        if mod not in sys.modules:
+            stub = types.ModuleType(mod)
+            if mod == "dotenv":
+                stub.load_dotenv = lambda *a, **kw: None  # type: ignore[attr-defined]
+            sys.modules[mod] = stub
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from admin_pipeline import execute_admin_query
+
+
+class TestPipelineEndToEnd(unittest.TestCase):
+
+    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.generate_report")
+    def test_filter_query_e2e(self, mock_generate_report, mock_call_dotnet):
+        # 1. FILTER_QUERY: "Show top performers who play cricket"
+        # Only 1 .NET call is expected
+        mock_call_dotnet.return_value = (
+            [
+                {"id": 1, "fullName": "AMIT KUMAR", "agniveerNo": "A01", "sports": "Cricket", "bestTotal": 95},
+                {"id": 2, "fullName": "KAPIL DEV", "agniveerNo": "A02", "sports": "Cricket", "bestTotal": 88}
+            ],
+            None
+        )
+        mock_generate_report.return_value = {
+            "introMessage": "Report generated.",
+            "analysis": {"summary": "Summary text", "observations": ["Obs 1"], "insights": ["Insight 1"]},
+            "conclusion": {"summary": "Conclusion text"}
+        }
+
+        result = execute_admin_query("Show top performers in PPT", {})
+        
+        self.assertEqual(result["type"], "query")
+        response_payload = result["response_payload"]
+        self.assertEqual(response_payload["queryType"], "filter_query")
+        self.assertTrue(response_payload["status"])
+        
+        # Verify widgets: TABLE should be generated since name/agniveerNo exist.
+        widgets = response_payload["widgets"]
+        widget_types = [w["type"] for w in widgets]
+        self.assertIn("TABLE", widget_types)
+        
+        mock_call_dotnet.assert_called_once()
+
+    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.generate_report")
+    def test_cross_filter_query_e2e(self, mock_generate_report, mock_call_dotnet):
+        # 2. CROSS_FILTER: "Show top performer in PPT who plays cricket and is currently on leave"
+        # Expects 3 .NET calls: Performance.Top, Skills.BySport (Cricket), Leave.Current
+        # We use a side-effect mock to simulate responses for each of the 3 calls.
+        mock_call_dotnet.side_effect = [
+            # Performance.Top
+            (
+                [
+                    {"id": 1, "fullName": "AMIT KUMAR", "agniveerNo": "A01", "bestTotal": 95},
+                    {"id": 2, "fullName": "KAPIL DEV", "agniveerNo": "A02", "bestTotal": 88}
+                ],
+                None
+            ),
+            # Skills.BySport (Cricket)
+            (
+                [
+                    {"id": 1, "fullName": "AMIT KUMAR", "agniveerNo": "A01", "sport": "Cricket"},
+                    {"id": 3, "fullName": "RAM SINGH", "agniveerNo": "A03", "sport": "Cricket"}
+                ],
+                None
+            ),
+            # Leave.Current
+            (
+                [
+                    {"id": 1, "fullName": "AMIT KUMAR", "agniveerNo": "A01", "leaveType": "Current"}
+                ],
+                None
+            )
+        ]
+        
+        mock_generate_report.return_value = {
+            "introMessage": "Cross-filter report generated.",
+            "analysis": {"summary": "Intersection completed", "observations": [], "insights": []},
+            "conclusion": {"summary": "Intersection successful"}
+        }
+
+        result = execute_admin_query(
+            "Show top performer in PPT who plays cricket and is currently on leave",
+            {}
+        )
+        
+        self.assertEqual(result["type"], "query")
+        response_payload = result["response_payload"]
+        self.assertTrue(response_payload["status"])
+        self.assertEqual(response_payload["queryType"], "cross_filter")
+        
+        # Verify intersection result (only AMIT KUMAR matches all three sets)
+        records = response_payload["result"]["processedData"]["records"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["fullName"], "AMIT KUMAR")
+        self.assertEqual(records[0]["agniveerNo"], "A01")
+        
+        self.assertEqual(mock_call_dotnet.call_count, 3)
+
+    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.generate_report")
+    def test_comparison_query_e2e(self, mock_generate_report, mock_call_dotnet):
+        # 3. COMPARISON: "Compare PPT and BEPT"
+        # Expects 2 .NET calls
+        mock_call_dotnet.side_effect = [
+            ([{"id": 1, "bestTotal": 95}, {"id": 2, "bestTotal": 85}], None),  # PPT
+            ([{"id": 3, "bestTotal": 75}], None)                              # BEPT
+        ]
+        mock_generate_report.return_value = {
+            "introMessage": "Comparison report.",
+            "analysis": {"summary": "Diff summary", "observations": [], "insights": []},
+            "conclusion": {"summary": "Comparison done"}
+        }
+
+        result = execute_admin_query("Compare PPT and BEPT", {})
+        
+        self.assertEqual(result["type"], "query")
+        response_payload = result["response_payload"]
+        self.assertTrue(response_payload["status"])
+        self.assertEqual(response_payload["queryType"], "comparison")
+        
+        # Check comparison results
+        sides = response_payload["result"]["processedData"]["sides"]
+        self.assertEqual(len(sides), 2)
+        self.assertEqual(sides[0]["label"], "PPT")
+        self.assertEqual(sides[1]["label"], "BEPT")
+        
+        self.assertEqual(mock_call_dotnet.call_count, 2)
+
+    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.generate_report")
+    def test_multi_operation_query_e2e(self, mock_generate_report, mock_call_dotnet):
+        # 4. MULTI_OPERATION: "Show attendance and current leave records"
+        # Expects 2 .NET calls
+        mock_call_dotnet.side_effect = [
+            ([{"id": 1, "fullName": "AMIT KUMAR", "agniveerNo": "A01", "present": True}], None),
+            ([{"id": 2, "fullName": "KAPIL DEV", "agniveerNo": "A02", "leaveStatus": "Current"}], None)
+        ]
+        mock_generate_report.return_value = {
+            "introMessage": "Multi-op report.",
+            "analysis": {"summary": "Consolidated sections", "observations": [], "insights": []},
+            "conclusion": {"summary": "Multi-op done"}
+        }
+
+        result = execute_admin_query("Show attendance and current leave records", {})
+        
+        self.assertEqual(result["type"], "query")
+        response_payload = result["response_payload"]
+        self.assertTrue(response_payload["status"])
+        self.assertEqual(response_payload["queryType"], "multi_operation")
+        
+        # Verify sections merged
+        sections = response_payload["result"]["processedData"]["sections"]
+        self.assertEqual(len(sections), 2)
+        self.assertEqual(sections[0]["label"], "Attendance")
+        self.assertEqual(sections[1]["label"], "Leave")
+        
+        self.assertEqual(mock_call_dotnet.call_count, 2)
+
+    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.generate_report")
+    def test_analytics_query_e2e(self, mock_generate_report, mock_call_dotnet):
+        # 5. ANALYTICS: "Show grading summary"
+        # Expects 1 .NET call
+        mock_call_dotnet.return_value = (
+            [
+                {"group": "Excellent", "count": 5},
+                {"group": "Good", "count": 10}
+            ],
+            None
+        )
+        mock_generate_report.return_value = {
+            "introMessage": "Analytics report.",
+            "analysis": {"summary": "Grading summary", "observations": [], "insights": []},
+            "conclusion": {"summary": "Analytics done"}
+        }
+
+        result = execute_admin_query("Show grading summary", {})
+        
+        self.assertEqual(result["type"], "query")
+        response_payload = result["response_payload"]
+        self.assertEqual(response_payload["queryType"], "analytics")
+        self.assertTrue(response_payload["status"])
+        
+        self.assertEqual(mock_call_dotnet.call_count, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

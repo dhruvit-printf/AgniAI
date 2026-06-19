@@ -12,10 +12,10 @@ class TestQueryPlanner(unittest.TestCase):
 
     def test_cross_filter_query(self):
         plan = plan_query("Show top performer in PPT who plays cricket")
-        self.assertEqual(plan.query_type, QueryType.FILTER_QUERY)
-        self.assertEqual(len(plan.operations), 1)
+        self.assertEqual(plan.query_type, QueryType.CROSS_FILTER)
+        self.assertEqual(len(plan.operations), 2)
         self.assertEqual(plan.operations[0].intent_result["category"], "Performance")
-        self.assertEqual(plan.operations[0].intent_result["sport"], "Cricket")
+        self.assertEqual(plan.operations[1].intent_result["sport"], "Cricket")
 
     def test_comparison_query(self):
         plan = plan_query("Compare leave status and medical cases")

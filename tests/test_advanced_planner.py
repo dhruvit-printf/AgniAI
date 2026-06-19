@@ -66,24 +66,27 @@ class TestNestedCrossFilters(unittest.TestCase):
     def test_two_way_cross_filter_performance_sport(self):
         """Classic 2-way: top performer × sport — must still work."""
         plan = plan_query("Show top performer in PPT who plays cricket")
-        self.assertEqual(plan.query_type, QueryType.FILTER_QUERY)
-        self.assertEqual(len(plan.operations), 1)
+        self.assertEqual(plan.query_type, QueryType.CROSS_FILTER)
+        self.assertEqual(len(plan.operations), 2)
         self.assertEqual(plan.operations[0].intent_result["category"], "Performance")
-        self.assertEqual(plan.operations[0].intent_result["sport"], "Cricket")
+        self.assertEqual(plan.operations[1].intent_result["category"], "Skills")
+        self.assertEqual(plan.operations[1].intent_result["sport"], "Cricket")
 
     def test_three_way_cross_filter(self):
         """
         3-way: top performer in PPT × cricket × currently on leave.
-        Expects 1 operations.
+        Expects 3 operations.
         """
         plan = plan_query(
             "Show top performer in PPT who plays cricket and is currently on leave"
         )
-        self.assertEqual(plan.query_type, QueryType.FILTER_QUERY)
-        self.assertEqual(len(plan.operations), 1)
+        self.assertEqual(plan.query_type, QueryType.CROSS_FILTER)
+        self.assertEqual(len(plan.operations), 3)
         self.assertEqual(plan.operations[0].intent_result["category"], "Performance")
-        self.assertEqual(plan.operations[0].intent_result["sport"], "Cricket")
-        self.assertEqual(plan.operations[0].intent_result["leave_type"], "Current")
+        self.assertEqual(plan.operations[1].intent_result["category"], "Skills")
+        self.assertEqual(plan.operations[1].intent_result["sport"], "Cricket")
+        self.assertEqual(plan.operations[2].intent_result["category"], "Leave")
+        self.assertEqual(plan.operations[2].intent_result["leave_type"], "Current")
 
     def test_n_way_intersect_three_result_sets(self):
         """result_combiner: 3-way ID intersection."""
@@ -118,24 +121,24 @@ class TestMultiFilterCrossCategory(unittest.TestCase):
     def test_sport_cross_with_leave(self):
         """Football players currently on leave."""
         plan = plan_query("Show football players currently on leave")
-        self.assertEqual(plan.query_type, QueryType.FILTER_QUERY)
+        self.assertEqual(plan.query_type, QueryType.CROSS_FILTER)
         cats = {op.intent_result.get("category") for op in plan.operations}
         self.assertTrue(len(cats) >= 1)
 
     def test_sport_cross_with_medical(self):
         """Football players with active medical cases."""
         plan = plan_query("Show football players with active medical cases")
-        self.assertEqual(plan.query_type, QueryType.FILTER_QUERY)
+        self.assertEqual(plan.query_type, QueryType.CROSS_FILTER)
 
     def test_cricket_cross_with_leave(self):
         """Cricket players currently on leave."""
         plan = plan_query("Show cricket players currently on leave")
-        self.assertEqual(plan.query_type, QueryType.FILTER_QUERY)
+        self.assertEqual(plan.query_type, QueryType.CROSS_FILTER)
 
     def test_performer_with_medical_leave(self):
         """Top performers with medical leave."""
         plan = plan_query("Show top performers with medical leave")
-        self.assertIn(plan.query_type, (QueryType.FILTER_QUERY, QueryType.SIMPLE))
+        self.assertEqual(plan.query_type, QueryType.CROSS_FILTER)
 
 
 # =============================================================================
@@ -483,7 +486,7 @@ class TestBackwardCompatibility(unittest.TestCase):
 
     def test_existing_cross_filter_unchanged(self):
         plan = plan_query("Show top performer in PPT who plays cricket")
-        self.assertEqual(plan.query_type, QueryType.FILTER_QUERY)
+        self.assertEqual(plan.query_type, QueryType.CROSS_FILTER)
 
     def test_no_split_phrase_guard(self):
         plan = plan_query("show approved and pending leave records")

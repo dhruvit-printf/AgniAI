@@ -42,7 +42,8 @@ from dotnet_executor import _call_dotnet
 from query_planner import QueryType, plan_query
 from report_generator import generate_report
 from response_builder import build_response
-from result_combiner import combine_results
+from result_combiner import combine_results, _extract_records
+from feature_flags import get_flags
 from telemetry import (
     SPAN_BUILD_RESPONSE,
     SPAN_CALL_DOTNET,
@@ -88,9 +89,11 @@ def ensure_agniveer_no_in_data(data: Any) -> None:
 
 def map_query_type(qt: QueryType) -> str:
     """Map QueryType enum to string label for the response."""
-    if qt == QueryType.FILTER_QUERY or qt == QueryType.CROSS_FILTER or qt == QueryType.SIMPLE:
+    if qt == QueryType.FILTER_QUERY:
         return "filter_query"
-    elif qt == QueryType.MULTI_OPERATION or qt == QueryType.MULTI_INDEPENDENT:
+    elif qt == QueryType.CROSS_FILTER:
+        return "cross_filter"
+    elif qt == QueryType.MULTI_OPERATION:
         return "multi_operation"
     elif qt == QueryType.COMPARISON:
         return "comparison"
@@ -378,7 +381,7 @@ def execute_admin_query(
     combiner_duration = 0.0
     report_duration = 0.0
     total_duration = 0.0
-    qtype_str = "simple"
+    qtype_str = "filter_query"
     audit_success = True
     audit_error_type: Optional[str] = None
 
@@ -540,8 +543,7 @@ def execute_admin_query(
             operation_count: int = 1
 
             if (
-                query_plan.query_type != QueryType.SIMPLE
-                and query_plan.confidence >= 0.5
+                query_plan.query_type in (QueryType.CROSS_FILTER, QueryType.COMPARISON, QueryType.MULTI_OPERATION)
                 and len(query_plan.operations) >= 2
             ):
 
@@ -642,15 +644,23 @@ def execute_admin_query(
 
                         ensure_agniveer_no_in_data(dotnet_data)
                         raw_results.append(dotnet_data)
-                        label = op.intent_result.get("category", f"Query {i + 1}")
+                        if query_plan.query_type == QueryType.COMPARISON:
+                            label = (
+                                op.intent_result.get("section")
+                                or op.intent_result.get("sport")
+                                or op.intent_result.get("class")
+                                or op.raw_fragment.upper()
+                            )
+                        else:
+                            label = op.intent_result.get("category", f"Query {i + 1}")
                         labeled_results.append((label, dotnet_data))
 
                     primary_intent = query_plan.operations[0].intent_result
                     dotnet_duration = time.time() - dotnet_start
 
             else:
-                # SIMPLE / ANALYTICS: single .NET call
-                qtype_str = "simple"
+                # FILTER_QUERY / ANALYTICS: single .NET call
+                qtype_str = map_query_type(query_plan.query_type)
                 operation_count = 1
 
                 if (
@@ -954,6 +964,16 @@ def execute_admin_query(
         else:
             combiner_strategy = "passthrough"
 
+        # Get record count and report strategy
+        record_count = len(_extract_records(combined_result))
+        flags = get_flags()
+        if record_count == 0:
+            report_strategy = "skip_llm"
+        elif flags.ENABLE_REPORTS and flags.ENABLE_OLLAMA:
+            report_strategy = "llm"
+        else:
+            report_strategy = "fallback"
+
         # Log all 10 required audit metrics
         logger.info(
             json.dumps(
@@ -966,14 +986,18 @@ def execute_admin_query(
                         "operation": primary_intent.get("subcategory", "") or primary_intent.get("operation", ""),
                     },
                     "filters": query_plan.filters if query_plan else {},
+                    "planner_query_type": query_plan.query_type.value if query_plan else None,
                     "query_type": qtype_str,
                     "operation_count": operation_count,
                     "payload_sent": [format_admin_payload(op.intent_result) for op in query_plan.operations] if query_plan else [],
                     "combiner_strategy": combiner_strategy,
                     "visualization_decisions": [w["type"] for w in widgets],
                     "widget_count": len(widgets),
+                    "record_count": record_count,
+                    "report_strategy": report_strategy,
                     "report_duration": durations["report_duration"],
                     "dotnet_duration": durations["dotnet_duration"],
+                    "duration_ms": execution_time_ms,
                     "total_duration": durations["total_duration"],
                 }
             )

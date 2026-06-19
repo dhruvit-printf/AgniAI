@@ -19,6 +19,7 @@ from typing import Any, Dict, Optional
 from flask import Blueprint, jsonify, request
 
 from admin_pipeline import execute_admin_query
+from admin_intent import classify_admin_intent, format_admin_payload
 
 logger = logging.getLogger(__name__)
 
@@ -205,3 +206,20 @@ def admin_health():
         status_code = 503
 
     return jsonify(payload), status_code
+
+
+@admin_bp.route("/classify", methods=["POST"])
+def admin_classify():
+    """
+    Classify admin intent debug endpoint.
+    Runs the classifier without calling the .NET backend.
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    message = (body.get("message") or "").strip()
+    intent = classify_admin_intent(message)
+    dotnet_payload = format_admin_payload(intent)
+    return jsonify({
+        "success": True,
+        "intent": intent,
+        "dotnet_payload": dotnet_payload
+    }), 200

@@ -16,12 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class QueryType(Enum):
-    SIMPLE = "simple"
+    FILTER_QUERY = "filter_query"
     CROSS_FILTER = "cross_filter"
     COMPARISON = "comparison"
-    MULTI_INDEPENDENT = "multi_independent"
     ANALYTICS = "analytics"
-    FILTER_QUERY = "filter_query"
     MULTI_OPERATION = "multi_operation"
 
 
@@ -204,6 +202,7 @@ _ANALYTICS_AGGREGATE_KEYWORDS: List[str] = [
     "group by sport",
     "breakdown by section",
     "breakdown by unit",
+    "grading summary",
 ]
 
 _GROUP_BY_MAP: Dict[str, str] = {
@@ -355,11 +354,9 @@ def _detect_comparison(
 ) -> Optional[Tuple[str, str]]:
     if not any(kw in text_lower for kw in _COMPARISON_KEYWORDS):
         return None
-    sections_found = [s for s in {"bpet", "ppt", "firing", "drill"} if s in text_lower]
-    if len(sections_found) >= 2 and (
-        "Performance" in categories or len(categories) <= 1
-    ):
-        return None
+    sections_found = [s for s in {"bpet", "bpet", "ppt", "firing", "drill"} if s in text_lower]
+    if len(sections_found) >= 2:
+        return ("Performance", "Performance")
     if len(categories) >= 2:
         return (categories[0], categories[1])
     return None
@@ -660,7 +657,13 @@ def plan_query(query: str) -> QueryPlan:
     if comparison_entities is not None:
         fragments = _extract_comparison_fragments(q, categories)
         if fragments and len(fragments) >= 2:
-            ops = [_build_sub_operation(f) for f in fragments]
+            ops = []
+            for i, f in enumerate(fragments):
+                op = _build_sub_operation(f)
+                if not op.intent_result.get("category") and i < len(comparison_entities):
+                    op.intent_result["category"] = comparison_entities[i]
+                    op.dotnet_payload = format_admin_payload(op.intent_result)
+                ops.append(op)
             valid_ops = [op for op in ops if op.intent_result.get("category")]
             if len(valid_ops) >= 2:
                 combined_filters = {}
@@ -675,6 +678,27 @@ def plan_query(query: str) -> QueryPlan:
                     f"{comparison_entities[1]}",
                     filters=combined_filters,
                 )
+
+    if _has_cross_category_signal(q, categories):
+        fragments = _extract_cross_filter_fragments(q, categories)
+        if fragments and len(fragments) >= 2:
+            ops = [_build_sub_operation(f) for f in fragments]
+            valid_ops = [op for op in ops if op.intent_result.get("category")]
+            if len(valid_ops) >= 2:
+                op_categories = {op.intent_result["category"] for op in valid_ops}
+                if len(op_categories) >= 2:
+                    depth = "3-way" if len(valid_ops) >= 3 else "2-way"
+                    combined_filters = {}
+                    for op in valid_ops:
+                        combined_filters.update(_extract_filters_dict(op.intent_result))
+                    return QueryPlan(
+                        QueryType.CROSS_FILTER,
+                        valid_ops,
+                        0.85,
+                        raw_query,
+                        f"{depth} cross-filter: {', '.join(sorted(op_categories))}",
+                        filters=combined_filters,
+                    )
 
     multi_fragments = _detect_multi_independent(q, categories)
     if multi_fragments:

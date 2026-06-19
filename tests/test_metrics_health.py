@@ -60,7 +60,7 @@ class TestMetricsHealth(unittest.TestCase):
 
     def test_prometheus_metrics_format_and_export(self):
         # Trigger some metric values
-        metrics_collector.inc_requests("simple")
+        metrics_collector.inc_requests("filter_query")
         metrics_collector.inc_errors("comparison")
         metrics_collector.record_duration("pipeline_duration", 150.0)
 
@@ -73,7 +73,7 @@ class TestMetricsHealth(unittest.TestCase):
         # Verify Prometheus HELP and TYPE definitions exist
         self.assertIn("# HELP requests_total", text)
         self.assertIn("# TYPE requests_total counter", text)
-        self.assertIn('requests_total{query_type="simple"} 1', text)
+        self.assertIn('requests_total{query_type="filter_query"} 1', text)
 
         self.assertIn("# HELP errors_total", text)
         self.assertIn("# TYPE errors_total counter", text)
@@ -108,8 +108,8 @@ class TestMetricsHealth(unittest.TestCase):
         )
         self.assertEqual(result["type"], "query")
 
-        # Requests count for 'simple' should be 1 now
-        self.assertEqual(metrics_collector.requests_total.get("simple"), 1)
+        # Requests count for 'filter_query' should be 1 now
+        self.assertEqual(metrics_collector.requests_total.get("filter_query"), 1)
         self.assertGreater(metrics_collector.durations["pipeline_duration"]["count"], 0)
 
     @patch("admin_pipeline._call_dotnet")
@@ -144,7 +144,7 @@ class TestMetricsHealth(unittest.TestCase):
                     parsed = json.loads(raw_json)
                     self.assertIn("Query exceeded", parsed["message"])
                     self.assertEqual(parsed["trace_id"], "slow-trace-id")
-                    self.assertEqual(parsed["query_type"], "simple")
+                    self.assertEqual(parsed["query_type"], "filter_query")
                     self.assertIn("duration_ms", parsed)
             self.assertTrue(found_slow_log)
 
