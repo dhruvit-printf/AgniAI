@@ -30,7 +30,6 @@ import requests as _requests
 
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
-from admin_formatter import format_dotnet_response
 from admin_intent import (
     admin_normalize_query,
     classify_admin_intent,
@@ -81,7 +80,7 @@ def ensure_agniveer_no_in_data(data: Any) -> None:
                 break
         if "agniveerNo" not in data and id_val is not None:
             data["agniveerNo"] = str(id_val)
-        
+
         for v in data.values():
             if isinstance(v, (dict, list)):
                 ensure_agniveer_no_in_data(v)
@@ -873,14 +872,13 @@ def execute_admin_query(
                     ]
                     dotnet_duration = time.time() - dotnet_start
 
-        # ── Step 4: Result Combiner & Formatting ──────────────────────────────
+        # ── Step 4: Result Combiner ───────────────────────────────────────────
         with span(SPAN_COMBINE_RESULTS, trace_id=trace_id):
             combiner_start = time.time()
             _notify("combiner")
             combined_result = combine_results(
                 raw_results, labeled_results, qtype_str, primary_intent
             )
-            formatted_data = format_dotnet_response(combined_result, primary_intent)
             combiner_duration = time.time() - combiner_start
 
         # ── Step 5: Report Generator ──────────────────────────────────────────
@@ -945,7 +943,7 @@ def execute_admin_query(
                 raw_results=raw_results,
                 confidence=query_plan.confidence,
                 operation_count=operation_count,
-                formatted_data=formatted_data,
+                formatted_data="",
                 session_id=session_id,
                 durations=durations,
                 widgets=widgets,
