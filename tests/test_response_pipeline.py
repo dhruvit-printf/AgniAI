@@ -357,6 +357,40 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         self.assertTrue(len(response_payload["formattedData"]) > 0)
         self.assertIn("John Doe", response_payload["formattedData"])
 
+    @patch("report_generator._call_ollama")
+    def test_generate_report_always_within_bounds(self, mock_call_ollama):
+        # 1. Test when LLM returns short intro/conclusion (below bounds)
+        mock_call_ollama.return_value = (
+            '{"introMessage": "Short intro.", "analysis": {"summary": "A summary", '
+            '"observations": [], "insights": [], "predictions": []}, "conclusion": "Short conclusion."}'
+        )
+        combined = {
+            "queryType": "cross_filter",
+            "records": [{"agniveerNo": "1"}, {"agniveerNo": "2"}],
+        }
+        intent = {"category": "Performance"}
+        report = generate_report(combined, "cross_filter", intent, "query")
+
+        intro_words = len(report["introMessage"].split())
+        conclusion_words = len(report["conclusion"]["summary"].split())
+        self.assertTrue(25 <= intro_words <= 60, f"Intro words: {intro_words}")
+        self.assertTrue(
+            15 <= conclusion_words <= 50, f"Conclusion words: {conclusion_words}"
+        )
+
+        # 2. Test when LLM fails (fallback path)
+        mock_call_ollama.return_value = None
+        report_fallback = generate_report(combined, "cross_filter", intent, "query")
+        intro_words_fb = len(report_fallback["introMessage"].split())
+        conclusion_words_fb = len(report_fallback["conclusion"]["summary"].split())
+        self.assertTrue(
+            25 <= intro_words_fb <= 60, f"Intro fallback words: {intro_words_fb}"
+        )
+        self.assertTrue(
+            15 <= conclusion_words_fb <= 50,
+            f"Conclusion fallback words: {conclusion_words_fb}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

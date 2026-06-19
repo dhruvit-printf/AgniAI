@@ -1,6 +1,7 @@
 """
 admin_formatter.py
 ==================
+This module is a plain-text fallback renderer for accessibility/message, NOT the source of truth.
 """
 
 from __future__ import annotations
@@ -1568,6 +1569,7 @@ def format_dotnet_response(
 ) -> str:
     """
     Convert combined result + intent into clean plain-text for the frontend.
+    This function is a plain-text fallback renderer for accessibility/message, NOT the source of truth.
     No markdown symbols, no emojis, no bold/italic markers.
 
     Handles composite shapes from result_combiner:

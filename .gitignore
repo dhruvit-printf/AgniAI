@@ -16,7 +16,6 @@ env/
 ENV/
 agniai-env/
 agniai-env-broken/
-tests/
 
 # =========================
 # Build / Packaging
