@@ -31,6 +31,7 @@ from typing import Any, Dict
 from flask_socketio import SocketIO
 
 from admin_pipeline import execute_admin_query
+from response_builder import public_response_view
 from websocket_manager import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -132,7 +133,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
             return
 
         # ── Stream response sections ────────────────────────────────────────
-        response_payload = result.get("response_payload", {})
+        response_payload = public_response_view(result.get("response_payload", {}))
 
         logger.info(
             json.dumps(

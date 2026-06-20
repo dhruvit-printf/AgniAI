@@ -21,6 +21,21 @@ from normalized_models import (
     normalize_intent_confidence,
 )
 
+_PUBLIC_RESPONSE_KEYS = (
+    "status",
+    "introMessage",
+    "formattedData",
+    "analysis",
+    "prediction",
+    "conclusion",
+    "suggestedQuestions",
+    "widgets",
+    "metadata",
+    "overallConfidence",
+    "partialFailure",
+    "failedSections",
+)
+
 
 def _extract_records(data: Any) -> List[Dict]:
     """Compatibility helper for older tests and report code."""
@@ -112,6 +127,30 @@ def build_response(
         conclusion,
     )
     return payload
+
+
+def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Strip internal-only fields and reshape the public response contract.
+    """
+    public_payload: Dict[str, Any] = {}
+    for key in _PUBLIC_RESPONSE_KEYS:
+        if key in payload:
+            public_payload[key] = payload[key]
+
+    prediction = public_payload.get("prediction")
+    if isinstance(prediction, dict):
+        public_payload["prediction"] = {
+            "trend": prediction.get("trend", ""),
+            "forecast": prediction.get("projection")
+            or prediction.get("forecast")
+            or prediction.get("heuristicEstimate")
+            or "",
+        }
+    else:
+        public_payload["prediction"] = {"trend": "", "forecast": ""}
+
+    return public_payload
 
 
 def stream_response_chunks(payload: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:

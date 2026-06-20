@@ -156,17 +156,21 @@ def build_answer(query_type: str, combined_result: Any, intent: Dict[str, Any]) 
                 "label": left.get("label") or "Side 1",
                 "type": "compare",
                 "data": left.get("data") or [],
+                "dotnetPayload": left.get("data") or [],
             },
             {
                 "label": right.get("label") or "Side 2",
                 "type": "compare",
                 "data": right.get("data") or [],
+                "dotnetPayload": right.get("data") or [],
             },
         ]
         return {"sections": sections, "left": left, "right": right, "comparison": comp}
 
     if query_type == "multi_independent":
         sections = combined_result.get("sections") or []
+        for section in sections:
+            section["dotnetPayload"] = section.get("data") or []
         return {"sections": sections}
 
     if query_type == "cross_filter":
@@ -175,7 +179,14 @@ def build_answer(query_type: str, combined_result: Any, intent: Dict[str, Any]) 
             if isinstance(combined_result, dict)
             else extract_records(combined_result)
         )
-        sections = [{"label": "Common Records", "type": "cross_filter", "data": records}]
+        sections = [
+            {
+                "label": "Common Records",
+                "type": "cross_filter",
+                "data": records,
+                "dotnetPayload": records,
+            }
+        ]
         return {"sections": sections}
 
     records = extract_records(combined_result)
@@ -184,6 +195,7 @@ def build_answer(query_type: str, combined_result: Any, intent: Dict[str, Any]) 
             "label": _infer_simple_section_label(combined_result, intent),
             "type": query_type,
             "data": records,
+            "dotnetPayload": records,
         }
     ]
     answer_dict = {"sections": sections}
@@ -296,6 +308,7 @@ def assemble_admin_response(
         }
 
     normalized_prediction = normalize_prediction(prediction)
+
     metadata = assemble_response_metadata(
         confidence=confidence,
         query_type=query_type,

@@ -20,6 +20,7 @@ from flask import Blueprint, jsonify, request
 
 from admin_intent import classify_admin_intent, format_admin_payload
 from admin_pipeline import execute_admin_query
+from response_builder import public_response_view
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +120,6 @@ def admin_chat():
         return jsonify({"type": "error", "message": "Failed to process request."}), 500
 
     # ── Successful query / greeting / conversational ────────────────────────
-    combined_message = result.get("combined_message", "")
-
     logger.info(
         json.dumps(
             {
@@ -133,7 +132,7 @@ def admin_chat():
         )
     )
 
-    return _success_response(result["response_payload"], message=combined_message)
+    return jsonify(public_response_view(result["response_payload"])), 200
 
 
 # =============================================================================

@@ -17,6 +17,7 @@ from report_generator import (
 from response_builder import (
     build_combined_message,
     build_response,
+    public_response_view,
 )
 
 
@@ -166,6 +167,61 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertIn("PPT top records", resp["message"])
         self.assertIn("A (100)", resp["message"])
         self.assertIn("B (99)", resp["message"])
+
+    def test_public_response_view_matches_external_contract(self):
+        intent = {
+            "category": "Performance",
+            "subcategory": "TopPerformers",
+            "confidence": "high",
+        }
+        internal = build_response(
+            query_type="simple",
+            intro_message="Intro",
+            combined_result=[
+                {"fullName": "A", "bestTotal": 100, "sectionFilter": "PPT"}
+            ],
+            analysis={"summary": "Sum", "observations": [], "insights": []},
+            prediction={
+                "trend": "Stable",
+                "projection": "Projected stable performance.",
+                "heuristicEstimate": "Projected stable performance.",
+            },
+            conclusion={"summary": "Conc"},
+            intent=intent,
+            raw_results=[],
+            confidence=0.95,
+            operation_count=1,
+            formatted_data="",
+        )
+
+        public = public_response_view(internal)
+
+        self.assertEqual(
+            set(public.keys()),
+            {
+                "status",
+                "introMessage",
+                "formattedData",
+                "analysis",
+                "prediction",
+                "conclusion",
+                "suggestedQuestions",
+                "widgets",
+                "metadata",
+                "overallConfidence",
+                "partialFailure",
+                "failedSections",
+            },
+        )
+        self.assertNotIn("answer", public)
+        self.assertNotIn("result", public)
+        self.assertNotIn("intent", public)
+        self.assertNotIn("sessionId", public)
+        self.assertEqual(public["prediction"]["forecast"], internal["prediction"]["projection"])
+        self.assertEqual(
+            public["formattedData"]["sections"][0]["dotnetPayload"],
+            internal["formattedData"]["sections"][0]["dotnetPayload"],
+        )
 
 
 class TestBuildResponseSecurity:
