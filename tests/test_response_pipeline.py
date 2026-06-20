@@ -123,7 +123,8 @@ class TestResponseBuilder(unittest.TestCase):
 
         self.assertTrue(resp["status"])
         self.assertEqual(resp["queryType"], "simple")
-        self.assertEqual(resp["introMessage"], "Intro")
+        self.assertEqual(resp["introMessage"]["description"], "Intro")
+        self.assertEqual(resp["introMessage"]["title"], "Performance Top Performers")
         self.assertEqual(resp["result"]["processedData"], {"res": "val"})
         self.assertEqual(resp["analysis"]["summary"], "Sum")
         self.assertEqual(resp["analysis"]["observations"], ["O"])
@@ -353,9 +354,16 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
 
-        # Verify that formattedData is NOT empty
-        self.assertTrue(len(response_payload["formattedData"]) > 0)
-        self.assertIn("John Doe", response_payload["formattedData"])
+        # Verify that response_payload contains the record John Doe
+        sections = response_payload["answer"]["sections"]
+        self.assertTrue(len(sections) > 0)
+        found_john = False
+        for sec in sections:
+            for rec in sec.get("data", []):
+                if rec.get("fullName") == "John Doe":
+                    found_john = True
+                    break
+        self.assertTrue(found_john)
 
     @patch("report_generator._call_ollama")
     def test_generate_report_always_within_bounds(self, mock_call_ollama):

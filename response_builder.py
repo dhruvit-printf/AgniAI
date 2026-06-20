@@ -140,27 +140,19 @@ def build_response(
         "summary": analysis.get("summary") or "",
         "observations": list(analysis.get("observations") or []),
         "insights": list(analysis.get("insights") or [])
-    } if analysis else {
-        "summary": "",
-        "observations": [],
-        "insights": []
-    }
+    } if analysis else None
 
     # 4. Format prediction
     prediction_dict = {
         "shortTerm": prediction.get("shortTerm") or "stable",
         "futureTrends": list(prediction.get("futureTrends") or [])
-    } if prediction else {
-        "shortTerm": "stable",
-        "futureTrends": []
-    }
+    } if prediction else None
 
     # 5. Format conclusion
     conclusion_dict = {
-        "message": conclusion.get("summary") or conclusion.get("message") or ""
-    } if conclusion else {
-        "message": ""
-    }
+        "message": conclusion.get("summary") or conclusion.get("message") or "",
+        "summary": conclusion.get("summary") or conclusion.get("message") or ""
+    } if conclusion else None
 
     # Final payload structure matching targets exactly
     payload: Dict[str, Any] = {

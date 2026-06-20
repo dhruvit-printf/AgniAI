@@ -85,7 +85,8 @@ class TestArchitecturalFixes(unittest.TestCase):
             formatted_data="Formatted text",
         )
         self.assertIn("answer", resp)
-        self.assertEqual(resp["answer"], "Intro text\n\nFormatted text")
+        self.assertIsInstance(resp["answer"], dict)
+        self.assertIn("sections", resp["answer"])
 
     def test_widgets_selection_step_12(self):
         # 1. Single record -> CARD

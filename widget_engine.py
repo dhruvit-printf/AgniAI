@@ -86,6 +86,9 @@ def generate_widgets(
         key = (w["section"], w["widgetType"])
         if key not in seen:
             seen.add(key)
-            deduped.append(w)
+            w_copy = dict(w)
+            w_copy["type"] = w["widgetType"]
+            deduped.append(w_copy)
 
     return deduped
+

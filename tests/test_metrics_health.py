@@ -108,8 +108,8 @@ class TestMetricsHealth(unittest.TestCase):
         )
         self.assertEqual(result["type"], "query")
 
-        # Requests count for 'filter_query' should be 1 now
-        self.assertEqual(metrics_collector.requests_total.get("filter_query"), 1)
+        # Requests count for 'simple' should be 1 now
+        self.assertEqual(metrics_collector.requests_total.get("simple"), 1)
         self.assertGreater(metrics_collector.durations["pipeline_duration"]["count"], 0)
 
     @patch("admin_pipeline._call_dotnet")
@@ -144,7 +144,7 @@ class TestMetricsHealth(unittest.TestCase):
                     parsed = json.loads(raw_json)
                     self.assertIn("Query exceeded", parsed["message"])
                     self.assertEqual(parsed["trace_id"], "slow-trace-id")
-                    self.assertEqual(parsed["query_type"], "filter_query")
+                    self.assertEqual(parsed["query_type"], "simple")
                     self.assertIn("duration_ms", parsed)
             self.assertTrue(found_slow_log)
 

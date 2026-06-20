@@ -161,9 +161,21 @@ def generate_widgets(
                     widgets.append({"type": "CARD", "priority": 102})
                 elif sec_rec_count > 1:
                     widgets.append({"type": "TABLE", "priority": 102})
-    elif qtype == "analytics":
+    has_group_by = False
+    if query_plan is not None:
+        if hasattr(query_plan, "operations") and query_plan.operations:
+            for op in query_plan.operations:
+                if getattr(op, "group_by", None) or getattr(op, "groupBy", None):
+                    has_group_by = True
+        elif isinstance(query_plan, dict) and "operations" in query_plan:
+            for op in query_plan["operations"]:
+                if isinstance(op, dict) and (op.get("group_by") or op.get("groupBy")):
+                    has_group_by = True
+
+    if qtype == "analytics" or (qtype == "simple" and has_group_by):
         widgets.append({"type": "BAR_CHART", "priority": 105})
         widgets.append({"type": "PIE_CHART", "priority": 105})
+
     else:
         if rec_count == 1:
             widgets.append({"type": "CARD", "priority": 110})
@@ -242,5 +254,6 @@ def generate_widgets(
             seen_types.add(w_type)
             deduped_widgets.append(w)
 
-    # Return only the type field for each widget
-    return [{"type": w["type"]} for w in deduped_widgets]
+    # Return the widget fields for backward compatibility
+    return [{"type": w["type"], "widgetType": w["type"], "section": "Result"} for w in deduped_widgets]
+

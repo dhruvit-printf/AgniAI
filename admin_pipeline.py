@@ -93,17 +93,15 @@ def map_query_type(qt: QueryType) -> str:
     if qt == QueryType.CROSS_FILTER:
         return "cross_filter"
     elif qt in (QueryType.COMPARE, QueryType.COMPARISON):
-        return "comparison"
+        return "compare"
     elif qt in (QueryType.MULTI_INDEPENDENT, QueryType.MULTI_OPERATION):
-        return "multi_operation"
+        return "multi_independent"
     elif qt == QueryType.TREND:
         return "trend"
     elif qt == QueryType.DISTRIBUTION:
         return "distribution"
-    elif qt == QueryType.ANALYTICS:
-        return "analytics"
     else:
-        return "filter_query"
+        return "simple"
 
 
 def _sanitize_error(err_msg: Any) -> str:

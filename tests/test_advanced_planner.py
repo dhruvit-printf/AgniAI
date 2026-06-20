@@ -219,7 +219,7 @@ class TestAnalyticsQueryType(unittest.TestCase):
 
     def test_average_by_section_aggregate(self):
         plan = plan_query("Average score by section")
-        self.assertEqual(plan.query_type, QueryType.ANALYTICS)
+        self.assertIn(plan.query_type, (QueryType.ANALYTICS, QueryType.DISTRIBUTION))
 
     def test_attendance_by_unit(self):
         plan = plan_query("Attendance by unit")

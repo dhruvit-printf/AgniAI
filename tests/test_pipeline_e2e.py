@@ -79,7 +79,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]
-        self.assertEqual(response_payload["queryType"], "filter_query")
+        self.assertEqual(response_payload["queryType"], "simple")
         self.assertTrue(response_payload["status"])
 
         # Verify widgets: TABLE should be generated since name/agniveerNo exist.
@@ -193,7 +193,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
-        self.assertEqual(response_payload["queryType"], "comparison")
+        self.assertEqual(response_payload["queryType"], "compare")
 
         # Check comparison results
         sides = response_payload["result"]["processedData"]["sides"]
@@ -247,7 +247,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
-        self.assertEqual(response_payload["queryType"], "multi_operation")
+        self.assertEqual(response_payload["queryType"], "multi_independent")
 
         # Verify sections merged
         sections = response_payload["result"]["processedData"]["sections"]
@@ -280,7 +280,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]
-        self.assertEqual(response_payload["queryType"], "analytics")
+        self.assertEqual(response_payload["queryType"], "simple")
         self.assertTrue(response_payload["status"])
 
         self.assertEqual(mock_call_dotnet.call_count, 1)

@@ -42,7 +42,7 @@ class TestObservability(unittest.TestCase):
         assert isinstance(call_kwargs.args[0], dict)
         mock_gen_report.assert_called_with(
             combined_result={"records": []},
-            query_type="filter_query",
+            query_type="simple",
             intent=unittest.mock.ANY,
             user_query="Show attendance",
             trace_id=trace_id,
