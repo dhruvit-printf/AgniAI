@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests as _requests
 
+from dotnet_security import resolve_dotnet_verify_ssl
+
 logger = logging.getLogger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────
@@ -24,8 +26,7 @@ _DOTNET_API_KEY = os.getenv("DOTNET_API_KEY", "")
 _TIMEOUT = int(os.getenv("DOTNET_TIMEOUT", "15"))
 _CACHE_TTL_SECONDS = int(os.getenv("ENTITY_CACHE_TTL", "300"))  # 5-minute cache
 
-_skip_raw = os.getenv("DOTNET_SKIP_SSL_VERIFY", os.getenv("DOTNET_VERIFY_SSL", "0"))
-_VERIFY_SSL = _skip_raw.strip() not in {"1", "true", "True"}
+_VERIFY_SSL = resolve_dotnet_verify_ssl(logger)
 
 _session = _requests.Session()
 

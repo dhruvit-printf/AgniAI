@@ -7,19 +7,11 @@ Pure JSON structure, no string-based formatting or giant messages.
 
 from typing import Any, Dict, List, Optional
 import re
+from dotnet_adapter import extract_records as _normalize_records
 
 def _extract_records(data: Any) -> List[Dict]:
     """Pull the list of records out of any wrapper shape."""
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("data", "Data", "result", "Result", "records", "Records", "persons", "personnel"):
-            val = data.get(key)
-            if isinstance(val, list):
-                return val
-            if isinstance(val, dict):
-                return _extract_records(val)
-    return []
+    return _normalize_records(data)
 
 def _get_title(query_type: str, intent: Dict[str, Any]) -> str:
     category = intent.get("category") or "Agniveer"
@@ -227,11 +219,20 @@ def build_response(
     # 4. Format prediction
     prediction_dict = None
     if prediction:
+        projection = prediction.get("projection") or prediction.get("forecast") or (
+            prediction.get("futureTrends")[0]
+            if prediction.get("futureTrends")
+            else "Metrics are expected to align with historical standards."
+        )
+        heuristic_estimate = prediction.get("heuristicEstimate") or projection
         prediction_dict = {
             "trend": prediction.get("trend") or "Stable",
-            "forecast": prediction.get("forecast") or (prediction.get("futureTrends")[0] if prediction.get("futureTrends") else "Metrics are expected to align with historical standards."),
+            "projection": projection,
+            "heuristicEstimate": heuristic_estimate,
             "shortTerm": prediction.get("shortTerm") or (prediction.get("trend") or "Stable").lower(),
-            "futureTrends": list(prediction.get("futureTrends") or [prediction.get("forecast")])
+            "futureTrends": list(
+                prediction.get("futureTrends") or [heuristic_estimate]
+            ),
         }
 
     # 5. Format conclusion

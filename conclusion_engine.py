@@ -6,14 +6,17 @@ Generates a concise (20-40 words) conclusion summarizing the findings from JSON 
 
 import json
 import logging
-import re
 import requests
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+from grounding_utils import extract_numbers_from_text as _extract_numbers_from_text
+from grounding_utils import ground_and_sanitize as _ground_and_sanitize
 from config import DEFAULT_MODEL, OLLAMA_URL
 from feature_flags import get_flags
+from metrics import metrics_collector
+
 
 def _safe_float(value: Any) -> Optional[float]:
     if value is None:
@@ -22,22 +25,6 @@ def _safe_float(value: Any) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-def _extract_numbers_from_text(text: str) -> set:
-    return set(re.findall(r"\b\d+(?:\.\d+)?\b", text or ""))
-
-def _ground_and_sanitize(text: str, grounded_text: str) -> str:
-    if not text:
-        return ""
-    grounded_numbers = _extract_numbers_from_text(grounded_text)
-    sentences = re.split(r"(?<=[.!?])\s+", (text or "").strip())
-    kept = []
-    for sentence in sentences:
-        sentence_numbers = _extract_numbers_from_text(sentence)
-        if sentence_numbers and not sentence_numbers.issubset(grounded_numbers):
-            continue
-        kept.append(sentence)
-    return " ".join(kept).strip()
 
 def _build_conclusion_grounding_text(answer: Dict[str, Any], query_type: str) -> str:
     lines = []
@@ -111,11 +98,6 @@ def generate_conclusion(
     elif query_type == "multi_independent":
         fallback_message = f"Independent sections have been consolidated from multiple data modules. A total of {len(sections)} sections are loaded and verified in this report with no correlation performed."
 
-    # Adjust fallback word count to be exactly between 20 and 40 words
-    words = fallback_message.split()
-    if len(words) < 20:
-        fallback_message += " Additional details are saved in the system logs for administrative review."
-
     if not (flags.ENABLE_REPORTS and flags.ENABLE_OLLAMA):
         return {"message": fallback_message}
 
@@ -137,7 +119,9 @@ def generate_conclusion(
             "stream": False,
             "options": {"temperature": 0.3, "num_predict": 60, "num_ctx": 512}
         }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=(1.0, 5.0))
+        from ollama_settings import get_ollama_timeout
+
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=get_ollama_timeout())
         resp.raise_for_status()
         raw = resp.json().get("message", {}).get("content", "").strip()
 
@@ -146,5 +130,6 @@ def generate_conclusion(
             return {"message": sanitized}
     except Exception as e:
         logger.warning("Ollama call failed in conclusion engine: %s", e)
+        metrics_collector.inc_llm_failure()
 
     return {"message": fallback_message}

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
 class IntentModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     category: Optional[str] = None
     subcategory: Optional[str] = None
@@ -41,7 +41,7 @@ class IntentModel(BaseModel):
     widgetHint: Optional[str] = None
 
 class DotNetPayloadModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     category: Optional[str] = None
     operation: Optional[str] = None
@@ -72,7 +72,7 @@ class DotNetPayloadModel(BaseModel):
     analyticsHint: Optional[str] = None
 
 class DotNetResponseModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     records: Optional[List[Dict[str, Any]]] = None
     data: Optional[Any] = None
@@ -81,7 +81,7 @@ class DotNetResponseModel(BaseModel):
     raw_response: Optional[Any] = None
 
 class CombinedResponseModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     records: List[Dict[str, Any]] = []
     sides: Optional[List[Dict[str, Any]]] = None
@@ -99,40 +99,41 @@ class CombinedResponseModel(BaseModel):
     totalBeforeFilter: Optional[int] = None
 
 class AnalysisModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     observations: List[str] = []
     insights: List[str] = []
     summary: str = ""
 
 class PredictionModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     trend: str = ""
-    forecast: str = ""
+    projection: str = ""
+    heuristicEstimate: str = ""
     shortTerm: Optional[str] = None
     futureTrends: Optional[List[str]] = None
 
 class ConclusionModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     summary: str = ""
     message: Optional[str] = None
 
 class SuggestedQuestionModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     question: str
 
 class WidgetModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     section: str = ""
     widgetType: str = ""
     type: Optional[str] = None  # For backward compatibility
 
 class MetadataModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     requestId: str = ""
     traceId: str = ""
@@ -157,7 +158,7 @@ class MetadataModel(BaseModel):
     total_duration: Optional[float] = None
 
 class FinalResponseModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     status: bool
     queryType: Optional[str] = None

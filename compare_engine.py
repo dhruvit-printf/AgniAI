@@ -7,6 +7,8 @@ Compare engine for comparing N-way datasets side-by-side.
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Set
 
+from dotnet_adapter import extract_records as _normalize_records
+
 logger = logging.getLogger(__name__)
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -19,26 +21,7 @@ def _safe_float(value: Any) -> Optional[float]:
 
 def _extract_records(data: Any) -> List[Dict]:
     """Pull the list of records out of any .NET wrapper shape."""
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("data", "Data", "result", "Result", "records", "Records", "persons", "personnel"):
-            val = data.get(key)
-            if isinstance(val, list):
-                return val
-            if isinstance(val, dict):
-                return _extract_records(val)
-        # Distribution "teams" -> flatten members
-        teams = data.get("teams") or data.get("Teams")
-        if isinstance(teams, list):
-            members: List[Dict] = []
-            for team in teams:
-                team_members = team.get("members") or team.get("Members") or []
-                if isinstance(team_members, list):
-                    members.extend(team_members)
-            if members:
-                return members
-    return []
+    return _normalize_records(data)
 
 def _get_score(record: Dict) -> Optional[float]:
     score_fields = ["bestTotal", "totalMarks", "score", "Score", "omrInputTotal", "marksObtained"]
@@ -135,20 +118,11 @@ def compare_datasets(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
                 "percentage": 0.0,
             }
 
-    # Choose primary metric for flat comparison block
-    primary_metric = "averageScore" if "averageScore" in all_metric_keys else "recordCount"
-    primary_comp = comparison_metrics.get(primary_metric, {
-        "difference": 0.0,
-        "percentage": 0.0,
-        "higher": "N/A",
-        "lower": "N/A"
-    })
-
     return {
         "left": left,
         "right": right,
         "sides": sides,
         "comparedMetrics": sorted(all_metric_keys),
-        "comparison": primary_comp,
+        "comparison": comparison_metrics,
         "comparisonMetrics": comparison_metrics
     }

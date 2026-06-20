@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import requests
 
+from metrics import metrics_collector
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -27,9 +29,9 @@ DOTNET_API_BASE_URL = os.getenv(
 )
 DOTNET_EXECUTE_URL = f"{DOTNET_API_BASE_URL}/api/AiCommand/execute"
 DOTNET_API_KEY = os.getenv("DOTNET_API_KEY", "")
+from dotnet_security import resolve_dotnet_verify_ssl
 
-_skip_raw = os.getenv("DOTNET_SKIP_SSL_VERIFY", os.getenv("DOTNET_VERIFY_SSL", "0"))
-DOTNET_VERIFY_SSL = _skip_raw.strip() not in {"1", "true", "True"}
+DOTNET_VERIFY_SSL = resolve_dotnet_verify_ssl(logger)
 
 _dotnet_session = requests.Session()
 
@@ -188,6 +190,7 @@ def _call_dotnet(
     max_attempts = len(delays) + 1
     attempt = 0
     last_error = None
+    saw_timeout = False
 
     while attempt < max_attempts:
         if attempt > 0:
@@ -252,6 +255,7 @@ def _call_dotnet(
                     )
                 )
                 _cb.record_failure()
+                metrics_collector.inc_dotnet_failure()
                 return None, last_error
             else:
                 # Validation or client errors (e.g., 400, 422) do not retry and do not count as system failures
@@ -270,6 +274,8 @@ def _call_dotnet(
             last_error = (
                 f"Cannot connect to .NET backend at {DOTNET_EXECUTE_URL}. ({exc})"
             )
+            if isinstance(exc, requests.Timeout):
+                saw_timeout = True
             logger.warning(
                 json.dumps(
                     {
@@ -293,6 +299,7 @@ def _call_dotnet(
                 )
             )
             _cb.record_failure()
+            metrics_collector.inc_dotnet_failure()
             return None, last_error
         except ValueError as exc:
             # JSON decoding error
@@ -307,8 +314,13 @@ def _call_dotnet(
                 )
             )
             _cb.record_failure()
+            metrics_collector.inc_dotnet_failure()
             return None, last_error
 
     # If all retries failed due to transient/connection issues
     _cb.record_failure()
+    if saw_timeout:
+        metrics_collector.inc_timeout_failure()
+    else:
+        metrics_collector.inc_dotnet_failure()
     return None, last_error

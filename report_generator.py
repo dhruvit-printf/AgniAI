@@ -6,9 +6,10 @@ and conclusion engines, maintaining compatibility with tests and old references.
 """
 
 import logging
-import re
 from typing import Any, Dict, List, Optional
 
+from grounding_utils import extract_numbers_from_text as _extract_numbers_from_text
+from grounding_utils import ground_and_sanitize as _strip_ungrounded_numbers
 from response_builder import build_answer
 from analysis_engine import generate_analysis
 from prediction_engine import generate_predictions
@@ -19,21 +20,6 @@ logger = logging.getLogger(__name__)
 def _call_ollama(prompt: str, system_prompt: str = "", trace_id: Optional[str] = None) -> Optional[str]:
     """Placeholder to satisfy unit tests patching this function."""
     return None
-
-
-def _extract_numbers_from_text(text: str) -> set:
-    return set(re.findall(r"\b\d+(?:\.\d+)?\b", text or ""))
-
-def _strip_ungrounded_numbers(llm_text: str, grounded_text: str) -> str:
-    grounded_numbers = _extract_numbers_from_text(grounded_text)
-    sentences = re.split(r"(?<=[.!?])\s+", (llm_text or "").strip())
-    kept = []
-    for sentence in sentences:
-        sentence_numbers = _extract_numbers_from_text(sentence)
-        if sentence_numbers and not sentence_numbers.issubset(grounded_numbers):
-            continue
-        kept.append(sentence)
-    return " ".join(kept).strip()
 
 def _extract_records_from_combined(data: Any) -> List[Dict]:
     if isinstance(data, list):
@@ -121,11 +107,6 @@ def generate_report(
                 if isinstance(conclusion_val, dict):
                     conclusion_text = conclusion_val.get("summary") or conclusion_val.get("message") or ""
 
-                while len(intro.split()) < 25:
-                    intro += " This dataset provides baseline reporting and administrative details for evaluation reference."
-                while len(conclusion_text.split()) < 15:
-                    conclusion_text += " Active verification checks are completed successfully for reporting."
-
                 return {
                     "introMessage": intro,
                     "analysis": {
@@ -166,20 +147,17 @@ def generate_report(
     if analysis and analysis.get("summary"):
         intro = analysis["summary"]
 
-    # Target 30-50 words, Bounds 25-60 for intro Message in tests
+    # Keep the intro honest; if the LLM output is too short, prefer the fallback
+    # report rather than padding with boilerplate.
     if len(intro.split()) < 25 or len(intro.split()) > 60:
         fallback = get_fallback_report(combined_result, query_type, intent)
         intro = fallback["introMessage"]
-        while len(intro.split()) < 25:
-            intro = intro + " This dataset provides baseline reporting and administrative details for evaluation reference."
 
     # Parse conclusion summary text
     conclusion_text = conclusion.get("message") or ""
     if len(conclusion_text.split()) < 15 or len(conclusion_text.split()) > 50:
         fallback = get_fallback_report(combined_result, query_type, intent)
         conclusion_text = fallback["conclusion"]["summary"]
-        while len(conclusion_text.split()) < 15:
-            conclusion_text = conclusion_text + " Active verification checks are completed successfully for reporting."
 
     return {
         "introMessage": intro,
@@ -197,4 +175,3 @@ def generate_report(
             "conclusionDurationMs": conclusion_ms
         }
     }
-

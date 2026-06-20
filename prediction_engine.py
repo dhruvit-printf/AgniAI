@@ -5,10 +5,12 @@ Generates data-grounded predictions (short term and future trends).
 """
 
 import logging
-import re
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+from grounding_utils import extract_numbers_from_text as _extract_numbers_from_text
+from grounding_utils import ground_and_sanitize as _ground_and_sanitize
 
 def _safe_float(value: Any) -> Optional[float]:
     if value is None:
@@ -17,22 +19,6 @@ def _safe_float(value: Any) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-def _extract_numbers_from_text(text: str) -> set:
-    return set(re.findall(r"\b\d+(?:\.\d+)?\b", text or ""))
-
-def _ground_and_sanitize(text: str, grounded_text: str) -> str:
-    if not text:
-        return ""
-    grounded_numbers = _extract_numbers_from_text(grounded_text)
-    sentences = re.split(r"(?<=[.!?])\s+", (text or "").strip())
-    kept = []
-    for sentence in sentences:
-        sentence_numbers = _extract_numbers_from_text(sentence)
-        if sentence_numbers and not sentence_numbers.issubset(grounded_numbers):
-            continue
-        kept.append(sentence)
-    return " ".join(kept).strip()
 
 def _build_prediction_grounding_text(answer: Dict[str, Any], query_type: str) -> str:
     lines = []
@@ -181,13 +167,15 @@ def generate_predictions(
         elif "insufficient" in st_lower or "no data" in st_lower:
             trend_val = "Insufficient Data"
 
-    forecast_text = sanitized_trends[0] if sanitized_trends else "Metrics are expected to align with historical standards."
+    projection_text = sanitized_trends[0] if sanitized_trends else "Metrics are expected to align with historical standards."
+    heuristic_text = projection_text
 
     return {
         "trend": trend_val,
-        "forecast": forecast_text,
+        "projection": projection_text,
+        "heuristicEstimate": heuristic_text,
         "shortTerm": trend_val.lower() if trend_val != "Insufficient Data" else "stable",
-        "futureTrends": sanitized_trends[:3]
+        "futureTrends": sanitized_trends[:3],
     }
 
 def _extract_records_from_combined(data: Any) -> List[Dict]:
@@ -261,7 +249,7 @@ def generate_rule_based_predictions(
         cnt_str = f"{cnt}"
         category = intent.get("category") or "Agniveer"
 
-        scores = [s for s in (_get_score(r) for r in records) if s is not None] if globals().get("_get_score") else []
+        scores = []
         if not scores:
             for r in records:
                 for score_field in ("bestTotal", "totalMarks", "score", "Score", "omrInputTotal", "marksObtained"):

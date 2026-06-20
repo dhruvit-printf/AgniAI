@@ -366,8 +366,8 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         self.assertTrue(found_john)
 
     @patch("report_generator._call_ollama")
-    def test_generate_report_always_within_bounds(self, mock_call_ollama):
-        # 1. Test when LLM returns short intro/conclusion (below bounds)
+    def test_generate_report_is_honest_without_padding_filler(self, mock_call_ollama):
+        # 1. Test when LLM returns short intro/conclusion.
         mock_call_ollama.return_value = (
             '{"introMessage": "Short intro.", "analysis": {"summary": "A summary", '
             '"observations": [], "insights": [], "predictions": []}, "conclusion": "Short conclusion."}'
@@ -379,24 +379,27 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         intent = {"category": "Performance"}
         report = generate_report(combined, "cross_filter", intent, "query")
 
-        intro_words = len(report["introMessage"].split())
-        conclusion_words = len(report["conclusion"]["summary"].split())
-        self.assertTrue(25 <= intro_words <= 60, f"Intro words: {intro_words}")
-        self.assertTrue(
-            15 <= conclusion_words <= 50, f"Conclusion words: {conclusion_words}"
+        self.assertNotIn(
+            "Additional details are saved in the system logs",
+            report["introMessage"],
         )
+        self.assertNotIn(
+            "Additional details are saved in the system logs",
+            report["conclusion"]["summary"],
+        )
+        self.assertEqual(report["introMessage"], "Short intro.")
+        self.assertEqual(report["conclusion"]["summary"], "Short conclusion.")
 
         # 2. Test when LLM fails (fallback path)
         mock_call_ollama.return_value = None
         report_fallback = generate_report(combined, "cross_filter", intent, "query")
-        intro_words_fb = len(report_fallback["introMessage"].split())
-        conclusion_words_fb = len(report_fallback["conclusion"]["summary"].split())
-        self.assertTrue(
-            25 <= intro_words_fb <= 60, f"Intro fallback words: {intro_words_fb}"
+        self.assertNotIn(
+            "Additional details are saved in the system logs",
+            report_fallback["introMessage"],
         )
-        self.assertTrue(
-            15 <= conclusion_words_fb <= 50,
-            f"Conclusion fallback words: {conclusion_words_fb}",
+        self.assertNotIn(
+            "Additional details are saved in the system logs",
+            report_fallback["conclusion"]["summary"],
         )
 
 

@@ -6,14 +6,17 @@ Generates observations and insights from JSON answer data.
 
 import json
 import logging
-import re
 import requests
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+from grounding_utils import extract_numbers_from_text as _extract_numbers_from_text
+from grounding_utils import ground_and_sanitize as _ground_and_sanitize
 from config import DEFAULT_MODEL, OLLAMA_URL
 from feature_flags import get_flags
+from metrics import metrics_collector
+
 
 def _safe_float(value: Any) -> Optional[float]:
     if value is None:
@@ -22,22 +25,6 @@ def _safe_float(value: Any) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-def _extract_numbers_from_text(text: str) -> set:
-    return set(re.findall(r"\b\d+(?:\.\d+)?\b", text or ""))
-
-def _ground_and_sanitize(text: str, grounded_text: str) -> str:
-    if not text:
-        return ""
-    grounded_numbers = _extract_numbers_from_text(grounded_text)
-    sentences = re.split(r"(?<=[.!?])\s+", (text or "").strip())
-    kept = []
-    for sentence in sentences:
-        sentence_numbers = _extract_numbers_from_text(sentence)
-        if sentence_numbers and not sentence_numbers.issubset(grounded_numbers):
-            continue
-        kept.append(sentence)
-    return " ".join(kept).strip()
 
 def _build_aggregate_text(answer: Dict[str, Any], query_type: str, intent: Dict[str, Any]) -> str:
     lines = []
@@ -187,7 +174,9 @@ def generate_analysis(
             "stream": False,
             "options": {"temperature": 0.2, "num_predict": 250, "num_ctx": 1024}
         }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=(1.0, 5.0))
+        from ollama_settings import get_ollama_timeout
+
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=get_ollama_timeout())
         resp.raise_for_status()
         raw = resp.json().get("message", {}).get("content", "").strip()
 
@@ -208,5 +197,6 @@ def generate_analysis(
                 }
     except Exception as e:
         logger.warning("Ollama call failed in analysis engine: %s", e)
+        metrics_collector.inc_llm_failure()
 
     return fallback_report

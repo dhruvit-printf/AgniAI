@@ -171,6 +171,35 @@ def _get_full_name(data: Dict) -> str:
     return (data.get("fullName") or data.get("full_name") or "").strip()
 
 
+def _get_cache_scope(data: Dict) -> Dict[str, Any]:
+    """Collect the request fields that can change cached answer scope."""
+    scope = _get_id_filters(data)
+    full_name = _get_full_name(data)
+    if full_name:
+        scope["fullName"] = full_name
+    return scope
+
+
+def _validate_model_payload(model_cls, payload: Any, context: str) -> None:
+    """Validate the real payload while logging any unexpected keys."""
+    if isinstance(payload, dict):
+        unexpected = sorted(
+            key for key in payload.keys() if key not in model_cls.model_fields
+        )
+        if unexpected:
+            logger.warning(
+                json.dumps(
+                    {
+                        "message": "Unexpected fields ignored during validation",
+                        "context": context,
+                        "model": model_cls.__name__,
+                        "unexpected_fields": unexpected,
+                    }
+                )
+            )
+    model_cls.model_validate(payload)
+
+
 # =============================================================================
 # CONVERSATIONAL DETECTION
 # =============================================================================
@@ -415,7 +444,7 @@ def execute_admin_query(
 
     # ── Check Cache ──
     from cache_manager import cache_manager
-    query_hash = cache_manager.get_query_hash(user_query)
+    query_hash = cache_manager.get_query_hash(user_query, scope=_get_cache_scope(body))
     import sys
     in_testing = "pytest" in sys.modules or "unittest" in sys.modules or os.getenv("ENV") == "testing"
     bypass_cache = (
@@ -566,9 +595,11 @@ def execute_admin_query(
 
             # Validate FinalResponseModel and MetadataModel
             if "metadata" in response_payload:
-                clean_metadata = {k: v for k, v in response_payload["metadata"].items() if k in MetadataModel.model_fields}
-                MetadataModel.model_validate(clean_metadata)
-            FinalResponseModel.model_validate(response_payload)
+                _validate_model_payload(
+                    MetadataModel, response_payload["metadata"], "greeting.metadata"
+                )
+            _validate_model_payload(FinalResponseModel, response_payload, "greeting.final")
+            metrics_collector.inc_success(qtype)
 
             return {
                 "type": qtype,
@@ -644,8 +675,9 @@ def execute_admin_query(
 
                 # Validate each sub-op intent
                 for op in query_plan.operations:
-                    clean_intent = {k: v for k, v in op.intent_result.items() if k in IntentModel.model_fields}
-                    IntentModel.model_validate(clean_intent)
+                    _validate_model_payload(
+                        IntentModel, op.intent_result, "multi.intent"
+                    )
 
                 intent_duration = time.time() - intent_start
 
@@ -666,8 +698,9 @@ def execute_admin_query(
                             payload["fullName"] = full_name
 
                         # Validate DotNetPayloadModel
-                        clean_payload = {k: v for k, v in payload.items() if k in DotNetPayloadModel.model_fields}
-                        DotNetPayloadModel.model_validate(clean_payload)
+                        _validate_model_payload(
+                            DotNetPayloadModel, payload, "multi.dotnet_payload"
+                        )
 
                         logger.info(
                             json.dumps(
@@ -687,10 +720,15 @@ def execute_admin_query(
                             if not err and data is not None:
                                 # Validate DotNetResponseModel
                                 if isinstance(data, dict):
-                                    clean_data = {k: v for k, v in data.items() if k in DotNetResponseModel.model_fields}
-                                    DotNetResponseModel.model_validate(clean_data)
+                                    _validate_model_payload(
+                                        DotNetResponseModel, data, "multi.dotnet_response"
+                                    )
                                 elif isinstance(data, list):
-                                    DotNetResponseModel.model_validate({"records": data, "status": True})
+                                    _validate_model_payload(
+                                        DotNetResponseModel,
+                                        {"records": data, "status": True},
+                                        "multi.dotnet_response_list",
+                                    )
                             return idx, op, data, err
                         except Exception as exc:
                             return idx, op, None, str(exc)
@@ -826,8 +864,7 @@ def execute_admin_query(
                     primary_intent = classify_admin_intent(message)
 
                 # Validate IntentModel
-                clean_intent = {k: v for k, v in primary_intent.items() if k in IntentModel.model_fields}
-                IntentModel.model_validate(clean_intent)
+                _validate_model_payload(IntentModel, primary_intent, "single.intent")
 
                 logger.info(
                     json.dumps(
@@ -934,6 +971,7 @@ def execute_admin_query(
                     )
 
                     combined_message = response_payload.pop("message", "")
+                    metrics_collector.inc_success("unrecognised")
                     return {
                         "type": "unrecognised",
                         "response_payload": response_payload,
@@ -946,8 +984,9 @@ def execute_admin_query(
                     dotnet_payload["fullName"] = full_name
 
                 # Validate DotNetPayloadModel
-                clean_payload = {k: v for k, v in dotnet_payload.items() if k in DotNetPayloadModel.model_fields}
-                DotNetPayloadModel.model_validate(clean_payload)
+                _validate_model_payload(
+                    DotNetPayloadModel, dotnet_payload, "single.dotnet_payload"
+                )
 
                 if (
                     query_plan.query_type == QueryType.ANALYTICS
@@ -1032,10 +1071,15 @@ def execute_admin_query(
                     # Validate DotNetResponseModel
                     if dotnet_data is not None:
                         if isinstance(dotnet_data, dict):
-                            clean_data = {k: v for k, v in dotnet_data.items() if k in DotNetResponseModel.model_fields}
-                            DotNetResponseModel.model_validate(clean_data)
+                            _validate_model_payload(
+                                DotNetResponseModel, dotnet_data, "single.dotnet_response"
+                            )
                         elif isinstance(dotnet_data, list):
-                            DotNetResponseModel.model_validate({"records": dotnet_data, "status": True})
+                            _validate_model_payload(
+                                DotNetResponseModel,
+                                {"records": dotnet_data, "status": True},
+                                "single.dotnet_response_list",
+                            )
 
                     raw_results = [dotnet_data]
                     labeled_results = [
@@ -1053,8 +1097,9 @@ def execute_admin_query(
 
             # Validate CombinedResponseModel
             if isinstance(combined_result, dict):
-                clean_combined = {k: v for k, v in combined_result.items() if k in CombinedResponseModel.model_fields}
-                CombinedResponseModel.model_validate(clean_combined)
+                _validate_model_payload(
+                    CombinedResponseModel, combined_result, "combined.result"
+                )
             if (
                 qtype_str == "cross_filter"
                 and isinstance(combined_result, dict)
@@ -1117,14 +1162,17 @@ def execute_admin_query(
 
             # Validate report models
             if report.get("analysis"):
-                clean_analysis = {k: v for k, v in report.get("analysis").items() if k in AnalysisModel.model_fields}
-                AnalysisModel.model_validate(clean_analysis)
+                _validate_model_payload(
+                    AnalysisModel, report.get("analysis"), "report.analysis"
+                )
             if report.get("prediction"):
-                clean_prediction = {k: v for k, v in report.get("prediction").items() if k in PredictionModel.model_fields}
-                PredictionModel.model_validate(clean_prediction)
+                _validate_model_payload(
+                    PredictionModel, report.get("prediction"), "report.prediction"
+                )
             if report.get("conclusion"):
-                clean_conclusion = {k: v for k, v in report.get("conclusion").items() if k in ConclusionModel.model_fields}
-                ConclusionModel.model_validate(clean_conclusion)
+                _validate_model_payload(
+                    ConclusionModel, report.get("conclusion"), "report.conclusion"
+                )
 
         # ── Update session context ────────────────────────────────────────────
         _session_context.update(session_id, message, primary_intent, combined_result)
@@ -1182,13 +1230,14 @@ def execute_admin_query(
         # Validate WidgetModel
         if widgets:
             for w in widgets:
-                clean_w = {k: v for k, v in w.items() if k in WidgetModel.model_fields}
-                WidgetModel.model_validate(clean_w)
+                _validate_model_payload(WidgetModel, w, "widgets")
 
         # Validate SuggestedQuestionModel
         if suggested:
             for q in suggested:
-                SuggestedQuestionModel.model_validate({"question": q})
+                _validate_model_payload(
+                    SuggestedQuestionModel, {"question": q}, "suggested_questions"
+                )
 
         with span(SPAN_BUILD_RESPONSE, trace_id=trace_id):
             response_payload = build_response(
@@ -1315,9 +1364,11 @@ def execute_admin_query(
 
         # Validate FinalResponseModel and MetadataModel
         if "metadata" in response_payload:
-            clean_metadata = {k: v for k, v in response_payload["metadata"].items() if k in MetadataModel.model_fields}
-            MetadataModel.model_validate(clean_metadata)
-        FinalResponseModel.model_validate(response_payload)
+            _validate_model_payload(
+                MetadataModel, response_payload["metadata"], "final.metadata"
+            )
+        _validate_model_payload(FinalResponseModel, response_payload, "final.response")
+        metrics_collector.inc_success(qtype_str)
 
         # Cache successful query response
         is_cacheable = cache_manager.is_cacheable_category(primary_intent.get("category"))

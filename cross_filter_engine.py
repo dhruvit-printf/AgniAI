@@ -7,30 +7,13 @@ Cross-filter engine for performing N-way intersections of datasets.
 import logging
 from typing import Any, Dict, List, Set, Optional
 
+from dotnet_adapter import extract_records as _normalize_records
+
 logger = logging.getLogger(__name__)
 
 def _extract_records(data: Any) -> List[Dict]:
     """Pull the list of records out of any .NET wrapper shape."""
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("data", "Data", "result", "Result", "records", "Records", "persons", "personnel"):
-            val = data.get(key)
-            if isinstance(val, list):
-                return val
-            if isinstance(val, dict):
-                return _extract_records(val)
-        # Distribution "teams" -> flatten members
-        teams = data.get("teams") or data.get("Teams")
-        if isinstance(teams, list):
-            members: List[Dict] = []
-            for team in teams:
-                team_members = team.get("members") or team.get("Members") or []
-                if isinstance(team_members, list):
-                    members.extend(team_members)
-            if members:
-                return members
-    return []
+    return _normalize_records(data)
 
 def _extract_agniveer_ids(records: List[Dict]) -> Set[str]:
     ids: Set[str] = set()
@@ -79,6 +62,21 @@ def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dic
     primary_index = min(primary_index, len(all_record_sets) - 1)
     primary_records = all_record_sets[primary_index]
 
+    records_by_id = []
+    for recs in all_record_sets:
+        lookup = {}
+        for record in recs:
+            record_id = record.get("agniveerNo")
+            if record_id is None:
+                for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+                    val = record.get(key)
+                    if val is not None:
+                        record_id = str(val).strip()
+                        break
+            if record_id is not None:
+                lookup[str(record_id).strip()] = record
+        records_by_id.append(lookup)
+
     filtered: List[Dict] = []
     for record in primary_records:
         record_id = record.get("agniveerNo")
@@ -88,8 +86,19 @@ def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dic
                 if val is not None:
                     record_id = str(val).strip()
                     break
-        if record_id is not None and str(record_id).strip() in common_ids:
-            filtered.append(record)
+        if record_id is None or str(record_id).strip() not in common_ids:
+            continue
+
+        merged = dict(record)
+        normalized_id = str(record_id).strip()
+        for lookup in records_by_id:
+            match = lookup.get(normalized_id)
+            if not match:
+                continue
+            for key, value in match.items():
+                if key not in merged or merged.get(key) in (None, ""):
+                    merged[key] = value
+        filtered.append(merged)
 
     if not filtered:
         return {

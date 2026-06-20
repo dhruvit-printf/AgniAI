@@ -3,7 +3,7 @@ import unittest
 from query_planner import QueryType, plan_query
 from response_builder import build_response
 from result_combiner import compare_results, process_distribution, process_trend
-from visualization_engine import generate_widgets
+from widget_engine import generate_widgets
 
 
 class TestArchitecturalFixes(unittest.TestCase):
@@ -90,29 +90,51 @@ class TestArchitecturalFixes(unittest.TestCase):
 
     def test_widgets_selection_step_12(self):
         # 1. Single record -> CARD
-        widgets_single = generate_widgets({"records": [{"id": 1}]}, query_plan="simple")
+        widgets_single = generate_widgets(
+            {"sections": [{"label": "Result", "data": [{"id": 1}]}]},
+            query_type="simple",
+            intent={},
+        )
         self.assertEqual(widgets_single[0]["type"], "CARD")
 
         # 2. Multiple records -> TABLE
         widgets_multi = generate_widgets(
-            {"records": [{"id": 1}, {"id": 2}]}, query_plan="simple"
+            {"sections": [{"label": "Result", "data": [{"id": 1}, {"id": 2}]}]},
+            query_type="simple",
+            intent={},
         )
         self.assertEqual(widgets_multi[0]["type"], "TABLE")
 
         # 3. Comparison -> TABLE and BAR_CHART
-        widgets_compare = generate_widgets({}, query_plan="compare")
+        widgets_compare = generate_widgets(
+            {
+                "left": {"label": "Left", "data": [{"id": 1}]},
+                "right": {"label": "Right", "data": [{"id": 2}]},
+                "comparison": {"averageScore": {"higher": "Left", "lower": "Right"}},
+            },
+            query_type="compare",
+            intent={},
+        )
         types_compare = [w["type"] for w in widgets_compare]
         self.assertIn("TABLE", types_compare)
         self.assertIn("BAR_CHART", types_compare)
 
         # 4. Trend -> LINE_CHART and AREA_CHART
-        widgets_trend = generate_widgets({}, query_plan="trend")
+        widgets_trend = generate_widgets(
+            {"sections": [{"label": "Result", "data": [{"date": "2026-06-20"}]}]},
+            query_type="trend",
+            intent={},
+        )
         types_trend = [w["type"] for w in widgets_trend]
         self.assertIn("LINE_CHART", types_trend)
         self.assertIn("AREA_CHART", types_trend)
 
         # 5. Distribution -> PIE_CHART and BAR_CHART
-        widgets_dist = generate_widgets({}, query_plan="distribution")
+        widgets_dist = generate_widgets(
+            {"sections": [{"label": "Result", "data": [{"sport": "Cricket"}]}]},
+            query_type="distribution",
+            intent={},
+        )
         types_dist = [w["type"] for w in widgets_dist]
         self.assertIn("PIE_CHART", types_dist)
         self.assertIn("BAR_CHART", types_dist)

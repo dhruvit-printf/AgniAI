@@ -52,12 +52,16 @@ class CacheManager:
         else:
             logger.info("redis package not installed, memory cache only enabled.")
 
-    def get_query_hash(self, query: str) -> str:
-        """Compute MD5 hash of normalized query."""
+    def get_query_hash(self, query: str, scope: Optional[dict[str, Any]] = None) -> str:
+        """Compute MD5 hash of normalized query and any scope-affecting filters."""
         normalized = query.lower().strip().rstrip("!?.,;")
         # Normalize whitespace
         normalized = " ".join(normalized.split())
-        return hashlib.md5(normalized.encode("utf-8")).hexdigest()
+        scope_blob = ""
+        if scope:
+            scope_blob = json.dumps(scope, sort_keys=True, separators=(",", ":"), default=str)
+        cache_key = f"{normalized}|{scope_blob}" if scope_blob else normalized
+        return hashlib.md5(cache_key.encode("utf-8")).hexdigest()
 
     def get(self, query_hash: str) -> Optional[Any]:
         """Retrieve cached value. Returns None if not found or expired."""
