@@ -168,18 +168,25 @@ def generate_predictions(
             # fallback that doesn't contain ungrounded numbers
             sanitized_trends.append(f"Metrics for {category.lower()} are expected to align with historical baseline.")
 
-    # Strict enum check for short_term (examples: stable, increasing, decreasing)
-    if short_term not in ("stable", "increasing", "decreasing", "increase", "decrease"):
-        short_term = "stable"
-    
-    # Normalize to exact lowercase enums
-    if short_term == "increase":
-        short_term = "increasing"
-    elif short_term == "decrease":
-        short_term = "decreasing"
+    # Strict enum check for short_term (examples: Stable, Increasing, Decreasing, Insufficient Data)
+    trend_val = "Stable"
+    if is_empty:
+        trend_val = "Insufficient Data"
+    else:
+        st_lower = str(short_term).lower()
+        if "increase" in st_lower or "up" in st_lower:
+            trend_val = "Increasing"
+        elif "decrease" in st_lower or "down" in st_lower:
+            trend_val = "Decreasing"
+        elif "insufficient" in st_lower or "no data" in st_lower:
+            trend_val = "Insufficient Data"
+
+    forecast_text = sanitized_trends[0] if sanitized_trends else "Metrics are expected to align with historical standards."
 
     return {
-        "shortTerm": short_term,
+        "trend": trend_val,
+        "forecast": forecast_text,
+        "shortTerm": trend_val.lower() if trend_val != "Insufficient Data" else "stable",
         "futureTrends": sanitized_trends[:3]
     }
 

@@ -103,6 +103,64 @@ def build_answer(query_type: str, combined_result: Any, intent: Dict[str, Any]) 
                     answer_dict[k] = combined_result[k]
         return answer_dict
 
+from typing import Any, Dict, List, Optional, Generator
+
+def calculate_section_confidence(section: Dict[str, Any], intent: Dict[str, Any], api_success: bool = True) -> float:
+    if not api_success:
+        return 0.0
+    
+    # Base confidence from intent or default
+    conf_val = intent.get("confidence", 0.95)
+    if isinstance(conf_val, str):
+        conf_lower = conf_val.lower()
+        if "high" in conf_lower:
+            base_conf = 0.95
+        elif "medium" in conf_lower:
+            base_conf = 0.70
+        elif "low" in conf_lower:
+            base_conf = 0.30
+        else:
+            try:
+                base_conf = float(conf_val)
+            except ValueError:
+                base_conf = 0.85
+    elif isinstance(conf_val, (int, float)):
+        base_conf = float(conf_val)
+    else:
+        base_conf = 0.85
+
+    # Record count effect
+    records = section.get("data") or []
+    rec_count = len(records)
+    
+    # Adjust based on record count and completeness
+    record_factor = 0.0
+    if rec_count == 0:
+        record_factor = -0.05
+    elif rec_count > 0:
+        # Check completeness of first few records
+        missing_fields = 0
+        total_fields = 0
+        for r in records[:5]:
+            if isinstance(r, dict):
+                for k, v in r.items():
+                    total_fields += 1
+                    if v is None or v == "":
+                        missing_fields += 1
+        if total_fields > 0:
+            completeness = (total_fields - missing_fields) / total_fields
+            record_factor = 0.05 * completeness
+        else:
+            record_factor = 0.05
+
+    final_conf = base_conf + record_factor
+    
+    # Filter matching adjustment
+    if section.get("failedFilters") or section.get("degraded"):
+        final_conf -= 0.15
+
+    return round(max(0.0, min(1.0, final_conf)), 2)
+
 def build_response(
     query_type: str,
     intro_message: str,
@@ -119,10 +177,13 @@ def build_response(
     widgets: Optional[List[Dict[str, str]]] = None,
     suggested_questions: Optional[List[str]] = None,
     prediction: Optional[Dict[str, Any]] = None,
+    partial_failure: bool = False,
+    failed_sections: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Assembles the JSON response structure for the frontend.
     """
+    failed_sections_list = failed_sections or []
     category = intent.get("category") or "Agniveer"
     title = _get_title(query_type, intent)
 
@@ -135,6 +196,27 @@ def build_response(
     # 2. Build answer object (single source of truth)
     answer_dict = build_answer(query_type, combined_result, intent)
 
+    # Calculate section-level confidence and recordCount
+    sections = answer_dict.get("sections") or []
+    section_confidences = []
+    for sec in sections:
+        label = sec.get("label") or ""
+        sec_failed = label in failed_sections_list
+        sec_data = sec.get("data") or []
+        if isinstance(sec_data, list) and len(sec_data) == 1:
+            if isinstance(sec_data[0], dict) and sec_data[0].get("unavailable"):
+                sec_failed = True
+
+        sec_conf = calculate_section_confidence(sec, intent, api_success=not sec_failed)
+        sec["confidence"] = sec_conf
+        sec["recordCount"] = len(sec_data) if not sec_failed else 0
+        section_confidences.append(sec_conf)
+
+    if section_confidences:
+        overall_conf = round(sum(section_confidences) / len(section_confidences), 2)
+    else:
+        overall_conf = round(float(confidence), 2)
+
     # 3. Format analysis
     analysis_dict = {
         "summary": analysis.get("summary") or "",
@@ -143,22 +225,32 @@ def build_response(
     } if analysis else None
 
     # 4. Format prediction
-    prediction_dict = {
-        "shortTerm": prediction.get("shortTerm") or "stable",
-        "futureTrends": list(prediction.get("futureTrends") or [])
-    } if prediction else None
+    prediction_dict = None
+    if prediction:
+        prediction_dict = {
+            "trend": prediction.get("trend") or "Stable",
+            "forecast": prediction.get("forecast") or (prediction.get("futureTrends")[0] if prediction.get("futureTrends") else "Metrics are expected to align with historical standards."),
+            "shortTerm": prediction.get("shortTerm") or (prediction.get("trend") or "Stable").lower(),
+            "futureTrends": list(prediction.get("futureTrends") or [prediction.get("forecast")])
+        }
 
     # 5. Format conclusion
     conclusion_dict = {
-        "message": conclusion.get("summary") or conclusion.get("message") or "",
-        "summary": conclusion.get("summary") or conclusion.get("message") or ""
+        "summary": conclusion.get("summary") or conclusion.get("message") or "",
+        "message": conclusion.get("message") or conclusion.get("summary") or ""
     } if conclusion else None
 
     # Final payload structure matching targets exactly
+    from telemetry import request_id_var, trace_id_var, session_id_var
+    req_id = request_id_var.get("N/A")
+    tr_id = trace_id_var.get("N/A")
+    sess_id = session_id_var.get("N/A")
+
     payload: Dict[str, Any] = {
         "status": True,
         "queryType": query_type,
         "introMessage": intro_message_dict,
+        "formattedData": {},
         "answer": answer_dict,
         "analysis": analysis_dict,
         "prediction": prediction_dict,
@@ -166,8 +258,24 @@ def build_response(
         "suggestedQuestions": suggested_questions or [],
         "widgets": widgets or [],
         "metadata": {
-            "executionTimeMs": 0
-        }
+            "requestId": req_id,
+            "traceId": tr_id,
+            "sessionId": sess_id,
+            "executionTimeMs": 0,
+            "intentDurationMs": 0,
+            "dotnetDurationMs": 0,
+            "combineDurationMs": 0,
+            "analysisDurationMs": 0,
+            "predictionDurationMs": 0,
+            "conclusionDurationMs": 0,
+            "totalDurationMs": 0,
+            "confidence": round(float(confidence), 2),
+            "queryType": query_type,
+            "operationCount": int(operation_count),
+        },
+        "overallConfidence": overall_conf,
+        "partialFailure": partial_failure,
+        "failedSections": failed_sections_list
     }
 
     # Support compatibility properties
@@ -199,12 +307,7 @@ def build_response(
     
     payload["intent"] = intent_dict
 
-    
-    # Extra metadata values
-    payload["metadata"]["confidence"] = round(float(confidence), 2)
-    payload["metadata"]["queryType"] = query_type
-    payload["metadata"]["operationCount"] = int(operation_count)
-
+    # Add durations to metadata
     if durations:
         payload["metadata"].update(durations)
 
@@ -212,6 +315,29 @@ def build_response(
         payload["sessionId"] = session_id
 
     return payload
+
+def stream_response_chunks(payload: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
+    """
+    Prepare response builder for future websocket streaming.
+    Yields each major section of the response independently.
+    """
+    keys = (
+        "introMessage",
+        "formattedData",
+        "answer",
+        "analysis",
+        "prediction",
+        "conclusion",
+        "suggestedQuestions",
+        "widgets",
+        "metadata",
+        "overallConfidence",
+        "partialFailure",
+        "failedSections",
+    )
+    for key in keys:
+        if key in payload:
+            yield {key: payload[key]}
 
 def build_combined_message(
     intro_message: str,

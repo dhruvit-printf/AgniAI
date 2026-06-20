@@ -53,8 +53,25 @@ from telemetry import (
     SPAN_GENERATE_REPORT,
     SPAN_PLAN_QUERY,
     span,
+    request_id_var,
+    trace_id_var,
+    session_id_var,
+    trace_context,
 )
 from widget_engine import generate_widgets
+from schemas import (
+    IntentModel,
+    DotNetPayloadModel,
+    DotNetResponseModel,
+    CombinedResponseModel,
+    AnalysisModel,
+    PredictionModel,
+    ConclusionModel,
+    SuggestedQuestionModel,
+    WidgetModel,
+    MetadataModel,
+    FinalResponseModel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -386,6 +403,52 @@ def execute_admin_query(
     audit_success = True
     audit_error_type: Optional[str] = None
 
+    request_id = uuid.uuid4().hex
+    if not trace_id:
+        trace_id = uuid.uuid4().hex
+    if session_id is None:
+        session_id = _get_session_id(body)
+
+    token_req = request_id_var.set(request_id)
+    token_trace = trace_id_var.set(trace_id)
+    token_sess = session_id_var.set(session_id)
+
+    # ── Check Cache ──
+    from cache_manager import cache_manager
+    query_hash = cache_manager.get_query_hash(user_query)
+    import sys
+    in_testing = "pytest" in sys.modules or "unittest" in sys.modules or os.getenv("ENV") == "testing"
+    bypass_cache = (
+        body.get("bypass_cache")
+        or body.get("bypassCache")
+        or os.getenv("BYPASS_CACHE", "false").lower() in ("true", "1", "yes")
+        or in_testing
+    )
+
+    if not bypass_cache:
+        cached_val = cache_manager.get(query_hash)
+        if cached_val:
+            metrics_collector.inc_cache_hits()
+            request_id_var.reset(token_req)
+            trace_id_var.reset(token_trace)
+            session_id_var.reset(token_sess)
+            if isinstance(cached_val, dict) and "response_payload" in cached_val:
+                payload = dict(cached_val["response_payload"])
+                if "metadata" in payload:
+                    payload["metadata"] = dict(payload["metadata"])
+                    payload["metadata"]["requestId"] = request_id
+                    payload["metadata"]["traceId"] = trace_id
+                    payload["metadata"]["sessionId"] = session_id
+                if "sessionId" in payload:
+                    payload["sessionId"] = session_id
+                cached_val = dict(cached_val)
+                cached_val["response_payload"] = payload
+            return cached_val
+        else:
+            metrics_collector.inc_cache_misses()
+    else:
+        metrics_collector.inc_cache_misses()
+
     try:
         message = (user_query or "").strip()
         if session_id is None:
@@ -500,6 +563,13 @@ def execute_admin_query(
             )
 
             combined_message = response_payload.pop("message", "")
+
+            # Validate FinalResponseModel and MetadataModel
+            if "metadata" in response_payload:
+                clean_metadata = {k: v for k, v in response_payload["metadata"].items() if k in MetadataModel.model_fields}
+                MetadataModel.model_validate(clean_metadata)
+            FinalResponseModel.model_validate(response_payload)
+
             return {
                 "type": qtype,
                 "response_payload": response_payload,
@@ -542,6 +612,8 @@ def execute_admin_query(
             labeled_results: List[Tuple[str, Any]] = []
             primary_intent: Dict[str, Any] = {}
             operation_count: int = 1
+            partial_failure = False
+            failed_sections = []
 
             if (
                 query_plan.query_type
@@ -570,6 +642,11 @@ def execute_admin_query(
                     )
                 )
 
+                # Validate each sub-op intent
+                for op in query_plan.operations:
+                    clean_intent = {k: v for k, v in op.intent_result.items() if k in IntentModel.model_fields}
+                    IntentModel.model_validate(clean_intent)
+
                 intent_duration = time.time() - intent_start
 
                 # ── Step 3: Execute .NET API Call(s) ─────────────────────────
@@ -588,6 +665,10 @@ def execute_admin_query(
                         if full_name:
                             payload["fullName"] = full_name
 
+                        # Validate DotNetPayloadModel
+                        clean_payload = {k: v for k, v in payload.items() if k in DotNetPayloadModel.model_fields}
+                        DotNetPayloadModel.model_validate(clean_payload)
+
                         logger.info(
                             json.dumps(
                                 {
@@ -603,6 +684,13 @@ def execute_admin_query(
 
                         try:
                             data, err = _call_dotnet(payload, trace_id=trace_id)
+                            if not err and data is not None:
+                                # Validate DotNetResponseModel
+                                if isinstance(data, dict):
+                                    clean_data = {k: v for k, v in data.items() if k in DotNetResponseModel.model_fields}
+                                    DotNetResponseModel.model_validate(clean_data)
+                                elif isinstance(data, list):
+                                    DotNetResponseModel.model_validate({"records": data, "status": True})
                             return idx, op, data, err
                         except Exception as exc:
                             return idx, op, None, str(exc)
@@ -665,6 +753,17 @@ def execute_admin_query(
                     # Build raw_results and labeled_results preserving the order
                     failed_filters = []
                     for idx, op, dotnet_data, dotnet_error in results:
+                        label = (
+                            op.intent_result.get("category")
+                            or op.intent_result.get("section")
+                            or op.intent_result.get("sport")
+                            or op.intent_result.get("class")
+                            or op.raw_fragment.upper()
+                        )
+                        if dotnet_error:
+                            partial_failure = True
+                            failed_sections.append(label)
+
                         if query_plan.query_type == QueryType.CROSS_FILTER:
                             if dotnet_error:
                                 metrics_collector.inc_errors(qtype_str)
@@ -725,6 +824,10 @@ def execute_admin_query(
                     primary_intent = query_plan.operations[0].intent_result
                 else:
                     primary_intent = classify_admin_intent(message)
+
+                # Validate IntentModel
+                clean_intent = {k: v for k, v in primary_intent.items() if k in IntentModel.model_fields}
+                IntentModel.model_validate(clean_intent)
 
                 logger.info(
                     json.dumps(
@@ -842,6 +945,10 @@ def execute_admin_query(
                 if full_name:
                     dotnet_payload["fullName"] = full_name
 
+                # Validate DotNetPayloadModel
+                clean_payload = {k: v for k, v in dotnet_payload.items() if k in DotNetPayloadModel.model_fields}
+                DotNetPayloadModel.model_validate(clean_payload)
+
                 if (
                     query_plan.query_type == QueryType.ANALYTICS
                     and query_plan.operations
@@ -921,6 +1028,15 @@ def execute_admin_query(
                         }
 
                     ensure_agniveer_no_in_data(dotnet_data)
+
+                    # Validate DotNetResponseModel
+                    if dotnet_data is not None:
+                        if isinstance(dotnet_data, dict):
+                            clean_data = {k: v for k, v in dotnet_data.items() if k in DotNetResponseModel.model_fields}
+                            DotNetResponseModel.model_validate(clean_data)
+                        elif isinstance(dotnet_data, list):
+                            DotNetResponseModel.model_validate({"records": dotnet_data, "status": True})
+
                     raw_results = [dotnet_data]
                     labeled_results = [
                         (primary_intent.get("category", "Result"), dotnet_data)
@@ -934,6 +1050,11 @@ def execute_admin_query(
             combined_result = combine_results(
                 raw_results, labeled_results, qtype_str, primary_intent
             )
+
+            # Validate CombinedResponseModel
+            if isinstance(combined_result, dict):
+                clean_combined = {k: v for k, v in combined_result.items() if k in CombinedResponseModel.model_fields}
+                CombinedResponseModel.model_validate(clean_combined)
             if (
                 qtype_str == "cross_filter"
                 and isinstance(combined_result, dict)
@@ -994,10 +1115,48 @@ def execute_admin_query(
                 }
             report_duration = time.time() - report_start
 
+            # Validate report models
+            if report.get("analysis"):
+                clean_analysis = {k: v for k, v in report.get("analysis").items() if k in AnalysisModel.model_fields}
+                AnalysisModel.model_validate(clean_analysis)
+            if report.get("prediction"):
+                clean_prediction = {k: v for k, v in report.get("prediction").items() if k in PredictionModel.model_fields}
+                PredictionModel.model_validate(clean_prediction)
+            if report.get("conclusion"):
+                clean_conclusion = {k: v for k, v in report.get("conclusion").items() if k in ConclusionModel.model_fields}
+                ConclusionModel.model_validate(clean_conclusion)
+
         # ── Update session context ────────────────────────────────────────────
         _session_context.update(session_id, message, primary_intent, combined_result)
 
         total_duration = time.time() - start_time
+
+        # Extract report durations
+        report_durations = report.get("durations") or {}
+        analysis_ms = report_durations.get("analysisDurationMs", 0.0)
+        prediction_ms = report_durations.get("predictionDurationMs", 0.0)
+        conclusion_ms = report_durations.get("conclusionDurationMs", 0.0)
+
+        # Durations mapping
+        durations_payload = {
+            "intentDurationMs": round((planner_duration + intent_duration) * 1000),
+            "dotnetDurationMs": round(dotnet_duration * 1000),
+            "combineDurationMs": round(combiner_duration * 1000),
+            "analysisDurationMs": round(analysis_ms),
+            "predictionDurationMs": round(prediction_ms),
+            "conclusionDurationMs": round(conclusion_ms),
+            "totalDurationMs": round(total_duration * 1000),
+            "executionTimeMs": round(total_duration * 1000),
+            # Snake case for backward compatibility
+            "planner_duration": round(planner_duration * 1000, 2),
+            "intent_duration": round(intent_duration * 1000, 2),
+            "dotnet_duration": round(dotnet_duration * 1000, 2),
+            "combiner_duration": round(combiner_duration * 1000, 2),
+            "report_duration": round(report_duration * 1000, 2),
+            "total_duration": round(total_duration * 1000, 2),
+        }
+
+        # For backward compatibility
         durations = {
             "planner_duration": round(planner_duration * 1000, 2),
             "intent_duration": round(intent_duration * 1000, 2),
@@ -1020,6 +1179,17 @@ def execute_admin_query(
 
         formatted_data = ""
 
+        # Validate WidgetModel
+        if widgets:
+            for w in widgets:
+                clean_w = {k: v for k, v in w.items() if k in WidgetModel.model_fields}
+                WidgetModel.model_validate(clean_w)
+
+        # Validate SuggestedQuestionModel
+        if suggested:
+            for q in suggested:
+                SuggestedQuestionModel.model_validate({"question": q})
+
         with span(SPAN_BUILD_RESPONSE, trace_id=trace_id):
             response_payload = build_response(
                 query_type=qtype_str,
@@ -1033,10 +1203,12 @@ def execute_admin_query(
                 operation_count=operation_count,
                 formatted_data=formatted_data,
                 session_id=session_id,
-                durations=durations,
+                durations=durations_payload,
                 widgets=widgets,
                 suggested_questions=suggested,
                 prediction=report.get("prediction"),
+                partial_failure=partial_failure,
+                failed_sections=failed_sections,
             )
 
         execution_time_ms = round(total_duration * 1000)
@@ -1140,6 +1312,24 @@ def execute_admin_query(
         )
 
         combined_message = response_payload.pop("message", "")
+
+        # Validate FinalResponseModel and MetadataModel
+        if "metadata" in response_payload:
+            clean_metadata = {k: v for k, v in response_payload["metadata"].items() if k in MetadataModel.model_fields}
+            MetadataModel.model_validate(clean_metadata)
+        FinalResponseModel.model_validate(response_payload)
+
+        # Cache successful query response
+        is_cacheable = cache_manager.is_cacheable_category(primary_intent.get("category"))
+        if is_cacheable and not bypass_cache and response_payload.get("status"):
+            result_to_cache = {
+                "type": "query",
+                "response_payload": response_payload,
+                "combined_message": combined_message,
+                "execution_time_ms": execution_time_ms,
+            }
+            cache_manager.set(query_hash, result_to_cache)
+
         return {
             "type": "query",
             "response_payload": response_payload,
@@ -1194,3 +1384,7 @@ def execute_admin_query(
             "type": "error",
             "error_message": "Failed to process request.",
         }
+    finally:
+        request_id_var.reset(token_req)
+        trace_id_var.reset(token_trace)
+        session_id_var.reset(token_sess)

@@ -33,6 +33,9 @@ DOTNET_VERIFY_SSL = _skip_raw.strip() not in {"1", "true", "True"}
 
 _dotnet_session = requests.Session()
 
+DOTNET_CONNECT_TIMEOUT = float(os.getenv("DOTNET_CONNECT_TIMEOUT", "5.0"))
+DOTNET_READ_TIMEOUT = float(os.getenv("DOTNET_READ_TIMEOUT", "30.0"))
+
 if not DOTNET_VERIFY_SSL:
     import urllib3
 
@@ -208,7 +211,7 @@ def _call_dotnet(
                 DOTNET_EXECUTE_URL,
                 json=payload,
                 headers=headers,
-                timeout=(5, 30),
+                timeout=(DOTNET_CONNECT_TIMEOUT, DOTNET_READ_TIMEOUT),
                 verify=DOTNET_VERIFY_SSL,
             )
 

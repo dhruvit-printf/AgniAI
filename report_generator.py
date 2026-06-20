@@ -135,16 +135,31 @@ def generate_report(
                         "predictions": []
                     },
                     "prediction": {"shortTerm": "stable", "futureTrends": []},
-                    "conclusion": {"summary": conclusion_text, "message": conclusion_text}
+                    "conclusion": {"summary": conclusion_text, "message": conclusion_text},
+                    "durations": {
+                        "analysisDurationMs": 0.0,
+                        "predictionDurationMs": 0.0,
+                        "conclusionDurationMs": 0.0
+                    }
                 }
         except Exception:
             pass
 
     # 2. Production execution path calling the new engines
+    import time
     answer = build_answer(query_type, combined_result, intent)
+
+    t0 = time.time()
     analysis = generate_analysis(answer, query_type, intent, user_query, trace_id)
+    analysis_ms = round((time.time() - t0) * 1000, 2)
+
+    t0 = time.time()
     prediction = generate_predictions(answer, query_type, intent)
+    prediction_ms = round((time.time() - t0) * 1000, 2)
+
+    t0 = time.time()
     conclusion = generate_conclusion(answer, query_type, intent, trace_id)
+    conclusion_ms = round((time.time() - t0) * 1000, 2)
 
     category = intent.get("category") or "Agniveer"
     intro = f"The review of {category.lower()} records is complete. Below are the key observations, insights, and visualizations."
@@ -175,6 +190,11 @@ def generate_report(
             "predictions": prediction.get("futureTrends") if prediction else []
         },
         "prediction": prediction,
-        "conclusion": {"summary": conclusion_text, "message": conclusion_text}
+        "conclusion": {"summary": conclusion_text, "message": conclusion_text},
+        "durations": {
+            "analysisDurationMs": analysis_ms,
+            "predictionDurationMs": prediction_ms,
+            "conclusionDurationMs": conclusion_ms
+        }
     }
 

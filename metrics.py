@@ -49,6 +49,10 @@ class Metrics:
         self.dotnet_failures: int = 0
         self.timeout_failures: int = 0
 
+        # Cache counters
+        self.cache_hits: int = 0
+        self.cache_misses: int = 0
+
         # Duration summaries (milliseconds)
         self.durations: Dict[str, Dict[str, float]] = {
             "planner_duration": {"sum": 0.0, "count": 0.0},
@@ -89,6 +93,14 @@ class Metrics:
     def inc_timeout_failure(self) -> None:
         with self._lock:
             self.timeout_failures += 1
+
+    def inc_cache_hits(self) -> None:
+        with self._lock:
+            self.cache_hits += 1
+
+    def inc_cache_misses(self) -> None:
+        with self._lock:
+            self.cache_misses += 1
 
     # ── Durations ──────────────────────────────────────────────────────────
 
@@ -164,6 +176,15 @@ class Metrics:
             lines.append("# HELP timeout_failures Total timeout failures.")
             lines.append("# TYPE timeout_failures counter")
             lines.append(f"timeout_failures {self.timeout_failures}")
+
+            # ── cache counters ─────────────────────────────────────────────
+            lines.append("# HELP cache_hits Total cache hits.")
+            lines.append("# TYPE cache_hits counter")
+            lines.append(f"cache_hits {self.cache_hits}")
+
+            lines.append("# HELP cache_misses Total cache misses.")
+            lines.append("# TYPE cache_misses counter")
+            lines.append(f"cache_misses {self.cache_misses}")
 
             # ── active_websockets ──────────────────────────────────────────
             lines.append(
