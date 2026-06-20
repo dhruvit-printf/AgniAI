@@ -424,7 +424,7 @@ def _detect_multi_independent(
             right = text_lower[m.end() :].strip()
             if left and right:
                 if re.match(
-                    r"^(?:is|are|has|have|was|were|play|plays|who|which|that|with|on|in|under|currently|active|admitted|absent|present|attending)\b",
+                    r"^(?:is|are|has|have|had|having|was|were|play|plays|who|which|that|with|on|in|under|currently|active|admitted|absent|present|attending|suffered|suffering)\b",
                     right,
                 ):
                     continue
@@ -767,6 +767,25 @@ def plan_query(query: str) -> QueryPlan:
             filters=filters,
         )
 
+    multi_fragments = _detect_multi_independent(q, categories)
+    if multi_fragments and not any(kw in q for kw in _COMPARISON_KEYWORDS):
+        ops = [_build_sub_operation(f) for f in multi_fragments]
+        valid_ops = [op for op in ops if op.intent_result.get("category")]
+        if len(valid_ops) >= 2:
+            op_categories = {op.intent_result["category"] for op in valid_ops}
+            if len(op_categories) >= 2:
+                combined_filters = {}
+                for op in valid_ops:
+                    combined_filters.update(_extract_filters_dict(op.intent_result))
+                return QueryPlan(
+                    QueryType.MULTI_INDEPENDENT,
+                    valid_ops,
+                    0.80,
+                    raw_query,
+                    f"Multi-independent: {', '.join(sorted(op_categories))}",
+                    filters=combined_filters,
+                )
+
     if _is_distribution_query(q, categories, group_by):
         op = _build_sub_operation(q, group_by=group_by)
         filters = _extract_filters_dict(op.intent_result)
@@ -860,25 +879,6 @@ def plan_query(query: str) -> QueryPlan:
                         f"{depth} cross-filter: {', '.join(sorted(op_categories))}",
                         filters=combined_filters,
                     )
-
-    multi_fragments = _detect_multi_independent(q, categories)
-    if multi_fragments:
-        ops = [_build_sub_operation(f) for f in multi_fragments]
-        valid_ops = [op for op in ops if op.intent_result.get("category")]
-        if len(valid_ops) >= 2:
-            op_categories = {op.intent_result["category"] for op in valid_ops}
-            if len(op_categories) >= 2:
-                combined_filters = {}
-                for op in valid_ops:
-                    combined_filters.update(_extract_filters_dict(op.intent_result))
-                return QueryPlan(
-                    QueryType.MULTI_INDEPENDENT,
-                    valid_ops,
-                    0.80,
-                    raw_query,
-                    f"Multi-independent: {', '.join(sorted(op_categories))}",
-                    filters=combined_filters,
-                )
 
     op = _build_sub_operation(q, group_by=group_by)
     confidence = 0.95 if op.intent_result.get("category") else 0.3

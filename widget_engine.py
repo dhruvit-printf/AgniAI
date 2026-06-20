@@ -13,6 +13,116 @@ from pydantic import ValidationError
 
 from normalized_models import extract_records as _orig_extract_records
 
+def flatten_single_record(r: Dict[str, Any]) -> List[Dict[str, Any]]:
+    base = {}
+    attempts_key = None
+    sections_key = None
+    subitems_key = None
+    
+    for k in r.keys():
+        k_lower = k.lower()
+        if k_lower == "attempts":
+            attempts_key = k
+        elif k_lower == "sections":
+            sections_key = k
+        elif k_lower in ("subitems", "subitems"):
+            subitems_key = k
+            
+    for k, v in r.items():
+        if k in (attempts_key, sections_key, subitems_key):
+            continue
+        base[k] = v
+        
+    if attempts_key and isinstance(r[attempts_key], list) and r[attempts_key]:
+        res = []
+        for att in r[attempts_key]:
+            if not isinstance(att, dict):
+                continue
+            att_merged = dict(base)
+            
+            att_sections_key = None
+            att_subitems_key = None
+            for k in att.keys():
+                if k.lower() == "sections":
+                    att_sections_key = k
+                elif k.lower() in ("subitems", "subitems"):
+                    att_subitems_key = k
+            
+            for k, v in att.items():
+                if k in (att_sections_key, att_subitems_key):
+                    continue
+                att_merged[k] = v
+                
+            if att_sections_key and isinstance(att[att_sections_key], list) and att[att_sections_key]:
+                for sec in att[att_sections_key]:
+                    if not isinstance(sec, dict):
+                        continue
+                    sec_merged = dict(att_merged)
+                    
+                    sec_subitems_key = None
+                    for k in sec.keys():
+                        if k.lower() in ("subitems", "subitems"):
+                            sec_subitems_key = k
+                            
+                    for k, v in sec.items():
+                        if k == sec_subitems_key:
+                            continue
+                        sec_merged[k] = v
+                        
+                    if sec_subitems_key and isinstance(sec[sec_subitems_key], list) and sec[sec_subitems_key]:
+                        for sub in sec[sec_subitems_key]:
+                            if not isinstance(sub, dict):
+                                continue
+                            sub_merged = dict(sec_merged)
+                            for k, v in sub.items():
+                                sub_merged[k] = v
+                            res.append(sub_merged)
+                    else:
+                        res.append(sec_merged)
+            else:
+                res.append(att_merged)
+        return res
+        
+    elif sections_key and isinstance(r[sections_key], list) and r[sections_key]:
+        res = []
+        for sec in r[sections_key]:
+            if not isinstance(sec, dict):
+                continue
+            sec_merged = dict(base)
+            
+            sec_subitems_key = None
+            for k in sec.keys():
+                if k.lower() in ("subitems", "subitems"):
+                    sec_subitems_key = k
+                    
+            for k, v in sec.items():
+                if k == sec_subitems_key:
+                    continue
+                sec_merged[k] = v
+                
+            if sec_subitems_key and isinstance(sec[sec_subitems_key], list) and sec[sec_subitems_key]:
+                for sub in sec[sec_subitems_key]:
+                    if not isinstance(sub, dict):
+                        continue
+                    sub_merged = dict(sec_merged)
+                    for k, v in sub.items():
+                        sub_merged[k] = v
+                    res.append(sub_merged)
+            else:
+                res.append(sec_merged)
+        return res
+        
+    return [r]
+
+def flatten_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    flat_records = []
+    for r in records:
+        if isinstance(r, dict):
+            flat_records.extend(flatten_single_record(r))
+        else:
+            flat_records.append(r)
+    return flat_records
+
 def _extract_records(combined_result: Any) -> List[Dict[str, Any]]:
     if isinstance(combined_result, dict):
         if "sections" in combined_result and isinstance(combined_result["sections"], list):
@@ -23,12 +133,12 @@ def _extract_records(combined_result: Any) -> List[Dict[str, Any]]:
                     if isinstance(data_val, list):
                         records.extend([r for r in data_val if isinstance(r, dict)])
             if records:
-                return records
+                return flatten_records(records)
         if "records" in combined_result and isinstance(combined_result["records"], list):
-            return [r for r in combined_result["records"] if isinstance(r, dict)]
+            return flatten_records([r for r in combined_result["records"] if isinstance(r, dict)])
     elif isinstance(combined_result, list):
-        return [r for r in combined_result if isinstance(r, dict)]
-    return _orig_extract_records(combined_result)
+        return flatten_records([r for r in combined_result if isinstance(r, dict)])
+    return flatten_records(_orig_extract_records(combined_result))
 
 from schemas import (
     CardItem,
@@ -145,6 +255,55 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
 def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not records:
         return {"columns": [], "rows": []}
+
+    def _flatten_cell_value(key: str, value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+
+        key_lower = (key or "").lower()
+
+        if isinstance(value, list):
+            if not value:
+                return None
+            if all(isinstance(item, (str, int, float, bool)) or item is None for item in value):
+                return ", ".join(str(item) for item in value if item is not None)
+            if key_lower == "attempts":
+                return f"{len(value)} attempt(s)"
+            if key_lower == "sections":
+                return f"{len(value)} section(s)"
+            if key_lower == "subitems":
+                return f"{len(value)} sub-item(s)"
+            sample_labels = []
+            for item in value[:5]:
+                if isinstance(item, dict):
+                    label = (
+                        item.get("label")
+                        or item.get("sectionName")
+                        or item.get("subItemName")
+                        or item.get("name")
+                        or item.get("title")
+                    )
+                    if label:
+                        sample_labels.append(str(label))
+            if sample_labels:
+                return ", ".join(sample_labels)
+            return f"{len(value)} item(s)"
+
+        if isinstance(value, dict):
+            for candidate in ("label", "sectionName", "subItemName", "name", "title", "fullName"):
+                nested = value.get(candidate)
+                if nested not in (None, ""):
+                    return nested
+            scalar_parts = []
+            for nested_key, nested_val in value.items():
+                if isinstance(nested_val, (str, int, float, bool)) or nested_val is None:
+                    if nested_val is not None:
+                        scalar_parts.append(f"{nested_key}: {nested_val}")
+            if scalar_parts:
+                return "; ".join(scalar_parts)
+            return f"{len(value)} field(s)"
+
+        return str(value)
     
     keys_seen = []
     for r in records:
@@ -169,7 +328,7 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     for r in records:
         row = {}
         for k in keys_seen:
-            row[k] = r.get(k)
+            row[k] = _flatten_cell_value(k, r.get(k))
         rows.append(row)
         
     return {"columns": columns, "rows": rows}

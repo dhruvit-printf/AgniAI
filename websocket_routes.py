@@ -137,6 +137,16 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
         # ── Stream response sections ────────────────────────────────────────
         response_payload = public_response_view(result.get("response_payload", {}))
 
+        logger.info(
+            json.dumps(
+                {
+                    "question": message,
+                    "query_type": response_payload.get("queryType") or result.get("type"),
+                    "intent_formed": response_payload.get("intent") or result.get("response_payload", {}).get("intent"),
+                }
+            )
+        )
+
         ws_manager.send_json(
             sid,
             {

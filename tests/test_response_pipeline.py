@@ -202,9 +202,6 @@ class TestResponseBuilder(unittest.TestCase):
                 "sessionId",
                 "message",
                 "formattedData",
-                "analysis",
-                "prediction",
-                "conclusion",
                 "suggestedQuestions",
                 "metadata",
                 "overallConfidence",
@@ -215,8 +212,11 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("answer", public)
         self.assertNotIn("result", public)
         self.assertNotIn("intent", public)
+        self.assertNotIn("analysis", public)
+        self.assertNotIn("prediction", public)
+        self.assertNotIn("conclusion", public)
         self.assertEqual(public["sessionId"], "admin-default")
-        self.assertEqual(public["prediction"], internal["prediction"])
+        self.assertEqual(public["formattedData"]["prediction"], internal["prediction"])
         if isinstance(public["formattedData"], dict) and "data" in public["formattedData"]:
             data = public["formattedData"]["data"]
             if isinstance(data, dict) and "rows" in data:

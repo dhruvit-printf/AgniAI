@@ -555,13 +555,6 @@ def execute_admin_query(
                             "confidence": 1.0,
                         },
                         "trace_id": trace_id,
-                        "session_id": session_id,
-                        "duration": durations["total_duration"],
-                        "planner_duration": durations["planner_duration"],
-                        "intent_duration": durations["intent_duration"],
-                        "dotnet_duration": durations["dotnet_duration"],
-                        "combiner_duration": durations["combiner_duration"],
-                        "report_duration": durations["report_duration"],
                     }
                 )
             )
@@ -611,7 +604,7 @@ def execute_admin_query(
                 )
             _validate_model_payload(FinalResponseModel, response_payload, "greeting.final")
 
-            combined_message = response_payload.pop("message", "")
+            combined_message = response_payload.get("message", "")
             metrics_collector.inc_success(qtype)
 
             return {
@@ -945,13 +938,6 @@ def execute_admin_query(
                                 "query_type": "unrecognised",
                                 "intent_formed": primary_intent,
                                 "trace_id": trace_id,
-                                "session_id": session_id,
-                                "duration": durations["total_duration"],
-                                "planner_duration": durations["planner_duration"],
-                                "intent_duration": durations["intent_duration"],
-                                "dotnet_duration": durations["dotnet_duration"],
-                                "combiner_duration": durations["combiner_duration"],
-                                "report_duration": durations["report_duration"],
                             }
                         )
                     )
@@ -994,7 +980,7 @@ def execute_admin_query(
                         success=True,
                     )
 
-                    combined_message = response_payload.pop("message", "")
+                    combined_message = response_payload.get("message", "")
                     metrics_collector.inc_success("unrecognised")
                     return {
                         "type": "unrecognised",
@@ -1331,34 +1317,6 @@ def execute_admin_query(
                     "query_type": qtype_str,
                     "intent_formed": primary_intent,
                     "trace_id": trace_id,
-                    "session_id": session_id,
-                    "main_intent": {
-                        "category": primary_intent.get("category", ""),
-                        "operation": primary_intent.get("subcategory", "")
-                        or primary_intent.get("operation", ""),
-                    },
-                    "filters": query_plan.filters if query_plan else {},
-                    "planner_query_type": (
-                        query_plan.query_type.value if query_plan else None
-                    ),
-                    "operation_count": operation_count,
-                    "payload_sent": (
-                        [
-                            format_admin_payload(op.intent_result)
-                            for op in query_plan.operations
-                        ]
-                        if query_plan
-                        else []
-                    ),
-                    "combiner_strategy": combiner_strategy,
-                    "visualization_decisions": [formatted_data_payload.get("type")] if formatted_data_payload else [],
-                    "widget_count": 1 if formatted_data_payload else 0,
-                    "record_count": record_count,
-                    "report_strategy": report_strategy,
-                    "report_duration": durations["report_duration"],
-                    "dotnet_duration": durations["dotnet_duration"],
-                    "duration_ms": execution_time_ms,
-                    "total_duration": durations["total_duration"],
                 }
             )
         )
@@ -1420,7 +1378,7 @@ def execute_admin_query(
             )
         _validate_model_payload(FinalResponseModel, response_payload, "final.response")
 
-        combined_message = response_payload.pop("message", "")
+        combined_message = response_payload.get("message", "")
         metrics_collector.inc_success(qtype_str)
 
         # Cache successful query response

@@ -56,6 +56,62 @@ class TestWidgetEngine(unittest.TestCase):
         res = build_formatted_data(answer, query_type="trend", intent={})
         self.assertEqual(res["type"], "CHART_LINE")
 
+    def test_table_rows_are_flattened(self):
+        answer = {
+            "sections": [
+                {
+                    "label": "Result",
+                    "data": [
+                        {
+                            "fullName": "Bobby Rana",
+                            "agniveerNo": "A0701772W",
+                            "attempts": [
+                                {
+                                    "attemptNo": "1",
+                                    "sections": [
+                                        {
+                                            "sectionName": "PPT",
+                                            "grading": "Excellent",
+                                            "subItems": [
+                                                {"subItemName": "2.4km", "marksObtained": 20}
+                                            ],
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                        ,
+                        {
+                            "fullName": "Amit Kumar",
+                            "agniveerNo": "A0701773X",
+                            "attempts": [
+                                {
+                                    "attemptNo": "1",
+                                    "sections": [
+                                        {
+                                            "sectionName": "PPT",
+                                            "grading": "Good",
+                                            "subItems": [
+                                                {"subItemName": "2.4km", "marksObtained": 18}
+                                            ],
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+        res = build_formatted_data(answer, query_type="simple", intent={})
+        self.assertEqual(res["type"], "TABLE")
+        row = res["data"]["rows"][0]
+        self.assertIn("fullName", row)
+        self.assertIn("agniveerNo", row)
+        self.assertNotIn("attempts", row)
+        self.assertNotIn("sections", row)
+
 
 if __name__ == "__main__":
     unittest.main()

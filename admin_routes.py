@@ -126,13 +126,9 @@ def admin_chat():
     logger.info(
         json.dumps(
             {
-                "message": "HTTP admin chat success response",
                 "question": message,
                 "query_type": payload.get("queryType"),
                 "intent_formed": payload.get("intent"),
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "duration_ms": duration_ms,
             }
         )
     )
