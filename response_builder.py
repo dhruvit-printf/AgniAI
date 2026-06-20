@@ -83,7 +83,7 @@ def build_response(
     normalized_intent = normalize_intent_confidence(intent, confidence)
     if answer_dict is None:
         answer_dict = build_answer(query_type, combined_result, normalized_intent)
-    return assemble_admin_response(
+    payload = assemble_admin_response(
         query_type=query_type,
         intro_message=intro_message,
         combined_result=combined_result,
@@ -101,6 +101,17 @@ def build_response(
         failed_sections=failed_sections,
         answer_dict=answer_dict,
     )
+    payload["message"] = build_combined_message(
+        intro_message,
+        formatted_data or _build_formatted_summary(
+            query_type=query_type,
+            combined_result=combined_result,
+            answer_dict=answer_dict,
+        ),
+        analysis,
+        conclusion,
+    )
+    return payload
 
 
 def stream_response_chunks(payload: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
@@ -180,3 +191,58 @@ def build_combined_message(
             parts.append(f"Conclusion:\n{conclusion_summary}")
 
     return "\n\n".join(parts)
+
+
+def _build_formatted_summary(
+    *,
+    query_type: str,
+    combined_result: Any,
+    answer_dict: Dict[str, Any],
+) -> str:
+    """
+    Build a concise human-readable data summary when the caller did not supply one.
+    """
+    if query_type != "simple":
+        return ""
+
+    sections = answer_dict.get("sections") or []
+    if not sections:
+        return ""
+
+    first_section = sections[0] if isinstance(sections[0], dict) else {}
+    label = (first_section.get("label") or "Result").strip() or "Result"
+
+    records = _extract_records(combined_result)
+    if not records:
+        records = list(first_section.get("data") or [])
+    if not records:
+        return ""
+
+    items = []
+    for record in records[:10]:
+        if not isinstance(record, dict):
+            continue
+        name = (
+            record.get("fullName")
+            or record.get("name")
+            or record.get("agniveerNo")
+            or record.get("id")
+        )
+        if name is None:
+            continue
+
+        score = (
+            record.get("bestTotal")
+            or record.get("score")
+            or record.get("marksObtained")
+            or record.get("omrInputTotal")
+        )
+        if score is None:
+            items.append(str(name))
+        else:
+            items.append(f"{name} ({score})")
+
+    if not items:
+        return ""
+
+    return f"{label} top records: " + ", ".join(items)

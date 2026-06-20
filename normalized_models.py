@@ -115,6 +115,36 @@ def build_intro_message(title: str, intro_message: str, category: str) -> Dict[s
     }
 
 
+def _infer_simple_section_label(combined_result: Any, intent: Dict[str, Any]) -> str:
+    """
+    Prefer a real domain label over the generic "Result" bucket for simple
+    record queries.
+    """
+    for key in ("section", "sub_section"):
+        value = intent.get(key)
+        if value:
+            return str(value).strip()
+
+    records = extract_records(combined_result)
+    if records:
+        sample = records[0]
+        for key in (
+            "sectionFilter",
+            "sectionName",
+            "section",
+            "platoonName",
+            "unitName",
+            "class",
+            "sport",
+            "group",
+        ):
+            value = sample.get(key)
+            if value:
+                return str(value).strip()
+
+    return "Result"
+
+
 def build_answer(query_type: str, combined_result: Any, intent: Dict[str, Any]) -> Dict[str, Any]:
     if query_type == "compare":
         left = combined_result.get("left") or {}
@@ -149,7 +179,13 @@ def build_answer(query_type: str, combined_result: Any, intent: Dict[str, Any]) 
         return {"sections": sections}
 
     records = extract_records(combined_result)
-    sections = [{"label": "Result", "type": query_type, "data": records}]
+    sections = [
+        {
+            "label": _infer_simple_section_label(combined_result, intent),
+            "type": query_type,
+            "data": records,
+        }
+    ]
     answer_dict = {"sections": sections}
     if isinstance(combined_result, dict):
         for key in (
