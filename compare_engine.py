@@ -7,29 +7,15 @@ Compare engine for comparing N-way datasets side-by-side.
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Set
 
-from dotnet_adapter import extract_records as _normalize_records
+from utils import extract_records as _normalize_records
+from utils import get_score as _get_score
+from utils import safe_float as _safe_float
 
 logger = logging.getLogger(__name__)
-
-def _safe_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 def _extract_records(data: Any) -> List[Dict]:
     """Pull the list of records out of any .NET wrapper shape."""
     return _normalize_records(data)
-
-def _get_score(record: Dict) -> Optional[float]:
-    score_fields = ["bestTotal", "totalMarks", "score", "Score", "omrInputTotal", "marksObtained"]
-    for field in score_fields:
-        v = _safe_float(record.get(field))
-        if v is not None:
-            return v
-    return None
 
 def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
     metrics: Dict[str, Any] = {}

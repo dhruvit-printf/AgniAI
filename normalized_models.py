@@ -11,93 +11,17 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-
-_RECORD_KEY_CANDIDATES = (
-    "agniveerNo",
-    "agniveerId",
-    "AgniveerId",
-    "AgniVeerId",
-    "id",
-    "Id",
-)
-
-_WRAPPER_KEY_CANDIDATES = (
-    "data",
-    "Data",
-    "result",
-    "Result",
-    "records",
-    "Records",
-    "persons",
-    "personnel",
-)
-
-_METRIC_FIELDS = (
-    "bestTotal",
-    "totalMarks",
-    "score",
-    "Score",
-    "omrInputTotal",
-    "marksObtained",
-)
-
-
-def _safe_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+from utils import extract_records as _extract_records
+from utils import extract_record_id as _extract_record_id
+from utils import normalize_confidence as _normalize_confidence
 
 
 def extract_records(data: Any) -> List[Dict]:
-    """
-    Canonical record unwrapping for any backend shape.
-
-    Supports nested dict wrappers, list payloads, and a handful of legacy
-    response aliases used across the repository.
-    """
-    if isinstance(data, dict):
-        for key in _WRAPPER_KEY_CANDIDATES:
-            val = data.get(key)
-            if isinstance(val, list):
-                return val
-            if isinstance(val, dict):
-                nested = extract_records(val)
-                if nested:
-                    return nested
-
-        teams = data.get("teams") or data.get("Teams")
-        if isinstance(teams, list):
-            members: List[Dict] = []
-            for team in teams:
-                if isinstance(team, dict):
-                    team_members = team.get("members") or team.get("Members") or []
-                    if isinstance(team_members, list):
-                        members.extend(
-                            member for member in team_members if isinstance(member, dict)
-                        )
-            if members:
-                return members
-
-        for value in data.values():
-            if isinstance(value, (dict, list)):
-                nested = extract_records(value)
-                if nested:
-                    return nested
-
-    if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
-    return []
+    return _extract_records(data)
 
 
 def extract_record_id(record: Dict[str, Any]) -> Optional[str]:
-    for key in _RECORD_KEY_CANDIDATES:
-        value = record.get(key)
-        if value is not None:
-            return str(value).strip()
-    return None
+    return _extract_record_id(record)
 
 
 def normalize_dotnet_response(data: Any) -> Dict[str, Any]:
@@ -112,14 +36,6 @@ def normalize_dotnet_response(data: Any) -> Dict[str, Any]:
     return {"records": records}
 
 
-def _get_score(record: Dict[str, Any]) -> Optional[float]:
-    for field in _METRIC_FIELDS:
-        score = _safe_float(record.get(field))
-        if score is not None:
-            return score
-    return None
-
-
 def calculate_section_confidence(
     section: Dict[str, Any],
     intent: Dict[str, Any],
@@ -128,24 +44,7 @@ def calculate_section_confidence(
     if not api_success:
         return 0.0
 
-    conf_val = intent.get("confidence", 0.95)
-    if isinstance(conf_val, str):
-        conf_lower = conf_val.lower()
-        if "high" in conf_lower:
-            base_conf = 0.95
-        elif "medium" in conf_lower:
-            base_conf = 0.70
-        elif "low" in conf_lower:
-            base_conf = 0.30
-        else:
-            try:
-                base_conf = float(conf_val)
-            except ValueError:
-                base_conf = 0.85
-    elif isinstance(conf_val, (int, float)):
-        base_conf = float(conf_val)
-    else:
-        base_conf = 0.85
+    base_conf = _normalize_confidence(intent.get("confidence", 0.95), fallback=0.85)
 
     records = section.get("data") or []
     rec_count = len(records)
@@ -179,27 +78,9 @@ def normalize_intent_confidence(
     fallback_confidence: float,
 ) -> Dict[str, Any]:
     normalized = dict(intent or {})
-    conf_val = normalized.get("confidence")
-    if isinstance(conf_val, str):
-        conf_lower = conf_val.lower()
-        if "high" in conf_lower:
-            normalized["confidence"] = 0.95
-        elif "medium" in conf_lower:
-            normalized["confidence"] = 0.70
-        elif "low" in conf_lower:
-            normalized["confidence"] = 0.30
-        else:
-            try:
-                normalized["confidence"] = float(conf_val)
-            except ValueError:
-                normalized["confidence"] = float(fallback_confidence)
-    elif conf_val is not None:
-        try:
-            normalized["confidence"] = float(conf_val)
-        except (TypeError, ValueError):
-            normalized["confidence"] = float(fallback_confidence)
-    else:
-        normalized["confidence"] = float(fallback_confidence)
+    normalized["confidence"] = _normalize_confidence(
+        normalized.get("confidence"), fallback=fallback_confidence
+    )
     return normalized
 
 
@@ -232,6 +113,56 @@ def build_intro_message(title: str, intro_message: str, category: str) -> Dict[s
         "title": title,
         "description": intro_message or f"Retrieved {category.lower()} records matching request.",
     }
+
+
+def build_answer(query_type: str, combined_result: Any, intent: Dict[str, Any]) -> Dict[str, Any]:
+    if query_type == "compare":
+        left = combined_result.get("left") or {}
+        right = combined_result.get("right") or {}
+        comp = combined_result.get("comparison") or {}
+
+        sections = [
+            {
+                "label": left.get("label") or "Side 1",
+                "type": "compare",
+                "data": left.get("data") or [],
+            },
+            {
+                "label": right.get("label") or "Side 2",
+                "type": "compare",
+                "data": right.get("data") or [],
+            },
+        ]
+        return {"sections": sections, "left": left, "right": right, "comparison": comp}
+
+    if query_type == "multi_independent":
+        sections = combined_result.get("sections") or []
+        return {"sections": sections}
+
+    if query_type == "cross_filter":
+        records = (
+            combined_result.get("records")
+            if isinstance(combined_result, dict)
+            else extract_records(combined_result)
+        )
+        sections = [{"label": "Common Records", "type": "cross_filter", "data": records}]
+        return {"sections": sections}
+
+    records = extract_records(combined_result)
+    sections = [{"label": "Result", "type": query_type, "data": records}]
+    answer_dict = {"sections": sections}
+    if isinstance(combined_result, dict):
+        for key in (
+            "chartData",
+            "granularity",
+            "trendDirection",
+            "labels",
+            "values",
+            "groupBy",
+        ):
+            if key in combined_result:
+                answer_dict[key] = combined_result[key]
+    return answer_dict
 
 
 def assemble_response_metadata(
@@ -281,12 +212,12 @@ def assemble_admin_response(
     prediction: Optional[Dict[str, Any]] = None,
     partial_failure: bool = False,
     failed_sections: Optional[List[str]] = None,
+    answer_dict: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    from response_builder import build_answer
-
     failed_sections_list = failed_sections or []
     normalized_intent = normalize_intent_confidence(intent, confidence)
-    answer_dict = build_answer(query_type, combined_result, normalized_intent)
+    if answer_dict is None:
+        answer_dict = build_answer(query_type, combined_result, normalized_intent)
     sections = answer_dict.get("sections") or []
 
     section_confidences = []

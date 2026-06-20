@@ -16,6 +16,7 @@ from typing import Any, Dict, Generator, List, Optional
 from dotnet_adapter import extract_records as _normalize_records
 from normalized_models import (
     assemble_admin_response,
+    build_answer,
     calculate_section_confidence as _calculate_section_confidence,
     normalize_intent_confidence,
 )
@@ -47,58 +48,6 @@ def _get_title(query_type: str, intent: Dict[str, Any]) -> str:
     return f"{category} Overview"
 
 
-def build_answer(query_type: str, combined_result: Any, intent: Dict[str, Any]) -> Dict[str, Any]:
-    category = intent.get("category") or "Agniveer"
-
-    if query_type == "compare":
-        left = combined_result.get("left") or {}
-        right = combined_result.get("right") or {}
-        comp = combined_result.get("comparison") or {}
-
-        sections = [
-            {
-                "label": left.get("label") or "Side 1",
-                "type": "compare",
-                "data": left.get("data") or [],
-            },
-            {
-                "label": right.get("label") or "Side 2",
-                "type": "compare",
-                "data": right.get("data") or [],
-            },
-        ]
-        return {"sections": sections, "left": left, "right": right, "comparison": comp}
-
-    if query_type == "multi_independent":
-        sections = combined_result.get("sections") or []
-        return {"sections": sections}
-
-    if query_type == "cross_filter":
-        records = (
-            combined_result.get("records")
-            if isinstance(combined_result, dict)
-            else _extract_records(combined_result)
-        )
-        sections = [{"label": "Common Records", "type": "cross_filter", "data": records}]
-        return {"sections": sections}
-
-    records = _extract_records(combined_result)
-    sections = [{"label": "Result", "type": query_type, "data": records}]
-    answer_dict = {"sections": sections}
-    if isinstance(combined_result, dict):
-        for key in (
-            "chartData",
-            "granularity",
-            "trendDirection",
-            "labels",
-            "values",
-            "groupBy",
-        ):
-            if key in combined_result:
-                answer_dict[key] = combined_result[key]
-    return answer_dict
-
-
 def calculate_section_confidence(
     section: Dict[str, Any], intent: Dict[str, Any], api_success: bool = True
 ) -> float:
@@ -123,6 +72,7 @@ def build_response(
     prediction: Optional[Dict[str, Any]] = None,
     partial_failure: bool = False,
     failed_sections: Optional[List[str]] = None,
+    answer_dict: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Assemble the final admin response JSON.
@@ -130,13 +80,16 @@ def build_response(
     The heavy lifting is delegated to normalized_models.py so this layer stays
     intentionally thin.
     """
+    normalized_intent = normalize_intent_confidence(intent, confidence)
+    if answer_dict is None:
+        answer_dict = build_answer(query_type, combined_result, normalized_intent)
     return assemble_admin_response(
         query_type=query_type,
         intro_message=intro_message,
         combined_result=combined_result,
         analysis=analysis,
         conclusion=conclusion,
-        intent=normalize_intent_confidence(intent, confidence),
+        intent=normalized_intent,
         confidence=confidence,
         operation_count=operation_count,
         session_id=session_id,
@@ -146,6 +99,7 @@ def build_response(
         prediction=prediction,
         partial_failure=partial_failure,
         failed_sections=failed_sections,
+        answer_dict=answer_dict,
     )
 
 

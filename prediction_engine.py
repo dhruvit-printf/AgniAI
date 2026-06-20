@@ -11,14 +11,8 @@ logger = logging.getLogger(__name__)
 
 from grounding_utils import extract_numbers_from_text as _extract_numbers_from_text
 from grounding_utils import ground_and_sanitize as _ground_and_sanitize
-
-def _safe_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+from utils import get_score as _get_score
+from utils import safe_float as _safe_float
 
 def _build_prediction_grounding_text(answer: Dict[str, Any], query_type: str) -> str:
     lines = []
@@ -123,11 +117,9 @@ def generate_predictions(
         records = sections[0].get("data") if sections else []
         scores = []
         for r in records:
-            for score_field in ("bestTotal", "totalMarks", "score", "Score", "omrInputTotal", "marksObtained"):
-                v = _safe_float(r.get(score_field))
-                if v is not None:
-                    scores.append(v)
-                    break
+            score = _get_score(r)
+            if score is not None:
+                scores.append(score)
 
         if scores:
             avg_score = round(sum(scores) / len(scores), 2)

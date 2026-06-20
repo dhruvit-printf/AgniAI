@@ -9,7 +9,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
-from dotnet_adapter import extract_records as _normalize_records
+from utils import extract_records as _normalize_records
+from utils import get_score as _utils_get_score
+from utils import safe_float as _utils_safe_float
 from cross_filter_engine import cross_filter_datasets
 from compare_engine import compare_datasets
 
@@ -42,12 +44,7 @@ def _extract_agniveer_ids(records: List[Dict]) -> Set[str]:
 
 
 def _safe_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+    return _utils_safe_float(value)
 
 
 # =============================================================================
@@ -82,11 +79,7 @@ def _get_field(record: Dict, *keys) -> Any:
 
 
 def _get_score(record: Dict) -> Optional[float]:
-    for field in _SCORE_FIELDS:
-        v = _safe_float(record.get(field))
-        if v is not None:
-            return v
-    return None
+    return _utils_get_score(record)
 
 
 def aggregate_records(

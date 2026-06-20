@@ -1218,15 +1218,14 @@ def execute_admin_query(
         }
 
         # ── Step 6: Response Builder & Visualization ──────────────────────────
+        answer = build_answer(qtype_str, combined_result, primary_intent)
         widgets = generate_widgets(
-            answer=build_answer(qtype_str, combined_result, primary_intent),
+            answer=answer,
             query_type=qtype_str,
             intent=primary_intent,
         )
 
-        suggested = generate_suggested_questions(
-            qtype_str, primary_intent, build_answer(qtype_str, combined_result, primary_intent)
-        )
+        suggested = generate_suggested_questions(qtype_str, primary_intent, answer)
 
         formatted_data = ""
 
@@ -1261,6 +1260,7 @@ def execute_admin_query(
                 prediction=report.get("prediction"),
                 partial_failure=partial_failure,
                 failed_sections=failed_sections,
+                answer_dict=answer,
             )
 
         execution_time_ms = round(total_duration * 1000)

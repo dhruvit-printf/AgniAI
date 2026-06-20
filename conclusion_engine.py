@@ -16,15 +16,8 @@ from grounding_utils import ground_and_sanitize as _ground_and_sanitize
 from config import DEFAULT_MODEL, OLLAMA_URL
 from feature_flags import get_flags
 from metrics import metrics_collector
-
-
-def _safe_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+from utils import get_score as _get_score
+from utils import safe_float as _safe_float
 
 def _build_conclusion_grounding_text(answer: Dict[str, Any], query_type: str) -> str:
     lines = []
@@ -46,11 +39,9 @@ def _build_conclusion_grounding_text(answer: Dict[str, Any], query_type: str) ->
         lines.append(f"Count: {len(records)}")
         scores = []
         for r in records:
-            for score_field in ("bestTotal", "totalMarks", "score", "Score", "omrInputTotal", "marksObtained"):
-                v = _safe_float(r.get(score_field))
-                if v is not None:
-                    scores.append(v)
-                    break
+            score = _get_score(r)
+            if score is not None:
+                scores.append(score)
         if scores:
             lines.append(f"Average Score: {round(sum(scores) / len(scores), 2)}")
             lines.append(f"Top Score: {max(scores)}")

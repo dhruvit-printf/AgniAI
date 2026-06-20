@@ -7,7 +7,7 @@ Cross-filter engine for performing N-way intersections of datasets.
 import logging
 from typing import Any, Dict, List, Set, Optional
 
-from dotnet_adapter import extract_records as _normalize_records
+from utils import extract_records as _normalize_records
 
 logger = logging.getLogger(__name__)
 
