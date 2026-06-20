@@ -564,17 +564,27 @@
                 "application/json": {
                   "schema": { "$ref": "#/components/schemas/AdminChatResponse" },
                   "example": {
-                    "success": true,
-                    "answer": "Here are the **Top 5 performers** in BEPT:\n\n1. **Ravi Kumar** — Score: 94\n2. **Priya Singh** — Score: 91\n3. **Amit Yadav** — Score: 89\n4. **Neha Gupta** — Score: 87\n5. **Suresh Patel** — Score: 85",
-                    "intent": {
-                      "category": "Performance",
-                      "subcategory": "TopPerformers",
-                      "number": 5,
-                      "section": "BEPT",
-                      "confidence": "high"
+                    "status": true,
+                    "introMessage": {},
+                    "formattedData": {},
+                    "analysis": {
+                      "observations": [],
+                      "insights": [],
+                      "summary": ""
                     },
-                    "session_id": "admin-1",
-                    "elapsed_ms": 142
+                    "prediction": {
+                      "trend": "",
+                      "forecast": ""
+                    },
+                    "conclusion": {
+                      "summary": ""
+                    },
+                    "suggestedQuestions": [],
+                    "widgets": [],
+                    "metadata": {},
+                    "overallConfidence": 0.95,
+                    "partialFailure": false,
+                    "failedSections": []
                   }
                 }
               }

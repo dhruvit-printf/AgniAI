@@ -40,66 +40,26 @@ def _rewrite_admin_chat_spec(spec: dict) -> dict:
     admin_chat_response["schema"] = {"$ref": "#/components/schemas/AdminChatResponse"}
     admin_chat_response["example"] = {
         "status": True,
-        "introMessage": {
-            "title": "Performance Top Performers",
-            "description": "These assessment results highlight the strongest performers in the evaluation.",
-        },
-        "formattedData": {
-            "sections": [
-                {
-                    "label": "PPT",
-                    "type": "simple",
-                    "data": [
-                        {
-                            "fullName": "GURVINDER SINGH",
-                            "agniveerNo": "A0701518M",
-                            "bestTotal": 100,
-                        }
-                    ],
-                    "confidence": 0.95,
-                    "recordCount": 10,
-                }
-            ]
-        },
+        "introMessage": {},
+        "formattedData": {},
         "analysis": {
-            "summary": "The top 10 performers in PPT have an average score of 100.0 and a range from 100.0 to 100.0.",
-            "observations": [
-                "GURVINDER SINGH",
-                "ABHISHEK THAKUR",
-            ],
-            "insights": [
-                "All top performers have a score of 100.0",
-            ],
+            "observations": [],
+            "insights": [],
+            "summary": ""
         },
         "prediction": {
-            "trend": "Stable",
-            "forecast": "Future scores are projected to remain high and stable around the average of 100.0.",
+            "trend": "",
+            "forecast": ""
         },
         "conclusion": {
-            "summary": "The top performers in PPT remain consistently strong.",
+            "summary": ""
         },
-        "suggestedQuestions": [
-            "Who are the lowest performers in PPT?",
-            "Compare PPT's top performers with another section.",
-        ],
-        "widgets": [
-            {
-                "section": "PPT",
-                "type": "TABLE",
-                "widgetType": "TABLE",
-            }
-        ],
-        "metadata": {
-            "requestId": "…",
-            "traceId": "…",
-            "sessionId": "…",
-            "executionTimeMs": 1234,
-            "queryType": "simple",
-            "operationCount": 1,
-        },
+        "suggestedQuestions": [],
+        "widgets": [],
+        "metadata": {},
         "overallConfidence": 0.95,
         "partialFailure": False,
-        "failedSections": [],
+        "failedSections": []
     }
 
     components = spec.get("components", {}).get("schemas", {})
