@@ -139,6 +139,8 @@ class MetadataModel(BaseModel):
     requestId: str = ""
     traceId: str = ""
     sessionId: str = ""
+    timings: Dict[str, Any] = {}
+    metrics: Dict[str, Any] = {}
     executionTimeMs: int = 0
     intentDurationMs: int = 0
     dotnetDurationMs: int = 0
@@ -166,26 +168,73 @@ class MetadataModel(BaseModel):
     widget_ms: Optional[float] = None
     response_assembly_ms: Optional[float] = None
 
-class FinalResponseModel(BaseModel):
+class CardItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
+    title: str
+    subtitle: str
+    value: str
+    description: str
+
+class CardData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    cards: List[CardItem]
+
+class TableColumn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    key: str
+    label: str
+
+class TableData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    columns: List[TableColumn]
+    rows: List[Dict[str, Any]]
+
+class BarChartData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    xKey: str
+    yKey: str
+    rows: List[Dict[str, Any]]
+
+class SeriesItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    key: str
+    label: str
+
+class LineChartData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    xKey: str
+    series: List[SeriesItem]
+    rows: List[Dict[str, Any]]
+
+class PieChartItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    label: str
+    value: Any
+
+class PieChartData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    rows: List[PieChartItem]
+
+class FormattedData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    type: str
+    title: str
+    data: Dict[str, Any]
+    analysis: str
+    prediction: str
+    conclusion: str
+
+class FinalResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     status: bool
-    queryType: Optional[str] = None
-    intro: Optional[Dict[str, Any]] = None
-    introMessage: str = ""
-    formattedData: Dict[str, Any] = {}
-    answer: Optional[Dict[str, Any]] = None
-    analysis: Optional[str] = None
-    prediction: Optional[str] = None
-    conclusion: Optional[str] = None
-    suggestedQuestions: List[str] = []
-    widgets: List[WidgetModel] = []
-    metadata: MetadataModel
-    overallConfidence: float = 0.0
-    partialFailure: bool = False
-    failedSections: List[str] = []
-    
-    # Backward compatibility fields
-    intent: Optional[Dict[str, Any]] = None
-    result: Optional[Dict[str, Any]] = None
-    sessionId: Optional[str] = None
+    sessionId: str
+    message: str
+    formattedData: FormattedData
+    suggestedQuestions: List[str]
+    metadata: Dict[str, Any]
+    overallConfidence: float
+    partialFailure: bool
+    failedSections: List[str]
+
+FinalResponseModel = FinalResponse

@@ -13,14 +13,14 @@ class TestRunPipelineSuccessPath:
         return {
             "type": qtype,
             "response_payload": {
-                "intro": {"title": "Test", "description": "Test intro"},
-                "introMessage": "Test intro",
-                "formattedData": {"sections": []},
-                "widgets": [{"section": "Result", "type": "TABLE", "widgetType": "TABLE"}],
-                "analysis": "Summary",
-                "prediction": "Stable",
-                "conclusion": "Done",
+                "message": "Test intro",
+                "formattedData": {"type": "TABLE", "title": "Test", "data": {}, "analysis": "", "prediction": "", "conclusion": ""},
                 "suggestedQuestions": ["Q1"],
+                "metadata": {},
+                "status": True,
+                "overallConfidence": 0.95,
+                "partialFailure": False,
+                "failedSections": []
             },
         }
 
@@ -28,7 +28,7 @@ class TestRunPipelineSuccessPath:
         sent = []
         with patch(
             "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append(p["type"]),
+            side_effect=lambda sid, p: sent.append("done" if "done" in p else list(p.keys())[0]),
         ), patch(
             "websocket_routes.execute_admin_query",
             return_value=self._make_pipeline_result(),
@@ -37,13 +37,8 @@ class TestRunPipelineSuccessPath:
 
             websocket_routes._run_pipeline("sid1", "show attendance", {}, "trace-001")
         assert sent == [
-            "intro",
+            "message",
             "formattedData",
-            "widgets",
-            "analysis",
-            "prediction",
-            "conclusion",
-            "suggestedQuestions",
             "done",
         ]
 
@@ -51,7 +46,7 @@ class TestRunPipelineSuccessPath:
         sent = []
         with patch(
             "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append(p["type"]),
+            side_effect=lambda sid, p: sent.append("done" if "done" in p else list(p.keys())[0]),
         ), patch(
             "websocket_routes.execute_admin_query",
             return_value=self._make_pipeline_result(),
@@ -65,7 +60,7 @@ class TestRunPipelineSuccessPath:
         sent = []
         with patch(
             "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append(p["type"]),
+            side_effect=lambda sid, p: sent.append("done" if "done" in p else list(p.keys())[0]),
         ), patch(
             "websocket_routes.execute_admin_query",
             return_value=self._make_pipeline_result("greeting"),
@@ -82,7 +77,7 @@ class TestRunPipelineErrorPath:
         sent = []
         with patch(
             "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append(p["type"]),
+            side_effect=lambda sid, p: sent.append(p.get("type") or ("done" if "done" in p else "unknown")),
         ), patch(
             "websocket_routes.execute_admin_query",
             return_value={"type": "error", "error_message": "Failed"},
@@ -101,7 +96,7 @@ class TestRunPipelineErrorPath:
         sent = []
         with patch(
             "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append(p["type"]),
+            side_effect=lambda sid, p: sent.append(p.get("type") or ("done" if "done" in p else "unknown")),
         ), patch(
             "websocket_routes.execute_admin_query",
             side_effect=RuntimeError("unexpected crash"),
@@ -141,13 +136,8 @@ class TestProgressCallback:
         mock_result = {
             "type": "query",
             "response_payload": {
-                "intro": {"title": "", "description": ""},
-                "introMessage": "Test intro",
+                "message": "Test intro",
                 "formattedData": {},
-                "widgets": [],
-                "analysis": None,
-                "prediction": None,
-                "conclusion": None,
                 "suggestedQuestions": [],
             },
         }

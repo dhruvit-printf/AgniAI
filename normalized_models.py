@@ -404,3 +404,69 @@ def _derive_title(query_type: str, intent: Dict[str, Any]) -> str:
         spaced = re.sub(r"([A-Z])", r" \1", subcategory).strip()
         return f"{category} {spaced}"
     return f"{category} Overview"
+
+
+def combine_analysis_to_string(analysis: Optional[Any]) -> str:
+    if not analysis:
+        return ""
+    if isinstance(analysis, str):
+        return analysis
+    parts = []
+    summary = (analysis.get("summary") or "").strip()
+    if summary:
+        parts.append(summary)
+    obs = analysis.get("observations") or []
+    if isinstance(obs, list):
+        obs_str = " ".join(o.strip() for o in obs if o.strip())
+        if obs_str:
+            parts.append(obs_str)
+    elif isinstance(obs, str) and obs.strip():
+        parts.append(obs.strip())
+    insights = analysis.get("insights") or []
+    if isinstance(insights, list):
+        ins_str = " ".join(i.strip() for i in insights if i.strip())
+        if ins_str:
+            parts.append(ins_str)
+    elif isinstance(insights, str) and insights.strip():
+        parts.append(insights.strip())
+    return " ".join(p for p in parts if p)
+
+
+def combine_conclusion_to_string(conclusion: Optional[Any]) -> str:
+    if not conclusion:
+        return ""
+    if isinstance(conclusion, str):
+        return conclusion
+    parts = []
+    summary = (conclusion.get("summary") or "").strip()
+    if summary:
+        parts.append(summary)
+    msg = (conclusion.get("message") or "").strip()
+    if msg and msg != summary:
+        parts.append(msg)
+    return " ".join(p for p in parts if p)
+
+
+def combine_prediction_to_string(prediction: Optional[Any]) -> str:
+    if not prediction:
+        return ""
+    if isinstance(prediction, str):
+        return prediction
+    parts = []
+    trend = (prediction.get("trend") or "").strip()
+    if trend:
+        parts.append(f"Trend is {trend.lower() if not trend.isupper() else trend}.")
+    projection = (prediction.get("projection") or prediction.get("forecast") or "").strip()
+    if projection:
+        parts.append(projection)
+    heuristic = (prediction.get("heuristicEstimate") or "").strip()
+    if heuristic and heuristic != projection:
+        parts.append(heuristic)
+    future_trends = prediction.get("futureTrends") or []
+    if isinstance(future_trends, list):
+        ft_str = " ".join(f.strip() for f in future_trends if f.strip() and f.strip() != projection and f.strip() != heuristic)
+        if ft_str:
+            parts.append(ft_str)
+    elif isinstance(future_trends, str) and future_trends.strip():
+        parts.append(future_trends.strip())
+    return " ".join(p for p in parts if p)

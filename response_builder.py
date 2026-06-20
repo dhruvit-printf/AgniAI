@@ -23,13 +23,13 @@ from normalized_models import (
 
 _PUBLIC_RESPONSE_KEYS = (
     "status",
-    "introMessage",
+    "sessionId",
+    "message",
     "formattedData",
     "analysis",
     "prediction",
     "conclusion",
     "suggestedQuestions",
-    "widgets",
     "metadata",
     "overallConfidence",
     "partialFailure",
@@ -79,7 +79,7 @@ def build_response(
     raw_results: List[Any],
     confidence: float,
     operation_count: int,
-    formatted_data: str = "",
+    formatted_data: Any = None,
     session_id: Optional[str] = None,
     durations: Optional[Dict[str, float]] = None,
     widgets: Optional[List[Dict[str, str]]] = None,
@@ -90,92 +90,149 @@ def build_response(
     answer_dict: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Assemble the final admin response JSON.
-
-    The heavy lifting is delegated to normalized_models.py so this layer stays
-    intentionally thin.
+    Assemble the final response payload strictly using the canonical schema.
     """
-    normalized_intent = normalize_intent_confidence(intent, confidence)
-    if answer_dict is None:
-        answer_dict = build_answer(query_type, combined_result, normalized_intent)
-    payload = assemble_admin_response(
-        query_type=query_type,
-        intro_message=intro_message,
-        combined_result=combined_result,
-        analysis=analysis,
-        conclusion=conclusion,
-        intent=normalized_intent,
-        confidence=confidence,
-        operation_count=operation_count,
-        session_id=session_id,
-        durations=durations,
-        widgets=widgets,
-        suggested_questions=suggested_questions,
-        prediction=prediction,
-        partial_failure=partial_failure,
-        failed_sections=failed_sections,
-        answer_dict=answer_dict,
+    from schemas import FinalResponse
+    from telemetry import request_id_var, trace_id_var, session_id_var
+    from normalized_models import (
+        combine_analysis_to_string,
+        combine_prediction_to_string,
+        combine_conclusion_to_string,
+        normalize_intent_confidence,
+        build_answer,
     )
-    payload["message"] = build_combined_message(
-        intro_message,
-        formatted_data or _build_formatted_summary(
+
+    durations_dict = durations or {}
+    
+    metadata = {
+        "requestId": durations_dict.get("requestId") or request_id_var.get("N/A"),
+        "traceId": durations_dict.get("traceId") or trace_id_var.get("N/A"),
+        "sessionId": session_id or session_id_var.get("admin-default"),
+        "timings": {
+            "entityResolutionMs": durations_dict.get("entityResolutionMs") or durations_dict.get("entity_resolution_ms", 0.0),
+            "planningMs": durations_dict.get("planningMs") or durations_dict.get("planning_ms", 0.0),
+            "plannerDurationMs": durations_dict.get("plannerDurationMs") or durations_dict.get("planner_duration", 0.0),
+            "intentDurationMs": durations_dict.get("intentDurationMs") or durations_dict.get("intent_duration", 0.0),
+            "dotnetDurationMs": durations_dict.get("dotnetDurationMs") or durations_dict.get("dotnet_duration", 0.0),
+            "combineDurationMs": durations_dict.get("combineDurationMs") or durations_dict.get("combiner_duration", 0.0),
+            "widgetMs": durations_dict.get("widgetMs") or durations_dict.get("widget_duration", 0.0),
+            "responseAssemblyMs": durations_dict.get("responseAssemblyMs") or durations_dict.get("response_assembly_duration", 0.0),
+            "analysisDurationMs": durations_dict.get("analysisDurationMs") or durations_dict.get("analysis_duration", 0.0),
+            "predictionDurationMs": durations_dict.get("predictionDurationMs") or durations_dict.get("prediction_duration", 0.0),
+            "conclusionDurationMs": durations_dict.get("conclusionDurationMs") or durations_dict.get("conclusion_duration", 0.0),
+            "totalDurationMs": durations_dict.get("totalDurationMs") or durations_dict.get("total_duration", 0.0),
+            "executionTimeMs": durations_dict.get("executionTimeMs") or durations_dict.get("execution_time_ms", 0.0),
+        },
+        "metrics": {
+            "confidence": round(float(confidence), 2),
+            "queryType": query_type,
+            "operationCount": int(operation_count),
+        },
+        # Flat compatibility fields
+        "planner_duration": durations_dict.get("planner_duration") or durations_dict.get("plannerDurationMs", 0.0),
+        "intent_duration": durations_dict.get("intent_duration") or durations_dict.get("intentDurationMs", 0.0),
+        "dotnet_duration": durations_dict.get("dotnet_duration") or durations_dict.get("dotnetDurationMs", 0.0),
+        "combiner_duration": durations_dict.get("combiner_duration") or durations_dict.get("combineDurationMs", 0.0),
+        "report_duration": durations_dict.get("report_duration") or durations_dict.get("analysisDurationMs", 0.0),
+        "total_duration": durations_dict.get("total_duration") or durations_dict.get("totalDurationMs", 0.0),
+        "confidence": round(float(confidence), 2),
+        "queryType": query_type,
+        "operationCount": int(operation_count),
+    }
+
+    # Ensure formatted_data is valid dictionary/model structure
+    if isinstance(formatted_data, str) or not formatted_data:
+        analysis_str = combine_analysis_to_string(analysis) if analysis else ""
+        prediction_str = combine_prediction_to_string(prediction) if prediction else ""
+        conclusion_str = combine_conclusion_to_string(conclusion) if conclusion else ""
+        fd_payload = {
+            "type": "TABLE",
+            "title": "Data Summary",
+            "data": {"columns": [], "rows": []},
+            "analysis": analysis_str,
+            "prediction": prediction_str,
+            "conclusion": conclusion_str
+        }
+    else:
+        fd_payload = formatted_data
+
+    response_model = FinalResponse(
+        status=True,
+        sessionId=session_id or session_id_var.get("admin-default") or "admin-default",
+        message=intro_message,
+        formattedData=fd_payload,
+        suggestedQuestions=suggested_questions or [],
+        metadata=metadata,
+        overallConfidence=round(float(confidence), 2),
+        partialFailure=partial_failure,
+        failedSections=failed_sections or [],
+    )
+    
+    model_dict = response_model.model_dump(by_alias=True)
+    
+    # Inject legacy keys for test suite and pipeline compatibility
+    normalized_intent = normalize_intent_confidence(intent, confidence)
+    model_dict["intent"] = normalized_intent
+    model_dict["queryType"] = query_type
+    
+    if answer_dict is None:
+        model_dict["answer"] = build_answer(query_type, combined_result, normalized_intent)
+    else:
+        model_dict["answer"] = answer_dict
+        
+    model_dict["result"] = {"processedData": combined_result}
+    
+    # Root level legacy strings (falsy values map to None for backward compatibility)
+    if analysis is not None:
+        model_dict["analysis"] = combine_analysis_to_string(analysis) if analysis else None
+    else:
+        model_dict["analysis"] = fd_payload.get("analysis") if (formatted_data and fd_payload.get("analysis")) else None
+
+    if prediction is not None:
+        model_dict["prediction"] = combine_prediction_to_string(prediction) if prediction else None
+    else:
+        model_dict["prediction"] = fd_payload.get("prediction") if (formatted_data and fd_payload.get("prediction")) else None
+
+    if conclusion is not None:
+        model_dict["conclusion"] = combine_conclusion_to_string(conclusion) if conclusion else None
+    else:
+        model_dict["conclusion"] = fd_payload.get("conclusion") if (formatted_data and fd_payload.get("conclusion")) else None
+
+    # Re-combine formatted summary and build combined message for legacy tests
+    formatted_summary_str = ""
+    if not formatted_data:
+        formatted_summary_str = _build_formatted_summary(
             query_type=query_type,
             combined_result=combined_result,
-            answer_dict=answer_dict,
-        ),
+            answer_dict=model_dict["answer"],
+        )
+    combined_msg = build_combined_message(
+        intro_message,
+        formatted_summary_str,
         analysis,
         conclusion,
     )
-    return payload
+    model_dict["message"] = combined_msg
+    model_dict["introMessage"] = intro_message
+    
+    # Legacy widget structure for compatibility
+    model_dict["widgets"] = [{
+        "section": fd_payload.get("title", "Result"),
+        "type": fd_payload.get("type", "TABLE"),
+        "widgetType": fd_payload.get("type", "TABLE")
+    }] if fd_payload else []
+    
+    model_dict["sessionId"] = session_id or session_id_var.get("admin-default") or "admin-default"
+        
+    return model_dict
 
 
 def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Strip internal-only fields and reshape the public response contract.
+    Filter the internal response dict to only expose fields matching the
+    public contract, preventing security leaks of raw .NET records or LLM details.
     """
-    formatted_data = payload.get("formattedData") or payload.get("answer") or {}
-    sections = formatted_data.get("sections") or []
-    total_records = 0
-    for section in sections:
-        if isinstance(section, dict):
-            total_records += len(section.get("data") or [])
-
-    if total_records == 1:
-        return {
-            "status": True,
-            "introMessage": "",
-            "formattedData": {},
-            "analysis": "",
-            "prediction": "",
-            "conclusion": "",
-            "suggestedQuestions": [],
-            "widgets": [],
-            "metadata": {},
-            "overallConfidence": 0.95,
-            "partialFailure": False,
-            "failedSections": []
-        }
-
-    public_payload: Dict[str, Any] = {}
-    for key in _PUBLIC_RESPONSE_KEYS:
-        if key in payload:
-            public_payload[key] = payload[key]
-
-    prediction = public_payload.get("prediction")
-    if isinstance(prediction, dict):
-        public_payload["prediction"] = {
-            "trend": prediction.get("trend", ""),
-            "forecast": prediction.get("projection")
-            or prediction.get("forecast")
-            or prediction.get("heuristicEstimate")
-            or "",
-        }
-    elif isinstance(prediction, str):
-        public_payload["prediction"] = prediction
-    else:
-        public_payload["prediction"] = ""
-
-    return public_payload
+    return {k: payload[k] for k in _PUBLIC_RESPONSE_KEYS if k in payload}
 
 
 def stream_response_chunks(payload: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:

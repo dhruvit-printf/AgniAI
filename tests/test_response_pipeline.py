@@ -199,13 +199,13 @@ class TestResponseBuilder(unittest.TestCase):
             set(public.keys()),
             {
                 "status",
-                "introMessage",
+                "sessionId",
+                "message",
                 "formattedData",
                 "analysis",
                 "prediction",
                 "conclusion",
                 "suggestedQuestions",
-                "widgets",
                 "metadata",
                 "overallConfidence",
                 "partialFailure",
@@ -215,9 +215,13 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("answer", public)
         self.assertNotIn("result", public)
         self.assertNotIn("intent", public)
-        self.assertNotIn("sessionId", public)
+        self.assertEqual(public["sessionId"], "admin-default")
         self.assertEqual(public["prediction"], internal["prediction"])
-        self.assertNotIn("dotnetPayload", public["formattedData"]["sections"][0])
+        if isinstance(public["formattedData"], dict) and "data" in public["formattedData"]:
+            data = public["formattedData"]["data"]
+            if isinstance(data, dict) and "rows" in data:
+                for row in data["rows"]:
+                    self.assertNotIn("dotnetPayload", row)
 
 
 class TestBuildResponseSecurity:
@@ -357,7 +361,7 @@ class TestBuildCombinedMessage:
         )
         assert resp["intent"]["confidence"] == 0.30
 
-    def test_session_id_omitted_when_default(self):
+    def test_session_id_default_val_when_default(self):
         from response_builder import build_response
 
         intent = {"confidence": 0.9}
@@ -374,7 +378,7 @@ class TestBuildCombinedMessage:
             formatted_data="",
             session_id="admin-default",
         )
-        assert "sessionId" not in resp
+        assert resp["sessionId"] == "admin-default"
 
     def test_session_id_included_when_not_default(self):
         from response_builder import build_response

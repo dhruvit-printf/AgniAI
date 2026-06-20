@@ -59,7 +59,6 @@ from telemetry import (
     session_id_var,
     trace_context,
 )
-from widget_engine import generate_widgets
 from schemas import (
     IntentModel,
     DotNetPayloadModel,
@@ -69,7 +68,6 @@ from schemas import (
     PredictionModel,
     ConclusionModel,
     SuggestedQuestionModel,
-    WidgetModel,
     MetadataModel,
     FinalResponseModel,
 )
@@ -606,14 +604,14 @@ def execute_admin_query(
                 success=True,
             )
 
-            combined_message = response_payload.pop("message", "")
-
             # Validate FinalResponseModel and MetadataModel
             if "metadata" in response_payload:
                 _validate_model_payload(
                     MetadataModel, response_payload["metadata"], "greeting.metadata"
                 )
             _validate_model_payload(FinalResponseModel, response_payload, "greeting.final")
+
+            combined_message = response_payload.pop("message", "")
             metrics_collector.inc_success(qtype)
 
             return {
@@ -1254,24 +1252,21 @@ def execute_admin_query(
             "total_duration": round(total_duration * 1000, 2),
         }
 
-        # ── Step 6: Response Builder & Visualization ──────────────────────────
+        # ── Step 6: Response Builder & Schema Inference ───────────────────────
         widget_start = time.time()
-        answer = build_answer(qtype_str, combined_result, primary_intent)
-        widgets = generate_widgets(
-            answer=answer,
+        from widget_engine import build_formatted_data
+        formatted_data_payload = build_formatted_data(
+            combined_result=combined_result,
             query_type=qtype_str,
             intent=primary_intent,
+            analysis=report.get("analysis"),
+            prediction=report.get("prediction"),
+            conclusion=report.get("conclusion"),
         )
         widget_duration = time.time() - widget_start
 
+        answer = build_answer(qtype_str, combined_result, primary_intent)
         suggested = generate_suggested_questions(qtype_str, primary_intent, answer)
-
-        formatted_data = ""
-
-        # Validate WidgetModel
-        if widgets:
-            for w in widgets:
-                _validate_model_payload(WidgetModel, w, "widgets")
 
         # Validate SuggestedQuestionModel
         if suggested:
@@ -1286,18 +1281,18 @@ def execute_admin_query(
                 query_type=qtype_str,
                 intro_message=report.get("introMessage", ""),
                 combined_result=combined_result,
-                analysis=report.get("analysis"),
-                conclusion=report.get("conclusion"),
+                analysis=None,
+                conclusion=None,
                 intent=primary_intent,
                 raw_results=raw_results,
                 confidence=query_plan.confidence,
                 operation_count=operation_count,
-                formatted_data=formatted_data,
+                formatted_data=formatted_data_payload,
                 session_id=session_id,
                 durations=durations_payload,
-                widgets=widgets,
+                widgets=None,
                 suggested_questions=suggested,
-                prediction=report.get("prediction"),
+                prediction=None,
                 partial_failure=partial_failure,
                 failed_sections=failed_sections,
                 answer_dict=answer,
@@ -1356,8 +1351,8 @@ def execute_admin_query(
                         else []
                     ),
                     "combiner_strategy": combiner_strategy,
-                    "visualization_decisions": [w["type"] for w in widgets],
-                    "widget_count": len(widgets),
+                    "visualization_decisions": [formatted_data_payload.get("type")] if formatted_data_payload else [],
+                    "widget_count": 1 if formatted_data_payload else 0,
                     "record_count": record_count,
                     "report_strategy": report_strategy,
                     "report_duration": durations["report_duration"],
@@ -1418,14 +1413,14 @@ def execute_admin_query(
             success=True,
         )
 
-        combined_message = response_payload.pop("message", "")
-
         # Validate FinalResponseModel and MetadataModel
         if "metadata" in response_payload:
             _validate_model_payload(
                 MetadataModel, response_payload["metadata"], "final.metadata"
             )
         _validate_model_payload(FinalResponseModel, response_payload, "final.response")
+
+        combined_message = response_payload.pop("message", "")
         metrics_collector.inc_success(qtype_str)
 
         # Cache successful query response

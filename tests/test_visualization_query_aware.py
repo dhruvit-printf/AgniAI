@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from widget_engine import generate_widgets
+from widget_engine import build_formatted_data
 
 
 class TestVisualizationQueryAware(unittest.TestCase):
@@ -15,10 +15,8 @@ class TestVisualizationQueryAware(unittest.TestCase):
             "right": {"label": "B", "data": [{"id": 2}]},
             "comparison": {"averageScore": {"higher": "A", "lower": "B"}},
         }
-        widgets = generate_widgets(combined, query_type="compare", intent={})
-        types = [w["type"] for w in widgets]
-        self.assertIn("BAR_CHART", types)
-        self.assertIn("TABLE", types)
+        res = build_formatted_data(combined, query_type="compare", intent={})
+        self.assertEqual(res["type"], "CHART_BAR")
 
     def test_cross_filter_guarantee(self):
         combined = {
@@ -26,18 +24,15 @@ class TestVisualizationQueryAware(unittest.TestCase):
                 {"label": "Common Records", "data": [{"id": 1}, {"id": 2}]}
             ]
         }
-        widgets = generate_widgets(combined, query_type="cross_filter", intent={})
-        types = [w["type"] for w in widgets]
-        self.assertIn("TABLE", types)
+        res = build_formatted_data(combined, query_type="cross_filter", intent={})
+        self.assertEqual(res["type"], "TABLE")
 
     def test_metric_widget_selection(self):
         combined = {
             "sections": [{"label": "Result", "data": [{"count": 5}]}]
         }
-        widgets = generate_widgets(combined, query_type="simple", intent={})
-        types = [w["type"] for w in widgets]
-        self.assertIn("CARD", types)
-        self.assertIn("METRIC_CARD", types)
+        res = build_formatted_data(combined, query_type="simple", intent={})
+        self.assertEqual(res["type"], "CARD")
 
 
 if __name__ == "__main__":

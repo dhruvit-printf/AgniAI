@@ -131,7 +131,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
                     "message": "Failed to process request.",
                 },
             )
-            ws_manager.send_json(sid, {"type": "done"})
+            ws_manager.send_json(sid, {"done": True})
             return
 
         # ── Stream response sections ────────────────────────────────────────
@@ -140,53 +140,16 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
         ws_manager.send_json(
             sid,
             {
-                "type": "intro",
-                "data": response_payload.get("intro") or response_payload.get("introMessage", {}),
+                "message": response_payload.get("message", ""),
             },
         )
         ws_manager.send_json(
             sid,
             {
-                "type": "formattedData",
-                "data": response_payload.get("formattedData", {}),
+                "formattedData": response_payload.get("formattedData", {}),
             },
         )
-        ws_manager.send_json(
-            sid,
-            {
-                "type": "widgets",
-                "data": response_payload.get("widgets", []),
-            },
-        )
-        ws_manager.send_json(
-            sid,
-            {
-                "type": "analysis",
-                "data": response_payload.get("analysis", {}),
-            },
-        )
-        ws_manager.send_json(
-            sid,
-            {
-                "type": "prediction",
-                "data": response_payload.get("prediction", {}),
-            },
-        )
-        ws_manager.send_json(
-            sid,
-            {
-                "type": "conclusion",
-                "data": response_payload.get("conclusion", {}),
-            },
-        )
-        ws_manager.send_json(
-            sid,
-            {
-                "type": "suggestedQuestions",
-                "data": response_payload.get("suggestedQuestions") or [],
-            },
-        )
-        ws_manager.send_json(sid, {"type": "done"})
+        ws_manager.send_json(sid, {"done": True})
 
     except Exception as exc:
         duration_ms = round((time.time() - start_time) * 1000, 2)
@@ -205,12 +168,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
         ws_manager.send_json(
             sid, {"type": "error", "message": "Failed to process request."}
         )
-        ws_manager.send_json(sid, {"type": "done"})
-
-
-# =============================================================================
-# SOCKET.IO EVENT HANDLERS
-# =============================================================================
+        ws_manager.send_json(sid, {"done": True})
 
 
 def register_socketio_events(socketio: SocketIO) -> None:

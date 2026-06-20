@@ -3,7 +3,7 @@ import unittest
 from query_planner import QueryType, plan_query
 from response_builder import build_response
 from result_combiner import compare_results, process_distribution, process_trend
-from widget_engine import generate_widgets
+from widget_engine import build_formatted_data
 
 
 class TestArchitecturalFixes(unittest.TestCase):
@@ -90,23 +90,23 @@ class TestArchitecturalFixes(unittest.TestCase):
 
     def test_widgets_selection_step_12(self):
         # 1. Single record -> CARD
-        widgets_single = generate_widgets(
+        fd_single = build_formatted_data(
             {"sections": [{"label": "Result", "data": [{"id": 1}]}]},
             query_type="simple",
             intent={},
         )
-        self.assertEqual(widgets_single[0]["type"], "CARD")
+        self.assertEqual(fd_single["type"], "CARD")
 
         # 2. Multiple records -> TABLE
-        widgets_multi = generate_widgets(
+        fd_multi = build_formatted_data(
             {"sections": [{"label": "Result", "data": [{"id": 1}, {"id": 2}]}]},
             query_type="simple",
             intent={},
         )
-        self.assertEqual(widgets_multi[0]["type"], "TABLE")
+        self.assertEqual(fd_multi["type"], "TABLE")
 
-        # 3. Comparison -> TABLE and BAR_CHART
-        widgets_compare = generate_widgets(
+        # 3. Comparison -> CHART_BAR
+        fd_compare = build_formatted_data(
             {
                 "left": {"label": "Left", "data": [{"id": 1}]},
                 "right": {"label": "Right", "data": [{"id": 2}]},
@@ -115,29 +115,23 @@ class TestArchitecturalFixes(unittest.TestCase):
             query_type="compare",
             intent={},
         )
-        types_compare = [w["type"] for w in widgets_compare]
-        self.assertIn("TABLE", types_compare)
-        self.assertIn("BAR_CHART", types_compare)
+        self.assertEqual(fd_compare["type"], "CHART_BAR")
 
-        # 4. Trend -> LINE_CHART and AREA_CHART
-        widgets_trend = generate_widgets(
+        # 4. Trend -> CHART_LINE
+        fd_trend = build_formatted_data(
             {"sections": [{"label": "Result", "data": [{"date": "2026-06-20"}]}]},
             query_type="trend",
             intent={},
         )
-        types_trend = [w["type"] for w in widgets_trend]
-        self.assertIn("LINE_CHART", types_trend)
-        self.assertIn("AREA_CHART", types_trend)
+        self.assertEqual(fd_trend["type"], "CHART_LINE")
 
-        # 5. Distribution -> PIE_CHART and BAR_CHART
-        widgets_dist = generate_widgets(
+        # 5. Distribution -> CHART_PIE
+        fd_dist = build_formatted_data(
             {"sections": [{"label": "Result", "data": [{"sport": "Cricket"}]}]},
             query_type="distribution",
             intent={},
         )
-        types_dist = [w["type"] for w in widgets_dist]
-        self.assertIn("PIE_CHART", types_dist)
-        self.assertIn("BAR_CHART", types_dist)
+        self.assertEqual(fd_dist["type"], "CHART_PIE")
 
 
 if __name__ == "__main__":
