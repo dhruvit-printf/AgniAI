@@ -696,11 +696,18 @@
         "AdminChatResponse": {
           "type": "object",
           "properties": {
-            "success":    { "type": "boolean" },
-            "answer":     { "type": "string",  "description": "Formatted human-readable answer" },
-            "intent":     { "$ref": "#/components/schemas/IntentResult" },
-            "session_id": { "type": "string" },
-            "elapsed_ms": { "type": "integer" }
+            "status":             { "type": "boolean" },
+            "introMessage":       { "type": "object" },
+            "formattedData":      { "type": "object" },
+            "analysis":           { "type": "object" },
+            "prediction":         { "type": "object" },
+            "conclusion":         { "type": "object" },
+            "suggestedQuestions": { "type": "array", "items": { "type": "string" } },
+            "widgets":            { "type": "array", "items": { "type": "object" } },
+            "metadata":           { "type": "object" },
+            "overallConfidence":  { "type": "number" },
+            "partialFailure":     { "type": "boolean" },
+            "failedSections":     { "type": "array", "items": { "type": "string" } }
           }
         },
   

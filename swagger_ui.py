@@ -28,10 +28,107 @@ def _load_spec() -> dict:
     return json.loads(_SPEC_PATH.read_text(encoding="utf-8"))
 
 
+def _rewrite_admin_chat_spec(spec: dict) -> dict:
+    admin_chat = spec.get("paths", {}).get("/api/admin/chat", {}).get("post")
+    if not admin_chat:
+        return spec
+
+    admin_chat_response = admin_chat.get("responses", {}).get("200", {}).get("content", {}).get("application/json")
+    if not admin_chat_response:
+        return spec
+
+    admin_chat_response["schema"] = {"$ref": "#/components/schemas/AdminChatResponse"}
+    admin_chat_response["example"] = {
+        "status": True,
+        "introMessage": {
+            "title": "Performance Top Performers",
+            "description": "These assessment results highlight the strongest performers in the evaluation.",
+        },
+        "formattedData": {
+            "sections": [
+                {
+                    "label": "PPT",
+                    "type": "simple",
+                    "data": [
+                        {
+                            "fullName": "GURVINDER SINGH",
+                            "agniveerNo": "A0701518M",
+                            "bestTotal": 100,
+                        }
+                    ],
+                    "confidence": 0.95,
+                    "recordCount": 10,
+                }
+            ]
+        },
+        "analysis": {
+            "summary": "The top 10 performers in PPT have an average score of 100.0 and a range from 100.0 to 100.0.",
+            "observations": [
+                "GURVINDER SINGH",
+                "ABHISHEK THAKUR",
+            ],
+            "insights": [
+                "All top performers have a score of 100.0",
+            ],
+        },
+        "prediction": {
+            "trend": "Stable",
+            "forecast": "Future scores are projected to remain high and stable around the average of 100.0.",
+        },
+        "conclusion": {
+            "summary": "The top performers in PPT remain consistently strong.",
+        },
+        "suggestedQuestions": [
+            "Who are the lowest performers in PPT?",
+            "Compare PPT's top performers with another section.",
+        ],
+        "widgets": [
+            {
+                "section": "PPT",
+                "type": "TABLE",
+                "widgetType": "TABLE",
+            }
+        ],
+        "metadata": {
+            "requestId": "…",
+            "traceId": "…",
+            "sessionId": "…",
+            "executionTimeMs": 1234,
+            "queryType": "simple",
+            "operationCount": 1,
+        },
+        "overallConfidence": 0.95,
+        "partialFailure": False,
+        "failedSections": [],
+    }
+
+    components = spec.get("components", {}).get("schemas", {})
+    if "AdminChatResponse" in components:
+        components["AdminChatResponse"] = {
+            "type": "object",
+            "properties": {
+                "status": {"type": "boolean"},
+                "introMessage": {"type": "object"},
+                "formattedData": {"type": "object"},
+                "analysis": {"type": "object"},
+                "prediction": {"type": "object"},
+                "conclusion": {"type": "object"},
+                "suggestedQuestions": {"type": "array", "items": {"type": "string"}},
+                "widgets": {"type": "array", "items": {"type": "object"}},
+                "metadata": {"type": "object"},
+                "overallConfidence": {"type": "number"},
+                "partialFailure": {"type": "boolean"},
+                "failedSections": {"type": "array", "items": {"type": "string"}},
+            },
+        }
+
+    return spec
+
+
 @swagger_bp.route("/docs/spec")
 def spec():
     """Serve the raw OpenAPI JSON spec."""
-    return jsonify(_load_spec())
+    return jsonify(_rewrite_admin_chat_spec(_load_spec()))
 
 
 @swagger_bp.route("/docs")
@@ -293,7 +390,7 @@ _SWAGGER_HTML = """<!DOCTYPE html>
     }
 
     function applyServer() {
-    const url = document.getElementById('server-url').value.replace(/\/$/, '') || 'http://localhost:5000';
+    const url = document.getElementById('server-url').value.replace(/\\/$/, '') || 'http://localhost:5000';
       loadUI(url);
     }
 
