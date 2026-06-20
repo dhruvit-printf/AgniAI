@@ -14,12 +14,12 @@ class TestRunPipelineSuccessPath:
             "type": qtype,
             "response_payload": {
                 "intro": {"title": "Test", "description": "Test intro"},
-                "introMessage": {"title": "Test", "description": "Test intro"},
+                "introMessage": "Test intro",
                 "formattedData": {"sections": []},
                 "widgets": [{"section": "Result", "type": "TABLE", "widgetType": "TABLE"}],
-                "analysis": {"summary": "Summary", "observations": [], "insights": []},
-                "prediction": {"trend": "Stable", "projection": "Stable"},
-                "conclusion": {"summary": "Done"},
+                "analysis": "Summary",
+                "prediction": "Stable",
+                "conclusion": "Done",
                 "suggestedQuestions": ["Q1"],
             },
         }
@@ -142,7 +142,7 @@ class TestProgressCallback:
             "type": "query",
             "response_payload": {
                 "intro": {"title": "", "description": ""},
-                "introMessage": {"title": "", "description": ""},
+                "introMessage": "Test intro",
                 "formattedData": {},
                 "widgets": [],
                 "analysis": None,

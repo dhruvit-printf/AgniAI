@@ -118,6 +118,10 @@ logger = logging.getLogger(__name__)
 # ── App creation (must come before any blueprint registration) ─────────────
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
+if hasattr(app, "json"):
+    app.json.sort_keys = False
+else:
+    app.config["JSON_SORT_KEYS"] = False
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # ── CORS ───────────────────────────────────────────────────────────────────

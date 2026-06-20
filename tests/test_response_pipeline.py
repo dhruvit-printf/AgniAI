@@ -124,12 +124,10 @@ class TestResponseBuilder(unittest.TestCase):
 
         self.assertTrue(resp["status"])
         self.assertEqual(resp["queryType"], "simple")
-        self.assertEqual(resp["introMessage"]["description"], "Intro")
-        self.assertEqual(resp["introMessage"]["title"], "Performance Top Performers")
+        self.assertEqual(resp["introMessage"], "Intro")
         self.assertEqual(resp["result"]["processedData"], {"res": "val"})
-        self.assertEqual(resp["analysis"]["summary"], "Sum")
-        self.assertEqual(resp["analysis"]["observations"], ["O"])
-        self.assertEqual(resp["conclusion"]["summary"], "Conc")
+        self.assertEqual(resp["analysis"], "Sum O I")
+        self.assertEqual(resp["conclusion"], "Conc")
         self.assertEqual(resp["intent"]["confidence"], 0.95)
         # dotnetResponse is intentionally omitted for security — raw backend
         # data must never reach the frontend. Verify it is absent.
@@ -218,7 +216,7 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("result", public)
         self.assertNotIn("intent", public)
         self.assertNotIn("sessionId", public)
-        self.assertEqual(public["prediction"]["forecast"], internal["prediction"]["projection"])
+        self.assertEqual(public["prediction"], internal["prediction"])
         self.assertNotIn("dotnetPayload", public["formattedData"]["sections"][0])
 
 

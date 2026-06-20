@@ -286,22 +286,68 @@ def assemble_admin_response(
     else:
         overall_conf = round(float(confidence), 2)
 
-    analysis_dict = None
+    analysis_str = None
     if analysis:
-        analysis_dict = {
-            "summary": analysis.get("summary") or "",
-            "observations": list(analysis.get("observations") or []),
-            "insights": list(analysis.get("insights") or []),
-        }
+        if isinstance(analysis, str):
+            analysis_str = analysis
+        else:
+            parts = []
+            summary = (analysis.get("summary") or "").strip()
+            if summary:
+                parts.append(summary)
+            obs = analysis.get("observations") or []
+            if isinstance(obs, list):
+                obs_str = " ".join(o.strip() for o in obs if o.strip())
+                if obs_str:
+                    parts.append(obs_str)
+            elif isinstance(obs, str) and obs.strip():
+                parts.append(obs.strip())
+            insights = analysis.get("insights") or []
+            if isinstance(insights, list):
+                ins_str = " ".join(i.strip() for i in insights if i.strip())
+                if ins_str:
+                    parts.append(ins_str)
+            elif isinstance(insights, str) and insights.strip():
+                parts.append(insights.strip())
+            analysis_str = " ".join(p for p in parts if p)
 
-    conclusion_dict = None
+    conclusion_str = None
     if conclusion:
-        conclusion_dict = {
-            "summary": conclusion.get("summary") or conclusion.get("message") or "",
-            "message": conclusion.get("message") or conclusion.get("summary") or "",
-        }
+        if isinstance(conclusion, str):
+            conclusion_str = conclusion
+        else:
+            parts = []
+            summary = (conclusion.get("summary") or "").strip()
+            if summary:
+                parts.append(summary)
+            msg = (conclusion.get("message") or "").strip()
+            if msg and msg != summary:
+                parts.append(msg)
+            conclusion_str = " ".join(p for p in parts if p)
 
-    normalized_prediction = normalize_prediction(prediction)
+    prediction_str = None
+    if prediction:
+        if isinstance(prediction, str):
+            prediction_str = prediction
+        else:
+            parts = []
+            trend = (prediction.get("trend") or "").strip()
+            if trend:
+                parts.append(f"Trend is {trend.lower() if not trend.isupper() else trend}.")
+            projection = (prediction.get("projection") or prediction.get("forecast") or "").strip()
+            if projection:
+                parts.append(projection)
+            heuristic = (prediction.get("heuristicEstimate") or "").strip()
+            if heuristic and heuristic != projection:
+                parts.append(heuristic)
+            future_trends = prediction.get("futureTrends") or []
+            if isinstance(future_trends, list):
+                ft_str = " ".join(f.strip() for f in future_trends if f.strip() and f.strip() != projection and f.strip() != heuristic)
+                if ft_str:
+                    parts.append(ft_str)
+            elif isinstance(future_trends, str) and future_trends.strip():
+                parts.append(future_trends.strip())
+            prediction_str = " ".join(p for p in parts if p)
 
     metadata = assemble_response_metadata(
         confidence=confidence,
@@ -316,14 +362,12 @@ def assemble_admin_response(
         "intro": build_intro_message(
             _derive_title(query_type, normalized_intent), intro_message, normalized_intent.get("category") or "Agniveer"
         ),
-        "introMessage": build_intro_message(
-            _derive_title(query_type, normalized_intent), intro_message, normalized_intent.get("category") or "Agniveer"
-        ),
+        "introMessage": intro_message or f"Retrieved {normalized_intent.get('category', 'Agniveer').lower()} records matching request.",
         "formattedData": answer_dict,
         "answer": answer_dict,
-        "analysis": analysis_dict,
-        "prediction": normalized_prediction,
-        "conclusion": conclusion_dict,
+        "analysis": analysis_str,
+        "prediction": prediction_str,
+        "conclusion": conclusion_str,
         "suggestedQuestions": suggested_questions or [],
         "widgets": widgets or [],
         "metadata": metadata,

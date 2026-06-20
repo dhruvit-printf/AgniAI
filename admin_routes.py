@@ -90,6 +90,7 @@ def admin_chat():
         json.dumps(
             {
                 "message": "HTTP admin chat entry",
+                "question": message,
                 "trace_id": trace_id,
                 "session_id": session_id,
                 "query_type": "N/A",
@@ -110,6 +111,7 @@ def admin_chat():
             json.dumps(
                 {
                     "message": "HTTP admin chat error response",
+                    "question": message,
                     "trace_id": trace_id,
                     "session_id": session_id,
                     "query_type": "error",
@@ -120,13 +122,16 @@ def admin_chat():
         return jsonify({"type": "error", "message": "Failed to process request."}), 500
 
     # ── Successful query / greeting / conversational ────────────────────────
+    payload = result.get("response_payload") or {}
     logger.info(
         json.dumps(
             {
                 "message": "HTTP admin chat success response",
+                "question": message,
+                "query_type": payload.get("queryType"),
+                "intent_formed": payload.get("intent"),
                 "trace_id": trace_id,
                 "session_id": session_id,
-                "query_type": result_type,
                 "duration_ms": duration_ms,
             }
         )

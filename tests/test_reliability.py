@@ -186,7 +186,7 @@ class TestReliability(unittest.TestCase):
         self.assertIsNone(response_payload["conclusion"])
         self.assertEqual(response_payload["status"], True)
         self.assertEqual(
-            response_payload["introMessage"]["description"], "Report generated with partial metrics."
+            response_payload["introMessage"], "Report generated with partial metrics."
         )
 
     def test_progress_callback_protection(self):

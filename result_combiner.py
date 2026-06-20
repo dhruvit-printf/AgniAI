@@ -161,85 +161,19 @@ def intersect_results(
 ) -> Dict[str, Any]:
     """
     Compute the N-way intersection of result sets by agniveerNo (with agniveerId fallback).
-
-    The primary_index set supplies the full record objects for the filtered list.
-    All other sets are used only for their ID sets.
+    Delegates to cross_filter_datasets.
     """
-    if not result_sets:
+    res = cross_filter_datasets(result_sets, primary_index)
+    if not res.get("status", True):
         return {
             "queryType": "cross_filter",
-            "filterDepth": 0,
+            "filterDepth": len(result_sets),
             "matchCount": 0,
             "totalBeforeFilter": 0,
             "records": [],
         }
-
-    all_record_sets = [_extract_records(rs) for rs in result_sets]
-    all_id_sets = [_extract_agniveer_ids(recs) for recs in all_record_sets]
-
-    if not all_id_sets or any(len(ids) == 0 for ids in all_id_sets):
-        common_ids: Set[str] = set()
-    else:
-        common_ids = all_id_sets[0]
-        for id_set in all_id_sets[1:]:
-            common_ids = common_ids & id_set
-
-    primary_index = min(primary_index, len(all_record_sets) - 1)
-    primary_records = all_record_sets[primary_index]
-    total_before = len(primary_records)
-
-    records_by_id = []
-    for recs in all_record_sets:
-        lookup = {}
-        for record in recs:
-            record_id = record.get("agniveerNo")
-            if record_id is None:
-                for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-                    val = record.get(key)
-                    if val is not None:
-                        record_id = str(val).strip()
-                        break
-            if record_id is not None:
-                lookup[str(record_id).strip()] = record
-        records_by_id.append(lookup)
-
-    filtered: List[Dict] = []
-    for record in primary_records:
-        record_id: Optional[str] = record.get("agniveerNo")
-        if record_id is None:
-            for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-                val = record.get(key)
-                if val is not None:
-                    record_id = str(val).strip()
-                    break
-        if record_id is None or str(record_id).strip() not in common_ids:
-            continue
-
-        merged = dict(record)
-        normalized_id = str(record_id).strip()
-        for lookup in records_by_id:
-            match = lookup.get(normalized_id)
-            if not match:
-                continue
-            for key, value in match.items():
-                if key not in merged or merged.get(key) in (None, ""):
-                    merged[key] = value
-        filtered.append(merged)
-
-    logger.info(
-        "intersect_results: depth=%d total_before=%d matched=%d",
-        len(result_sets),
-        total_before,
-        len(filtered),
-    )
-
-    return {
-        "queryType": "cross_filter",
-        "filterDepth": len(result_sets),
-        "matchCount": len(filtered),
-        "totalBeforeFilter": total_before,
-        "records": filtered,
-    }
+    res["queryType"] = "cross_filter"
+    return res
 
 
 # =============================================================================
@@ -277,124 +211,14 @@ def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
 # =============================================================================
 
 
-def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
-    """
-    Extract comparable scalar metrics from any .NET response shape.
-    Works for plain dicts, wrapped dicts, and record lists.
-    """
-    metrics: Dict[str, Any] = {}
-
-    # Scalar fields from dict
-    if isinstance(data, dict):
-        inner = data
-        for key in ("data", "Data", "result", "Result"):
-            val = data.get(key)
-            if isinstance(val, dict):
-                inner = val
-                break
-
-        for k, v in inner.items():
-            if isinstance(v, (int, float)):
-                metrics[k] = v
-            elif isinstance(v, str):
-                try:
-                    metrics[k] = float(v)
-                except ValueError:
-                    pass
-
-    # Record-list metrics
-    records = _extract_records(data)
-    if records:
-        metrics["recordCount"] = len(records)
-
-        scores = [s for s in (_get_score(r) for r in records) if s is not None]
-        if scores:
-            metrics["averageScore"] = round(sum(scores) / len(scores), 2)
-            metrics["topScore"] = max(scores)
-            metrics["bottomScore"] = min(scores)
-
-    return metrics
-
-
 def compare_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
     """
     Compare two or more .NET results side by side.
-
-    Each side retains its full data (for the formatter) and extracted metrics
-    (for display in analysis/conclusion).
+    Delegates to compare_datasets.
     """
-    sides: List[Dict] = []
-    all_metric_keys: Set[str] = set()
-
-    for label, data in labeled_results:
-        is_unavailable = False
-        if isinstance(data, dict) and data.get("unavailable") is True:
-            is_unavailable = True
-            metrics = {}
-        else:
-            metrics = _extract_summary_metrics(data)
-            all_metric_keys.update(metrics.keys())
-
-        side = {
-            "label": label,
-            "data": data,
-            "metrics": metrics,
-        }
-        if is_unavailable:
-            side["unavailable"] = True
-
-        sides.append(side)
-
-    logger.info(
-        "compare_results: %d sides, metrics=%s",
-        len(sides),
-        sorted(all_metric_keys),
-    )
-
-    combined: Dict[str, Any] = {
-        "queryType": "comparison",
-        "sides": sides,
-        "comparedMetrics": sorted(all_metric_keys),
-    }
-
-    if len(sides) >= 1:
-        combined["left"] = sides[0]
-    if len(sides) >= 2:
-        combined["right"] = sides[1]
-
-    comparison_metrics = {}
-    for metric in all_metric_keys:
-        valid_sides_with_metric = []
-        for side in sides:
-            val = _safe_float(side["metrics"].get(metric))
-            if val is not None:
-                valid_sides_with_metric.append((side["label"], val))
-
-        if len(valid_sides_with_metric) >= 2:
-            valid_sides_with_metric.sort(key=lambda x: x[1])
-            lowest_label, lowest_val = valid_sides_with_metric[0]
-            highest_label, highest_val = valid_sides_with_metric[-1]
-
-            diff = highest_val - lowest_val
-            pct = (diff / lowest_val * 100.0) if lowest_val != 0 else 0.0
-
-            comparison_metrics[metric] = {
-                "higher": highest_label,
-                "lower": lowest_label,
-                "difference": round(diff, 2),
-                "percentage": round(pct, 2),
-            }
-        elif len(valid_sides_with_metric) == 1:
-            label, val = valid_sides_with_metric[0]
-            comparison_metrics[metric] = {
-                "higher": label,
-                "lower": "N/A",
-                "difference": 0.0,
-                "percentage": 0.0,
-            }
-
-    combined["comparison"] = comparison_metrics
-    return combined
+    res = compare_datasets(labeled_results)
+    res["queryType"] = "comparison"
+    return res
 
 
 def _extract_chronological_key(record: Dict) -> Any:

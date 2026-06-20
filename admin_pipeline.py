@@ -549,9 +549,15 @@ def execute_admin_query(
                 json.dumps(
                     {
                         "message": "Admin pipeline complete",
+                        "question": user_query,
+                        "query_type": qtype,
+                        "intent_formed": {
+                            "category": qtype,
+                            "subcategory": "",
+                            "confidence": 1.0,
+                        },
                         "trace_id": trace_id,
                         "session_id": session_id,
-                        "query_type": qtype,
                         "duration": durations["total_duration"],
                         "planner_duration": durations["planner_duration"],
                         "intent_duration": durations["intent_duration"],
@@ -937,9 +943,11 @@ def execute_admin_query(
                         json.dumps(
                             {
                                 "message": "Admin pipeline complete",
+                                "question": user_query,
+                                "query_type": "unrecognised",
+                                "intent_formed": primary_intent,
                                 "trace_id": trace_id,
                                 "session_id": session_id,
-                                "query_type": "unrecognised",
                                 "duration": durations["total_duration"],
                                 "planner_duration": durations["planner_duration"],
                                 "intent_duration": durations["intent_duration"],
@@ -1324,6 +1332,9 @@ def execute_admin_query(
             json.dumps(
                 {
                     "message": "Admin pipeline complete",
+                    "question": user_query,
+                    "query_type": qtype_str,
+                    "intent_formed": primary_intent,
                     "trace_id": trace_id,
                     "session_id": session_id,
                     "main_intent": {
@@ -1335,7 +1346,6 @@ def execute_admin_query(
                     "planner_query_type": (
                         query_plan.query_type.value if query_plan else None
                     ),
-                    "query_type": qtype_str,
                     "operation_count": operation_count,
                     "payload_sent": (
                         [

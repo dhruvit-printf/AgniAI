@@ -134,9 +134,8 @@ class TestF13PredictionLabels(unittest.TestCase):
                 "futureTrends": ["Heuristic estimate remains stable."],
             },
         )
-        self.assertIn("projection", payload["prediction"])
-        self.assertIn("heuristicEstimate", payload["prediction"])
-        self.assertNotIn("forecast", payload["prediction"])
+        self.assertIn("Projected stable performance.", payload["prediction"])
+        self.assertIn("Heuristic estimate remains stable.", payload["prediction"])
 
 
 class TestF14DeadBranchAndEntryPoint(unittest.TestCase):

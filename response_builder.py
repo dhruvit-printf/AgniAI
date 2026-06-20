@@ -143,20 +143,11 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
     if total_records == 1:
         return {
             "status": True,
-            "introMessage": {},
+            "introMessage": "",
             "formattedData": {},
-            "analysis": {
-                "observations": [],
-                "insights": [],
-                "summary": ""
-            },
-            "prediction": {
-                "trend": "",
-                "forecast": ""
-            },
-            "conclusion": {
-                "summary": ""
-            },
+            "analysis": "",
+            "prediction": "",
+            "conclusion": "",
             "suggestedQuestions": [],
             "widgets": [],
             "metadata": {},
@@ -179,8 +170,10 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
             or prediction.get("heuristicEstimate")
             or "",
         }
+    elif isinstance(prediction, str):
+        public_payload["prediction"] = prediction
     else:
-        public_payload["prediction"] = {"trend": "", "forecast": ""}
+        public_payload["prediction"] = ""
 
     return public_payload
 

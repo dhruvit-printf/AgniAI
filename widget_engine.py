@@ -39,6 +39,7 @@ _OPERATION_ALIASES: Dict[str, str] = {
 _SHAPE_WIDGET_PRIORITIES = {
     "CARD": 110,
     "TABLE": 100,
+    "CALENDAR_UI": 95,
     "BAR_CHART": 90,
     "LINE_CHART": 85,
     "AREA_CHART": 80,
@@ -161,6 +162,12 @@ def _infer_shape_widget(label: str, data: Any, query_type: str) -> List[str]:
         for key in ("date", "month", "attempt", "year", "attemptno", "fromattempt", "toattempt", "time")
     ):
         widgets.extend(["LINE_CHART", "AREA_CHART"])
+
+    if any(
+        key in keys
+        for key in ("date", "calendar", "schedule", "day", "daily")
+    ):
+        widgets.append("CALENDAR_UI")
 
     return widgets
 

@@ -83,6 +83,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
         json.dumps(
             {
                 "message": "WebSocket admin query entry",
+                "question": message,
                 "trace_id": trace_id,
                 "session_id": session_id,
                 "query_type": "N/A",
@@ -115,6 +116,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
                 json.dumps(
                     {
                         "message": "WebSocket admin query error response",
+                        "question": message,
                         "trace_id": trace_id,
                         "session_id": session_id,
                         "query_type": "error",
@@ -134,18 +136,6 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
 
         # ── Stream response sections ────────────────────────────────────────
         response_payload = public_response_view(result.get("response_payload", {}))
-
-        logger.info(
-            json.dumps(
-                {
-                    "message": "WebSocket admin query success response",
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": result_type,
-                    "duration_ms": duration_ms,
-                }
-            )
-        )
 
         ws_manager.send_json(
             sid,
