@@ -6,6 +6,8 @@ Widget engine for generating visualization metadata based on answer JSON.
 
 from typing import Any, Dict, List, Set
 
+from normalized_models import extract_records as _extract_records
+
 def generate_widgets(
     answer: Dict[str, Any],
     query_type: str,
@@ -31,14 +33,7 @@ def generate_widgets(
 
     # Helper to count records inside section/data blocks
     def count_records(data: Any) -> int:
-        if isinstance(data, list):
-            return len(data)
-        if isinstance(data, dict):
-            for key in ("records", "Records", "data", "Data"):
-                val = data.get(key)
-                if isinstance(val, list):
-                    return len(val)
-        return 0
+        return len(_extract_records(data))
 
     def infer_for_block(label: str, data: Any):
         keys = collect_keys(data)
@@ -103,7 +98,7 @@ def generate_widgets(
         infer_for_block(left_label, left)
         infer_for_block(right_label, right)
         infer_for_block("Comparison", answer.get("comparison") or {})
-        # Ensure we always have Comparison TABLE and BAR_CHART as expected by compare pipeline
+        # Keep a guaranteed comparison surface for the frontend.
         widgets.append({"section": "Comparison", "widgetType": "TABLE"})
         widgets.append({"section": "Comparison", "widgetType": "BAR_CHART"})
     else:
@@ -128,4 +123,3 @@ def generate_widgets(
             deduped.append(w_copy)
 
     return deduped
-

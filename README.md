@@ -337,7 +337,6 @@ AgniAI/
 │   ├── admin_routes.py        # HTTP transport for /api/admin/*
 │   ├── admin_intent.py        # Intent classifier (8 modules, fuzzy vocab, item lists)
 │   ├── admin_entity_resolver.py # Company/platoon name → ID via .NET (cached)
-│   ├── admin_formatter.py     # .NET response → plain-text formatter
 │   ├── admin_confidence.py    # Unified confidence scoring
 │   ├── admin_context.py       # Per-session follow-up context
 │   ├── query_planner.py       # simple / cross_filter / comparison / multi / analytics

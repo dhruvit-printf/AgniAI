@@ -716,7 +716,8 @@ def execute_admin_query(
                         )
 
                         try:
-                            data, err = _call_dotnet(payload, trace_id=trace_id)
+                            with trace_context(request_id, trace_id, session_id):
+                                data, err = _call_dotnet(payload, trace_id=trace_id)
                             if not err and data is not None:
                                 # Validate DotNetResponseModel
                                 if isinstance(data, dict):
@@ -1016,9 +1017,10 @@ def execute_admin_query(
                         )
                     )
 
-                    dotnet_data, dotnet_error = _call_dotnet(
-                        dotnet_payload, trace_id=trace_id
-                    )
+                    with trace_context(request_id, trace_id, session_id):
+                        dotnet_data, dotnet_error = _call_dotnet(
+                            dotnet_payload, trace_id=trace_id
+                        )
                     if dotnet_error:
                         logger.warning(
                             json.dumps(
@@ -1187,7 +1189,8 @@ def execute_admin_query(
 
         # Durations mapping
         durations_payload = {
-            "intentDurationMs": round((planner_duration + intent_duration) * 1000),
+            "plannerDurationMs": round(planner_duration * 1000),
+            "intentDurationMs": round(intent_duration * 1000),
             "dotnetDurationMs": round(dotnet_duration * 1000),
             "combineDurationMs": round(combiner_duration * 1000),
             "analysisDurationMs": round(analysis_ms),

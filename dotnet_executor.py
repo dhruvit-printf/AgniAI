@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional, Tuple
 import requests
 
 from metrics import metrics_collector
+from telemetry import request_id_var, session_id_var, trace_id_var
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,10 @@ _cb = CircuitBreaker()
 
 
 def _call_dotnet(
-    payload: Dict, trace_id: Optional[str] = None
+    payload: Dict,
+    trace_id: Optional[str] = None,
+    request_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> Tuple[Any, Optional[str]]:
     """
     Execute a single .NET API call.
@@ -158,7 +162,9 @@ def _call_dotnet(
       - Exponential backoff retries (1s, 2s, 4s) for 429, 502, 503, 504 and connection errors/timeouts.
       - Strict timeout=(5, 30) for every request.
     """
-    effective_trace_id = trace_id or "N/A"
+    effective_trace_id = trace_id or trace_id_var.get("N/A")
+    effective_request_id = request_id or request_id_var.get("N/A")
+    effective_session_id = session_id or session_id_var.get("N/A")
 
     if not _cb.allow_request():
         logger.warning(
@@ -171,7 +177,12 @@ def _call_dotnet(
         )
         return None, "Circuit breaker is open. Backend is temporarily unreachable."
 
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "X-Request-Id": effective_request_id,
+        "X-Trace-Id": effective_trace_id,
+        "X-Session-Id": effective_session_id,
+    }
     if DOTNET_API_KEY:
         headers["X-Api-Key"] = DOTNET_API_KEY
 
