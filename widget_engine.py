@@ -1,125 +1,245 @@
 """
 widget_engine.py
 ================
-Widget engine for generating visualization metadata based on answer JSON.
+Widget inference engine for the admin pipeline.
+
+This module performs two passes:
+1. Business mapping from (category, operation/query_type) to a preferred widget.
+2. Shape inference from the actual answer payload.
 """
 
-from typing import Any, Dict, List, Set
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from normalized_models import extract_records as _extract_records
 
-def generate_widgets(
-    answer: Dict[str, Any],
-    query_type: str,
-    intent: Dict[str, Any]
-) -> List[Dict[str, str]]:
+WIDGET_MAP: Dict[Tuple[str, str], str] = {
+    ("Performance", "Top"): "TABLE",
+    ("Performance", "Compare"): "AREA_CHART",
+    ("Attendance", "Monthly"): "BAR_CHART",
+    ("Attendance", "Trend"): "LINE_CHART",
+    ("Medical", "BMI"): "DONUT_CHART",
+    ("Attendance", "Present"): "PIE_CHART",
+    ("Strength", "Overall"): "RADIAL_CHART",
+    ("Equipment", "Stats"): "CARD",
+}
+
+_OPERATION_ALIASES: Dict[str, str] = {
+    "TopPerformers": "Top",
+    "LowestPerformers": "Bottom",
+    "Comparison": "Compare",
+    "MonthlyAttendance": "Monthly",
+    "PresentToday": "Present",
+    "StrengthBreakdown": "Overall",
+    "BMIAnalysis": "BMI",
+    "EquipmentSummary": "Stats",
+}
+
+_SHAPE_WIDGET_PRIORITIES = {
+    "CARD": 110,
+    "TABLE": 100,
+    "BAR_CHART": 90,
+    "LINE_CHART": 85,
+    "AREA_CHART": 80,
+    "PIE_CHART": 75,
+    "DONUT_CHART": 70,
+    "RADIAL_CHART": 65,
+    "CHART": 60,
+}
+
+
+def _collect_keys(data: Any) -> Set[str]:
+    keys: Set[str] = set()
+    if isinstance(data, dict):
+        for key, value in data.items():
+            keys.add(key.lower())
+            keys.update(_collect_keys(value))
+    elif isinstance(data, list):
+        for item in data:
+            keys.update(_collect_keys(item))
+    return keys
+
+
+def _count_records(data: Any) -> int:
+    return len(_extract_records(data))
+
+
+def _infer_query_type(query_type: str) -> str:
+    return (query_type or "").strip().lower()
+
+
+def _infer_business_widget(category: str, operation: str, query_type: str) -> Optional[str]:
+    operation = _OPERATION_ALIASES.get(operation, operation)
+    if category and operation:
+        mapped = WIDGET_MAP.get((category, operation))
+        if mapped:
+            return mapped
+
+    qtype = _infer_query_type(query_type)
+    if qtype == "compare":
+        return "BAR_CHART"
+    if qtype == "trend":
+        return "LINE_CHART"
+    if qtype == "distribution":
+        return "DONUT_CHART"
+    if qtype == "cross_filter":
+        return "TABLE"
+    if qtype in ("multi_independent", "multi_operation"):
+        return "TABLE"
+    return None
+
+
+def _infer_shape_widget(label: str, data: Any, query_type: str) -> List[str]:
+    keys = _collect_keys(data)
+    rec_count = _count_records(data)
+    qtype = _infer_query_type(query_type)
+    widgets: List[str] = []
+
+    if rec_count == 1:
+        widgets.append("CARD")
+    elif rec_count > 1:
+        widgets.append("TABLE")
+
+    if any(
+        key in keys
+        for key in (
+            "count",
+            "average",
+            "max",
+            "min",
+            "score",
+            "besttotal",
+            "totalmarks",
+            "marksobtained",
+            "averagescore",
+            "topscore",
+            "bottomscore",
+            "value",
+            "values",
+            "percentage",
+            "rate",
+        )
+    ):
+        widgets.append("METRIC_CARD")
+        widgets.append("RADIAL_CHART")
+
+    if any(
+        key in keys
+        for key in (
+            "comparison",
+            "difference",
+            "variance",
+            "winner",
+            "metrics",
+            "comparisonmetrics",
+        )
+    ):
+        widgets.append("BAR_CHART")
+
+    if qtype in ("distribution",) or any(
+        key in keys
+        for key in (
+            "leavetype",
+            "grade",
+            "sport",
+            "sports",
+            "bloodgroup",
+            "bloodtype",
+            "disease",
+            "unitname",
+            "teamname",
+            "sectionname",
+            "classname",
+            "category",
+        )
+    ):
+        widgets.extend(["PIE_CHART", "DONUT_CHART", "BAR_CHART"])
+
+    if qtype in ("trend",) or any(
+        key in keys
+        for key in ("date", "month", "attempt", "year", "attemptno", "fromattempt", "toattempt", "time")
+    ):
+        widgets.extend(["LINE_CHART", "AREA_CHART"])
+
+    return widgets
+
+
+def _dedupe_widgets(widgets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen: Set[Tuple[str, str]] = set()
+    deduped: List[Dict[str, Any]] = []
+    for widget in widgets:
+        key = (widget["section"], widget["type"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(widget)
+    return deduped
+
+
+def _make_widget(section: str, widget_type: str, priority: int) -> Dict[str, Any]:
+    return {
+        "section": section,
+        "type": widget_type,
+        "widgetType": widget_type,
+        "priority": priority,
+    }
+
+
+def generate_widgets(answer: Dict[str, Any], query_type: str, intent: Dict[str, Any]) -> List[Dict[str, str]]:
     """
-    Dynamically infers and generates widget metadata based on answer JSON structure and contents.
-    Never uses hardcoded widget arrays.
+    Infer widget metadata while preserving section names and backward compatibility.
     """
-    widgets: List[Dict[str, str]] = []
+    widgets: List[Dict[str, Any]] = []
+    category = (intent.get("category") or "").strip()
+    operation = (intent.get("operation") or intent.get("subcategory") or "").strip()
+    operation = _OPERATION_ALIASES.get(operation, operation)
 
-    # Helper to recursively collect all lowercase keys from any data block
-    def collect_keys(data: Any) -> Set[str]:
-        keys = set()
-        if isinstance(data, dict):
-            for k, v in data.items():
-                keys.add(k.lower())
-                keys.update(collect_keys(v))
-        elif isinstance(data, list):
-            for item in data:
-                keys.update(collect_keys(item))
-        return keys
+    business_widget = _infer_business_widget(category, operation, query_type)
 
-    # Helper to count records inside section/data blocks
-    def count_records(data: Any) -> int:
-        return len(_extract_records(data))
-
-    def infer_for_block(label: str, data: Any):
-        keys = collect_keys(data)
-        rec_count = count_records(data)
-
-        # 1. Tabular records -> TABLE
-        if rec_count > 1:
-            widgets.append({"section": label, "widgetType": "TABLE"})
-        # 2. Single object -> CARD
-        elif rec_count == 1:
-            widgets.append({"section": label, "widgetType": "CARD"})
-
-        # 3. Large KPIs -> METRIC_CARD
-        metric_targets = {
-            "count", "average", "max", "min", "score", "besttotal", "totalmarks",
-            "marksobtained", "averagescore", "topscore", "bottomscore", "value", "values"
-        }
-        if any(tk in keys for tk in metric_targets) or (isinstance(data, dict) and any(k.lower() in metric_targets for k in data)):
-            widgets.append({"section": label, "widgetType": "METRIC_CARD"})
-
-        # 4. Comparisons -> BAR_CHART
-        if query_type == "compare" and label == "Comparison":
-            widgets.append({"section": label, "widgetType": "BAR_CHART"})
-        elif any(k in keys for k in ("comparison", "difference", "variance")):
-            widgets.append({"section": label, "widgetType": "BAR_CHART"})
-
-        # 5. Category distribution -> PIE_CHART (usually accompanied by BAR_CHART)
-        category_targets = {
-            "leavetype", "grade", "sport", "sports", "bloodgroup", "bloodtype",
-            "disease", "unitname", "teamname", "sectionname", "classname", "category"
-        }
-        if query_type == "distribution" or any(tk in keys for tk in category_targets):
-            widgets.append({"section": label, "widgetType": "PIE_CHART"})
-            widgets.append({"section": label, "widgetType": "BAR_CHART"})
-
-        # 6. Trend data -> LINE_CHART
-        time_targets = {
-            "date", "month", "attempt", "year", "attemptno", "fromattempt", "toattempt", "time"
-        }
-        if query_type == "trend" or any(tk in keys for tk in time_targets):
-            widgets.append({"section": label, "widgetType": "LINE_CHART"})
-
-        # 7. Continuous values -> AREA_CHART
-        continuous_targets = {"score", "bmi", "value", "values", "average", "averagescore"}
-        if query_type == "trend" or any(tk in keys for tk in continuous_targets):
-            widgets.append({"section": label, "widgetType": "AREA_CHART"})
-
-        # 8. Percentage values -> RADIAL_CHART
-        percentage_targets = {
-            "passpercentage", "failpercentage", "completionrate", "passrate", "failrate", "percentage", "pct", "rate"
-        }
-        if any(tk in keys for tk in percentage_targets):
-            widgets.append({"section": label, "widgetType": "RADIAL_CHART"})
-
-    # Check structure and run inference
     if query_type == "compare":
         left = answer.get("left") or {}
         right = answer.get("right") or {}
+        comparison = answer.get("comparison") or {}
         left_label = left.get("label") or "Left"
         right_label = right.get("label") or "Right"
-
-        infer_for_block(left_label, left)
-        infer_for_block(right_label, right)
-        infer_for_block("Comparison", answer.get("comparison") or {})
-        # Keep a guaranteed comparison surface for the frontend.
-        widgets.append({"section": "Comparison", "widgetType": "TABLE"})
-        widgets.append({"section": "Comparison", "widgetType": "BAR_CHART"})
+        widgets.extend(
+            [
+                _make_widget(left_label, "TABLE", _SHAPE_WIDGET_PRIORITIES["TABLE"]),
+                _make_widget(right_label, "TABLE", _SHAPE_WIDGET_PRIORITIES["TABLE"]),
+                _make_widget("Comparison", "BAR_CHART", _SHAPE_WIDGET_PRIORITIES["BAR_CHART"]),
+            ]
+        )
+        if business_widget and business_widget not in {"TABLE", "BAR_CHART"}:
+            widgets.append(_make_widget("Comparison", business_widget, _SHAPE_WIDGET_PRIORITIES.get(business_widget, 50)))
+        for widget_type in _infer_shape_widget("Comparison", comparison, query_type):
+            widgets.append(_make_widget("Comparison", widget_type, _SHAPE_WIDGET_PRIORITIES.get(widget_type, 50)))
     else:
         sections = answer.get("sections") or []
         if not sections:
-            # Fallback simple inference on the whole answer
-            infer_for_block("Result", answer)
-        else:
-            for sec in sections:
-                label = sec.get("label") or "Result"
-                infer_for_block(label, sec)
+            sections = [{"label": "Result", "data": answer}]
 
-    # Deduplicate while preserving order
-    seen = set()
-    deduped = []
-    for w in widgets:
-        key = (w["section"], w["widgetType"])
-        if key not in seen:
-            seen.add(key)
-            w_copy = dict(w)
-            w_copy["type"] = w["widgetType"]  # For backward compatibility
-            deduped.append(w_copy)
+        for section in sections:
+            label = section.get("label") or "Result"
+            section_data = section.get("data") or section
+            section_widgets: List[str] = []
+            if business_widget:
+                section_widgets.append(business_widget)
+            section_widgets.extend(_infer_shape_widget(label, section_data, query_type))
 
-    return deduped
+            if not section_widgets:
+                section_widgets.append("TABLE")
+
+            for widget_type in section_widgets:
+                widgets.append(_make_widget(label, widget_type, _SHAPE_WIDGET_PRIORITIES.get(widget_type, 50)))
+
+    deduped = _dedupe_widgets(widgets)
+    deduped.sort(key=lambda item: item.get("priority", 0), reverse=True)
+
+    return [
+        {
+            "section": widget["section"],
+            "type": widget["type"],
+            "widgetType": widget["widgetType"],
+        }
+        for widget in deduped
+    ]

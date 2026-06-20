@@ -192,6 +192,10 @@ def assemble_response_metadata(
     }
     if durations:
         metadata.update(durations)
+        metadata.setdefault("entityResolutionMs", durations.get("entityResolutionMs", 0))
+        metadata.setdefault("planningMs", durations.get("planningMs", 0))
+        metadata.setdefault("widgetMs", durations.get("widgetMs", 0))
+        metadata.setdefault("responseAssemblyMs", durations.get("responseAssemblyMs", 0))
     return metadata
 
 
@@ -266,10 +270,13 @@ def assemble_admin_response(
     payload: Dict[str, Any] = {
         "status": True,
         "queryType": query_type,
+        "intro": build_intro_message(
+            _derive_title(query_type, normalized_intent), intro_message, normalized_intent.get("category") or "Agniveer"
+        ),
         "introMessage": build_intro_message(
             _derive_title(query_type, normalized_intent), intro_message, normalized_intent.get("category") or "Agniveer"
         ),
-        "formattedData": {},
+        "formattedData": answer_dict,
         "answer": answer_dict,
         "analysis": analysis_dict,
         "prediction": normalized_prediction,

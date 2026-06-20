@@ -40,6 +40,109 @@ class IntentModel(BaseModel):
     widget_hint: Optional[str] = None
     widgetHint: Optional[str] = None
 
+
+class NormalizedDotnetResult(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    status: Optional[bool] = None
+    message: Optional[str] = None
+    data: Optional[Any] = None
+    records: List[Dict[str, Any]] = []
+    raw_response: Optional[Any] = None
+
+
+class SectionResult(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    label: str = ""
+    type: str = ""
+    data: List[Dict[str, Any]] = []
+    confidence: Optional[float] = None
+    recordCount: Optional[int] = None
+
+
+class CombinedResult(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    queryType: Optional[str] = None
+    records: List[Dict[str, Any]] = []
+    sections: List[SectionResult] = []
+    sides: Optional[List[Dict[str, Any]]] = None
+    comparison: Optional[Dict[str, Any]] = None
+    chartData: Optional[List[Dict[str, Any]]] = None
+    granularity: Optional[str] = None
+    trendDirection: Optional[str] = None
+    labels: Optional[List[str]] = None
+    values: Optional[List[Any]] = None
+    groupBy: Optional[str] = None
+    degraded: Optional[bool] = None
+    failedFilters: Optional[List[str]] = None
+    matchCount: Optional[int] = None
+    totalBeforeFilter: Optional[int] = None
+
+
+class AnalysisResult(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    summary: str = ""
+    observations: List[str] = []
+    insights: List[str] = []
+
+
+class PredictionResult(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    trend: str = ""
+    projection: str = ""
+    heuristicEstimate: str = ""
+    shortTerm: Optional[str] = None
+    futureTrends: Optional[List[str]] = None
+
+
+class ConclusionResult(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    summary: str = ""
+    message: Optional[str] = None
+
+
+class WidgetResult(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    section: str = ""
+    type: str = ""
+    widgetType: Optional[str] = None
+    priority: Optional[int] = None
+
+
+class SuggestedQuestionResult(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    question: str
+
+
+class FinalResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    status: bool
+    queryType: Optional[str] = None
+    intro: Optional[Dict[str, Any]] = None
+    introMessage: Dict[str, Any] = {}
+    formattedData: Dict[str, Any] = {}
+    answer: Optional[Dict[str, Any]] = None
+    analysis: Optional[AnalysisResult] = None
+    prediction: Optional[PredictionResult] = None
+    conclusion: Optional[ConclusionResult] = None
+    suggestedQuestions: List[str] = []
+    widgets: List[WidgetResult] = []
+    metadata: Optional[Dict[str, Any]] = None
+    overallConfidence: float = 0.0
+    partialFailure: bool = False
+    failedSections: List[str] = []
+    intent: Optional[Dict[str, Any]] = None
+    result: Optional[Dict[str, Any]] = None
+    sessionId: Optional[str] = None
+
 class DotNetPayloadModel(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
@@ -156,12 +259,21 @@ class MetadataModel(BaseModel):
     combiner_duration: Optional[float] = None
     report_duration: Optional[float] = None
     total_duration: Optional[float] = None
+    entityResolutionMs: Optional[float] = None
+    planningMs: Optional[float] = None
+    widgetMs: Optional[float] = None
+    responseAssemblyMs: Optional[float] = None
+    entity_resolution_ms: Optional[float] = None
+    planning_ms: Optional[float] = None
+    widget_ms: Optional[float] = None
+    response_assembly_ms: Optional[float] = None
 
 class FinalResponseModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     status: bool
     queryType: Optional[str] = None
+    intro: Optional[Dict[str, Any]] = None
     introMessage: Dict[str, Any] = {}
     formattedData: Dict[str, Any] = {}
     answer: Optional[Dict[str, Any]] = None

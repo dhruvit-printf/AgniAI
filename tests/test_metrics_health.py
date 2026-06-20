@@ -34,6 +34,7 @@ class TestMetricsHealth(unittest.TestCase):
         data = json.loads(resp.data.decode("utf-8"))
         self.assertEqual(data["python"], "healthy")
         self.assertEqual(data["dotnet"], "healthy")
+        self.assertIn("dotnetLatencyMs", data)
         self.assertEqual(data["llm"], "healthy")
         self.assertEqual(data["database"], "healthy")
 
@@ -55,6 +56,7 @@ class TestMetricsHealth(unittest.TestCase):
         data = json.loads(resp.data.decode("utf-8"))
         self.assertEqual(data["python"], "healthy")
         self.assertEqual(data["dotnet"], "unhealthy")
+        self.assertIn("dotnetLatencyMs", data)
         self.assertEqual(data["llm"], "healthy")
         self.assertEqual(data["database"], "healthy")
 

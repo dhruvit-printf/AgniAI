@@ -43,7 +43,8 @@ from feature_flags import get_flags
 from query_planner import QueryType, plan_query
 from report_generator import generate_report
 from response_builder import build_response, build_answer
-from result_combiner import _extract_records, combine_results
+from normalized_models import extract_records as _extract_records
+from result_combiner import combine_results
 from suggested_question_engine import generate_suggested_questions
 from telemetry import (
     SPAN_BUILD_RESPONSE,
@@ -422,10 +423,14 @@ def execute_admin_query(
 
     start_time = time.time()
 
+    entity_resolution_duration = 0.0
+    planning_duration = 0.0
     planner_duration = 0.0
     intent_duration = 0.0
     dotnet_duration = 0.0
     combiner_duration = 0.0
+    widget_duration = 0.0
+    response_assembly_duration = 0.0
     report_duration = 0.0
     total_duration = 0.0
     qtype_str = "filter_query"
@@ -510,10 +515,14 @@ def execute_admin_query(
 
             total_duration = time.time() - start_time
             durations = {
+                "entity_resolution_ms": 0.0,
+                "planning_ms": 0.0,
                 "planner_duration": round(planner_duration * 1000, 2),
                 "intent_duration": round(intent_duration * 1000, 2),
                 "dotnet_duration": round(dotnet_duration * 1000, 2),
                 "combiner_duration": round(combiner_duration * 1000, 2),
+                "widget_duration": 0.0,
+                "response_assembly_duration": 0.0,
                 "report_duration": round(report_duration * 1000, 2),
                 "total_duration": round(total_duration * 1000, 2),
             }
@@ -618,11 +627,13 @@ def execute_admin_query(
         with span(SPAN_PLAN_QUERY, trace_id=trace_id):
             planner_start = time.time()
             _notify("planner")
+            entity_resolution_start = time.time()
             resolved_entities = resolve_entities_from_query(
                 message,
                 existing_company_id=id_filters.get("companyId"),
                 existing_platoon_id=id_filters.get("platoonId"),
             )
+            entity_resolution_duration = time.time() - entity_resolution_start
             resolved_company = resolved_entities.get("companyId")
             if resolved_company is not None:
                 id_filters["companyId"] = int(resolved_company)
@@ -630,8 +641,10 @@ def execute_admin_query(
             if resolved_platoon is not None:
                 id_filters["platoonId"] = int(resolved_platoon)
 
+            planning_start = time.time()
             message = admin_normalize_query(message)
             query_plan = plan_query(message)
+            planning_duration = time.time() - planning_start
             planner_duration = time.time() - planner_start
 
         _notify("intent")
@@ -893,10 +906,14 @@ def execute_admin_query(
 
                     total_duration = time.time() - start_time
                     durations = {
+                        "entity_resolution_ms": round(entity_resolution_duration * 1000, 2),
+                        "planning_ms": round(planning_duration * 1000, 2),
                         "planner_duration": round(planner_duration * 1000, 2),
                         "intent_duration": round(intent_duration * 1000, 2),
                         "dotnet_duration": round(dotnet_duration * 1000, 2),
                         "combiner_duration": round(combiner_duration * 1000, 2),
+                        "widget_duration": 0.0,
+                        "response_assembly_duration": 0.0,
                         "report_duration": round(report_duration * 1000, 2),
                         "total_duration": round(total_duration * 1000, 2),
                     }
@@ -1189,41 +1206,55 @@ def execute_admin_query(
 
         # Durations mapping
         durations_payload = {
+            "entityResolutionMs": round(entity_resolution_duration * 1000),
+            "planningMs": round(planning_duration * 1000),
             "plannerDurationMs": round(planner_duration * 1000),
             "intentDurationMs": round(intent_duration * 1000),
             "dotnetDurationMs": round(dotnet_duration * 1000),
             "combineDurationMs": round(combiner_duration * 1000),
+            "widgetMs": round(widget_duration * 1000),
+            "responseAssemblyMs": round(response_assembly_duration * 1000),
             "analysisDurationMs": round(analysis_ms),
             "predictionDurationMs": round(prediction_ms),
             "conclusionDurationMs": round(conclusion_ms),
             "totalDurationMs": round(total_duration * 1000),
             "executionTimeMs": round(total_duration * 1000),
             # Snake case for backward compatibility
+            "entity_resolution_ms": round(entity_resolution_duration * 1000, 2),
+            "planning_ms": round(planning_duration * 1000, 2),
             "planner_duration": round(planner_duration * 1000, 2),
             "intent_duration": round(intent_duration * 1000, 2),
             "dotnet_duration": round(dotnet_duration * 1000, 2),
             "combiner_duration": round(combiner_duration * 1000, 2),
+            "widget_duration": round(widget_duration * 1000, 2),
+            "response_assembly_duration": round(response_assembly_duration * 1000, 2),
             "report_duration": round(report_duration * 1000, 2),
             "total_duration": round(total_duration * 1000, 2),
         }
 
         # For backward compatibility
         durations = {
+            "entity_resolution_ms": round(entity_resolution_duration * 1000, 2),
+            "planning_ms": round(planning_duration * 1000, 2),
             "planner_duration": round(planner_duration * 1000, 2),
             "intent_duration": round(intent_duration * 1000, 2),
             "dotnet_duration": round(dotnet_duration * 1000, 2),
             "combiner_duration": round(combiner_duration * 1000, 2),
+            "widget_duration": round(widget_duration * 1000, 2),
+            "response_assembly_duration": round(response_assembly_duration * 1000, 2),
             "report_duration": round(report_duration * 1000, 2),
             "total_duration": round(total_duration * 1000, 2),
         }
 
         # ── Step 6: Response Builder & Visualization ──────────────────────────
+        widget_start = time.time()
         answer = build_answer(qtype_str, combined_result, primary_intent)
         widgets = generate_widgets(
             answer=answer,
             query_type=qtype_str,
             intent=primary_intent,
         )
+        widget_duration = time.time() - widget_start
 
         suggested = generate_suggested_questions(qtype_str, primary_intent, answer)
 
@@ -1242,6 +1273,7 @@ def execute_admin_query(
                 )
 
         with span(SPAN_BUILD_RESPONSE, trace_id=trace_id):
+            response_assembly_start = time.time()
             response_payload = build_response(
                 query_type=qtype_str,
                 intro_message=report.get("introMessage", ""),
@@ -1262,6 +1294,7 @@ def execute_admin_query(
                 failed_sections=failed_sections,
                 answer_dict=answer,
             )
+            response_assembly_duration = time.time() - response_assembly_start
 
         execution_time_ms = round(total_duration * 1000)
         response_payload["metadata"]["executionTimeMs"] = execution_time_ms
@@ -1327,6 +1360,12 @@ def execute_admin_query(
 
         metrics_collector.inc_requests(qtype_str)
         metrics_collector.record_duration(
+            "entity_resolution_ms", durations["entity_resolution_ms"]
+        )
+        metrics_collector.record_duration(
+            "planning_ms", durations["planning_ms"]
+        )
+        metrics_collector.record_duration(
             "planner_duration", durations["planner_duration"]
         )
         metrics_collector.record_duration(
@@ -1337,6 +1376,12 @@ def execute_admin_query(
         )
         metrics_collector.record_duration(
             "report_duration", durations["report_duration"]
+        )
+        metrics_collector.record_duration(
+            "widget_duration", durations["widget_duration"]
+        )
+        metrics_collector.record_duration(
+            "response_assembly_duration", durations["response_assembly_duration"]
         )
         metrics_collector.record_duration(
             "pipeline_duration", durations["total_duration"]
@@ -1382,7 +1427,7 @@ def execute_admin_query(
                 "combined_message": combined_message,
                 "execution_time_ms": execution_time_ms,
             }
-            cache_manager.set(query_hash, result_to_cache)
+            cache_manager.set(query_hash, result_to_cache, category=primary_intent.get("category"))
 
         return {
             "type": "query",

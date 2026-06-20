@@ -25,6 +25,14 @@ except ImportError:
 class CacheManager:
     """Thread-safe Cache Manager implementing memory and optional Redis cache."""
 
+    TTL_BY_CATEGORY = {
+        "Attendance": 120,
+        "Leave": 60,
+        "Performance": 600,
+        "Medical": 300,
+        "Training": 600,
+    }
+
     def __init__(self, default_ttl: int = 300) -> None:
         self._lock = threading.Lock()
         self._memory_cache: dict[str, tuple[Any, float]] = {}
@@ -88,9 +96,20 @@ class CacheManager:
                     logger.info("Memory cache item expired for hash %s", query_hash)
         return None
 
-    def set(self, query_hash: str, value: Any, ttl: Optional[int] = None) -> None:
+    def get_ttl_for_category(self, category: Optional[str]) -> int:
+        if not category:
+            return self.default_ttl
+        return self.TTL_BY_CATEGORY.get(category, self.default_ttl)
+
+    def set(
+        self,
+        query_hash: str,
+        value: Any,
+        ttl: Optional[int] = None,
+        category: Optional[str] = None,
+    ) -> None:
         """Cache a value with a specific TTL (seconds)."""
-        expiry = ttl or self.default_ttl
+        expiry = ttl or self.get_ttl_for_category(category)
         
         # Redis SET
         if self._redis_client:

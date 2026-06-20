@@ -150,14 +150,21 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
             sid,
             {
                 "type": "intro",
-                "data": response_payload.get("introMessage", ""),
+                "data": response_payload.get("intro") or response_payload.get("introMessage", {}),
             },
         )
         ws_manager.send_json(
             sid,
             {
-                "type": "result",
-                "data": response_payload.get("result", {}),
+                "type": "formattedData",
+                "data": response_payload.get("formattedData", {}),
+            },
+        )
+        ws_manager.send_json(
+            sid,
+            {
+                "type": "widgets",
+                "data": response_payload.get("widgets", []),
             },
         )
         ws_manager.send_json(
@@ -170,6 +177,13 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
         ws_manager.send_json(
             sid,
             {
+                "type": "prediction",
+                "data": response_payload.get("prediction", {}),
+            },
+        )
+        ws_manager.send_json(
+            sid,
+            {
                 "type": "conclusion",
                 "data": response_payload.get("conclusion", {}),
             },
@@ -177,7 +191,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
         ws_manager.send_json(
             sid,
             {
-                "type": "suggestions",
+                "type": "suggestedQuestions",
                 "data": response_payload.get("suggestedQuestions") or [],
             },
         )

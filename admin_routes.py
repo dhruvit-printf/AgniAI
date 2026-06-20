@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────
 ADMIN_RATE_LIMIT = os.getenv("ADMIN_RATE_LIMIT", "20 per minute")
+LAST_DOTNET_HEALTH_LATENCY_MS: Optional[float] = None
 
 # ── Blueprint ──────────────────────────────────────────────────────────────
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -152,17 +153,25 @@ def check_python_health() -> str:
 
 
 def check_dotnet_health() -> str:
-    from dotnet_executor import DOTNET_API_BASE_URL, DOTNET_VERIFY_SSL, _cb
+    from dotnet_executor import DOTNET_EXECUTE_URL, DOTNET_VERIFY_SSL, _cb
 
+    global LAST_DOTNET_HEALTH_LATENCY_MS
     if _cb.state == "OPEN":
+        LAST_DOTNET_HEALTH_LATENCY_MS = None
         return "unhealthy"
     try:
         import requests
 
-        # Perform GET on base URL to check reachability
-        requests.get(DOTNET_API_BASE_URL, timeout=2, verify=DOTNET_VERIFY_SSL)
-        return "healthy"
+        start = time.time()
+        resp = requests.options(DOTNET_EXECUTE_URL, timeout=2, verify=DOTNET_VERIFY_SSL)
+        LAST_DOTNET_HEALTH_LATENCY_MS = round((time.time() - start) * 1000, 2)
+        if resp.status_code < 400:
+            return "healthy"
+        if resp.status_code == 405:
+            return "degraded"
+        return "unhealthy"
     except Exception:
+        LAST_DOTNET_HEALTH_LATENCY_MS = None
         return "unhealthy"
 
 
@@ -199,10 +208,20 @@ def admin_health():
     llm_h = check_llm_health()
     db_h = check_database_health()
 
-    payload = {"python": py_h, "dotnet": dn_h, "llm": llm_h, "database": db_h}
+    payload = {
+        "python": py_h,
+        "dotnet": dn_h,
+        "dotnetLatencyMs": LAST_DOTNET_HEALTH_LATENCY_MS,
+        "llm": llm_h,
+        "database": db_h,
+    }
 
     status_code = 200
-    if "unhealthy" in payload.values():
+    if any(
+        value in ("unhealthy", "unreachable")
+        for value in payload.values()
+        if isinstance(value, str)
+    ):
         status_code = 503
 
     return jsonify(payload), status_code

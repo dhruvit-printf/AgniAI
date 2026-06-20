@@ -55,10 +55,14 @@ class Metrics:
 
         # Duration summaries (milliseconds)
         self.durations: Dict[str, Dict[str, float]] = {
+            "entity_resolution_ms": {"sum": 0.0, "count": 0.0},
+            "planning_ms": {"sum": 0.0, "count": 0.0},
             "planner_duration": {"sum": 0.0, "count": 0.0},
             "intent_duration": {"sum": 0.0, "count": 0.0},
             "dotnet_duration": {"sum": 0.0, "count": 0.0},
             "combiner_duration": {"sum": 0.0, "count": 0.0},
+            "widget_duration": {"sum": 0.0, "count": 0.0},
+            "response_assembly_duration": {"sum": 0.0, "count": 0.0},
             "report_duration": {"sum": 0.0, "count": 0.0},
             "pipeline_duration": {"sum": 0.0, "count": 0.0},
         }

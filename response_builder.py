@@ -109,6 +109,7 @@ def stream_response_chunks(payload: Dict[str, Any]) -> Generator[Dict[str, Any],
     Yields each major section of the response independently.
     """
     keys = (
+        "intro",
         "introMessage",
         "formattedData",
         "answer",

@@ -13,10 +13,14 @@ class TestRunPipelineSuccessPath:
         return {
             "type": qtype,
             "response_payload": {
-                "introMessage": "Test intro",
-                "result": {"processedData": {}},
+                "intro": {"title": "Test", "description": "Test intro"},
+                "introMessage": {"title": "Test", "description": "Test intro"},
+                "formattedData": {"sections": []},
+                "widgets": [{"section": "Result", "type": "TABLE", "widgetType": "TABLE"}],
                 "analysis": {"summary": "Summary", "observations": [], "insights": []},
+                "prediction": {"trend": "Stable", "projection": "Stable"},
                 "conclusion": {"summary": "Done"},
+                "suggestedQuestions": ["Q1"],
             },
         }
 
@@ -34,10 +38,12 @@ class TestRunPipelineSuccessPath:
             websocket_routes._run_pipeline("sid1", "show attendance", {}, "trace-001")
         assert sent == [
             "intro",
-            "result",
+            "formattedData",
+            "widgets",
             "analysis",
+            "prediction",
             "conclusion",
-            "suggestions",
+            "suggestedQuestions",
             "done",
         ]
 
@@ -135,10 +141,14 @@ class TestProgressCallback:
         mock_result = {
             "type": "query",
             "response_payload": {
-                "introMessage": "",
-                "result": {},
+                "intro": {"title": "", "description": ""},
+                "introMessage": {"title": "", "description": ""},
+                "formattedData": {},
+                "widgets": [],
                 "analysis": None,
+                "prediction": None,
                 "conclusion": None,
+                "suggestedQuestions": [],
             },
         }
 
