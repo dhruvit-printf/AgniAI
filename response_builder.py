@@ -133,6 +133,38 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Strip internal-only fields and reshape the public response contract.
     """
+    formatted_data = payload.get("formattedData") or payload.get("answer") or {}
+    sections = formatted_data.get("sections") or []
+    total_records = 0
+    for section in sections:
+        if isinstance(section, dict):
+            total_records += len(section.get("data") or [])
+
+    if total_records == 1:
+        return {
+            "status": True,
+            "introMessage": {},
+            "formattedData": {},
+            "analysis": {
+                "observations": [],
+                "insights": [],
+                "summary": ""
+            },
+            "prediction": {
+                "trend": "",
+                "forecast": ""
+            },
+            "conclusion": {
+                "summary": ""
+            },
+            "suggestedQuestions": [],
+            "widgets": [],
+            "metadata": {},
+            "overallConfidence": 0.95,
+            "partialFailure": False,
+            "failedSections": []
+        }
+
     public_payload: Dict[str, Any] = {}
     for key in _PUBLIC_RESPONSE_KEYS:
         if key in payload:

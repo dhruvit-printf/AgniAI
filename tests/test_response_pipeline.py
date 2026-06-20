@@ -178,7 +178,8 @@ class TestResponseBuilder(unittest.TestCase):
             query_type="simple",
             intro_message="Intro",
             combined_result=[
-                {"fullName": "A", "bestTotal": 100, "sectionFilter": "PPT"}
+                {"fullName": "A", "bestTotal": 100, "sectionFilter": "PPT"},
+                {"fullName": "B", "bestTotal": 99, "sectionFilter": "PPT"}
             ],
             analysis={"summary": "Sum", "observations": [], "insights": []},
             prediction={

@@ -1,828 +1,855 @@
 {
-    "openapi": "3.0.3",
-    "info": {
-      "title": "AgniAI API",
-      "description": "REST API for AgniAI — Offline Agniveer Chatbot with RAG pipeline and Admin intelligence layer.\n\n## User APIs\nChat with the Agniveer knowledge base, ingest documents, manage sessions.\n\n## Admin APIs\nNatural-language queries that route through the .NET AiCommand backend for structured data (Performance, Leave, Medical, Attendance, Verification, Equipment, Distribution, Skills).",
-      "version": "1.0.0",
-      "contact": {
-        "name": "AgniAI"
-      }
-    },
-    "servers": [
-  {
-    "url": "http://localhost:5000",
-    "description": "Flask / Python API (default)"
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AgniAI API",
+    "description": "REST API for AgniAI — Offline Agniveer Chatbot with RAG pipeline and Admin intelligence layer.\n\n## User APIs\nChat with the Agniveer knowledge base, ingest documents, manage sessions.\n\n## Admin APIs\nNatural-language queries that route through the .NET AiCommand backend for structured data (Performance, Leave, Medical, Attendance, Verification, Equipment, Distribution, Skills).",
+    "version": "1.0.0",
+    "contact": {
+      "name": "AgniAI"
+    }
   },
-  {
-    "url": "http://localhost:7257",
-    "description": ".NET AiCommand backend (admin only)"
-  }
-]
-    ,
-    "tags": [
-      { "name": "System",         "description": "Health and readiness checks" },
-      { "name": "Chat",           "description": "User-facing RAG chatbot" },
-      { "name": "Knowledge Base", "description": "Ingest and manage documents" },
-      { "name": "Session",        "description": "Conversation memory management" },
-      { "name": "Admin Chat",     "description": "Admin intelligence chatbot (routes through .NET)" }
-    ],
-    "paths": {
-  
-      "/api/health": {
-        "get": {
-          "tags": ["System"],
-          "summary": "Health check",
-          "description": "Returns Ollama connectivity status, vector count, chunk count and active model.",
-          "responses": {
-            "200": {
-              "description": "Service is healthy",
-              "content": {
-                "application/json": {
-                  "schema": { "$ref": "#/components/schemas/HealthResponse" },
-                  "example": {
-                    "status": "ok",
-                    "vectors": 57,
-                    "chunks": 57,
-                    "model": "mistral:7b-instruct-q4_K_M"
-                  }
-                }
-              }
-            },
-            "503": {
-              "description": "Ollama is unreachable",
-              "content": {
-                "application/json": {
-                  "schema": { "$ref": "#/components/schemas/HealthResponse" },
-                  "example": {
-                    "status": "ollama_unreachable",
-                    "vectors": 0,
-                    "chunks": 0,
-                    "model": "mistral:7b-instruct-q4_K_M"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-  
-      "/api/ready": {
-        "get": {
-          "tags": ["System"],
-          "summary": "Readiness check",
-          "description": "Returns whether the embedding model and FAISS index have finished warming up.",
-          "responses": {
-            "200": {
-              "description": "Ready",
-              "content": {
-                "application/json": {
-                  "example": { "success": true, "status": "ready" }
-                }
-              }
-            },
-            "503": {
-              "description": "Still warming up",
-              "content": {
-                "application/json": {
-                  "example": { "success": false, "status": "warming_up" }
-                }
-              }
-            }
-          }
-        }
-      },
-  
-      "/api/chat": {
-        "post": {
-          "tags": ["Chat"],
-          "summary": "Chat (RAG)",
-          "description": "Send a message to the AgniAI chatbot. Automatically classifies intent (chat / RAG / reject), retrieves relevant chunks from FAISS+BM25, and generates a grounded answer via Ollama.\n\n**Streaming:** Set `stream: true` and include header `Accept: text/event-stream` for SSE token streaming.",
-          "requestBody": {
-            "required": true,
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ChatRequest" },
-                "examples": {
-                  "factual": {
-                    "summary": "Factual RAG question",
-                    "value": {
-                      "message": "What is the age limit for Agniveer?",
-                      "session_id": "user-123",
-                      "stream": false
-                    }
-                  },
-                  "salary": {
-                    "summary": "Salary query",
-                    "value": {
-                      "message": "What is the in-hand salary in year 2?",
-                      "session_id": "user-123",
-                      "stream": false
-                    }
-                  },
-                  "greeting": {
-                    "summary": "Greeting / small talk",
-                    "value": {
-                      "message": "Hello, how are you?",
-                      "session_id": "user-123",
-                      "stream": false
-                    }
-                  },
-                  "detail": {
-                    "summary": "Detailed answer request",
-                    "value": {
-                      "message": "Explain the Agniveer selection process in detail",
-                      "session_id": "user-123",
-                      "stream": false
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "responses": {
-            "200": {
-              "description": "Answer generated",
-              "content": {
-                "application/json": {
-                  "schema": { "$ref": "#/components/schemas/ChatResponse" },
-                  "example": {
-                    "success": true,
-                    "status": "success",
-                    "message": "Chat response generated.",
-                    "answer": "The minimum age for Agniveer is 17.5 years and the maximum is 22 years.",
-                    "style": "elaborate",
-                    "session_id": "user-123",
-                    "data": {
-                      "answer": "The minimum age for Agniveer is 17.5 years and the maximum is 22 years.",
-                      "style": "elaborate",
-                      "session_id": "user-123"
-                    }
-                  }
-                }
-              }
-            },
-            "400": { "$ref": "#/components/responses/BadRequest" },
-            "429": { "$ref": "#/components/responses/RateLimit" },
-            "503": { "$ref": "#/components/responses/ServiceUnavailable" }
-          }
-        }
-      },
-  
-      "/api/ingest": {
-        "post": {
-          "tags": ["Knowledge Base"],
-          "summary": "Ingest a document by path or URL",
-          "description": "Add a PDF, URL, plain text file, raw text string, or Word document to the FAISS knowledge base.",
-          "requestBody": {
-            "required": true,
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/IngestRequest" },
-                "examples": {
-                  "pdf": {
-                    "summary": "Ingest a PDF",
-                    "value": { "kind": "pdf", "target": "/path/to/agniveer_notification.pdf" }
-                  },
-                  "url": {
-                    "summary": "Ingest a webpage",
-                    "value": { "kind": "url", "target": "https://joinindianarmy.nic.in/" }
-                  },
-                  "text": {
-                    "summary": "Ingest raw text",
-                    "value": { "kind": "text", "target": "Agniveer age limit is 17.5 to 22 years." }
-                  },
-                  "txt": {
-                    "summary": "Ingest a .txt file",
-                    "value": { "kind": "txt", "target": "/path/to/notes.txt" }
-                  },
-                  "docx": {
-                    "summary": "Ingest a Word doc",
-                    "value": { "kind": "docx", "target": "/path/to/document.docx" }
-                  }
-                }
-              }
-            }
-          },
-          "responses": {
-            "200": {
-              "description": "Ingestion result",
-              "content": {
-                "application/json": {
-                  "schema": { "$ref": "#/components/schemas/IngestResponse" },
-                  "examples": {
-                    "success": {
-                      "summary": "New chunks added",
-                      "value": {
-                        "success": true,
-                        "message": "Successfully ingested 42 chunks.",
-                        "chunks": 42,
-                        "source": "/path/to/file.pdf"
-                      }
-                    },
-                    "duplicate": {
-                      "summary": "Already ingested",
-                      "value": {
-                        "success": true,
-                        "message": "Source was already ingested. No new chunks added.",
-                        "chunks": 0,
-                        "source": "/path/to/file.pdf"
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            "400": { "$ref": "#/components/responses/BadRequest" },
-            "404": { "$ref": "#/components/responses/NotFound" },
-            "429": { "$ref": "#/components/responses/RateLimit" },
-            "500": { "$ref": "#/components/responses/ServerError" }
-          }
-        }
-      },
-  
-      "/api/upload": {
-        "post": {
-          "tags": ["Knowledge Base"],
-          "summary": "Upload and ingest a file",
-          "description": "Upload a file via multipart/form-data. Supported types: `pdf`, `txt`, `docx`. The file is saved to a temp path, ingested, then deleted.",
-          "requestBody": {
-            "required": true,
-            "content": {
-              "multipart/form-data": {
-                "schema": {
-                  "type": "object",
-                  "required": ["file"],
-                  "properties": {
-                    "file": {
-                      "type": "string",
-                      "format": "binary",
-                      "description": "The file to upload (pdf / txt / docx)"
-                    },
-                    "kind": {
-                      "type": "string",
-                      "enum": ["pdf", "txt", "docx"],
-                      "description": "Optional override for file type detection"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "responses": {
-            "200": {
-              "description": "File ingested",
-              "content": {
-                "application/json": {
-                  "schema": { "$ref": "#/components/schemas/IngestResponse" },
-                  "example": {
-                    "success": true,
-                    "message": "Successfully ingested 'agniveer.pdf' — 38 chunk(s) added.",
-                    "chunks": 38,
-                    "source": "agniveer.pdf"
-                  }
-                }
-              }
-            },
-            "400": { "$ref": "#/components/responses/BadRequest" },
-            "415": {
-              "description": "Unsupported file type",
-              "content": {
-                "application/json": {
-                  "example": { "success": false, "error": "Unsupported file type '.xlsx'. Allowed types: pdf, txt, docx." }
-                }
-              }
-            },
-            "422": {
-              "description": "File has no extractable text",
-              "content": {
-                "application/json": {
-                  "example": { "success": false, "error": "Content error: No extractable text found in the Word document." }
-                }
-              }
-            },
-            "429": { "$ref": "#/components/responses/RateLimit" },
-            "500": { "$ref": "#/components/responses/ServerError" }
-          }
-        }
-      },
-  
-      "/api/sources": {
-        "get": {
-          "tags": ["Knowledge Base"],
-          "summary": "List ingested sources",
-          "description": "Returns all sources currently in the knowledge base with chunk counts and document types.",
-          "responses": {
-            "200": {
-              "description": "Source list",
-              "content": {
-                "application/json": {
-                  "schema": { "$ref": "#/components/schemas/SourcesResponse" },
-                  "example": {
-                    "success": true,
-                    "count": 2,
-                    "sources": [
-                      { "source": "/data/agniveer.pdf", "doc_type": "pdf", "chunk_count": 42, "original_filename": "agniveer.pdf" },
-                      { "source": "https://joinindianarmy.nic.in/", "doc_type": "url", "chunk_count": 15, "original_filename": "" }
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-  
-      "/api/stats": {
-        "get": {
-          "tags": ["Knowledge Base"],
-          "summary": "Index statistics",
-          "description": "Returns the total number of vectors in FAISS and chunks in the docstore.",
-          "responses": {
-            "200": {
-              "description": "Stats",
-              "content": {
-                "application/json": {
-                  "example": { "success": true, "vectors": 57, "chunks": 57 }
-                }
-              }
-            }
-          }
-        }
-      },
-  
-      "/api/clear_memory": {
-        "post": {
-          "tags": ["Session"],
-          "summary": "Clear conversation memory",
-          "description": "Clears the sliding-window conversation history for the given session. Omit `session_id` to clear the default session.",
-          "requestBody": {
+  "servers": [
+    {
+      "url": "http://localhost:5000",
+      "description": "Flask / Python API (default)"
+    },
+    {
+      "url": "http://localhost:7257",
+      "description": ".NET AiCommand backend (admin only)"
+    }
+  ],
+  "tags": [
+    {
+      "name": "System",
+      "description": "Health and readiness checks"
+    },
+    {
+      "name": "Chat",
+      "description": "User-facing RAG chatbot"
+    },
+    {
+      "name": "Knowledge Base",
+      "description": "Ingest and manage documents"
+    },
+    {
+      "name": "Session",
+      "description": "Conversation memory management"
+    },
+    {
+      "name": "Admin Chat",
+      "description": "Admin intelligence chatbot (routes through .NET)"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Health check",
+        "description": "Returns Ollama connectivity status, vector count, chunk count and active model.",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "session_id": { "type": "string", "example": "user-123" }
-                  }
+                  "$ref": "#/components/schemas/HealthResponse"
                 }
               }
             }
           },
-          "responses": {
-            "200": {
-              "description": "Memory cleared",
-              "content": {
-                "application/json": {
-                  "example": { "success": true, "message": "Conversation memory cleared." }
-                }
-              }
-            }
-          }
-        }
-      },
-  
-      "/api/reset_index": {
-        "post": {
-          "tags": ["Knowledge Base"],
-          "summary": "⚠️ Reset entire knowledge base",
-          "description": "**DESTRUCTIVE** — Deletes the FAISS index, docstore, and BM25 index. All ingested documents are lost.\n\nRequires `X-Api-Key` header if `API_SECRET_KEY` is set in `.env`.",
-          "security": [{ "ApiKeyAuth": [] }],
-          "responses": {
-            "200": {
-              "description": "Index reset",
-              "content": {
-                "application/json": {
-                  "example": { "success": true, "message": "Knowledge base reset. Re-ingest documents to continue." }
-                }
-              }
-            },
-            "401": {
-              "description": "Unauthorized — wrong or missing API key",
-              "content": {
-                "application/json": {
-                  "example": { "success": false, "error": "Unauthorized. Provide X-Api-Key header." }
-                }
-              }
-            }
-          }
-        }
-      },
-  
-      "/api/admin/health": {
-        "get": {
-          "tags": ["Admin Chat"],
-          "summary": "Admin subsystem health",
-          "description": "Checks whether the .NET AiCommand backend at `DOTNET_API_BASE_URL` is reachable.",
-          "responses": {
-            "200": {
-              "description": "Health status",
-              "content": {
-                "application/json": {
-                  "examples": {
-                    "reachable": {
-                      "summary": ".NET backend reachable",
-                      "value": {
-                        "success": true,
-                        "status": "ok",
-                        "dotnet_backend": "reachable",
-                        "dotnet_url": "https://localhost:7257/api/AiCommand/execute"
-                      }
-                    },
-                    "unreachable": {
-                      "summary": ".NET backend down",
-                      "value": {
-                        "success": true,
-                        "status": "ok",
-                        "dotnet_backend": "unreachable",
-                        "dotnet_url": "https://localhost:7257/api/AiCommand/execute"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-  
-      "/api/admin/classify": {
-        "post": {
-          "tags": ["Admin Chat"],
-          "summary": "Classify admin intent (debug)",
-          "description": "Runs the intent classifier and returns the structured JSON payload — **without** calling the .NET backend. Use this to debug how a question is being interpreted before wiring up .NET.",
-          "requestBody": {
-            "required": true,
+          "503": {
+            "description": "Ollama is unreachable",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/AdminClassifyRequest" },
-                "examples": {
-                  "performance": {
-                    "summary": "Performance question",
-                    "value": { "message": "Who are the top 5 performers in BEPT?" }
-                  },
-                  "leave": {
-                    "summary": "Leave question",
-                    "value": { "message": "Who has taken the most medical leave?" }
-                  },
-                  "attendance": {
-                    "summary": "Attendance question",
-                    "value": { "message": "How many personnel are present on campus today?" }
-                  },
-                  "equipment": {
-                    "summary": "Equipment question",
-                    "value": { "message": "Show overdue equipment" }
-                  }
-                }
-              }
-            }
-          },
-          "responses": {
-            "200": {
-              "description": "Intent classification result",
-              "content": {
-                "application/json": {
-                  "schema": { "$ref": "#/components/schemas/AdminClassifyResponse" },
-                  "example": {
-                    "success": true,
-                    "intent": {
-                      "category": "Performance",
-                      "subcategory": "TopPerformers",
-                      "number": 5,
-                      "operation": "Top",
-                      "section": "BEPT",
-                      "grading": null,
-                      "leave_type": null,
-                      "raw_query": "Who are the top 5 performers in BEPT?",
-                      "confidence": "high"
-                    },
-                    "dotnet_payload": {
-                      "category": "Performance",
-                      "subcategory": "TopPerformers",
-                      "number": 5,
-                      "operation": "Top",
-                      "section": "BEPT"
-                    }
-                  }
-                }
-              }
-            },
-            "400": { "$ref": "#/components/responses/BadRequest" }
-          }
-        }
-      },
-  
-      "/api/admin/chat": {
-        "post": {
-          "tags": ["Admin Chat"],
-          "summary": "Admin chat",
-          "description": "Full admin pipeline:\n1. Classify intent → structured JSON\n2. POST to `.NET /api/AiCommand/execute`\n3. Format response → human-readable answer\n\n**Supported modules:** Performance, Leave, Medical, Attendance, Verification, Equipment, Distribution, Skills/Roster",
-          "requestBody": {
-            "required": true,
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/AdminChatRequest" },
-                "examples": {
-                  "top_performers": {
-                    "summary": "Top performers",
-                    "value": { "message": "Who are the top 5 performers in BEPT?", "session_id": "admin-1" }
-                  },
-                  "leave_today": {
-                    "summary": "Leave status",
-                    "value": { "message": "Who is on leave today?", "session_id": "admin-1" }
-                  },
-                  "avg_score": {
-                    "summary": "Average score",
-                    "value": { "message": "What is the average score in PPT?", "session_id": "admin-1" }
-                  },
-                  "bmi": {
-                    "summary": "BMI analysis",
-                    "value": { "message": "Show BMI analysis of trainees", "session_id": "admin-1" }
-                  },
-                  "overdue": {
-                    "summary": "Overdue equipment",
-                    "value": { "message": "Which equipment is overdue?", "session_id": "admin-1" }
-                  },
-                  "distribution": {
-                    "summary": "Distribution by unit",
-                    "value": { "message": "Show distribution by unit", "session_id": "admin-1" }
-                  },
-                  "by_sport": {
-                    "summary": "Skills by sport",
-                    "value": { "message": "Show roster by sport", "session_id": "admin-1" }
-                  },
-                  "present_today": {
-                    "summary": "Attendance today",
-                    "value": { "message": "How many are present on campus today?", "session_id": "admin-1" }
-                  }
-                }
-              }
-            }
-          },
-          "responses": {
-            "200": {
-              "description": "Formatted answer from .NET data",
-              "content": {
-                "application/json": {
-                  "schema": { "$ref": "#/components/schemas/AdminChatResponse" },
-                  "example": {
-                    "status": true,
-                    "introMessage": {},
-                    "formattedData": {},
-                    "analysis": {
-                      "observations": [],
-                      "insights": [],
-                      "summary": ""
-                    },
-                    "prediction": {
-                      "trend": "",
-                      "forecast": ""
-                    },
-                    "conclusion": {
-                      "summary": ""
-                    },
-                    "suggestedQuestions": [],
-                    "widgets": [],
-                    "metadata": {},
-                    "overallConfidence": 0.95,
-                    "partialFailure": false,
-                    "failedSections": []
-                  }
-                }
-              }
-            },
-            "400": { "$ref": "#/components/responses/BadRequest" },
-            "429": { "$ref": "#/components/responses/RateLimit" },
-            "502": {
-              "description": "Bad gateway — .NET backend error or unreachable",
-              "content": {
-                "application/json": {
-                  "example": {
-                    "success": false,
-                    "error": "Cannot connect to backend at https://localhost:7257/api/AiCommand/execute. Is the .NET service running?",
-                    "intent": { "category": "Performance", "subcategory": "TopPerformers" },
-                    "session_id": "admin-1"
-                  }
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
                 }
               }
             }
           }
         }
       }
-  
     },
-  
-    "components": {
-      "securitySchemes": {
-        "ApiKeyAuth": {
-          "type": "apiKey",
-          "in": "header",
-          "name": "X-Api-Key",
-          "description": "Required only for /api/reset_index when API_SECRET_KEY is set in .env"
+    "/api/ready": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Readiness check",
+        "description": "Returns whether the embedding model and FAISS index have finished warming up.",
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "503": {
+            "description": "Still warming up",
+            "content": {
+              "application/json": {}
+            }
+          }
         }
-      },
-  
-      "schemas": {
-        "ChatRequest": {
-          "type": "object",
-          "required": ["message"],
-          "properties": {
-            "message":    { "type": "string",  "description": "User question", "example": "What is the age limit for Agniveer?" },
-            "model":      { "type": "string",  "description": "Ollama model override", "example": "mistral:7b-instruct-q4_K_M" },
-            "stream":     { "type": "boolean", "description": "Enable SSE streaming (requires Accept: text/event-stream header)", "default": false },
-            "session_id": { "type": "string",  "description": "Session identifier for conversation memory", "example": "user-123" }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Chat (RAG)",
+        "description": "Send a message to the AgniAI chatbot. Automatically classifies intent (chat / RAG / reject), retrieves relevant chunks from FAISS+BM25, and generates a grounded answer via Ollama.\n\n**Streaming:** Set `stream: true` and include header `Accept: text/event-stream` for SSE token streaming.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
           }
         },
-  
-        "ChatResponse": {
-          "type": "object",
-          "properties": {
-            "success":    { "type": "boolean" },
-            "status":     { "type": "string", "example": "success" },
-            "message":    { "type": "string", "example": "Chat response generated." },
-            "answer":     { "type": "string", "description": "The generated answer" },
-            "style":      { "type": "string", "enum": ["short", "elaborate", "detail"], "description": "Answer style detected from the query" },
-            "session_id": { "type": "string" },
-            "data":       { "type": "object" }
+        "responses": {
+          "200": {
+            "description": "Answer generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimit"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/ingest": {
+      "post": {
+        "tags": [
+          "Knowledge Base"
+        ],
+        "summary": "Ingest a document by path or URL",
+        "description": "Add a PDF, URL, plain text file, raw text string, or Word document to the FAISS knowledge base.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestRequest"
+              }
+            }
           }
         },
-  
-        "IngestRequest": {
-          "type": "object",
-          "required": ["kind", "target"],
-          "properties": {
-            "kind":   { "type": "string", "enum": ["pdf", "url", "txt", "text", "docx"], "example": "pdf" },
-            "target": { "type": "string", "description": "File path, URL, or raw text content", "example": "/path/to/file.pdf" }
+        "responses": {
+          "200": {
+            "description": "Ingestion result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/upload": {
+      "post": {
+        "tags": [
+          "Knowledge Base"
+        ],
+        "summary": "Upload and ingest a file",
+        "description": "Upload a file via multipart/form-data. Supported types: `pdf`, `txt`, `docx`. The file is saved to a temp path, ingested, then deleted.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "The file to upload (pdf / txt / docx)"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "pdf",
+                      "txt",
+                      "docx"
+                    ],
+                    "description": "Optional override for file type detection"
+                  }
+                }
+              }
+            }
           }
         },
-  
-        "IngestResponse": {
-          "type": "object",
-          "properties": {
-            "success": { "type": "boolean" },
-            "message": { "type": "string" },
-            "chunks":  { "type": "integer", "description": "Number of new chunks added" },
-            "source":  { "type": "string",  "description": "Normalised source identifier" }
+        "responses": {
+          "200": {
+            "description": "File ingested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "415": {
+            "description": "Unsupported file type",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "422": {
+            "description": "File has no extractable text",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimit"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
           }
-        },
-  
-        "SourcesResponse": {
-          "type": "object",
-          "properties": {
-            "success": { "type": "boolean" },
-            "count":   { "type": "integer" },
-            "sources": {
-              "type": "array",
-              "items": {
+        }
+      }
+    },
+    "/api/sources": {
+      "get": {
+        "tags": [
+          "Knowledge Base"
+        ],
+        "summary": "List ingested sources",
+        "description": "Returns all sources currently in the knowledge base with chunk counts and document types.",
+        "responses": {
+          "200": {
+            "description": "Source list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "tags": [
+          "Knowledge Base"
+        ],
+        "summary": "Index statistics",
+        "description": "Returns the total number of vectors in FAISS and chunks in the docstore.",
+        "responses": {
+          "200": {
+            "description": "Stats",
+            "content": {
+              "application/json": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/clear_memory": {
+      "post": {
+        "tags": [
+          "Session"
+        ],
+        "summary": "Clear conversation memory",
+        "description": "Clears the sliding-window conversation history for the given session. Omit `session_id` to clear the default session.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
                 "type": "object",
                 "properties": {
-                  "source":            { "type": "string" },
-                  "doc_type":          { "type": "string", "enum": ["pdf", "url", "txt", "text", "docx"] },
-                  "chunk_count":       { "type": "integer" },
-                  "original_filename": { "type": "string" }
+                  "session_id": {
+                    "type": "string"
+                  }
                 }
               }
             }
           }
         },
-  
-        "HealthResponse": {
-          "type": "object",
-          "properties": {
-            "status":  { "type": "string", "enum": ["ok", "ollama_unreachable"] },
-            "vectors": { "type": "integer" },
-            "chunks":  { "type": "integer" },
-            "model":   { "type": "string" }
+        "responses": {
+          "200": {
+            "description": "Memory cleared",
+            "content": {
+              "application/json": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/reset_index": {
+      "post": {
+        "tags": [
+          "Knowledge Base"
+        ],
+        "summary": "⚠️ Reset entire knowledge base",
+        "description": "**DESTRUCTIVE** — Deletes the FAISS index, docstore, and BM25 index. All ingested documents are lost.\n\nRequires `X-Api-Key` header if `API_SECRET_KEY` is set in `.env`.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index reset",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "401": {
+            "description": "Unauthorized — wrong or missing API key",
+            "content": {
+              "application/json": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/health": {
+      "get": {
+        "tags": [
+          "Admin Chat"
+        ],
+        "summary": "Admin subsystem health",
+        "description": "Checks whether the .NET AiCommand backend at `DOTNET_API_BASE_URL` is reachable.",
+        "responses": {
+          "200": {
+            "description": "Health status",
+            "content": {
+              "application/json": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/classify": {
+      "post": {
+        "tags": [
+          "Admin Chat"
+        ],
+        "summary": "Classify admin intent (debug)",
+        "description": "Runs the intent classifier and returns the structured JSON payload — **without** calling the .NET backend. Use this to debug how a question is being interpreted before wiring up .NET.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminClassifyRequest"
+              }
+            }
           }
         },
-  
-        "AdminChatRequest": {
-          "type": "object",
-          "required": ["message"],
-          "properties": {
-            "message":    { "type": "string", "example": "Who are the top 5 performers in BEPT?" },
-            "session_id": { "type": "string", "example": "admin-1" }
+        "responses": {
+          "200": {
+            "description": "Intent classification result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminClassifyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/api/admin/chat": {
+      "post": {
+        "tags": [
+          "Admin Chat"
+        ],
+        "summary": "Admin chat",
+        "description": "Full admin pipeline:\n1. Classify intent → structured JSON\n2. POST to `.NET /api/AiCommand/execute`\n3. Format response → human-readable answer\n\n**Supported modules:** Performance, Leave, Medical, Attendance, Verification, Equipment, Distribution, Skills/Roster",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminChatRequest"
+              }
+            }
           }
         },
-  
-        "AdminChatResponse": {
-          "type": "object",
-          "properties": {
-            "status":             { "type": "boolean" },
-            "introMessage":       { "type": "object" },
-            "formattedData":      { "type": "object" },
-            "analysis":           { "type": "object" },
-            "prediction":         { "type": "object" },
-            "conclusion":         { "type": "object" },
-            "suggestedQuestions": { "type": "array", "items": { "type": "string" } },
-            "widgets":            { "type": "array", "items": { "type": "object" } },
-            "metadata":           { "type": "object" },
-            "overallConfidence":  { "type": "number" },
-            "partialFailure":     { "type": "boolean" },
-            "failedSections":     { "type": "array", "items": { "type": "string" } }
+        "responses": {
+          "200": {
+            "description": "Formatted answer from .NET data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminChatResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimit"
+          },
+          "502": {
+            "description": "Bad gateway — .NET backend error or unreachable",
+            "content": {
+              "application/json": {}
+            }
           }
-        },
-  
-        "AdminClassifyRequest": {
-          "type": "object",
-          "required": ["message"],
-          "properties": {
-            "message": { "type": "string", "example": "Who are the top 5 performers in BEPT?" }
-          }
-        },
-  
-        "AdminClassifyResponse": {
-          "type": "object",
-          "properties": {
-            "success":        { "type": "boolean" },
-            "intent":         { "$ref": "#/components/schemas/IntentResult" },
-            "dotnet_payload": { "$ref": "#/components/schemas/DotnetPayload" }
-          }
-        },
-  
-        "IntentResult": {
-          "type": "object",
-          "properties": {
-            "category":    { "type": "string",  "nullable": true, "example": "Performance",    "description": "Module: Performance | Leave | Medical | Attendance | Verification | Equipment | Distribution | Skills" },
-            "subcategory": { "type": "string",  "nullable": true, "example": "TopPerformers",  "description": "Intent code sent to .NET" },
-            "number":      { "type": "integer", "nullable": true, "example": 5,                "description": "Extracted count (top N / bottom N)" },
-            "operation":   { "type": "string",  "nullable": true, "example": "Top",            "description": "Extracted operation keyword" },
-            "section":     { "type": "string",  "nullable": true, "example": "BEPT",           "description": "Section filter: BEPT | PPT | FIRING | DRILL" },
-            "grading":     { "type": "string",  "nullable": true, "example": "Excellent",      "description": "Grading filter: ExceptionallyWell | Excellent | Good | SAT | Fail | UNSA" },
-            "leave_type":  { "type": "string",  "nullable": true, "example": "Medical",        "description": "Leave type: Medical | Annual | Sick | Absconded" },
-            "raw_query":   { "type": "string",  "example": "Who are the top 5 performers in BEPT?" },
-            "confidence":  { "type": "string",  "enum": ["high", "medium", "low"] }
-          }
-        },
-  
-        "DotnetPayload": {
-          "type": "object",
-          "description": "Payload sent to .NET /api/AiCommand/execute (null fields stripped)",
-          "properties": {
-            "category":    { "type": "string"  },
-            "subcategory": { "type": "string"  },
-            "number":      { "type": "integer" },
-            "operation":   { "type": "string"  },
-            "section":     { "type": "string"  },
-            "grading":     { "type": "string"  },
-            "leave_type":  { "type": "string"  }
-          }
-        },
-  
-        "ErrorResponse": {
-          "type": "object",
-          "properties": {
-            "success": { "type": "boolean", "example": false },
-            "status":  { "type": "string",  "example": "error" },
-            "message": { "type": "string" },
-            "error":   { "type": "string" },
-            "data":    { "type": "object",  "nullable": true }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Api-Key",
+        "description": "Required only for /api/reset_index when API_SECRET_KEY is set in .env"
+      }
+    },
+    "schemas": {
+      "ChatRequest": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "User question"
+          },
+          "model": {
+            "type": "string",
+            "description": "Ollama model override"
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "Enable SSE streaming (requires Accept: text/event-stream header)",
+            "default": false
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Session identifier for conversation memory"
           }
         }
       },
-  
-      "responses": {
-        "BadRequest": {
-          "description": "Bad request — missing or invalid fields",
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-              "example": { "success": false, "error": "message field is required and cannot be empty." }
+      "ChatResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string",
+            "description": "The generated answer"
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "short",
+              "elaborate",
+              "detail"
+            ],
+            "description": "Answer style detected from the query"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          }
+        }
+      },
+      "IngestRequest": {
+        "type": "object",
+        "required": [
+          "kind",
+          "target"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "url",
+              "txt",
+              "text",
+              "docx"
+            ]
+          },
+          "target": {
+            "type": "string",
+            "description": "File path, URL, or raw text content"
+          }
+        }
+      },
+      "IngestResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "chunks": {
+            "type": "integer",
+            "description": "Number of new chunks added"
+          },
+          "source": {
+            "type": "string",
+            "description": "Normalised source identifier"
+          }
+        }
+      },
+      "SourcesResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string"
+                },
+                "doc_type": {
+                  "type": "string",
+                  "enum": [
+                    "pdf",
+                    "url",
+                    "txt",
+                    "text",
+                    "docx"
+                  ]
+                },
+                "chunk_count": {
+                  "type": "integer"
+                },
+                "original_filename": {
+                  "type": "string"
+                }
+              }
             }
           }
-        },
-        "NotFound": {
-          "description": "File not found",
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "ollama_unreachable"
+            ]
+          },
+          "vectors": {
+            "type": "integer"
+          },
+          "chunks": {
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminChatRequest": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminChatResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "boolean"
+          },
+          "introMessage": {
+            "type": "object"
+          },
+          "formattedData": {
+            "type": "object"
+          },
+          "analysis": {
+            "type": "object"
+          },
+          "prediction": {
+            "type": "object"
+          },
+          "conclusion": {
+            "type": "object"
+          },
+          "suggestedQuestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "widgets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "overallConfidence": {
+            "type": "number"
+          },
+          "partialFailure": {
+            "type": "boolean"
+          },
+          "failedSections": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
-        },
-        "RateLimit": {
-          "description": "Rate limit exceeded",
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-              "example": { "success": false, "error": "Rate limit exceeded. Please retry later." }
+        }
+      },
+      "AdminClassifyRequest": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminClassifyResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "intent": {
+            "$ref": "#/components/schemas/IntentResult"
+          },
+          "dotnet_payload": {
+            "$ref": "#/components/schemas/DotnetPayload"
+          }
+        }
+      },
+      "IntentResult": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "nullable": true,
+            "description": "Module: Performance | Leave | Medical | Attendance | Verification | Equipment | Distribution | Skills"
+          },
+          "subcategory": {
+            "type": "string",
+            "nullable": true,
+            "description": "Intent code sent to .NET"
+          },
+          "number": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Extracted count (top N / bottom N)"
+          },
+          "operation": {
+            "type": "string",
+            "nullable": true,
+            "description": "Extracted operation keyword"
+          },
+          "section": {
+            "type": "string",
+            "nullable": true,
+            "description": "Section filter: BEPT | PPT | FIRING | DRILL"
+          },
+          "grading": {
+            "type": "string",
+            "nullable": true,
+            "description": "Grading filter: ExceptionallyWell | Excellent | Good | SAT | Fail | UNSA"
+          },
+          "leave_type": {
+            "type": "string",
+            "nullable": true,
+            "description": "Leave type: Medical | Annual | Sick | Absconded"
+          },
+          "raw_query": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          }
+        }
+      },
+      "DotnetPayload": {
+        "type": "object",
+        "description": "Payload sent to .NET /api/AiCommand/execute (null fields stripped)",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "subcategory": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "grading": {
+            "type": "string"
+          },
+          "leave_type": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "nullable": true
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad request — missing or invalid fields",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
             }
           }
-        },
-        "ServerError": {
-          "description": "Internal server error",
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+        }
+      },
+      "NotFound": {
+        "description": "File not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
             }
           }
-        },
-        "ServiceUnavailable": {
-          "description": "LLM service unavailable",
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-              "example": { "success": false, "error": "LLM service unavailable: Cannot connect to Ollama." }
+        }
+      },
+      "RateLimit": {
+        "description": "Rate limit exceeded",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "Internal server error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "LLM service unavailable",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
             }
           }
         }
       }
     }
   }
+}
