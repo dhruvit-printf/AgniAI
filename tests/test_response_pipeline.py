@@ -218,10 +218,7 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("intent", public)
         self.assertNotIn("sessionId", public)
         self.assertEqual(public["prediction"]["forecast"], internal["prediction"]["projection"])
-        self.assertEqual(
-            public["formattedData"]["sections"][0]["dotnetPayload"],
-            internal["formattedData"]["sections"][0]["dotnetPayload"],
-        )
+        self.assertNotIn("dotnetPayload", public["formattedData"]["sections"][0])
 
 
 class TestBuildResponseSecurity:
