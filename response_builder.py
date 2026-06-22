@@ -27,9 +27,6 @@ _PUBLIC_RESPONSE_KEYS = (
     "message",
     "formattedData",
     "suggestedQuestions",
-    "metadata",
-    "overallConfidence",
-    "partialFailure",
     "failedSections",
 )
 

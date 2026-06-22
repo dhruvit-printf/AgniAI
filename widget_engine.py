@@ -308,7 +308,7 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
 
 def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not records:
-        return {"columns": [], "row": [], "rows": []}
+        return {"columns": [], "rows": []}
 
     def _flatten_cell_value(key: str, value: Any) -> Any:
         if value is None or isinstance(value, (str, int, float, bool)):
@@ -385,7 +385,7 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             row[k] = _flatten_cell_value(k, r.get(k))
         rows.append(row)
 
-    return {"columns": columns, "row": rows, "rows": rows}
+    return {"columns": columns, "rows": rows}
 
 def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
     if isinstance(combined_result, dict) and "sides" in combined_result:
@@ -678,9 +678,6 @@ def build_formatted_data(
     else:
         data_payload = build_table_data(records)
 
-    if inferred_type == "TABLE" and "rows" in data_payload and "row" not in data_payload:
-        data_payload["row"] = data_payload["rows"]
-        
     validate_payload(inferred_type, data_payload)
     
     from normalized_models import (

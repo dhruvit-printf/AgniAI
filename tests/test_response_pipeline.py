@@ -203,9 +203,6 @@ class TestResponseBuilder(unittest.TestCase):
                 "message",
                 "formattedData",
                 "suggestedQuestions",
-                "metadata",
-                "overallConfidence",
-                "partialFailure",
                 "failedSections",
             },
         )
@@ -487,6 +484,19 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
             "Additional details are saved in the system logs",
             report_fallback["conclusion"]["summary"],
         )
+
+    def test_generate_report_returns_none_when_empty_records(self):
+        combined = {
+            "queryType": "cross_filter",
+            "records": [],
+        }
+        intent = {"category": "Performance"}
+        report = generate_report(combined, "cross_filter", intent, "query")
+        
+        self.assertEqual(report["introMessage"], "")
+        self.assertIsNone(report["analysis"])
+        self.assertIsNone(report["prediction"])
+        self.assertIsNone(report["conclusion"])
 
 
 if __name__ == "__main__":

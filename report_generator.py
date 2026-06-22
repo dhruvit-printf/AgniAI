@@ -131,6 +131,22 @@ def generate_report(
     Generate the structured report elements by delegating to dedicated engines.
     """
     import json
+    from utils import extract_records
+
+    # If the combined result has no matching records, do not pass introMessage, analysis, prediction, or conclusion.
+    records = extract_records(combined_result)
+    if not records:
+        return {
+            "introMessage": "",
+            "analysis": None,
+            "prediction": None,
+            "conclusion": None,
+            "durations": {
+                "analysisDurationMs": 0.0,
+                "predictionDurationMs": 0.0,
+                "conclusionDurationMs": 0.0
+            }
+        }
 
     # 1. Support legacy tests that patch and expect _call_ollama to return a JSON string
     mocked_val = _call_ollama("dummy prompt")

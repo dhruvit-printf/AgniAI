@@ -64,6 +64,9 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "IndividualMedical": "Individual",
     "YearlyAttendance": "Yearly",
     "AttendanceSummary": "Summary",
+    "CompanySchedule": "company",
+    "AgniveerSchedule": "agniveer",
+    "DateSchedule": "date",
 }
 
 
@@ -123,6 +126,9 @@ _INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Roster", "ByClass"): "Tabular",
     ("Strength", "StrengthBreakdown"): "Radial Chart",
     ("Overall", "OverallPerformance"): "Tabular",
+    ("schedule", "CompanySchedule"): "Tabular",
+    ("schedule", "AgniveerSchedule"): "Tabular",
+    ("schedule", "DateSchedule"): "Tabular",
 }
 
 
@@ -2101,6 +2107,40 @@ _GENERIC_WORDS = {
 }
 
 
+_SCHEDULE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
+    (
+        "Company Schedule",
+        "CompanySchedule",
+        (
+            "today",
+            "now",
+            "current",
+            "company",
+            "bycompany",
+            "schedule",
+            "training schedule",
+        ),
+    ),
+    (
+        "Agniveer Schedule",
+        "AgniveerSchedule",
+        (
+            "agniveer",
+            "byagniveer",
+        ),
+    ),
+    (
+        "Date Schedule",
+        "DateSchedule",
+        (
+            "date",
+            "bydate",
+            "range",
+        ),
+    ),
+]
+
+
 _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]]]] = {
     "Attendance": (
         (
@@ -2463,6 +2503,23 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         ),
         _OVERALL_INTENTS,
     ),
+    "schedule": (
+        (
+            "today",
+            "now",
+            "current",
+            "company",
+            "bycompany",
+            "agniveer",
+            "byagniveer",
+            "date",
+            "bydate",
+            "range",
+            "schedule",
+            "training schedule",
+        ),
+        _SCHEDULE_INTENTS,
+    ),
 }
 
 
@@ -2716,6 +2773,10 @@ def _extract_agniveer_no(text: str) -> Optional[str]:
     m_auto = re.search(r"\b([a-z]\d{7}[a-z])\b", text_lower)
     if m_auto:
         start, end = m_auto.span(1)
+        return text[start:end].strip()
+    m_agn = re.search(r"\b(agn\d+)\b", text_lower)
+    if m_agn:
+        start, end = m_agn.span(1)
         return text[start:end].strip()
     m = re.search(r"\bagniveer\s*(?:no\.?|number)?\s*([a-z0-9_-]+)\b", text_lower)
     if m:

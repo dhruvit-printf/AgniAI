@@ -12,7 +12,7 @@ def generate_suggested_questions(
     answer: Dict[str, Any],
 ) -> List[str]:
     """
-    Return 3-5 relevant next-step questions. Dynamic and data-aware.
+    Return 3-5 relevant next-step questions from the canonical suggested question list.
     """
     category = (intent.get("category") or "").strip()
     if not category or category.lower() in ("greeting", "unknown", "none"):
@@ -31,88 +31,109 @@ def generate_suggested_questions(
 
     sport_name = intent.get("sport") or "Cricket"
 
-    # Base templates with placeholders replaced by actual data
+    # ── Override: Fallback to query type templates for complex modes ──
+    if qtype_normalized == "compare" or qtype_normalized == "comparison":
+        left_label = answer.get("left", {}).get("label") or "Side A"
+        right_label = answer.get("right", {}).get("label") or "Side B"
+        return [
+            "Compare Drill and Firing performance.",
+            "Compare BEPT and PPT scores.",
+            "Show side-by-side metric distributions.",
+            f"Compare {left_label} and {right_label} with the overall average."
+        ]
+    elif qtype_normalized == "cross_filter":
+        return [
+            "Show Class A agniveers with Excellent grading in the BEPT section.",
+            "List overweight agniveers from Batch 15.",
+            "Show cricket players belonging to Class B.",
+            "How many matching records are on leave?"
+        ]
+    elif qtype_normalized == "multi_independent":
+        return [
+            "Show the top 5 performers and the top 5 leave takers.",
+            "Show active medical cases and current attendance summary.",
+            "List overdue equipment and pending police verifications.",
+            "Show monthly attendance statistics and blood group distribution."
+        ]
+
+    # ── Category Specific Question Lists ──
     if category == "Performance":
         if subcategory == "TopPerformers":
             return [
+                "Who are the top 10 performers overall?",
+                "Show the lowest scoring agniveers.",
                 f"Who are the lowest performers in {section_name}?",
-                f"Compare {section_name}'s top performers with another section.",
-                f"Which of these top performers in {section_name} are currently on leave?",
-                f"What is the average score for these top performers?"
+                f"Compare {section_name}'s top performers with another section."
             ]
         elif subcategory == "LowestPerformers":
             return [
+                "Who scored highest in BEPT?",
+                "Show the top 5 performers in Firing.",
                 f"Who are the top performers in {section_name}?",
-                f"Show the overall pass percentage in {section_name}.",
-                f"What is the average score for these lowest performers?",
                 f"Compare {section_name}'s lowest performers with another section."
             ]
         else:
             return [
+                "Who are the top 10 performers overall?",
+                "Show the lowest scoring agniveers.",
                 f"Who are the lowest performers in {section_name}?",
-                f"Which of these top performers in {section_name} are on leave?",
-                f"Compare {section_name} with another section.",
-                f"Show the grade distribution for {section_name}."
+                f"Compare {section_name} with another section."
             ]
     elif category == "Leave":
         return [
+            "Who has taken the most leave?",
+            "Which agniveers are currently on leave?",
             f"Who took the most leaves in {section_name} this month?",
-            f"Show currently absent personnel in {section_name}.",
-            f"Are there any absconded cases in {section_name}?",
-            f"Show overall attendance for today."
+            "Show all absconded leave records."
         ]
     elif category == "Medical":
         return [
+            "Show active medical cases.",
+            "Which agniveers are obese?",
             f"Show BMI outliers and fitness analysis for {section_name}.",
-            f"What is the active medical case count in {section_name}?",
-            f"List the most common diseases in {section_name}.",
-            f"Who from {section_name} is currently hospitalized?"
+            "Give blood group distribution."
         ]
     elif category == "Attendance":
         return [
+            "Show monthly attendance statistics.",
+            "Give weekly attendance report.",
             f"Show monthly attendance statistics for {section_name}.",
-            f"Who is present in {section_name} today?",
-            f"Show platoon-wise strength breakdown for {section_name}.",
-            f"List the absentees for today."
+            "Show today's attendance."
         ]
     elif category == "Equipment":
         return [
-            "Show overdue equipment returns.",
-            "What items were issued today?",
-            "List unassigned items in inventory.",
-            "Show poor condition returned items."
+            "Show overall equipment statistics.",
+            "Which equipment is overdue for return?",
+            "Show returned equipment.",
+            "Show overdue equipment returns."
         ]
     elif category == "Verification":
         return [
-            "Show pending verification list.",
-            "How many verifications are completed?",
-            "List all unverified documents.",
-            "Show verification rate by platoon."
+            "Which agniveers are pending verification?",
+            "Show sent verification records.",
+            "Show verified agniveers.",
+            "Show pending verification list."
         ]
-    elif category == "Skills":
+    elif category in ("Skills", "Roster"):
         return [
+            "Show all sports players.",
+            "List cricket players.",
             f"Show roster by sport for {sport_name}.",
-            f"List cricket and football players.",
-            f"Show blood group distribution in {section_name}.",
-            f"Show class distribution breakdown."
+            "List all Class A agniveers."
         ]
-
-    # Fallback to query type templates
-    if qtype_normalized == "compare":
-        left_label = answer.get("left", {}).get("label") or "Side A"
-        right_label = answer.get("right", {}).get("label") or "Side B"
+    elif category == "Strength":
         return [
-            f"Show the absolute score difference between {left_label} and {right_label}.",
-            f"Compare {left_label} and {right_label} with the overall average.",
-            "Compare another pair of sections.",
-            "Show side-by-side metric distributions."
+            "Show complete strength breakdown.",
+            "Give company-wise strength report.",
+            "Show platoon-wise strength.",
+            "Show present and absent counts."
         ]
-    elif qtype_normalized == "cross_filter":
+    elif category == "Overall":
         return [
-            "How many matching records are on leave?",
-            "Show the performance of these filtered trainees.",
-            "Export this intersection roster.",
-            "Compare this filtered subset with overall metrics."
+            "Show top overall performers.",
+            "Rank agniveers using composite score.",
+            "Which batch has the best overall performance?",
+            "Show top 20 overall agniveers."
         ]
 
     return [
