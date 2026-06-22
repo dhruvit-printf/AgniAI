@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from flask import Blueprint, Response, jsonify, send_from_directory
+from flask import Blueprint, Response, jsonify, request, send_from_directory
 
 swagger_bp = Blueprint("swagger", __name__)
 
@@ -25,7 +25,17 @@ _SPEC_PATH = Path(__file__).parent / "static" / "swagger.json"
 
 
 def _load_spec() -> dict:
-    return json.loads(_SPEC_PATH.read_text(encoding="utf-8"))
+    spec = json.loads(
+        _SPEC_PATH.read_text(encoding="utf-8")
+    )
+    host_url = request.host_url.rstrip("/")
+    spec["servers"] = [
+        {
+            "url": host_url,
+            "description": "Current server"
+        }
+    ]
+    return spec
 
 
 @swagger_bp.route("/docs/spec")
@@ -68,7 +78,7 @@ _SWAGGER_HTML = """<!DOCTYPE html>
   <script>
     window.onload = function() {
       window.ui = SwaggerUIBundle({
-        url: "/docs/spec",
+        url: window.location.origin + "/docs/spec",
         dom_id: '#swagger-ui',
         deepLinking: true,
         presets: [
@@ -77,7 +87,14 @@ _SWAGGER_HTML = """<!DOCTYPE html>
         layout: "BaseLayout",
         defaultModelsExpandDepth: 1,
         defaultModelExpandDepth: 2,
-        tryItOutEnabled: true
+        tryItOutEnabled: true,
+        requestInterceptor: (req) => {
+          const currentOrigin = window.location.origin;
+          req.url = req.url
+            .replace("http://localhost:5000", currentOrigin)
+            .replace("http://127.0.0.1:5000", currentOrigin);
+          return req;
+        }
       });
     };
   </script>

@@ -8,16 +8,7 @@
       "name": "AgniAI"
     }
   },
-  "servers": [
-    {
-      "url": "http://localhost:5000",
-      "description": "Flask / Python API (default)"
-    },
-    {
-      "url": "http://localhost:7257",
-      "description": ".NET AiCommand backend (admin only)"
-    }
-  ],
+  "servers": [],
   "tags": [
     {
       "name": "System",
