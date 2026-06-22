@@ -391,4 +391,70 @@ def resolve_entities_from_query(
             company_id=result["companyId"],
         )
 
+    # ── Fallback 1: Dynamic lookup of Company Names from API ───────────
+    if result["companyId"] is None:
+        companies = _fetch_companies()
+        for co in companies:
+            stored = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
+            if not stored:
+                continue
+            # Match stored name as whole words/phrase
+            pattern = r"\b" + re.escape(stored.lower()) + r"\b"
+            if re.search(pattern, query.lower()):
+                result["companyId"] = int(_get_field(co, "companyId", "CompanyId", "id", "Id"))
+                result["companyName"] = stored
+                break
+            
+            # Match short name (without company/coy suffix)
+            short_name = re.sub(r"\b(?:company|coy)\b", "", stored.lower()).strip()
+            if short_name and short_name not in _NOISE_WORDS:
+                pattern_short = r"\b" + re.escape(short_name) + r"\b"
+                if re.search(pattern_short, query.lower()):
+                    result["companyId"] = int(_get_field(co, "companyId", "CompanyId", "id", "Id"))
+                    result["companyName"] = stored
+                    break
+
+    # ── Fallback 2: Dynamic lookup of Platoon Names from API ───────────
+    if result["platoonId"] is None:
+        platoons = _fetch_platoons()
+        for pl in platoons:
+            stored = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
+            if not stored:
+                continue
+            # Match stored name as whole words/phrase (e.g. "PL-01")
+            pattern = r"\b" + re.escape(stored.lower()) + r"\b"
+            if re.search(pattern, query.lower()):
+                result["platoonId"] = int(_get_field(pl, "platoonId", "PlatoonId", "id", "Id"))
+                result["platoonName"] = stored
+                break
+            
+            # Match short name (without platoon/pl prefix)
+            short_name = re.sub(r"\b(?:platoon|pl)[-\s]?\b", "", stored.lower()).strip()
+            if short_name and short_name not in _NOISE_WORDS:
+                pattern_short = r"\b" + re.escape(short_name) + r"\b"
+                if re.search(pattern_short, query.lower()):
+                    # Prefer matching company if company is resolved
+                    cid = _get_field(pl, "companyId", "CompanyId")
+                    if result["companyId"] is None or cid == result["companyId"]:
+                        result["platoonId"] = int(_get_field(pl, "platoonId", "PlatoonId", "id", "Id"))
+                        result["platoonName"] = stored
+                        break
+
+    # ── Map Resolved IDs back to Canonical Names ───────────────────────
+    if result["companyId"] is not None:
+        companies = _fetch_companies()
+        for co in companies:
+            cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
+            if cid is not None and int(cid) == result["companyId"]:
+                result["companyName"] = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
+                break
+
+    if result["platoonId"] is not None:
+        platoons = _fetch_platoons()
+        for pl in platoons:
+            pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
+            if pid is not None and int(pid) == result["platoonId"]:
+                result["platoonName"] = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
+                break
+
     return result

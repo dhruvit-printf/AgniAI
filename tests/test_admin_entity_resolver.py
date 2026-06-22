@@ -109,3 +109,33 @@ class TestResolveEntitiesFromQuery:
     def test_platoon_name_extracted(self):
         result = resolve_entities_from_query("platoon 3 leave status")
         assert result["platoonName"] == "3"
+
+    def test_fallback_lookup_from_api(self):
+        from unittest.mock import patch
+        with patch("admin_entity_resolver._fetch_companies") as mock_fetch_companies, \
+             patch("admin_entity_resolver._fetch_platoons") as mock_fetch_platoons:
+            
+            mock_fetch_companies.return_value = [
+                {"companyId": 10, "companyName": "Alpha Company"},
+                {"companyId": 20, "companyName": "Bravo"},
+            ]
+            mock_fetch_platoons.return_value = [
+                {"platoonId": 101, "platoonName": "PL-01", "companyId": 10},
+                {"platoonId": 102, "platoonName": "PL-02", "companyId": 10},
+                {"platoonId": 201, "platoonName": "Vanguard Platoon", "companyId": 20},
+            ]
+
+            # 1. Matches "PL-02" directly anywhere in the query
+            r1 = resolve_entities_from_query("Show stats for PL-02")
+            assert r1["platoonId"] == 102
+            assert r1["platoonName"] == "PL-02"
+
+            # 2. Matches company name "Alpha" directly without the "company" keyword
+            r2 = resolve_entities_from_query("Is Alpha performing well?")
+            assert r2["companyId"] == 10
+            assert r2["companyName"] == "Alpha Company"
+
+            # 3. Matches company "Bravo" directly
+            r3 = resolve_entities_from_query("Compare Bravo and Alpha Company")
+            assert r3["companyId"] == 20
+            assert r3["companyName"] == "Bravo"

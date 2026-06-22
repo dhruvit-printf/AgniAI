@@ -76,22 +76,6 @@ from schemas import (
 logger = logging.getLogger(__name__)
 
 
-class _QuestionIntentOnlyFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        try:
-            payload = json.loads(record.getMessage())
-        except Exception:
-            return False
-        return (
-            isinstance(payload, dict)
-            and "question" in payload
-            and "intent" in payload
-            and "type" in payload
-        )
-
-
-logger.addFilter(_QuestionIntentOnlyFilter())
-
 SLOW_QUERY_THRESHOLD = float(os.getenv("SLOW_QUERY_THRESHOLD_SEC", "5.0"))
 from metrics import metrics_collector
 
@@ -1422,6 +1406,7 @@ def execute_admin_query(
         logger.info(
             json.dumps(
                 {
+                    "message": "Admin query audit",
                     "question": user_query,
                     "intent": primary_intent,
                     "type": primary_intent.get("type") or "",
@@ -1510,6 +1495,7 @@ def execute_admin_query(
         logger.error(
             json.dumps(
                 {
+                    "message": "Admin query error audit",
                     "question": user_query,
                     "intent": error_intent,
                     "type": "error",

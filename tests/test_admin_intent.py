@@ -492,3 +492,16 @@ def test_parameter_propagation():
     assert r4["medical_status"] == "Active"
     p4 = format_admin_payload(r4)
     assert p4["medicalStatus"] == "Active"
+
+
+def test_auto_detect_agniveer_no():
+    # Test that the Agniveer ID pattern A0701515Y is automatically detected without the prefix 'agniveer no'
+    r1 = classify_admin_intent("Show details for A0701515Y")
+    assert r1["agniveer_no"] == "A0701515Y"
+    p1 = format_admin_payload(r1)
+    assert p1["agniveerNo"] == "A0701515Y"
+
+    r2 = classify_admin_intent("Is B1234567Z on leave?")
+    assert r2["agniveer_no"] == "B1234567Z"
+    p2 = format_admin_payload(r2)
+    assert p2["agniveerNo"] == "B1234567Z"

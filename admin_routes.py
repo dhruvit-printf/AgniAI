@@ -28,23 +28,6 @@ from response_builder import public_response_view
 
 logger = logging.getLogger(__name__)
 
-
-class _QuestionIntentOnlyFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        try:
-            payload = json.loads(record.getMessage())
-        except Exception:
-            return False
-        return (
-            isinstance(payload, dict)
-            and "question" in payload
-            and "intent" in payload
-            and "type" in payload
-        )
-
-
-logger.addFilter(_QuestionIntentOnlyFilter())
-
 # ── Config ─────────────────────────────────────────────────────────────────
 ADMIN_RATE_LIMIT = os.getenv("ADMIN_RATE_LIMIT", "20 per minute")
 LAST_DOTNET_HEALTH_LATENCY_MS: Optional[float] = None

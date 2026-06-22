@@ -191,14 +191,14 @@ def test_payload_issued_items_keys():
     r = classify_admin_intent("Show all issued items")
     p = format_admin_payload(r)
     assert p.get("category") == "Equipment"
-    assert p.get("operation") == "IssuedItems"
+    assert p.get("operation") == "Issued"
 
 
 def test_payload_procured_items_keys():
     r = classify_admin_intent("List procured items")
     p = format_admin_payload(r)
     assert p.get("category") == "Equipment"
-    assert p.get("operation") == "ProcuredItems"
+    assert p.get("operation") == "Procured"
 
 
 def test_payload_specific_item_name():

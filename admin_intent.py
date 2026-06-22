@@ -1029,7 +1029,6 @@ _ATTENDANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         (
             "monthly",
             "month",
-            "stats",
             "monthly attendance",
             "monthly attendance statistics",
             "attendance statistics",
@@ -1233,8 +1232,18 @@ _VERIFICATION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
     ),
 ]
 
-
 _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
+    (
+        "Agniveer Wise Equipment",
+        "AgniveerWiseEquipment",
+        (
+            "agniveerwise",
+            "agniveer wise",
+            "agniveer-wise",
+            "equipment by agniveer",
+            "equipment wise agniveer",
+        ),
+    ),
     (
         "Equipment Summary",
         "EquipmentSummary",
@@ -1562,6 +1571,11 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "BySport",
         (
             "bysport",
+            "skills by sport",
+            "skill by sport",
+            "skills sport",
+            "skill sport",
+            "skills sports",
             "sport",
             "sports",
             "best performers in sport",
@@ -1580,6 +1594,11 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "sportsperson roster",
             "sport filter",
             "football",
+            "cricket",
+            "basketball",
+            "volleyball",
+            "kabaddi",
+            "hockey",
         ),
     ),
     (
@@ -1591,14 +1610,19 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "agniveers by class",
             "by class",
             "class wise",
-            "sikh class",
-            "dogra class",
-            "jat class",
             "class wise roster",
             "class distribution",
             "which class has how many",
             "class breakdown",
             "class filter",
+            "skills by class",
+            "skills class",
+            "sikh class",
+            "dogra class",
+            "jat class",
+            "roster by class",
+            "roster by community",
+            "community wise roster",
         ),
     ),
 ]
@@ -1629,6 +1653,11 @@ _ROSTER_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "sportsperson roster",
             "sport filter",
             "football",
+            "cricket",
+            "basketball",
+            "volleyball",
+            "kabaddi",
+            "hockey",
         ),
     ),
     (
@@ -2084,14 +2113,9 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "present on campus",
             "on campus today",
             "who came today",
-            "strength breakdown",
-            "total strength",
-            "headcount breakdown",
             "attendance",
             "present",
             "campus",
-            "strength",
-            "headcount",
             "muster",
             "monthly",
             "yearly",
@@ -2198,12 +2222,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "how many failed",
             "pass rate",
             "fail rate",
-            "overall",
-            "composite",
-            "allcriteria",
-            "overall performance",
-            "composite performance",
-            "all criteria",
             "performance",
             "score",
             "marks",
@@ -2398,27 +2416,30 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
     ),
     "Skills": (
         (
-            "by sport",
-            "sport wise",
-            "roster by sport",
-            "bysport",
+            "skills by class",
+            "skill by class",
+            "skills",
+            "skill",
             "by class",
             "class wise",
             "byclass",
-            "skill",
+            "class",
             "sport",
             "sports",
-            "roster",
+            "by sport",
+            "sport wise",
+            "bysport",
         ),
         _SKILLS_INTENTS,
     ),
     "Roster": (
         (
+            "roster by sport",
+            "roster by class",
+            "roster by community",
+            "sports roster",
+            "class wise roster",
             "roster",
-            "by sport",
-            "by class",
-            "sport",
-            "class",
         ),
         _ROSTER_INTENTS,
     ),
@@ -2427,13 +2448,18 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "strength",
             "breakdown",
             "strength breakdown",
+            "total strength",
+            "headcount breakdown",
+            "muster strength",
         ),
         _STRENGTH_INTENTS,
     ),
     "Overall": (
         (
             "overall",
-            "performance",
+            "overall performance",
+            "composite performance",
+            "all criteria performance",
         ),
         _OVERALL_INTENTS,
     ),
@@ -2687,6 +2713,10 @@ def _extract_to_date(text_lower: str) -> Optional[str]:
 
 def _extract_agniveer_no(text: str) -> Optional[str]:
     text_lower = text.lower()
+    m_auto = re.search(r"\b([a-z]\d{7}[a-z])\b", text_lower)
+    if m_auto:
+        start, end = m_auto.span(1)
+        return text[start:end].strip()
     m = re.search(r"\bagniveer\s*(?:no\.?|number)?\s*([a-z0-9_-]+)\b", text_lower)
     if m:
         start, end = m.span(1)
@@ -2703,11 +2733,11 @@ def _extract_bmi_category(text_lower: str) -> Optional[str]:
 
 def _extract_blood_group(text_lower: str) -> Optional[str]:
     patterns = (
-        r"\b(?:blood\s*group|bg)\s*(?:is\s*)?([ab]{1,2}[+-])\b",
-        r"\b(o[+-])\b",
-        r"\b(a[+-])\b",
-        r"\b(b[+-])\b",
-        r"\b(ab[+-])\b",
+        r"\b(?:blood\s*group|bg)\s*(?:is\s*)?([oab]{1,2}[+-])(?![a-z0-9])",
+        r"\b(o[+-])(?![a-z0-9])",
+        r"\b(ab[+-])(?![a-z0-9])",
+        r"\b(a[+-])(?![a-z0-9])",
+        r"\b(b[+-])(?![a-z0-9])",
     )
     for pattern in patterns:
         match = re.search(pattern, text_lower, re.IGNORECASE)
@@ -2885,20 +2915,18 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
                     best_module = mod
         module = best_module
 
-    if module is None:
-        return result
+    if module is not None:
+        result["category"] = module
+        _, intent_list = _MODULES[module]
 
-    result["category"] = module
-    _, intent_list = _MODULES[module]
-
-    intent_match = _match_intent(q, intent_list)
-    if intent_match:
-        _, intent_code = intent_match
-        result["subcategory"] = intent_code
-        result["confidence"] = "high"
-    else:
-        result["subcategory"] = intent_list[0][1]
-        result["confidence"] = "medium"
+        intent_match = _match_intent(q, intent_list)
+        if intent_match:
+            _, intent_code = intent_match
+            result["subcategory"] = intent_code
+            result["confidence"] = "high"
+        else:
+            result["subcategory"] = intent_list[0][1]
+            result["confidence"] = "medium"
 
     result["number"] = _extract_number(q)
     result["section"] = _extract_section(q)
