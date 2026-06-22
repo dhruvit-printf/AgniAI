@@ -204,15 +204,15 @@ def test_payload_procured_items_keys():
 def test_payload_specific_item_name():
     r = classify_admin_intent("Show barret cap status")
     p = format_admin_payload(r)
-    assert p.get("itemName") == "Barret Cap"
-    assert p.get("itemCategory") == "ProcuredItems"
+    assert p.get("equipmentName") == "Barret Cap"
+    assert "itemName" not in p
+    assert "itemCategory" not in p
 
 
 def test_payload_no_item_name_for_general_query():
     r = classify_admin_intent("Show equipment summary")
     p = format_admin_payload(r)
-    assert "itemName" not in p
-    assert "itemCategory" not in p
+    assert "equipmentName" not in p
 
 
 # =============================================================================

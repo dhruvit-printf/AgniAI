@@ -36,6 +36,8 @@ class IntentModel(BaseModel):
     to_date: Optional[str] = None
     agniveer_no: Optional[str] = None
     bmi_category: Optional[str] = None
+    blood_group: Optional[str] = None
+    type: Optional[str] = None
     medical_status: Optional[str] = None
     widget_hint: Optional[str] = None
     widgetHint: Optional[str] = None
@@ -44,6 +46,7 @@ class IntentModel(BaseModel):
 class DotNetPayloadModel(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
+    commandId: Optional[int] = 0
     category: Optional[str] = None
     operation: Optional[str] = None
     n: Optional[int] = None
@@ -58,8 +61,8 @@ class DotNetPayloadModel(BaseModel):
     fromAttempt: Optional[int] = None
     toAttempt: Optional[int] = None
     date: Optional[str] = None
-    itemName: Optional[str] = None
-    itemCategory: Optional[str] = None
+    bloodGroup: Optional[str] = None
+    equipmentName: Optional[str] = None
     companyId: Optional[int] = None
     platoonId: Optional[int] = None
     batchId: Optional[int] = None

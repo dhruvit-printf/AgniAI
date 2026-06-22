@@ -6,7 +6,11 @@ Unit tests for the admin chatbot intent classifier.
 
 import pytest
 
-from admin_intent import classify_admin_intent, format_admin_payload
+from admin_intent import (
+    classify_admin_intent,
+    format_admin_intent,
+    format_admin_payload,
+)
 
 # =============================================================================
 # PERFORMANCE
@@ -18,6 +22,7 @@ def test_top_performers_basic():
     assert r["category"] == "Performance"
     assert r["subcategory"] == "TopPerformers"
     assert r["number"] == 5
+    assert r["type"] == "Tabular"
 
 
 def test_top_performers_with_section():
@@ -66,24 +71,28 @@ def test_grade_summary():
     r = classify_admin_intent("Give me a grade summary")
     assert r["category"] == "Performance"
     assert r["subcategory"] == "GradingSummary"
+    assert r["type"] == "Bar Chart"
 
 
 def test_overall_performance():
     r = classify_admin_intent("Give me the overall performance report")
     assert r["category"] == "Performance"
     assert r["subcategory"] == "OverallPerformance"
+    assert r["type"] == "Tabular"
 
 
 def test_improvement():
     r = classify_admin_intent("Which trainees showed improvement?")
     assert r["category"] == "Performance"
     assert r["subcategory"] == "Improvement"
+    assert r["type"] == "Trend Chart"
 
 
 def test_decline():
     r = classify_admin_intent("Who had a decline in scores?")
     assert r["category"] == "Performance"
     assert r["subcategory"] == "Drop"
+    assert r["type"] == "Trend Chart"
 
 
 def test_grading_filter_excellent():
@@ -105,6 +114,7 @@ def test_most_leave():
     r = classify_admin_intent("Who has taken the most leaves?")
     assert r["category"] == "Leave"
     assert r["subcategory"] == "MostLeaveTaken"
+    assert r["type"] == "Tabular"
 
 
 def test_least_leave():
@@ -145,12 +155,14 @@ def test_active_cases():
     r = classify_admin_intent("How many active medical cases are there?")
     assert r["category"] == "Medical"
     assert r["subcategory"] == "ActiveCases"
+    assert r["type"] == "Tabular"
 
 
 def test_bmi_analysis():
     r = classify_admin_intent("Show BMI analysis of trainees")
     assert r["category"] == "Medical"
     assert r["subcategory"] == "BMIAnalysis"
+    assert r["type"] == "Donut Chart"
 
 
 def test_disease_stats():
@@ -168,6 +180,14 @@ def test_monthly_attendance():
     r = classify_admin_intent("Show monthly attendance stats")
     assert r["category"] == "Attendance"
     assert r["subcategory"] == "MonthlyAttendance"
+    assert r["type"] == "Bar Chart"
+
+
+def test_weekly_attendance():
+    r = classify_admin_intent("Show weekly attendance stats")
+    assert r["category"] == "Attendance"
+    assert r["subcategory"] == "WeeklyAttendance"
+    assert r["type"] == "Bar Chart"
 
 
 def test_present_today():
@@ -180,6 +200,7 @@ def test_strength_breakdown():
     r = classify_admin_intent("Give me the strength breakdown")
     assert r["category"] == "Attendance"
     assert r["subcategory"] == "StrengthBreakdown"
+    assert r["type"] == "Radial Chart"
 
 
 # =============================================================================
@@ -208,6 +229,7 @@ def test_equipment_summary():
     r = classify_admin_intent("Give me an equipment summary")
     assert r["category"] == "Equipment"
     assert r["subcategory"] == "EquipmentSummary"
+    assert r["type"] == "Card"
 
 
 def test_overdue_equipment():
@@ -249,6 +271,7 @@ def test_top_unit():
     r = classify_admin_intent("Which unit has the highest distribution?")
     assert r["category"] == "Distribution"
     assert r["subcategory"] == "TopUnit"
+    assert r["type"] == "Tabular"
 
 
 # =============================================================================
@@ -260,6 +283,14 @@ def test_by_sport():
     r = classify_admin_intent("Show roster by sport")
     assert r["category"] == "Skills"
     assert r["subcategory"] == "BySport"
+    assert r["type"] == "Tabular"
+
+
+def test_explicit_type_override():
+    r = classify_admin_intent("Show the monthly attendance as a tabular report")
+    assert r["category"] == "Attendance"
+    assert r["subcategory"] == "MonthlyAttendance"
+    assert r["type"] == "Tabular"
 
 
 def test_by_class():
@@ -284,10 +315,19 @@ def test_payload_strips_none():
 def test_payload_has_required_fields():
     r = classify_admin_intent("Who are the top 5 performers in BEPT?")
     payload = format_admin_payload(r)
+    assert payload["commandId"] == 0
     assert payload["category"] == "Performance"
     assert payload["operation"] == "Top"
     assert payload["n"] == 5
     assert payload["section"] == "BPET"
+    assert "type" not in payload
+
+
+def test_frontend_intent_includes_type():
+    r = classify_admin_intent("Who are the top 5 performers in BEPT?")
+    intent = format_admin_intent(r)
+    assert intent["type"] == "Tabular"
+    assert intent["commandId"] == 0
 
 
 # =============================================================================

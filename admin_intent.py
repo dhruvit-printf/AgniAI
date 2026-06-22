@@ -31,14 +31,20 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "LeastLeaveTaken": "Least",
     "CurrentLeaveStatus": "Current",
     "AbscondedPerson": "Absconded",
+    "LeaveType": "LeaveType",
     "ActiveCases": "Active",
     "BMIAnalysis": "BMI",
     "DiseaseStatistics": "Disease",
     "MonthlyAttendance": "Monthly",
+    "WeeklyAttendance": "Weekly",
+    "DailyAttendance": "Daily",
     "PresentToday": "Present",
     "StrengthBreakdown": "Strength",
     "PendingVerification": "Pending",
     "CompletedVerification": "Completed",
+    "NotRespondedVerification": "NotResponded",
+    "VerifiedVerification": "Verified",
+    "RejectedVerification": "Rejected",
     "EquipmentSummary": "Stats",
     "OverdueEquipment": "Overdue",
     "PoorConditionEquipment": "Returned",
@@ -52,6 +58,67 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "IssuedItems": "IssuedItems",
     "ProcuredItems": "ProcuredItems",
 }
+
+
+_INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
+    ("Performance", "TopPerformers"): "Tabular",
+    ("Performance", "LowestPerformers"): "Tabular",
+    ("Performance", "Improvement"): "Trend Chart",
+    ("Performance", "Drop"): "Trend Chart",
+    ("Performance", "GradeDistribution"): "Tabular",
+    ("Performance", "GradingSummary"): "Bar Chart",
+    ("Performance", "AverageScore"): "Tabular",
+    ("Performance", "AttemptWise"): "Tabular",
+    ("Performance", "BestAttempt"): "Tabular",
+    ("Performance", "Comparison"): "Area Chart",
+    ("Performance", "SectionSummary"): "Tabular",
+    ("Performance", "PassPercentage"): "Tabular",
+    ("Performance", "FailPercentage"): "Tabular",
+    ("Performance", "OverallPerformance"): "Tabular",
+    ("Leave", "MostLeaveTaken"): "Tabular",
+    ("Leave", "LeastLeaveTaken"): "Tabular",
+    ("Leave", "CurrentLeaveStatus"): "Tabular",
+    ("Leave", "AbscondedPerson"): "Tabular",
+    ("Leave", "LeaveType"): "Tabular",
+    ("Medical", "ActiveCases"): "Tabular",
+    ("Medical", "BMIAnalysis"): "Donut Chart",
+    ("Medical", "DiseaseStatistics"): "Tabular",
+    ("Attendance", "MonthlyAttendance"): "Bar Chart",
+    ("Attendance", "WeeklyAttendance"): "Bar Chart",
+    ("Attendance", "DailyAttendance"): "Calendar UI",
+    ("Attendance", "PresentToday"): "Pie Chart",
+    ("Attendance", "StrengthBreakdown"): "Radial Chart",
+    ("Verification", "PendingVerification"): "Tabular",
+    ("Verification", "CompletedVerification"): "Tabular",
+    ("Verification", "NotRespondedVerification"): "Tabular",
+    ("Verification", "VerifiedVerification"): "Tabular",
+    ("Verification", "RejectedVerification"): "Tabular",
+    ("Equipment", "EquipmentSummary"): "Card",
+    ("Equipment", "OverdueEquipment"): "Tabular",
+    ("Equipment", "PoorConditionEquipment"): "Tabular",
+    ("Equipment", "IssuedItems"): "Tabular",
+    ("Equipment", "ProcuredItems"): "Tabular",
+    ("Distribution", "LatestDistribution"): "Tabular",
+    ("Distribution", "DistributionByUnit"): "Tabular",
+    ("Distribution", "UnassignedItems"): "Tabular",
+    ("Distribution", "TopUnit"): "Tabular",
+    ("Skills", "BySport"): "Tabular",
+    ("Skills", "ByClass"): "Tabular",
+    ("Skills", "BloodGroup"): "Tabular",
+}
+
+
+_EXPLICIT_TYPE_PATTERNS: Tuple[Tuple[str, str], ...] = (
+    (r"\btabular\b|\btable\b", "Tabular"),
+    (r"\btrend chart\b|\bline chart\b", "Trend Chart"),
+    (r"\bbar chart\b|\bbar graph\b", "Bar Chart"),
+    (r"\barea chart\b", "Area Chart"),
+    (r"\bdonut chart\b|\bdoughnut chart\b", "Donut Chart"),
+    (r"\bpie chart\b", "Pie Chart"),
+    (r"\bradial chart\b", "Radial Chart"),
+    (r"\bcalendar ui\b|\bcalendar view\b", "Calendar UI"),
+    (r"\bcard\b", "Card"),
+)
 
 
 _PERFORMANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
@@ -873,6 +940,34 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
 
 _ATTENDANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
     (
+        "Weekly Attendance",
+        "WeeklyAttendance",
+        (
+            "weekly",
+            "week",
+            "weekly attendance",
+            "attendance this week",
+            "this week attendance",
+            "week wise attendance",
+            "attendance by week",
+            "weekly report",
+            "weekly stats",
+        ),
+    ),
+    (
+        "Daily Attendance",
+        "DailyAttendance",
+        (
+            "daily",
+            "day",
+            "daily attendance",
+            "attendance by day",
+            "day wise attendance",
+            "daily report",
+            "daily stats",
+        ),
+    ),
+    (
         "Monthly Attendance",
         "MonthlyAttendance",
         (
@@ -983,6 +1078,20 @@ _VERIFICATION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         ),
     ),
     (
+        "Not Responded Verification",
+        "NotRespondedVerification",
+        (
+            "not responded",
+            "no response",
+            "noresponse",
+            "not responded verification",
+            "not responded documents",
+            "awaiting response",
+            "response pending",
+            "verification not responded",
+        ),
+    ),
+    (
         "Completed Verification",
         "CompletedVerification",
         (
@@ -1003,6 +1112,27 @@ _VERIFICATION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "verification cleared",
             "how many verified",
             "total verified",
+        ),
+    ),
+    (
+        "Verified Verification",
+        "VerifiedVerification",
+        (
+            "verified",
+            "verification verified",
+            "already verified",
+            "who is verified",
+            "verification completed",
+        ),
+    ),
+    (
+        "Rejected Verification",
+        "RejectedVerification",
+        (
+            "rejected",
+            "verification rejected",
+            "not approved",
+            "verification failed",
         ),
     ),
 ]
@@ -2338,6 +2468,47 @@ def _extract_bmi_category(text_lower: str) -> Optional[str]:
     return None
 
 
+def _extract_blood_group(text_lower: str) -> Optional[str]:
+    patterns = (
+        r"\b(?:blood\s*group|bg)\s*(?:is\s*)?([ab]{1,2}[+-])\b",
+        r"\b(o[+-])\b",
+        r"\b(a[+-])\b",
+        r"\b(b[+-])\b",
+        r"\b(ab[+-])\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text_lower, re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def _extract_intent_type(
+    text_lower: str,
+    category: Optional[str],
+    subcategory: Optional[str],
+) -> str:
+    for pattern, label in _EXPLICIT_TYPE_PATTERNS:
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return label
+
+    key = ((category or "").strip(), (subcategory or "").strip())
+    if key in _INTENT_TYPE_DEFAULTS:
+        return _INTENT_TYPE_DEFAULTS[key]
+
+    category_defaults = {
+        "Performance": "Tabular",
+        "Leave": "Tabular",
+        "Medical": "Tabular",
+        "Attendance": "Tabular",
+        "Verification": "Tabular",
+        "Equipment": "Tabular",
+        "Distribution": "Tabular",
+        "Skills": "Tabular",
+    }
+    return category_defaults.get((category or "").strip(), "Tabular")
+
+
 def _extract_medical_status(text_lower: str) -> Optional[str]:
     if "active" in text_lower:
         return "Active"
@@ -2458,6 +2629,8 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         "to_date": None,
         "agniveer_no": None,
         "bmi_category": None,
+        "blood_group": None,
+        "type": None,
         "medical_status": None,
         "raw_query": raw_query,
         "confidence": "low",
@@ -2512,6 +2685,8 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     result["to_date"] = _extract_to_date(q)
     result["agniveer_no"] = _extract_agniveer_no(raw_query)
     result["bmi_category"] = _extract_bmi_category(q)
+    result["blood_group"] = _extract_blood_group(q)
+    result["type"] = _extract_intent_type(q, module, result["subcategory"])
     result["medical_status"] = _extract_medical_status(q)
 
     item_name, item_cat = _extract_item_query(q)
@@ -2538,6 +2713,8 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
 
 def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     payload: Dict[str, Any] = {}
+
+    payload["commandId"] = 0
 
     if intent_result.get("category"):
         payload["category"] = intent_result["category"]
@@ -2583,10 +2760,7 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
         payload["date"] = intent_result["date"]
 
     if intent_result.get("item_name"):
-        payload["itemName"] = intent_result["item_name"]
-
-    if intent_result.get("item_category"):
-        payload["itemCategory"] = intent_result["item_category"]
+        payload["equipmentName"] = intent_result["item_name"]
 
     # Format additional filters
     if intent_result.get("company_id") is not None:
@@ -2610,7 +2784,14 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     if intent_result.get("bmi_category"):
         payload["bmiCategory"] = intent_result["bmi_category"]
 
-    if intent_result.get("medical_status"):
-        payload["medicalStatus"] = intent_result["medical_status"]
+    if intent_result.get("blood_group"):
+        payload["bloodGroup"] = intent_result["blood_group"]
 
+    return payload
+
+
+def format_admin_intent(intent_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the frontend-facing intent view used by /api/admin/classify."""
+    payload = format_admin_payload(intent_result)
+    payload["type"] = intent_result.get("type") or "Tabular"
     return payload

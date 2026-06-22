@@ -683,7 +683,7 @@
             "type": "boolean"
           },
           "intent": {
-            "$ref": "#/components/schemas/IntentResult"
+            "$ref": "#/components/schemas/FrontendIntent"
           },
           "dotnet_payload": {
             "$ref": "#/components/schemas/DotnetPayload"
@@ -728,6 +728,11 @@
             "nullable": true,
             "description": "Leave type: Medical | Annual | Sick | Absconded"
           },
+          "type": {
+            "type": "string",
+            "nullable": true,
+            "description": "Frontend widget type: Tabular | Bar Chart | Trend Chart | Area Chart | Donut Chart | Pie Chart | Radial Chart | Calendar UI | Card"
+          },
           "raw_query": {
             "type": "string"
           },
@@ -741,18 +746,16 @@
           }
         }
       },
-      "DotnetPayload": {
+      "FrontendIntent": {
         "type": "object",
-        "description": "Payload sent to .NET /api/AiCommand/execute (null fields stripped)",
+        "description": "Frontend-facing intent view (request fields plus visual type)",
         "properties": {
+          "commandId": {
+            "type": "integer",
+            "default": 0
+          },
           "category": {
             "type": "string"
-          },
-          "subcategory": {
-            "type": "string"
-          },
-          "number": {
-            "type": "integer"
           },
           "operation": {
             "type": "string"
@@ -760,10 +763,162 @@
           "section": {
             "type": "string"
           },
+          "subSection": {
+            "type": "string"
+          },
           "grading": {
             "type": "string"
           },
-          "leave_type": {
+          "attemptNo": {
+            "type": "integer"
+          },
+          "fromAttempt": {
+            "type": "integer"
+          },
+          "toAttempt": {
+            "type": "integer"
+          },
+          "leaveType": {
+            "type": "string"
+          },
+          "bmiCategory": {
+            "type": "string"
+          },
+          "bloodGroup": {
+            "type": "string"
+          },
+          "equipmentName": {
+            "type": "string"
+          },
+          "n": {
+            "type": "integer"
+          },
+          "batchId": {
+            "type": "integer"
+          },
+          "platoonId": {
+            "type": "integer"
+          },
+          "unitName": {
+            "type": "string"
+          },
+          "agniveerNo": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "integer"
+          },
+          "sport": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fromDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "toDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "type": {
+            "type": "string",
+            "description": "Frontend widget type"
+          }
+        }
+      },
+      "DotnetPayload": {
+        "type": "object",
+        "description": "Payload sent to .NET /api/AiCommand/execute (null fields stripped)",
+        "properties": {
+          "commandId": {
+            "type": "integer",
+            "default": 0
+          },
+          "category": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "subSection": {
+            "type": "string"
+          },
+          "grading": {
+            "type": "string"
+          },
+          "attemptNo": {
+            "type": "integer"
+          },
+          "fromAttempt": {
+            "type": "integer"
+          },
+          "toAttempt": {
+            "type": "integer"
+          },
+          "leaveType": {
+            "type": "string"
+          },
+          "bmiCategory": {
+            "type": "string"
+          },
+          "bloodGroup": {
+            "type": "string"
+          },
+          "equipmentName": {
+            "type": "string"
+          },
+          "n": {
+            "type": "integer"
+          },
+          "batchId": {
+            "type": "integer"
+          },
+          "platoonId": {
+            "type": "integer"
+          },
+          "unitName": {
+            "type": "string"
+          },
+          "agniveerNo": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "integer"
+          },
+          "sport": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fromDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "toDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "groupBy": {
+            "type": "string"
+          },
+          "analyticsHint": {
             "type": "string"
           }
         }
