@@ -27,6 +27,13 @@ class TestQueryPlanner(unittest.TestCase):
         self.assertEqual(plan.query_type, QueryType.MULTI_OPERATION)
         self.assertEqual(len(plan.operations), 2)
 
+    def test_independent_and_query_with_active_section(self):
+        plan = plan_query("Show top performers and active medical cases")
+        self.assertEqual(plan.query_type, QueryType.MULTI_OPERATION)
+        self.assertEqual(len(plan.operations), 2)
+        self.assertEqual(plan.operations[0].intent_result["category"], "Performance")
+        self.assertEqual(plan.operations[1].intent_result["category"], "Medical")
+
     def test_leave_and_strength_breakdown_is_multi_independent(self):
         plan = plan_query("Show current leave records and strength breakdown")
         self.assertEqual(plan.query_type, QueryType.MULTI_OPERATION)

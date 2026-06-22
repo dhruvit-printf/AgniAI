@@ -222,7 +222,11 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
     Filter the internal response dict to only expose fields matching the
     public contract, preventing security leaks of raw .NET records or LLM details.
     """
-    return {k: payload[k] for k in _PUBLIC_RESPONSE_KEYS if k in payload}
+    public_payload = {k: payload[k] for k in _PUBLIC_RESPONSE_KEYS if k in payload}
+    combined_message = (payload.get("message") or "").strip()
+    intro_message = (payload.get("introMessage") or "").strip()
+    public_payload["message"] = combined_message or intro_message
+    return public_payload
 
 
 def stream_response_chunks(payload: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:

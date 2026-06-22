@@ -43,7 +43,7 @@ from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
 from dotnet_executor import _call_dotnet
 from feature_flags import get_flags
 from query_planner import QueryType, plan_query
-from report_generator import generate_report
+from report_generator import generate_report, get_fallback_report
 from response_builder import build_response, build_answer
 from normalized_models import extract_records as _extract_records
 from result_combiner import combine_results
@@ -1445,6 +1445,39 @@ def execute_admin_query(
                     "prediction": None,
                     "conclusion": None,
                 }
+
+            # If the report layer intentionally returns blanks because the
+            # result set is empty, replace that with a grounded no-data report
+            # so the user still gets an explanation instead of a silent payload.
+            if (
+                not (report.get("introMessage") or "").strip()
+                and not report.get("analysis")
+                and not report.get("prediction")
+                and not report.get("conclusion")
+            ):
+                report = get_fallback_report(combined_result, qtype_str, primary_intent)
+                records = _extract_records(combined_result)
+                report["prediction"] = {
+                    "trend": "Stable" if records else "Insufficient Data",
+                    "projection": (
+                        f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
+                        if records
+                        else f"Future projection is unavailable because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
+                    ),
+                    "heuristicEstimate": (
+                        f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
+                        if records
+                        else f"Future projection is unavailable because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
+                    ),
+                    "shortTerm": "stable",
+                    "futureTrends": [
+                        (
+                            f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
+                            if records
+                            else f"No stable trend can be estimated because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
+                        )
+                    ],
+                }
             report_duration = time.time() - report_start
             logger.info(
                 {
@@ -1561,8 +1594,8 @@ def execute_admin_query(
                 query_type=qtype_str,
                 intro_message=report.get("introMessage", ""),
                 combined_result=combined_result,
-                analysis=None,
-                conclusion=None,
+                analysis=report.get("analysis"),
+                conclusion=report.get("conclusion"),
                 intent=primary_intent,
                 raw_results=raw_results,
                 confidence=query_plan.confidence,
@@ -1572,7 +1605,7 @@ def execute_admin_query(
                 durations=durations_payload,
                 widgets=None,
                 suggested_questions=suggested,
-                prediction=None,
+                prediction=report.get("prediction"),
                 partial_failure=partial_failure,
                 failed_sections=failed_sections,
                 answer_dict=answer,

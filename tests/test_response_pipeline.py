@@ -212,6 +212,7 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("prediction", public)
         self.assertNotIn("conclusion", public)
         self.assertEqual(public["sessionId"], "admin-default")
+        self.assertEqual(public["message"], internal["message"])
         self.assertEqual(public["formattedData"]["prediction"], internal["prediction"])
         if isinstance(public["formattedData"], dict) and "data" in public["formattedData"]:
             data = public["formattedData"]["data"]

@@ -441,7 +441,7 @@ def _detect_multi_independent(
             right = text_lower[m.end() :].strip()
             if left and right:
                 if re.match(
-                    r"^(?:is|are|has|have|had|having|was|were|play|plays|who|which|that|with|on|in|under|currently|active|admitted|absent|present|attending|suffered|suffering)\b",
+                    r"^(?:is|are|has|have|had|having|was|were|play|plays|who|which|that|with|on|in|under|currently)\b",
                     right,
                 ):
                     continue
