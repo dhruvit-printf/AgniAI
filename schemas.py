@@ -19,6 +19,8 @@ class IntentModel(BaseModel):
     number: Optional[int] = None
     section: Optional[str] = None
     sub_section: Optional[str] = None
+    metric: Optional[str] = None
+    comparison_target: Optional[str] = None
     grading: Optional[str] = None
     leave_type: Optional[str] = None
     sport: Optional[str] = None
@@ -35,11 +37,17 @@ class IntentModel(BaseModel):
     batch_id: Optional[int] = None
     from_date: Optional[str] = None
     to_date: Optional[str] = None
+    date_range: Optional[Any] = None
     agniveer_no: Optional[str] = None
     bmi_category: Optional[str] = None
     blood_group: Optional[str] = None
     type: Optional[str] = None
     medical_status: Optional[str] = None
+    group_by: Optional[str] = None
+    sort_by: Optional[str] = None
+    aggregation: Optional[str] = None
+    top_n: Optional[int] = None
+    filters: Optional[Dict[str, Any]] = None
     widget_hint: Optional[str] = None
     widgetHint: Optional[str] = None
 
@@ -81,8 +89,10 @@ class DotNetResponseModel(BaseModel):
 
     success: Optional[bool] = None
     commandLabel: Optional[str] = None
+    status: Optional[bool] = None
     data: Optional[Any] = None
     message: Optional[str] = None
+    records: Optional[List[Dict[str, Any]]] = None
 
 class CombinedResponseModel(BaseModel):
     model_config = ConfigDict(extra="forbid")

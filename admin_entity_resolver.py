@@ -72,18 +72,29 @@ def extract_company_mention(text: str) -> Optional[str]:
       "14 punjab company", "A company", "B coy", "company 2" (numeric)
     """
     q = text.lower().strip()
+    tokens = re.findall(r"[a-z0-9]+", q)
+    if not tokens:
+        return None
 
-    # Pattern A: 1-3 words BEFORE "company" or "coy"
-    for m in re.finditer(r"\b((?:\w+\s+){0,2}\w+)\s+(?:company|coy)\b", q):
-        candidate = _clean_candidate(m.group(1))
-        if candidate and candidate.lower() not in _NOISE_WORDS:
-            return candidate
+    for idx, token in enumerate(tokens):
+        if token not in ("company", "coy"):
+            continue
 
-    # Pattern B: "company/coy" followed by 1-2 words or a number
-    for m in re.finditer(r"\b(?:company|coy)\s+([\w]+(?:\s+[\w]+)?)\b", q):
-        candidate = m.group(1).strip()
-        if candidate.lower() not in _NOISE_WORDS:
-            return candidate
+        before: List[str] = []
+        for candidate in reversed(tokens[max(0, idx - 3) : idx]):
+            if candidate in _NOISE_WORDS:
+                continue
+            before.append(candidate)
+        if before:
+            return " ".join(reversed(before)).strip()
+
+        after: List[str] = []
+        for candidate in tokens[idx + 1 : idx + 4]:
+            if candidate in _NOISE_WORDS:
+                break
+            after.append(candidate)
+        if after:
+            return " ".join(after).strip()
 
     return None
 
@@ -523,7 +534,7 @@ def resolve_entities_from_query(
                                 best_match_len = len(candidate_norm)
 
     # ── Back-fill canonical names from resolved IDs ──────────────────────────
-    if result["companyId"] is not None and not result["companyName"]:
+    if result["companyId"] is not None:
         companies = _fetch_companies(trace_id=trace_id, session_id=session_id)
         for co in companies:
             cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
@@ -533,7 +544,7 @@ def resolve_entities_from_query(
                 )
                 break
 
-    if result["platoonId"] is not None and not result["platoonName"]:
+    if result["platoonId"] is not None:
         platoons = _fetch_platoons(trace_id=trace_id, session_id=session_id)
         for pl in platoons:
             pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")

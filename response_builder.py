@@ -153,19 +153,13 @@ def build_response(
     normalized_intent = normalize_intent_confidence(intent, confidence)
     answer_payload = answer_dict if answer_dict is not None else build_answer(query_type, combined_result, normalized_intent)
     analysis_str = (
-        combine_analysis_to_string(analysis)
-        if analysis is not None
-        else (fd_payload.get("analysis") if isinstance(fd_payload, dict) else None)
+        combine_analysis_to_string(analysis) if analysis is not None else None
     )
     prediction_str = (
-        combine_prediction_to_string(prediction)
-        if prediction is not None
-        else (fd_payload.get("prediction") if isinstance(fd_payload, dict) else None)
+        combine_prediction_to_string(prediction) if prediction is not None else None
     )
     conclusion_str = (
-        combine_conclusion_to_string(conclusion)
-        if conclusion is not None
-        else (fd_payload.get("conclusion") if isinstance(fd_payload, dict) else None)
+        combine_conclusion_to_string(conclusion) if conclusion is not None else None
     )
 
     response_model = FinalResponse(

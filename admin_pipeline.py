@@ -34,6 +34,7 @@ from admin_entity_resolver import resolve_entities_from_query
 from admin_intent import (
     admin_normalize_query,
     classify_admin_intent,
+    clean_query,
     format_admin_payload,
 )
 from audit_logger import write_audit_log
@@ -179,6 +180,77 @@ def _get_cache_scope(data: Dict) -> Dict[str, Any]:
     if full_name:
         scope["fullName"] = full_name
     return scope
+
+
+_INTENT_FIELD_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "category": ("category",),
+    "operation": ("operation", "subcategory"),
+    "section": ("section",),
+    "sub_section": ("sub_section", "subSection"),
+    "metric": ("metric",),
+    "comparison_target": ("comparison_target", "comparisonTarget"),
+    "batch_id": ("batch_id", "batchId"),
+    "platoon_id": ("platoon_id", "platoonId"),
+    "company_id": ("company_id", "companyId"),
+    "agniveer_no": ("agniveer_no", "agniveerNo"),
+    "class": ("class",),
+    "sport": ("sport",),
+    "gender": ("gender",),
+    "rank": ("rank",),
+    "date_range": ("date_range", "dateRange"),
+    "query_type": ("query_type", "queryType"),
+    "group_by": ("group_by", "groupBy"),
+    "sort_by": ("sort_by", "sortBy"),
+    "aggregation": ("aggregation",),
+    "top_n": ("top_n", "topN"),
+}
+
+
+def _extract_frontend_intent(body: Dict[str, Any]) -> Dict[str, Any]:
+    intent: Dict[str, Any] = {}
+    body_intent = body.get("intent")
+    if isinstance(body_intent, dict):
+        for key, value in body_intent.items():
+            if value not in (None, "", [], {}):
+                intent[key] = value
+    for canonical, aliases in _INTENT_FIELD_ALIASES.items():
+        if canonical in intent and intent[canonical] not in (None, "", [], {}):
+            continue
+        for alias in aliases:
+            value = body.get(alias)
+            if value not in (None, "", [], {}):
+                intent[canonical] = value
+                break
+    filters = intent.get("filters")
+    if not isinstance(filters, dict):
+        filters = {}
+    for field in ("batch_id", "platoon_id", "company_id", "agniveer_no", "section", "sub_section", "class", "sport"):
+        value = intent.get(field)
+        if value not in (None, "", [], {}):
+            filters[field] = value
+    intent["filters"] = filters
+    return intent
+
+
+def _merge_intents(*sources: Dict[str, Any]) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {}
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key, value in source.items():
+            if value in (None, "", [], {}):
+                continue
+            if key == "filters" and isinstance(value, dict):
+                existing = merged.get("filters")
+                if not isinstance(existing, dict):
+                    existing = {}
+                for fk, fv in value.items():
+                    if fv not in (None, "", [], {}):
+                        existing.setdefault(fk, fv)
+                merged["filters"] = existing
+                continue
+            merged.setdefault(key, value)
+    return merged
 
 
 def _extract_combined_record_count(combined_result: Any) -> int:
@@ -578,7 +650,8 @@ def execute_admin_query(
         metrics_collector.inc_cache_misses()
 
     try:
-        message = (user_query or "").strip()
+        message = clean_query(user_query or "").strip()
+        frontend_intent = _extract_frontend_intent(body)
         if session_id is None:
             session_id = _get_session_id(body)
         id_filters = _get_id_filters(body)
@@ -875,12 +948,7 @@ def execute_admin_query(
 
                         try:
                             with trace_context(request_id, trace_id, session_id):
-                                data, err = _call_dotnet(
-                                    payload,
-                                    trace_id=trace_id,
-                                    session_id=session_id,
-                                    query_type=qtype_str,
-                                )
+                                data, err = _call_dotnet(payload, trace_id=trace_id)
                             if not err and data is not None:
                                 # Validate DotNetResponseModel
                                 if isinstance(data, dict):
@@ -1026,7 +1094,10 @@ def execute_admin_query(
                                 raw_results.append(dotnet_data)
                                 labeled_results.append((label, dotnet_data))
 
-                    primary_intent = query_plan.operations[0].intent_result
+                    primary_intent = _merge_intents(
+                        frontend_intent,
+                        query_plan.operations[0].intent_result,
+                    )
                     dotnet_duration = time.time() - dotnet_start
 
             else:
@@ -1034,14 +1105,23 @@ def execute_admin_query(
                 qtype_str = map_query_type(query_plan.query_type)
                 operation_count = 1
 
-                if (
-                    query_plan.query_type == QueryType.ANALYTICS
-                    and query_plan.operations
-                    and query_plan.operations[0].intent_result.get("category")
-                ):
-                    primary_intent = query_plan.operations[0].intent_result
-                else:
-                    primary_intent = classify_admin_intent(message)
+                classified_intent = (
+                    query_plan.operations[0].intent_result
+                    if (
+                        query_plan.query_type == QueryType.ANALYTICS
+                        and query_plan.operations
+                        and query_plan.operations[0].intent_result.get("category")
+                    )
+                    else classify_admin_intent(message)
+                )
+                primary_intent = _merge_intents(
+                    frontend_intent,
+                    classified_intent,
+                )
+                primary_intent["filters"] = _merge_intents(
+                    frontend_intent.get("filters", {}),
+                    classified_intent.get("filters", {}),
+                )
 
                 # Validate IntentModel
                 _validate_model_payload(IntentModel, primary_intent, "single.intent")
@@ -1200,10 +1280,7 @@ def execute_admin_query(
 
                     with trace_context(request_id, trace_id, session_id):
                         dotnet_data, dotnet_error = _call_dotnet(
-                            dotnet_payload,
-                            trace_id=trace_id,
-                            session_id=session_id,
-                            query_type=qtype_str,
+                            dotnet_payload, trace_id=trace_id
                         )
                     if dotnet_error:
                         logger.warning(

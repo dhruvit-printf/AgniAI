@@ -414,7 +414,7 @@ def _detect_comparison(
     if not any(kw in text_lower for kw in _COMPARISON_KEYWORDS):
         return None
     sections_found = [
-        s for s in {"bpet", "bpet", "ppt", "firing", "drill"} if s in text_lower
+        s for s in {"bpet", "bept", "ppt", "firing", "drill"} if s in text_lower
     ]
     if len(sections_found) >= 2:
         return ("Performance", "Performance")

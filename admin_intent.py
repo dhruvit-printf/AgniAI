@@ -1876,12 +1876,39 @@ _ADMIN_CANONICAL_CASE: Dict[str, str] = {
     "drill": "Drill",
 }
 
+_CLEANUP_PATTERNS = (
+    r"agniAI can make mistakes\.?\s*please verify before use\.?",
+    r"<[^>]+>",
+    r"```.*?```",
+    r"^#+\s*",
+)
+
+
+def clean_query(query: str) -> str:
+    """Remove disclaimers, markup, banners, and noisy whitespace before intent classification."""
+    if not query:
+        return ""
+    text = str(query)
+    text = text.replace("\u200b", "").replace("\ufeff", "")
+    text = re.sub(r"(?is)```.*?```", " ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"(?im)^(?:ws:|socket:|event:|message:)\s*", "", text)
+    text = re.sub(r"(?i)agniai can make mistakes\.?\s*please verify before use\.?", " ", text)
+    text = re.sub(r"(?m)^#{1,6}\s*", "", text)
+    text = re.sub(r"[“”]", '"', text)
+    text = re.sub(r"[‘’]", "'", text)
+    text = re.sub(r"[^\S\r\n]+", " ", text)
+    text = re.sub(r"\s*([!?.,;:])\s*", r"\1 ", text)
+    text = re.sub(r"([!?.,;:]){2,}", r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
 
 def admin_normalize_query(query: str) -> str:
     """Fix misspellings and restore canonical section casing."""
     if not query:
         return query
-    words = query.split()
+    words = clean_query(query).split()
     out: List[str] = []
     for word in words:
         suffix = ""
@@ -2505,13 +2532,8 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
     ),
     "schedule": (
         (
-            "today",
-            "now",
-            "company",
             "bycompany",
-            "agniveer",
             "byagniveer",
-            "date",
             "bydate",
             "range",
             "schedule",
@@ -2772,6 +2794,8 @@ def _extract_agniveer_no(text: str) -> Optional[str]:
 
     def _valid(value: str) -> bool:
         token = value.strip()
+        if re.fullmatch(r"[a-z]\d{7}[a-z]", token, re.IGNORECASE):
+            return True
         if re.fullmatch(r"ag\d{3,8}", token, re.IGNORECASE):
             return True
         if re.fullmatch(r"\d{3,8}", token):
@@ -2781,6 +2805,7 @@ def _extract_agniveer_no(text: str) -> Optional[str]:
     patterns = [
         r"\bagniveer\s*(?:no\.?|number)?\s*(ag\d{3,8}|\d{3,8})\b",
         r"\bagniveers?\s*(?:no\.?|number)?\s*(ag\d{3,8}|\d{3,8})\b",
+        r"\b([a-z]\d{7}[a-z])\b",
         r"\b(ag\d{3,8})\b",
         r"\b(\d{3,8})\b",
     ]
@@ -2937,7 +2962,7 @@ def _match_intent(
 
 
 def classify_admin_intent(query: str) -> Dict[str, Any]:
-    raw_query = (query or "").strip()
+    raw_query = clean_query(query or "").strip()
     q = _normalise(raw_query)
 
     result: Dict[str, Any] = {
