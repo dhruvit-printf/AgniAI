@@ -730,6 +730,8 @@ def execute_admin_query(
             }
 
         # ── Step 1: Resolve Named Entities ───────────────────────────────────
+        resolved_agniveer_no = None
+
         with span(SPAN_PLAN_QUERY, trace_id=trace_id):
             planner_start = time.time()
             _notify("planner")
@@ -738,6 +740,7 @@ def execute_admin_query(
                 message,
                 existing_company_id=id_filters.get("companyId"),
                 existing_platoon_id=id_filters.get("platoonId"),
+                existing_batch_id=id_filters.get("batchId"),
                 trace_id=trace_id,
                 session_id=session_id,
             )
@@ -756,6 +759,12 @@ def execute_admin_query(
             resolved_platoon = resolved_entities.get("platoonId")
             if resolved_platoon is not None:
                 id_filters["platoonId"] = int(resolved_platoon)
+            resolved_batch = resolved_entities.get("batchId")
+            if resolved_batch is not None:
+                id_filters["batchId"] = int(resolved_batch)
+            # agniveerNo is a string filter — stored separately
+
+            resolved_agniveer_no = resolved_entities.get("agniveerNo")
 
             planning_start = time.time()
             message = admin_normalize_query(message)
@@ -841,6 +850,8 @@ def execute_admin_query(
                     def run_op(idx, op):
                         payload = dict(op.dotnet_payload)
                         payload.update(id_filters)
+                        if resolved_agniveer_no and not payload.get("agniveerNo"):
+                            payload["agniveerNo"] = resolved_agniveer_no
                         if full_name:
                             payload["fullName"] = full_name
 
@@ -1150,6 +1161,9 @@ def execute_admin_query(
                 dotnet_payload.update(id_filters)
                 if full_name:
                     dotnet_payload["fullName"] = full_name
+                # Wire in agniveerNo from entity resolution if not already set by intent
+                if resolved_agniveer_no and not dotnet_payload.get("agniveerNo"):
+                    dotnet_payload["agniveerNo"] = resolved_agniveer_no
 
                 # Validate DotNetPayloadModel
                 _validate_model_payload(
