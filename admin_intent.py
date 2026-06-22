@@ -2507,7 +2507,6 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
         (
             "today",
             "now",
-            "current",
             "company",
             "bycompany",
             "agniveer",
@@ -2770,18 +2769,27 @@ def _extract_to_date(text_lower: str) -> Optional[str]:
 
 def _extract_agniveer_no(text: str) -> Optional[str]:
     text_lower = text.lower()
-    m_auto = re.search(r"\b([a-z]\d{7}[a-z])\b", text_lower)
-    if m_auto:
-        start, end = m_auto.span(1)
-        return text[start:end].strip()
-    m_agn = re.search(r"\b(agn\d+)\b", text_lower)
-    if m_agn:
-        start, end = m_agn.span(1)
-        return text[start:end].strip()
-    m = re.search(r"\bagniveer\s*(?:no\.?|number)?\s*([a-z0-9_-]+)\b", text_lower)
-    if m:
-        start, end = m.span(1)
-        return text[start:end].strip()
+
+    def _valid(value: str) -> bool:
+        token = value.strip()
+        if re.fullmatch(r"ag\d{3,8}", token, re.IGNORECASE):
+            return True
+        if re.fullmatch(r"\d{3,8}", token):
+            return True
+        return False
+
+    patterns = [
+        r"\bagniveer\s*(?:no\.?|number)?\s*(ag\d{3,8}|\d{3,8})\b",
+        r"\bagniveers?\s*(?:no\.?|number)?\s*(ag\d{3,8}|\d{3,8})\b",
+        r"\b(ag\d{3,8})\b",
+        r"\b(\d{3,8})\b",
+    ]
+
+    for pattern in patterns:
+        for match in re.finditer(pattern, text_lower, re.IGNORECASE):
+            candidate = text[match.start(1) : match.end(1)].strip()
+            if _valid(candidate):
+                return candidate.upper() if candidate.lower().startswith("ag") else candidate
     return None
 
 

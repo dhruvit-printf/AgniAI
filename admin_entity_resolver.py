@@ -14,12 +14,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests as _requests
 
+from settings import get_dotnet_config
 from dotnet_security import resolve_dotnet_verify_ssl
 
 logger = logging.getLogger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────
-_DOTNET_BASE = os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257")
+_DOTNET_BASE = get_dotnet_config().BASE_URL
 _COMPANY_URL = f"{_DOTNET_BASE}/api/CompanyDetails/Get"
 _PLATOON_URL = f"{_DOTNET_BASE}/api/PlatoonDetails/Get"
 _DOTNET_API_KEY = os.getenv("DOTNET_API_KEY", "")
@@ -168,7 +169,27 @@ def _dotnet_headers() -> Dict[str, str]:
     return h
 
 
-def _fetch_companies() -> List[Dict]:
+def _log_dotnet_request(
+    *,
+    trace_id: Optional[str],
+    session_id: Optional[str],
+    query_type: str,
+    payload: Dict[str, Any],
+) -> None:
+    logger.info(
+        {
+            "trace_id": trace_id or "N/A",
+            "session_id": session_id or "N/A",
+            "query_type": query_type,
+            "payload": payload,
+        }
+    )
+
+
+def _fetch_companies(
+    trace_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> List[Dict]:
     """Fetch all companies from .NET, with 5-minute in-memory cache."""
     global _company_cache
     with _cache_lock:
@@ -177,6 +198,13 @@ def _fetch_companies() -> List[Dict]:
             if time.time() - ts < _CACHE_TTL_SECONDS:
                 return data
 
+    start = time.time()
+    _log_dotnet_request(
+        trace_id=trace_id,
+        session_id=session_id,
+        query_type="entity_resolution.company",
+        payload={"endpoint": _COMPANY_URL, "method": "GET"},
+    )
     try:
         resp = _session.get(
             _COMPANY_URL,
@@ -192,14 +220,40 @@ def _fetch_companies() -> List[Dict]:
         data = data if isinstance(data, list) else []
         with _cache_lock:
             _company_cache = (time.time(), data)
-        logger.debug("Fetched %d companies from .NET", len(data))
+        logger.info(
+            {
+                "trace_id": trace_id or "N/A",
+                "session_id": session_id or "N/A",
+                "query_type": "entity_resolution.company",
+                "status_code": resp.status_code,
+                "duration_ms": round((time.time() - start) * 1000, 2),
+                "record_count": len(data),
+            }
+        )
         return data
     except Exception as exc:
+        with _cache_lock:
+            cached = list(_company_cache[1]) if _company_cache else []
         logger.warning("Failed to fetch companies from .NET: %s", exc)
+        if cached:
+            logger.info(
+                {
+                    "trace_id": trace_id or "N/A",
+                    "session_id": session_id or "N/A",
+                    "query_type": "entity_resolution.company",
+                    "status_code": "cache_fallback",
+                    "duration_ms": round((time.time() - start) * 1000, 2),
+                    "record_count": len(cached),
+                }
+            )
+            return cached
         return []
 
 
-def _fetch_platoons() -> List[Dict]:
+def _fetch_platoons(
+    trace_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> List[Dict]:
     """Fetch all platoons from .NET, with 5-minute in-memory cache."""
     global _platoon_cache
     with _cache_lock:
@@ -208,6 +262,13 @@ def _fetch_platoons() -> List[Dict]:
             if time.time() - ts < _CACHE_TTL_SECONDS:
                 return data
 
+    start = time.time()
+    _log_dotnet_request(
+        trace_id=trace_id,
+        session_id=session_id,
+        query_type="entity_resolution.platoon",
+        payload={"endpoint": _PLATOON_URL, "method": "GET"},
+    )
     try:
         resp = _session.get(
             _PLATOON_URL,
@@ -222,10 +283,33 @@ def _fetch_platoons() -> List[Dict]:
         data = data if isinstance(data, list) else []
         with _cache_lock:
             _platoon_cache = (time.time(), data)
-        logger.debug("Fetched %d platoons from .NET", len(data))
+        logger.info(
+            {
+                "trace_id": trace_id or "N/A",
+                "session_id": session_id or "N/A",
+                "query_type": "entity_resolution.platoon",
+                "status_code": resp.status_code,
+                "duration_ms": round((time.time() - start) * 1000, 2),
+                "record_count": len(data),
+            }
+        )
         return data
     except Exception as exc:
+        with _cache_lock:
+            cached = list(_platoon_cache[1]) if _platoon_cache else []
         logger.warning("Failed to fetch platoons from .NET: %s", exc)
+        if cached:
+            logger.info(
+                {
+                    "trace_id": trace_id or "N/A",
+                    "session_id": session_id or "N/A",
+                    "query_type": "entity_resolution.platoon",
+                    "status_code": "cache_fallback",
+                    "duration_ms": round((time.time() - start) * 1000, 2),
+                    "record_count": len(cached),
+                }
+            )
+            return cached
         return []
 
 
@@ -280,12 +364,16 @@ def _name_matches(stored_name: str, query_name: str) -> bool:
     return False
 
 
-def resolve_company_id(company_name: str) -> Optional[int]:
+def resolve_company_id(
+    company_name: str,
+    trace_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> Optional[int]:
     """
     Look up company_name against /api/CompanyDetails/Get and return
     the companyId, or None if not found.
     """
-    companies = _fetch_companies()
+    companies = _fetch_companies(trace_id=trace_id, session_id=session_id)
     for co in companies:
         stored = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
         if stored and _name_matches(stored, company_name):
@@ -302,6 +390,8 @@ def resolve_company_id(company_name: str) -> Optional[int]:
 def resolve_platoon_id(
     platoon_name: str,
     company_id: Optional[int] = None,
+    trace_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> Optional[int]:
     """
     Look up platoon_name against /api/PlatoonDetails/Get and return
@@ -310,7 +400,7 @@ def resolve_platoon_id(
     If company_id is provided, only platoons belonging to that company
     are considered (avoids cross-company name collisions).
     """
-    platoons = _fetch_platoons()
+    platoons = _fetch_platoons(trace_id=trace_id, session_id=session_id)
     candidates = []
     for pl in platoons:
         stored = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
@@ -351,6 +441,8 @@ def resolve_entities_from_query(
     query: str,
     existing_company_id: Optional[int] = None,
     existing_platoon_id: Optional[int] = None,
+    trace_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Extract company / platoon mentions from *query*, resolve them to IDs,
@@ -382,18 +474,24 @@ def resolve_entities_from_query(
 
     # Resolve company first (platoon resolution may use companyId)
     if company_mention and result["companyId"] is None:
-        result["companyId"] = resolve_company_id(company_mention)
+        result["companyId"] = resolve_company_id(
+            company_mention,
+            trace_id=trace_id,
+            session_id=session_id,
+        )
 
     # Resolve platoon (scoped to company if known)
     if platoon_mention and result["platoonId"] is None:
         result["platoonId"] = resolve_platoon_id(
             platoon_mention,
             company_id=result["companyId"],
+            trace_id=trace_id,
+            session_id=session_id,
         )
 
     # ── Fallback 1: Dynamic lookup of Company Names from API ───────────
     if result["companyId"] is None:
-        companies = _fetch_companies()
+        companies = _fetch_companies(trace_id=trace_id, session_id=session_id)
         for co in companies:
             stored = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
             if not stored:
@@ -416,7 +514,7 @@ def resolve_entities_from_query(
 
     # ── Fallback 2: Dynamic lookup of Platoon Names from API ───────────
     if result["platoonId"] is None:
-        platoons = _fetch_platoons()
+        platoons = _fetch_platoons(trace_id=trace_id, session_id=session_id)
         for pl in platoons:
             stored = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
             if not stored:
@@ -442,7 +540,7 @@ def resolve_entities_from_query(
 
     # ── Map Resolved IDs back to Canonical Names ───────────────────────
     if result["companyId"] is not None:
-        companies = _fetch_companies()
+        companies = _fetch_companies(trace_id=trace_id, session_id=session_id)
         for co in companies:
             cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
             if cid is not None and int(cid) == result["companyId"]:
@@ -450,7 +548,7 @@ def resolve_entities_from_query(
                 break
 
     if result["platoonId"] is not None:
-        platoons = _fetch_platoons()
+        platoons = _fetch_platoons(trace_id=trace_id, session_id=session_id)
         for pl in platoons:
             pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
             if pid is not None and int(pid) == result["platoonId"]:

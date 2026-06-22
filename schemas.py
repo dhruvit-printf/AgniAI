@@ -9,12 +9,13 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
 class IntentModel(BaseModel):
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     category: Optional[str] = None
     subcategory: Optional[str] = None
     confidence: Any = None
     operation: Optional[str] = None
+    raw_query: Optional[str] = None
     number: Optional[int] = None
     section: Optional[str] = None
     sub_section: Optional[str] = None
@@ -76,20 +77,33 @@ class DotNetPayloadModel(BaseModel):
     analyticsHint: Optional[str] = None
 
 class DotNetResponseModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
-    records: Optional[List[Dict[str, Any]]] = None
+    success: Optional[bool] = None
+    commandLabel: Optional[str] = None
     data: Optional[Any] = None
-    status: Optional[bool] = None
     message: Optional[str] = None
-    raw_response: Optional[Any] = None
 
 class CombinedResponseModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
-    records: List[Dict[str, Any]] = []
-    sides: Optional[List[Dict[str, Any]]] = None
+    success: Optional[bool] = None
+    status: Optional[bool] = None
+    commandLabel: Optional[str] = None
+    message: Optional[str] = None
+    data: Optional[Any] = None
+    queryType: Optional[str] = None
+    sectionCount: Optional[int] = None
+    increase: Optional[bool] = None
+    decrease: Optional[bool] = None
+    stable: Optional[bool] = None
+    left: Optional[Dict[str, Any]] = None
+    right: Optional[Dict[str, Any]] = None
     comparison: Optional[Dict[str, Any]] = None
+    comparisonMetrics: Optional[Dict[str, Any]] = None
+    comparedMetrics: Optional[List[str]] = None
+    records: List[Dict[str, Any]] = Field(default_factory=list)
+    sides: Optional[List[Dict[str, Any]]] = None
     sections: Optional[List[Dict[str, Any]]] = None
     chartData: Optional[List[Dict[str, Any]]] = None
     granularity: Optional[str] = None
@@ -101,25 +115,27 @@ class CombinedResponseModel(BaseModel):
     failedFilters: Optional[List[str]] = None
     matchCount: Optional[int] = None
     totalBeforeFilter: Optional[int] = None
+    filterDepth: Optional[int] = None
 
 class AnalysisModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
-    observations: List[str] = []
-    insights: List[str] = []
+    observations: List[str] = Field(default_factory=list)
+    insights: List[str] = Field(default_factory=list)
+    predictions: List[str] = Field(default_factory=list)
     summary: str = ""
 
 class PredictionModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     trend: str = ""
     projection: str = ""
     heuristicEstimate: str = ""
     shortTerm: Optional[str] = None
-    futureTrends: Optional[List[str]] = None
+    futureTrends: List[str] = Field(default_factory=list)
 
 class ConclusionModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     summary: str = ""
     message: Optional[str] = None
@@ -228,16 +244,25 @@ class FormattedData(BaseModel):
     conclusion: str
 
 class FinalResponse(BaseModel):
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     status: bool
     sessionId: str
     message: str
+    queryType: str
+    introMessage: str
+    answer: Dict[str, Any]
+    result: Dict[str, Any]
+    widgets: List[Dict[str, Any]]
+    analysis: Optional[str] = None
+    prediction: Optional[str] = None
+    conclusion: Optional[str] = None
+    intent: Dict[str, Any] = Field(default_factory=dict)
     formattedData: FormattedData
-    suggestedQuestions: List[str]
-    metadata: Dict[str, Any]
-    overallConfidence: float
-    partialFailure: bool
-    failedSections: List[str]
+    suggestedQuestions: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    overallConfidence: float = 0.0
+    partialFailure: bool = False
+    failedSections: List[str] = Field(default_factory=list)
 
 FinalResponseModel = FinalResponse

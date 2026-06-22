@@ -245,23 +245,27 @@ def _log_combination_summary(
 
 
 def _validate_model_payload(model_cls, payload: Any, context: str) -> None:
-    """Validate the real payload while logging any unexpected keys."""
-    if isinstance(payload, dict):
-        unexpected = sorted(
-            key for key in payload.keys() if key not in model_cls.model_fields
-        )
-        if unexpected:
-            logger.warning(
-                json.dumps(
-                    {
-                        "message": "Unexpected fields ignored during validation",
-                        "context": context,
-                        "model": model_cls.__name__,
-                        "unexpected_fields": unexpected,
-                    }
-                )
+    """Validate the real payload and fail fast if it drifts from the schema."""
+    try:
+        model_cls.model_validate(payload)
+    except Exception as exc:
+        logger.error(
+            json.dumps(
+                {
+                    "message": "Validation failed",
+                    "context": context,
+                    "model": model_cls.__name__,
+                    "error": str(exc),
+                }
             )
-    model_cls.model_validate(payload)
+        )
+        raise
+
+
+def _log_stage_duration(stage: str, duration_ms: float, **extra: Any) -> None:
+    event = {"stage": stage, "duration_ms": round(duration_ms, 2)}
+    event.update({k: v for k, v in extra.items() if v is not None})
+    logger.info(event)
 
 
 # =============================================================================
@@ -326,8 +330,28 @@ def _is_admin_conversational(message: str) -> bool:
             "compare",
             "summary",
             "ranking",
+            "verified",
+            "verify",
+            "verification",
+            "approved",
+            "cleared",
+            "rejected",
+            "responded",
+            "agniveer",
+            "agniveers",
         }
-        if not any(t in _ADMIN_SIGNAL_WORDS for t in tokens):
+        _ADMIN_SIGNAL_PHRASES = (
+            "verified agniveers",
+            "completed verification",
+            "pending verification",
+            "not responded",
+            "approved",
+            "cleared",
+            "rejected",
+        )
+        if not any(t in _ADMIN_SIGNAL_WORDS for t in tokens) and not any(
+            phrase in cleaned for phrase in _ADMIN_SIGNAL_PHRASES
+        ):
             return True
 
     return False
@@ -714,8 +738,18 @@ def execute_admin_query(
                 message,
                 existing_company_id=id_filters.get("companyId"),
                 existing_platoon_id=id_filters.get("platoonId"),
+                trace_id=trace_id,
+                session_id=session_id,
             )
             entity_resolution_duration = time.time() - entity_resolution_start
+            logger.info(
+                {
+                    "stage": "entity_resolution_time",
+                    "duration_ms": round(entity_resolution_duration * 1000, 2),
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                }
+            )
             resolved_company = resolved_entities.get("companyId")
             if resolved_company is not None:
                 id_filters["companyId"] = int(resolved_company)
@@ -728,6 +762,15 @@ def execute_admin_query(
             query_plan = plan_query(message)
             planning_duration = time.time() - planning_start
             planner_duration = time.time() - planner_start
+            logger.info(
+                {
+                    "stage": "planner_time",
+                    "duration_ms": round(planner_duration * 1000, 2),
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": query_plan.query_type.value,
+                }
+            )
 
         _notify("intent")
 
@@ -775,6 +818,15 @@ def execute_admin_query(
                     )
 
                 intent_duration = time.time() - intent_start
+                logger.info(
+                    {
+                        "stage": "classifier_time",
+                        "duration_ms": round(intent_duration * 1000, 2),
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": qtype_str,
+                    }
+                )
 
                 # ── Step 3: Execute .NET API Call(s) ─────────────────────────
                 with span(SPAN_CALL_DOTNET, trace_id=trace_id):
@@ -812,7 +864,12 @@ def execute_admin_query(
 
                         try:
                             with trace_context(request_id, trace_id, session_id):
-                                data, err = _call_dotnet(payload, trace_id=trace_id)
+                                data, err = _call_dotnet(
+                                    payload,
+                                    trace_id=trace_id,
+                                    session_id=session_id,
+                                    query_type=qtype_str,
+                                )
                             if not err and data is not None:
                                 # Validate DotNetResponseModel
                                 if isinstance(data, dict):
@@ -822,7 +879,14 @@ def execute_admin_query(
                                 elif isinstance(data, list):
                                     _validate_model_payload(
                                         DotNetResponseModel,
-                                        {"records": data, "status": True},
+                                        {
+                                            "success": True,
+                                            "commandLabel": op.intent_result.get("subcategory")
+                                            or op.intent_result.get("category")
+                                            or "",
+                                            "data": data,
+                                            "message": "",
+                                        },
                                         "multi.dotnet_response_list",
                                     )
                             return idx, op, data, err
@@ -837,6 +901,15 @@ def execute_admin_query(
                         results = [f.result() for f in futures]
 
                     dotnet_duration = time.time() - dotnet_start
+                    logger.info(
+                        {
+                            "stage": "dotnet_time",
+                            "duration_ms": round(dotnet_duration * 1000, 2),
+                            "trace_id": trace_id,
+                            "session_id": session_id,
+                            "query_type": qtype_str,
+                        }
+                    )
 
                     # ── Task 2: Partial failure checks ──
                     all_failed = all(r[3] is not None for r in results)
@@ -1113,7 +1186,10 @@ def execute_admin_query(
 
                     with trace_context(request_id, trace_id, session_id):
                         dotnet_data, dotnet_error = _call_dotnet(
-                            dotnet_payload, trace_id=trace_id
+                            dotnet_payload,
+                            trace_id=trace_id,
+                            session_id=session_id,
+                            query_type=qtype_str,
                         )
                     if dotnet_error:
                         logger.warning(
@@ -1173,7 +1249,14 @@ def execute_admin_query(
                         elif isinstance(dotnet_data, list):
                             _validate_model_payload(
                                 DotNetResponseModel,
-                                {"records": dotnet_data, "status": True},
+                                {
+                                    "success": True,
+                                    "commandLabel": primary_intent.get("subcategory")
+                                    or primary_intent.get("category")
+                                    or "",
+                                    "data": dotnet_data,
+                                    "message": "",
+                                },
                                 "single.dotnet_response_list",
                             )
 
@@ -1231,6 +1314,15 @@ def execute_admin_query(
                 combined_result["degraded"] = True
                 combined_result["failedFilters"] = failed_filters
             combiner_duration = time.time() - combiner_start
+            logger.info(
+                {
+                    "stage": "combiner_time",
+                    "duration_ms": round(combiner_duration * 1000, 2),
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": qtype_str,
+                }
+            )
 
         # ── Step 5: Report Generator ──────────────────────────────────────────
         with span(SPAN_GENERATE_REPORT, trace_id=trace_id):
@@ -1263,6 +1355,15 @@ def execute_admin_query(
                     "conclusion": None,
                 }
             report_duration = time.time() - report_start
+            logger.info(
+                {
+                    "stage": "report_time",
+                    "duration_ms": round(report_duration * 1000, 2),
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": qtype_str,
+                }
+            )
 
             # Validate report models
             if report.get("analysis"):
@@ -1343,6 +1444,15 @@ def execute_admin_query(
             conclusion=report.get("conclusion"),
         )
         widget_duration = time.time() - widget_start
+        logger.info(
+            {
+                "stage": "widget_time",
+                "duration_ms": round(widget_duration * 1000, 2),
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "query_type": qtype_str,
+            }
+        )
 
         answer = build_answer(qtype_str, combined_result, primary_intent)
         suggested = generate_suggested_questions(qtype_str, primary_intent, answer)
@@ -1377,9 +1487,27 @@ def execute_admin_query(
                 answer_dict=answer,
             )
             response_assembly_duration = time.time() - response_assembly_start
+            logger.info(
+                {
+                    "stage": "final_response_time",
+                    "duration_ms": round(response_assembly_duration * 1000, 2),
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": qtype_str,
+                }
+            )
 
         execution_time_ms = round(total_duration * 1000)
         response_payload["metadata"]["executionTimeMs"] = execution_time_ms
+        logger.info(
+            {
+                "stage": "total_time",
+                "duration_ms": round(total_duration * 1000, 2),
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "query_type": qtype_str,
+            }
+        )
 
         # Extract combiner strategy details
         if qtype_str in ("multi_independent", "multi_operation"):

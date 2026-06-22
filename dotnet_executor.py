@@ -18,6 +18,8 @@ import requests
 
 from metrics import metrics_collector
 from telemetry import request_id_var, session_id_var, trace_id_var
+from settings import get_dotnet_config
+from utils import extract_records as _extract_records
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +27,7 @@ logger = logging.getLogger(__name__)
 # .NET CONFIGURATION
 # =============================================================================
 
-DOTNET_API_BASE_URL = os.getenv(
-    "DOTNET_API_BASE_URL", "https://nhbt75gj-7257.inc1.devtunnels.ms"
-)
+DOTNET_API_BASE_URL = get_dotnet_config().BASE_URL
 DOTNET_EXECUTE_URL = f"{DOTNET_API_BASE_URL}/api/AiCommand/execute"
 DOTNET_API_KEY = os.getenv("DOTNET_API_KEY", "")
 from dotnet_security import resolve_dotnet_verify_ssl
@@ -152,6 +152,7 @@ def _call_dotnet(
     trace_id: Optional[str] = None,
     request_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    query_type: Optional[str] = None,
 ) -> Tuple[Any, Optional[str]]:
     """
     Execute a single .NET API call.
@@ -186,15 +187,20 @@ def _call_dotnet(
     if DOTNET_API_KEY:
         headers["X-Api-Key"] = DOTNET_API_KEY
 
-    # Do NOT log the payload to preserve privacy/security
     logger.info(
-        json.dumps(
-            {
-                "message": "Initiating .NET API call",
-                "trace_id": effective_trace_id,
-                "api_url": DOTNET_EXECUTE_URL,
-            }
-        )
+        {
+            "trace_id": effective_trace_id,
+            "session_id": effective_session_id,
+            "query_type": query_type or "unknown",
+            "payload": payload,
+        }
+    )
+    logger.info(
+        {
+            "message": "Initiating .NET API call",
+            "trace_id": effective_trace_id,
+            "api_url": DOTNET_EXECUTE_URL,
+        }
     )
 
     delays = [1.0, 2.0, 4.0]
@@ -202,20 +208,19 @@ def _call_dotnet(
     attempt = 0
     last_error = None
     saw_timeout = False
+    start = time.time()
 
     while attempt < max_attempts:
         if attempt > 0:
             delay = delays[attempt - 1]
             logger.info(
-                json.dumps(
-                    {
-                        "message": "Retrying .NET call",
-                        "trace_id": effective_trace_id,
-                        "delay_sec": delay,
-                        "attempt": attempt + 1,
-                        "max_attempts": max_attempts,
-                    }
-                )
+                {
+                    "message": "Retrying .NET call",
+                    "trace_id": effective_trace_id,
+                    "delay_sec": delay,
+                    "attempt": attempt + 1,
+                    "max_attempts": max_attempts,
+                }
             )
             time.sleep(delay)
 
@@ -231,8 +236,20 @@ def _call_dotnet(
 
             # Success
             if resp.status_code < 400:
+                response_body = resp.json()
+                records = _extract_records(response_body)
+                logger.info(
+                    {
+                        "trace_id": effective_trace_id,
+                        "session_id": effective_session_id,
+                        "query_type": query_type or "unknown",
+                        "status_code": resp.status_code,
+                        "duration_ms": round((time.time() - start) * 1000, 2),
+                        "record_count": len(records),
+                    }
+                )
                 _cb.record_success()
-                return resp.json(), None
+                return response_body, None
 
             # Handle HTTP errors
             try:
@@ -241,29 +258,35 @@ def _call_dotnet(
                 err_body = resp.text[:400]
 
             last_error = f"Backend returned HTTP {resp.status_code}: {err_body}"
+            logger.info(
+                {
+                    "trace_id": effective_trace_id,
+                    "session_id": effective_session_id,
+                    "query_type": query_type or "unknown",
+                    "status_code": resp.status_code,
+                    "duration_ms": round((time.time() - start) * 1000, 2),
+                    "record_count": len(_extract_records(err_body)) if isinstance(err_body, (dict, list)) else 0,
+                }
+            )
 
             # Only retry on 429, 502, 503, 504
             if resp.status_code in (429, 502, 503, 504):
                 logger.warning(
-                    json.dumps(
-                        {
-                            "message": "Transient HTTP error. Will retry.",
-                            "trace_id": effective_trace_id,
-                            "status_code": resp.status_code,
-                        }
-                    )
+                    {
+                        "message": "Transient HTTP error. Will retry.",
+                        "trace_id": effective_trace_id,
+                        "status_code": resp.status_code,
+                    }
                 )
                 continue
             elif resp.status_code >= 500:
                 # Non-retriable server errors (e.g., 500) count as circuit breaker failures
                 logger.error(
-                    json.dumps(
-                        {
-                            "message": "Non-retriable server error",
-                            "trace_id": effective_trace_id,
-                            "status_code": resp.status_code,
-                        }
-                    )
+                    {
+                        "message": "Non-retriable server error",
+                        "trace_id": effective_trace_id,
+                        "status_code": resp.status_code,
+                    }
                 )
                 _cb.record_failure()
                 metrics_collector.inc_dotnet_failure()
@@ -271,13 +294,11 @@ def _call_dotnet(
             else:
                 # Validation or client errors (e.g., 400, 422) do not retry and do not count as system failures
                 logger.info(
-                    json.dumps(
-                        {
-                            "message": "Non-retriable client error",
-                            "trace_id": effective_trace_id,
-                            "status_code": resp.status_code,
-                        }
-                    )
+                    {
+                        "message": "Non-retriable client error",
+                        "trace_id": effective_trace_id,
+                        "status_code": resp.status_code,
+                    }
                 )
                 return None, last_error
 
@@ -288,13 +309,11 @@ def _call_dotnet(
             if isinstance(exc, requests.Timeout):
                 saw_timeout = True
             logger.warning(
-                json.dumps(
-                    {
-                        "message": "Transient connection or timeout error. Will retry.",
-                        "trace_id": effective_trace_id,
-                        "error": str(exc),
-                    }
-                )
+                {
+                    "message": "Transient connection or timeout error. Will retry.",
+                    "trace_id": effective_trace_id,
+                    "error": str(exc),
+                }
             )
             continue
         except requests.RequestException as exc:

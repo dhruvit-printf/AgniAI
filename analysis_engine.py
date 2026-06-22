@@ -75,6 +75,20 @@ def _build_aggregate_text(answer: Dict[str, Any], query_type: str, intent: Dict[
 
     return "\n".join(lines)
 
+
+def _analysis_payload(
+    summary: str,
+    observations: List[str],
+    insights: List[str],
+    predictions: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    return {
+        "summary": summary,
+        "observations": observations,
+        "insights": insights,
+        "predictions": predictions or [],
+    }
+
 def generate_analysis(
     answer: Dict[str, Any],
     query_type: str,
@@ -102,45 +116,45 @@ def generate_analysis(
 
     if is_empty:
         if query_type == "cross_filter":
-            return {
-                "summary": "A detailed cross-filter query was executed across multiple datasets to identify common personnel matching all filter parameters. The resulting intersection yielded zero common records, demonstrating that the overlapping conditions specified in the query filter out all available Agniveers in the system database.",
-                "observations": [
+            return _analysis_payload(
+                "A detailed cross-filter query was executed across multiple datasets to identify common personnel matching all filter parameters. The resulting intersection yielded zero common records, demonstrating that the overlapping conditions specified in the query filter out all available Agniveers in the system database.",
+                [
                     "A cross-filter search was performed across all selected category sets, but no overlapping records were retrieved."
                 ],
-                "insights": [
+                [
                     "This suggests that the filter parameters are mutually exclusive for the current cohort of personnel."
-                ]
-            }
+                ],
+            )
         elif query_type in ("compare", "comparison"):
-            return {
-                "summary": "A side-by-side comparison was initiated to evaluate the metrics of the selected categories. However, since the query returned no records for any of the groups, a comparative breakdown cannot be compiled. There is no active data to compare across the selected dimensions.",
-                "observations": [
+            return _analysis_payload(
+                "A side-by-side comparison was initiated to evaluate the metrics of the selected categories. However, since the query returned no records for any of the groups, a comparative breakdown cannot be compiled. There is no active data to compare across the selected dimensions.",
+                [
                     "Both comparison groups returned empty datasets from the primary database query."
                 ],
-                "insights": [
+                [
                     "The lack of records indicates that either no data has been logged yet or the categories do not contain any active personnel."
-                ]
-            }
+                ],
+            )
         elif query_type == "multi_independent":
-            return {
-                "summary": "The multi-section consolidation process compiled results from all requested data modules. Unfortunately, none of the query paths returned any active records, meaning that all sections in this report are currently empty and there are no statistics available for analysis.",
-                "observations": [
+            return _analysis_payload(
+                "The multi-section consolidation process compiled results from all requested data modules. Unfortunately, none of the query paths returned any active records, meaning that all sections in this report are currently empty and there are no statistics available for analysis.",
+                [
                     "All requested independent sections returned zero active records from the system."
                 ],
-                "insights": [
+                [
                     "This suggests a widespread absence of matching records across all requested data tables or filters."
-                ]
-            }
+                ],
+            )
         else:
-            return {
-                "summary": f"No matching data was found for the requested {category.lower()} query filter criteria. The database search completed successfully but returned an empty dataset, meaning there are no records available to display or analyze at this time.",
-                "observations": [
+            return _analysis_payload(
+                f"No matching data was found for the requested {category.lower()} query filter criteria. The database search completed successfully but returned an empty dataset, meaning there are no records available to display or analyze at this time.",
+                [
                     f"The search returned 0 records matching the {category.lower()} query parameters."
                 ],
-                "insights": [
+                [
                     "No active records match the specified filters, indicating either no data has been logged or filters are too restrictive."
-                ]
-            }
+                ],
+            )
 
     aggregate_text = _build_aggregate_text(answer, query_type, intent)
     flags = get_flags()
@@ -219,13 +233,13 @@ def generate_analysis(
                 obs = [o for o in obs if o] or fallback_obs
                 ins = [_ground_and_sanitize(str(i), aggregate_text) for i in parsed.get("insights", [])]
                 ins = [i for i in ins if i] or fallback_ins
-                return {
-                    "summary": summary,
-                    "observations": obs,
-                    "insights": ins
-                }
+                return _analysis_payload(summary, obs, ins)
     except Exception as e:
         logger.warning("Ollama call failed in analysis engine: %s", e)
         metrics_collector.inc_llm_failure()
 
-    return fallback_report
+    return _analysis_payload(
+        fallback_report["summary"],
+        fallback_report["observations"],
+        fallback_report["insights"],
+    )

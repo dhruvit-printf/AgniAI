@@ -17,6 +17,12 @@ from conclusion_engine import generate_conclusion
 
 logger = logging.getLogger(__name__)
 
+
+def _log_stage(stage: str, duration_ms: float, **extra: Any) -> None:
+    event = {"stage": stage, "duration_ms": round(duration_ms, 2)}
+    event.update({k: v for k, v in extra.items() if v is not None})
+    logger.info(event)
+
 def _call_ollama(prompt: str, system_prompt: str = "", trace_id: Optional[str] = None) -> Optional[str]:
     """Placeholder to satisfy unit tests patching this function."""
     return None
@@ -187,14 +193,17 @@ def generate_report(
     t0 = time.time()
     analysis = generate_analysis(answer, query_type, intent, user_query, trace_id)
     analysis_ms = round((time.time() - t0) * 1000, 2)
+    _log_stage("analysis_time", analysis_ms, query_type=query_type, trace_id=trace_id)
 
     t0 = time.time()
     prediction = generate_predictions(answer, query_type, intent)
     prediction_ms = round((time.time() - t0) * 1000, 2)
+    _log_stage("prediction_time", prediction_ms, query_type=query_type, trace_id=trace_id)
 
     t0 = time.time()
     conclusion = generate_conclusion(answer, query_type, intent, trace_id)
     conclusion_ms = round((time.time() - t0) * 1000, 2)
+    _log_stage("conclusion_time", conclusion_ms, query_type=query_type, trace_id=trace_id)
 
     category = intent.get("category") or "Agniveer"
     intro = f"The review of {category.lower()} records is complete. Below are the key observations, insights, and visualizations."

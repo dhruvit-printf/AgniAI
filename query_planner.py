@@ -648,6 +648,20 @@ def _extract_cross_filter_fragments(
 def _extract_comparison_fragments(
     text_lower: str, categories: List[str]
 ) -> Optional[List[str]]:
+    category_tokens = {cat.lower() for cat in _CATEGORY_SIGNALS.keys()}
+
+    def _normalize_shared_category(left: str, right: str) -> Tuple[str, str]:
+        tail_match = re.search(
+            r"\b(" + "|".join(re.escape(tok) for tok in sorted(category_tokens)) + r")\b\s*$",
+            right,
+        )
+        if tail_match:
+            shared_category = tail_match.group(1)
+            right_core = right[: tail_match.start()].strip()
+            left_core = left.strip()
+            return f"{left_core} {shared_category}".strip(), f"{right_core} {shared_category}".strip()
+        return left, right
+
     for sep in [" vs ", " versus "]:
         if sep in text_lower:
             parts = text_lower.split(sep, 1)
@@ -655,15 +669,15 @@ def _extract_comparison_fragments(
                 left, right = parts[0].strip(), parts[1].strip()
                 for kw in ["compare", "comparison"]:
                     left = re.sub(r"^" + kw + r"\s+", "", left).strip()
-                return [left, right]
+                return list(_normalize_shared_category(left, right))
 
     m = re.search(r"\bcompare\s+(.+?)\s+and\s+(.+)", text_lower)
     if m:
-        return [m.group(1).strip(), m.group(2).strip()]
+        return list(_normalize_shared_category(m.group(1).strip(), m.group(2).strip()))
 
     m = re.search(r"(.+?)\s+compared\s+(?:to|with)\s+(.+)", text_lower)
     if m:
-        return [m.group(1).strip(), m.group(2).strip()]
+        return list(_normalize_shared_category(m.group(1).strip(), m.group(2).strip()))
 
     return None
 

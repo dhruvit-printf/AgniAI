@@ -109,7 +109,7 @@ from websocket_routes import register_socketio_events
 init_sentry()
 
 # ── Startup guard (CRITICAL FIX: fail fast if critical env vars missing) ──
-from settings import validate_critical_env
+from settings import get_dotnet_config, validate_critical_env
 
 validate_critical_env(dict(os.environ))
 
@@ -1364,7 +1364,7 @@ if __name__ == "__main__":
     logger.info("Python / Flask listens on  http://0.0.0.0:5000")
     logger.info(
         ".NET AiCommand runs on     %s  (set DOTNET_API_BASE_URL in .env)",
-        os.getenv("DOTNET_API_BASE_URL", "https://localhost:7257"),
+        get_dotnet_config().BASE_URL,
     )
     logger.info("=" * 50)
     logger.info("Health check  http://localhost:5000/api/health")

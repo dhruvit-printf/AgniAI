@@ -150,10 +150,41 @@ def build_response(
     else:
         fd_payload = formatted_data
 
+    normalized_intent = normalize_intent_confidence(intent, confidence)
+    answer_payload = answer_dict if answer_dict is not None else build_answer(query_type, combined_result, normalized_intent)
+    analysis_str = (
+        combine_analysis_to_string(analysis)
+        if analysis is not None
+        else (fd_payload.get("analysis") if isinstance(fd_payload, dict) else None)
+    )
+    prediction_str = (
+        combine_prediction_to_string(prediction)
+        if prediction is not None
+        else (fd_payload.get("prediction") if isinstance(fd_payload, dict) else None)
+    )
+    conclusion_str = (
+        combine_conclusion_to_string(conclusion)
+        if conclusion is not None
+        else (fd_payload.get("conclusion") if isinstance(fd_payload, dict) else None)
+    )
+
     response_model = FinalResponse(
         status=True,
         sessionId=session_id or session_id_var.get("admin-default") or "admin-default",
         message=intro_message,
+        queryType=query_type,
+        introMessage=intro_message,
+        answer=answer_payload,
+        result={"processedData": combined_result},
+        widgets=[{
+            "section": fd_payload.get("title", "Result"),
+            "type": fd_payload.get("type", "TABLE"),
+            "widgetType": fd_payload.get("type", "TABLE")
+        }] if fd_payload else [],
+        analysis=analysis_str,
+        prediction=prediction_str,
+        conclusion=conclusion_str,
+        intent=normalized_intent,
         formattedData=fd_payload,
         suggestedQuestions=suggested_questions or [],
         metadata=metadata,
@@ -161,36 +192,8 @@ def build_response(
         partialFailure=partial_failure,
         failedSections=failed_sections or [],
     )
-    
+
     model_dict = response_model.model_dump(by_alias=True)
-    
-    # Inject legacy keys for test suite and pipeline compatibility
-    normalized_intent = normalize_intent_confidence(intent, confidence)
-    model_dict["intent"] = normalized_intent
-    model_dict["queryType"] = query_type
-    
-    if answer_dict is None:
-        model_dict["answer"] = build_answer(query_type, combined_result, normalized_intent)
-    else:
-        model_dict["answer"] = answer_dict
-        
-    model_dict["result"] = {"processedData": combined_result}
-    
-    # Root level legacy strings (falsy values map to None for backward compatibility)
-    if analysis is not None:
-        model_dict["analysis"] = combine_analysis_to_string(analysis) if analysis else None
-    else:
-        model_dict["analysis"] = fd_payload.get("analysis") if (formatted_data and fd_payload.get("analysis")) else None
-
-    if prediction is not None:
-        model_dict["prediction"] = combine_prediction_to_string(prediction) if prediction else None
-    else:
-        model_dict["prediction"] = fd_payload.get("prediction") if (formatted_data and fd_payload.get("prediction")) else None
-
-    if conclusion is not None:
-        model_dict["conclusion"] = combine_conclusion_to_string(conclusion) if conclusion else None
-    else:
-        model_dict["conclusion"] = fd_payload.get("conclusion") if (formatted_data and fd_payload.get("conclusion")) else None
 
     # Re-combine formatted summary and build combined message for legacy tests
     formatted_summary_str = ""
