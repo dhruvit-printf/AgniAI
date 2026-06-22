@@ -203,7 +203,6 @@ class TestResponseBuilder(unittest.TestCase):
                 "message",
                 "formattedData",
                 "suggestedQuestions",
-                "failedSections",
             },
         )
         self.assertNotIn("answer", public)
