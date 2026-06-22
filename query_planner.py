@@ -245,7 +245,6 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "drop",
         "attempt",
         "section summary",
-        "overall performance",
     ],
     "Leave": [
         "leave",
@@ -287,13 +286,13 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "malaria",
         "dengue",
         "typhoid",
+        "blood group",
+        "blood type",
     ],
     "Attendance": [
         "attendance",
         "present",
         "campus",
-        "strength",
-        "headcount",
         "monthly attendance",
         "present today",
     ],
@@ -328,16 +327,34 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "volleyball",
         "kabaddi",
         "running",
-        "blood group",
-        "blood type",
         "class",
-        "roster",
         "sikh",
         "dogra",
         "jat",
         "gurkha",
         "rajput",
         "punjabi",
+    ],
+    "Roster": [
+        "roster",
+        "roster by sport",
+        "roster by class",
+        "roster by community",
+        "sports roster",
+        "class wise roster",
+    ],
+    "Strength": [
+        "strength",
+        "breakdown",
+        "strength breakdown",
+        "headcount",
+        "headcount breakdown",
+    ],
+    "Overall": [
+        "overall",
+        "overall performance",
+        "composite",
+        "allcriteria",
     ],
 }
 
@@ -705,6 +722,9 @@ def _extract_filters_dict(intent: Dict[str, Any]) -> Dict[str, Any]:
         "bmi_category": "bmiCategory",
         "medical_status": "medicalStatus",
         "number": "n",
+        "blood_group": "bloodGroup",
+        "item_name": "equipmentName",
+        "unit_name": "unitName",
     }
     for key, filter_name in mapping.items():
         val = intent.get(key)

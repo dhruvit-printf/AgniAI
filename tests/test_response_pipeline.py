@@ -55,7 +55,7 @@ class TestFallbackReport(unittest.TestCase):
             rep["introMessage"],
             "These records confirm files that have cleared the verification process.",
         )
-        self.assertIn("2 records", rep["analysis"]["summary"])
+        self.assertIn("2 active records", rep["analysis"]["summary"])
         self.assertIn("verification", rep["conclusion"]["summary"])
 
     def test_fallback_cross_filter(self):
@@ -70,12 +70,12 @@ class TestFallbackReport(unittest.TestCase):
         rep = get_fallback_report(combined, "cross_filter", intent)
         self.assertEqual(
             rep["introMessage"],
-            "3 Agniveers matched the requested cross-filter criteria.",
+            "We have successfully completed the cross-filter intersection query across the specified datasets. A total of 3 Agniveers were found to match all the overlapping filtering criteria and constraints simultaneously. Below, you will find the detailed breakdown and individual profiles of these matching records for further analysis.",
         )
-        self.assertIn("3 matches", rep["analysis"]["summary"])
+        self.assertIn("exactly 3 active records", rep["analysis"]["summary"])
         self.assertEqual(
             rep["conclusion"]["summary"],
-            "3 trainees have been successfully cross-referenced.",
+            "In conclusion, the cross-filter query has successfully isolated 3 Agniveer records matching all specified requirements. These individuals have been cross-referenced and validated against the primary unit databases, making this compiled list ready for immediate administrative reporting and command evaluation.",
         )
 
 

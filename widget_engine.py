@@ -196,10 +196,14 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
     ("Performance", "Top"): "TABLE",
     ("Performance", "Compare"): "CHART_BAR",
     ("Attendance", "Monthly"): "CHART_BAR",
+    ("Attendance", "Weekly"): "CHART_BAR",
+    ("Attendance", "Yearly"): "CHART_BAR",
     ("Attendance", "Trend"): "CHART_LINE",
     ("Medical", "BMI"): "CHART_PIE",
     ("Attendance", "Present"): "CHART_PIE",
+    ("Strength", "Strength"): "CHART_PIE",
     ("Strength", "Overall"): "CHART_PIE",
+    ("Overall", "Overall"): "TABLE",
     ("Equipment", "Stats"): "CARD",
 }
 
@@ -208,11 +212,22 @@ _OPERATION_ALIASES: Dict[str, str] = {
     "LowestPerformers": "Bottom",
     "Comparison": "Compare",
     "MonthlyAttendance": "Monthly",
+    "WeeklyAttendance": "Weekly",
+    "YearlyAttendance": "Yearly",
     "PresentToday": "Present",
-    "StrengthBreakdown": "Overall",
+    "StrengthBreakdown": "Strength",
     "BMIAnalysis": "BMI",
     "EquipmentSummary": "Stats",
+    "IssuedItems": "Issued",
+    "ProcuredItems": "Procured",
+    "CompletedVerification": "Verified",
+    "SentVerification": "Sent",
+    "HoldingEquipment": "Holding",
+    "AgniveerWiseEquipment": "AgniveerWise",
+    "IndividualMedical": "Individual",
+    "AttendanceSummary": "Summary",
 }
+
 
 def _collect_keys(data: Any) -> Set[str]:
     keys: Set[str] = set()

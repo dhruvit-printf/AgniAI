@@ -826,6 +826,9 @@
             "type": "string",
             "format": "date-time"
           },
+          "medicalStatus": {
+            "type": "string"
+          },
           "type": {
             "type": "string",
             "description": "Frontend widget type"
@@ -911,6 +914,9 @@
           "toDate": {
             "type": "string",
             "format": "date-time"
+          },
+          "medicalStatus": {
+            "type": "string"
           },
           "fullName": {
             "type": "string"

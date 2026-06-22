@@ -76,7 +76,7 @@ def test_grade_summary():
 
 def test_overall_performance():
     r = classify_admin_intent("Give me the overall performance report")
-    assert r["category"] == "Performance"
+    assert r["category"] == "Overall"
     assert r["subcategory"] == "OverallPerformance"
     assert r["type"] == "Tabular"
 
@@ -198,7 +198,7 @@ def test_present_today():
 
 def test_strength_breakdown():
     r = classify_admin_intent("Give me the strength breakdown")
-    assert r["category"] == "Attendance"
+    assert r["category"] == "Strength"
     assert r["subcategory"] == "StrengthBreakdown"
     assert r["type"] == "Radial Chart"
 
@@ -281,7 +281,7 @@ def test_top_unit():
 
 def test_by_sport():
     r = classify_admin_intent("Show roster by sport")
-    assert r["category"] == "Skills"
+    assert r["category"] == "Roster"
     assert r["subcategory"] == "BySport"
     assert r["type"] == "Tabular"
 
@@ -330,6 +330,8 @@ def test_frontend_intent_includes_type():
     assert intent["commandId"] == 0
 
 
+
+
 # =============================================================================
 # UNKNOWN QUERY
 # =============================================================================
@@ -340,3 +342,153 @@ def test_unknown_query_returns_none_category():
     # Should return something but category may be None or a low-confidence guess
     assert "category" in r
     assert "confidence" in r
+
+
+# =============================================================================
+# AUDIT & SYNONYMS
+# =============================================================================
+
+
+def test_new_operations():
+    # Sent verification
+    r1 = classify_admin_intent("Show verifications sent today")
+    assert r1["category"] == "Verification"
+    assert r1["subcategory"] == "SentVerification"
+    p1 = format_admin_payload(r1)
+    assert p1["operation"] == "Sent"
+
+    # Holding equipment
+    r2 = classify_admin_intent("Who is holding equipment?")
+    assert r2["category"] == "Equipment"
+    assert r2["subcategory"] == "HoldingEquipment"
+    p2 = format_admin_payload(r2)
+    assert p2["operation"] == "Holding"
+
+    # AgniveerWise equipment
+    r3 = classify_admin_intent("Show agniveer wise equipment report")
+    assert r3["category"] == "Equipment"
+    assert r3["subcategory"] == "AgniveerWiseEquipment"
+    p3 = format_admin_payload(r3)
+    assert p3["operation"] == "AgniveerWise"
+
+    # Individual medical
+    r4 = classify_admin_intent("Show medical details of agniveer 12345")
+    assert r4["category"] == "Medical"
+    assert r4["subcategory"] == "IndividualMedical"
+    p4 = format_admin_payload(r4)
+    assert p4["operation"] == "Individual"
+    assert p4["agniveerNo"] == "12345"
+
+    # Yearly attendance
+    r5 = classify_admin_intent("Show yearly attendance stats")
+    assert r5["category"] == "Attendance"
+    assert r5["subcategory"] == "YearlyAttendance"
+    p5 = format_admin_payload(r5)
+    assert p5["operation"] == "Yearly"
+
+    # Attendance summary
+    r6 = classify_admin_intent("Show attendance summary")
+    assert r6["category"] == "Attendance"
+    assert r6["subcategory"] == "AttendanceSummary"
+    p6 = format_admin_payload(r6)
+    assert p6["operation"] == "Summary"
+
+
+def test_synonyms():
+    # highest -> Top, best -> Top
+    r1 = classify_admin_intent("Who got the highest score in BPET?")
+    assert r1["category"] == "Performance"
+    assert r1["subcategory"] == "TopPerformers"
+    p1 = format_admin_payload(r1)
+    assert p1["operation"] == "Top"
+
+    r2 = classify_admin_intent("Who is the best performer in PPT?")
+    assert r2["category"] == "Performance"
+    assert r2["subcategory"] == "TopPerformers"
+    p2 = format_admin_payload(r2)
+    assert p2["operation"] == "Top"
+
+    # lowest -> Bottom
+    r3 = classify_admin_intent("Who got the lowest marks in DRILL?")
+    assert r3["category"] == "Performance"
+    assert r3["subcategory"] == "LowestPerformers"
+    p3 = format_admin_payload(r3)
+    assert p3["operation"] == "Bottom"
+
+    # compare & vs -> Compare
+    r4 = classify_admin_intent("BPET vs PPT")
+    assert r4["category"] == "Performance"
+    assert r4["subcategory"] == "Comparison"
+    p4 = format_admin_payload(r4)
+    assert p4["operation"] == "Compare"
+
+    # annual attendance -> Yearly
+    r5 = classify_admin_intent("Show annual attendance")
+    assert r5["category"] == "Attendance"
+    assert r5["subcategory"] == "YearlyAttendance"
+    p5 = format_admin_payload(r5)
+    assert p5["operation"] == "Yearly"
+
+    # football -> BySport
+    r6 = classify_admin_intent("Show roster for football")
+    assert r6["category"] == "Roster"
+    assert r6["subcategory"] == "BySport"
+    assert r6["sport"] == "Football"
+    p6 = format_admin_payload(r6)
+    assert p6["operation"] == "BySport"
+    assert p6["sport"] == "Football"
+
+    # obese -> BMI
+    r7 = classify_admin_intent("Show obese trainees")
+    assert r7["category"] == "Medical"
+    assert r7["subcategory"] == "BMIAnalysis"
+    assert r7["bmi_category"] == "Obese"
+    p7 = format_admin_payload(r7)
+    assert p7["operation"] == "BMI"
+    assert p7["bmiCategory"] == "Obese"
+
+    # pending police verification -> Pending
+    r8 = classify_admin_intent("Show pending police verification")
+    assert r8["category"] == "Verification"
+    assert r8["subcategory"] == "PendingVerification"
+    p8 = format_admin_payload(r8)
+    assert p8["operation"] == "Pending"
+
+    # unit alpha -> ByUnit
+    r9 = classify_admin_intent("Show distribution for unit alpha")
+    assert r9["category"] == "Distribution"
+    assert r9["subcategory"] == "DistributionByUnit"
+    assert r9["unit_name"] == "Alpha Unit"
+    p9 = format_admin_payload(r9)
+    assert p9["operation"] == "ByUnit"
+    assert p9["unitName"] == "Alpha Unit"
+
+
+def test_parameter_propagation():
+    # blood_group
+    r1 = classify_admin_intent("Show medical stats for blood group O+")
+    assert r1["category"] == "Medical"
+    assert r1["blood_group"] == "O+"
+    p1 = format_admin_payload(r1)
+    assert p1["bloodGroup"] == "O+"
+
+    # item_name
+    r2 = classify_admin_intent("Who was issued pt shoes brown?")
+    assert r2["category"] == "Equipment"
+    assert r2["item_name"] == "Pt Shoes Brown"
+    p2 = format_admin_payload(r2)
+    assert p2["equipmentName"] == "Pt Shoes Brown"
+
+    # unit_name
+    r3 = classify_admin_intent("Show attendance for bravo unit")
+    assert r3["category"] == "Attendance"
+    assert r3["unit_name"] == "Bravo Unit"
+    p3 = format_admin_payload(r3)
+    assert p3["unitName"] == "Bravo Unit"
+
+    # medical_status
+    r4 = classify_admin_intent("Show active medical cases")
+    assert r4["category"] == "Medical"
+    assert r4["medical_status"] == "Active"
+    p4 = format_admin_payload(r4)
+    assert p4["medicalStatus"] == "Active"

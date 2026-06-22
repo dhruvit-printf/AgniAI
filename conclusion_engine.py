@@ -60,8 +60,10 @@ def generate_conclusion(
     """
     sections = answer.get("sections") or []
     is_empty = True
-    if query_type == "compare":
-        if answer.get("left") or answer.get("right"):
+    if query_type in ("compare", "comparison"):
+        left_data = answer.get("left", {}).get("data") or []
+        right_data = answer.get("right", {}).get("data") or []
+        if left_data or right_data:
             is_empty = False
     else:
         for sec in sections:
@@ -69,25 +71,34 @@ def generate_conclusion(
                 is_empty = False
                 break
 
+    category = intent.get("category") or "Agniveer"
+
     if is_empty:
-        return {"message": "No matching records found to summarize."}
+        if query_type == "cross_filter":
+            msg = "In conclusion, the cross-filter query did not return any matching records from the active database. To proceed with the analysis, we recommend adjusting your filter criteria or broadening the search parameters to see if any matching personnel can be identified under less restrictive conditions."
+        elif query_type in ("compare", "comparison"):
+            msg = "In conclusion, the side-by-side comparison could not be completed because no matching data was found for either of the categories. We recommend verifying that records exist for these groups in the database before trying to perform another comparison query."
+        elif query_type == "multi_independent":
+            msg = "In conclusion, the consolidated report is empty because no matching data was found across any of the independent categories. Please check your query parameters or ensure that the target modules have active records available for reporting."
+        else:
+            msg = f"In conclusion, the database query returned zero active {category.lower()} records. We recommend adjusting your filter criteria, checking the spelling of your query parameters, or verifying that active records are present in the source system before attempting this search again."
+        return {"summary": msg, "message": msg}
 
     grounding_text = _build_conclusion_grounding_text(answer, query_type)
-    category = intent.get("category") or "Agniveer"
     flags = get_flags()
 
-    # Rule-based fallback generator (Target 20-40 words)
+    # Rule-based fallback generator
     fallback_message = f"The review of {category.lower()} records is complete. A total of {len(sections[0].get('data', [])) if sections else 0} matching entries are successfully filtered and analyzed for current command console reporting."
 
-    if query_type == "compare":
+    if query_type in ("compare", "comparison"):
         left = answer.get("left") or {}
         right = answer.get("right") or {}
-        fallback_message = f"Comparative metrics outline performance differences between {left.get('label', 'Side 1')} and {right.get('label', 'Side 2')}. Variance is documented across the compared parameters to assist evaluation."
+        fallback_message = f"The comparative review of {left.get('label', 'Side 1')} and {right.get('label', 'Side 2')} is complete. The side-by-side metrics and average score differences provide a clear statistical overview of how these categories compare. These findings are finalized and recorded to assist with ongoing evaluation and training updates."
     elif query_type == "cross_filter":
         records = sections[0].get("data") if sections else []
-        fallback_message = f"The cross-filter operation successfully identified {len(records)} Agniveers matching all selected query criteria. These records are isolated and verified against the command records logs."
+        fallback_message = f"In conclusion, the cross-filter query has successfully isolated {len(records)} Agniveer records matching all specified requirements. These individuals have been cross-referenced and validated against the primary unit databases, making this compiled list ready for immediate administrative reporting and command evaluation."
     elif query_type == "multi_independent":
-        fallback_message = f"Independent sections have been consolidated from multiple data modules. A total of {len(sections)} sections are loaded and verified in this report with no correlation performed."
+        fallback_message = f"In conclusion, the consolidation of the requested independent administrative modules is complete. All {len(sections)} sections have been successfully populated with their respective active database records, verified for completeness, and formatted to provide a comprehensive and clean administrative review."
 
     if not (flags.ENABLE_REPORTS and flags.ENABLE_OLLAMA):
         return {"message": fallback_message}
@@ -98,7 +109,7 @@ def generate_conclusion(
         "STRICT RULES:\n"
         "1. Base your response 100% on the Aggregate Data below.\n"
         "2. Do NOT hallucinate any numbers or names.\n"
-        "3. Write EXACTLY between 20 and 40 words.\n"
+        "3. Write EXACTLY between 50 and 70 words in natural language.\n"
         f"Aggregate Data:\n{grounding_text}\n\n"
         "Generate only the plain text conclusion without formatting."
     )
@@ -108,7 +119,7 @@ def generate_conclusion(
             "model": DEFAULT_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
-            "options": {"temperature": 0.3, "num_predict": 60, "num_ctx": 512}
+            "options": {"temperature": 0.3, "num_predict": 100, "num_ctx": 512}
         }
         from ollama_settings import get_ollama_timeout
 
@@ -117,7 +128,7 @@ def generate_conclusion(
         raw = resp.json().get("message", {}).get("content", "").strip()
 
         sanitized = _ground_and_sanitize(raw, grounding_text)
-        if sanitized and 20 <= len(sanitized.split()) <= 45:
+        if sanitized and 45 <= len(sanitized.split()) <= 75:
             return {"message": sanitized}
     except Exception as e:
         logger.warning("Ollama call failed in conclusion engine: %s", e)

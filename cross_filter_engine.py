@@ -35,17 +35,25 @@ def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dic
     """
     if not result_sets:
         return {
-            "status": False,
-            "message": "No matching records found"
+            "status": True,
+            "records": [],
+            "matchCount": 0,
+            "totalBeforeFilter": 0,
+            "filterDepth": 0
         }
 
     all_record_sets = [_extract_records(rs) for rs in result_sets]
     all_id_sets = [_extract_agniveer_ids(recs) for recs in all_record_sets]
 
+    primary_index = min(primary_index, len(all_record_sets) - 1) if all_record_sets else 0
+
     if not all_id_sets or any(len(ids) == 0 for ids in all_id_sets):
         return {
-            "status": False,
-            "message": "No matching records found"
+            "status": True,
+            "records": [],
+            "matchCount": 0,
+            "totalBeforeFilter": len(all_record_sets[primary_index]) if all_record_sets else 0,
+            "filterDepth": len(result_sets)
         }
 
     # Intersect all ID sets
@@ -53,14 +61,16 @@ def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dic
     for id_set in all_id_sets[1:]:
         common_ids = common_ids & id_set
 
+    primary_records = all_record_sets[primary_index] if all_record_sets else []
+
     if not common_ids:
         return {
-            "status": False,
-            "message": "No matching records found"
+            "status": True,
+            "records": [],
+            "matchCount": 0,
+            "totalBeforeFilter": len(primary_records),
+            "filterDepth": len(result_sets)
         }
-
-    primary_index = min(primary_index, len(all_record_sets) - 1)
-    primary_records = all_record_sets[primary_index]
 
     records_by_id = []
     for recs in all_record_sets:
@@ -102,8 +112,11 @@ def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dic
 
     if not filtered:
         return {
-            "status": False,
-            "message": "No matching records found"
+            "status": True,
+            "records": [],
+            "matchCount": 0,
+            "totalBeforeFilter": len(primary_records),
+            "filterDepth": len(result_sets)
         }
 
     return {

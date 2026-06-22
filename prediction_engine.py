@@ -58,8 +58,10 @@ def generate_predictions(
     """
     sections = answer.get("sections") or []
     is_empty = True
-    if query_type == "compare":
-        if answer.get("left") or answer.get("right"):
+    if query_type in ("compare", "comparison"):
+        left_data = answer.get("left", {}).get("data") or []
+        right_data = answer.get("right", {}).get("data") or []
+        if left_data or right_data:
             is_empty = False
     else:
         for sec in sections:
@@ -67,10 +69,40 @@ def generate_predictions(
                 is_empty = False
                 break
 
+    category = intent.get("category") or "Agniveer"
+
     if is_empty:
+        trend_val = "Insufficient Data"
+        if query_type == "cross_filter":
+            proj = "Given the current database state, subsequent runs of this specific cross-filter query are expected to continue yielding zero matches unless the underlying records or the filter conditions are updated."
+            trends = [
+                "Subsequent queries with the same criteria will likely yield zero matches.",
+                "Adjusting filter criteria will be necessary to obtain non-empty result sets."
+            ]
+        elif query_type in ("compare", "comparison"):
+            proj = "Future comparisons will remain unavailable until records are successfully logged for the target categories in the database."
+            trends = [
+                "Comparisons will continue to show no data until records are populated.",
+                "Verifying database connection and record ingestion is recommended."
+            ]
+        elif query_type == "multi_independent":
+            proj = "The consolidated report will continue to show empty sections in subsequent runs unless data is populated in the source modules."
+            trends = [
+                "Report sections will remain empty until data ingestion occurs.",
+                "Query parameters should be verified to confirm they match existing records."
+            ]
+        else:
+            proj = f"No future trend projection can be generated since there is no historical or current {category.lower()} data available in the database at this time."
+            trends = [
+                "Projections will remain unavailable until active records are populated.",
+                "Ensure record logging is functional before planning trend analysis."
+            ]
         return {
+            "trend": trend_val,
+            "projection": proj,
+            "heuristicEstimate": proj,
             "shortTerm": "stable",
-            "futureTrends": ["No data available to project trends."]
+            "futureTrends": trends,
         }
 
     grounding_text = _build_prediction_grounding_text(answer, query_type)
@@ -79,8 +111,6 @@ def generate_predictions(
     # 1. Determine shortTerm direction (stable, increasing, decreasing)
     short_term = "stable"
     future_trends = []
-
-    category = intent.get("category") or "Agniveer"
 
     if query_type == "trend":
         # Check sections for trend metadata (or if it exists)
@@ -94,7 +124,7 @@ def generate_predictions(
         
         future_trends.append(f"The short-term trend is projected as {short_term} based on historical metrics.")
 
-    elif query_type == "compare":
+    elif query_type in ("compare", "comparison"):
         comp = answer.get("comparison") or {}
         # if comparison difference is high
         diff = _safe_float(comp.get("difference"))
@@ -105,12 +135,16 @@ def generate_predictions(
 
         left_label = answer.get("left", {}).get("label", "Side 1")
         right_label = answer.get("right", {}).get("label", "Side 2")
-        future_trends.append(f"Performance differences between {left_label} and {right_label} are expected to persist.")
+        future_trends.append(f"Based on the side-by-side evaluation, the current performance differences observed between {left_label} and {right_label} are projected to persist in future training cycles unless targeted training interventions are implemented.")
 
     elif query_type == "cross_filter":
         records = sections[0].get("data") if sections else []
         short_term = "stable"
-        future_trends.append(f"Matching cross-filter criteria is expected to return around {len(records)} records in subsequent runs.")
+        future_trends.append(f"Based on the current intersection results, subsequent runs of this cross-filter query are highly likely to return a matching count of approximately {len(records)} records, assuming the criteria and the underlying dataset remain stable.")
+
+    elif query_type == "multi_independent":
+        short_term = "stable"
+        future_trends.append("The consolidated metrics from the multiple independent modules are projected to follow current baseline trends. Each section is expected to maintain its current performance level, with no immediate correlation expected between the independent categories.")
 
     else:
         # simple / other

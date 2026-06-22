@@ -41,7 +41,8 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "PresentToday": "Present",
     "StrengthBreakdown": "Strength",
     "PendingVerification": "Pending",
-    "CompletedVerification": "Completed",
+    "CompletedVerification": "Verified",
+    "Completed": "Verified",
     "NotRespondedVerification": "NotResponded",
     "VerifiedVerification": "Verified",
     "RejectedVerification": "Rejected",
@@ -55,8 +56,14 @@ _SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "BySport": "BySport",
     "ByClass": "ByClass",
     "BloodGroup": "BloodGroup",
-    "IssuedItems": "IssuedItems",
-    "ProcuredItems": "ProcuredItems",
+    "IssuedItems": "Issued",
+    "ProcuredItems": "Procured",
+    "SentVerification": "Sent",
+    "HoldingEquipment": "Holding",
+    "AgniveerWiseEquipment": "AgniveerWise",
+    "IndividualMedical": "Individual",
+    "YearlyAttendance": "Yearly",
+    "AttendanceSummary": "Summary",
 }
 
 
@@ -83,21 +90,28 @@ _INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Medical", "ActiveCases"): "Tabular",
     ("Medical", "BMIAnalysis"): "Donut Chart",
     ("Medical", "DiseaseStatistics"): "Tabular",
+    ("Medical", "BloodGroup"): "Tabular",
+    ("Medical", "IndividualMedical"): "Tabular",
     ("Attendance", "MonthlyAttendance"): "Bar Chart",
     ("Attendance", "WeeklyAttendance"): "Bar Chart",
     ("Attendance", "DailyAttendance"): "Calendar UI",
     ("Attendance", "PresentToday"): "Pie Chart",
     ("Attendance", "StrengthBreakdown"): "Radial Chart",
+    ("Attendance", "YearlyAttendance"): "Bar Chart",
+    ("Attendance", "AttendanceSummary"): "Tabular",
     ("Verification", "PendingVerification"): "Tabular",
     ("Verification", "CompletedVerification"): "Tabular",
     ("Verification", "NotRespondedVerification"): "Tabular",
     ("Verification", "VerifiedVerification"): "Tabular",
     ("Verification", "RejectedVerification"): "Tabular",
+    ("Verification", "SentVerification"): "Tabular",
     ("Equipment", "EquipmentSummary"): "Card",
     ("Equipment", "OverdueEquipment"): "Tabular",
     ("Equipment", "PoorConditionEquipment"): "Tabular",
     ("Equipment", "IssuedItems"): "Tabular",
     ("Equipment", "ProcuredItems"): "Tabular",
+    ("Equipment", "HoldingEquipment"): "Tabular",
+    ("Equipment", "AgniveerWiseEquipment"): "Tabular",
     ("Distribution", "LatestDistribution"): "Tabular",
     ("Distribution", "DistributionByUnit"): "Tabular",
     ("Distribution", "UnassignedItems"): "Tabular",
@@ -105,6 +119,10 @@ _INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Skills", "BySport"): "Tabular",
     ("Skills", "ByClass"): "Tabular",
     ("Skills", "BloodGroup"): "Tabular",
+    ("Roster", "BySport"): "Tabular",
+    ("Roster", "ByClass"): "Tabular",
+    ("Strength", "StrengthBreakdown"): "Radial Chart",
+    ("Overall", "OverallPerformance"): "Tabular",
 }
 
 
@@ -891,6 +909,7 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "height weight ratio",
             "weight report",
             "fitness data",
+            "obese",
         ),
     ),
     (
@@ -933,6 +952,43 @@ _MEDICAL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "malaria",
             "dengue",
             "typhoid",
+        ),
+    ),
+    (
+        "Blood Group",
+        "BloodGroup",
+        (
+            "bloodgroup",
+            "blood",
+            "blood group statistics",
+            "blood group distribution",
+            "blood group",
+            "blood type",
+            "a positive",
+            "b positive",
+            "o positive",
+            "ab positive",
+            "ab negative",
+            "blood group breakdown",
+            "how many with blood group",
+            "blood type distribution",
+            "blood group count",
+            "who has which blood group",
+            "blood group roster",
+            "blood group filter",
+        ),
+    ),
+    (
+        "Individual Medical",
+        "IndividualMedical",
+        (
+            "individual medical",
+            "medical status of",
+            "medical details of",
+            "particular medical",
+            "specific medical",
+            "medical status of agniveer",
+            "medical details of agniveer",
         ),
     ),
 ]
@@ -1047,6 +1103,34 @@ _ATTENDANCE_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "total inactive",
         ),
     ),
+    (
+        "Yearly Attendance",
+        "YearlyAttendance",
+        (
+            "yearly",
+            "year",
+            "yearly attendance",
+            "attendance this year",
+            "this year attendance",
+            "year wise attendance",
+            "attendance by year",
+            "yearly report",
+            "yearly stats",
+            "annual",
+            "annual attendance",
+            "annual report",
+        ),
+    ),
+    (
+        "Attendance Summary",
+        "AttendanceSummary",
+        (
+            "attendance summary",
+            "attendance overview",
+            "summary of attendance",
+            "attendance snapshot",
+        ),
+    ),
 ]
 
 
@@ -1056,7 +1140,6 @@ _VERIFICATION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
         "PendingVerification",
         (
             "pending",
-            "sent",
             "noresponse",
             "pending verifications",
             "sent but no response",
@@ -1075,6 +1158,8 @@ _VERIFICATION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "how many pending",
             "verification queue",
             "who is pending verification",
+            "pending police verification",
+            "police verification pending",
         ),
     ),
     (
@@ -1133,6 +1218,17 @@ _VERIFICATION_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "verification rejected",
             "not approved",
             "verification failed",
+        ),
+    ),
+    (
+        "Sent Verification",
+        "SentVerification",
+        (
+            "sent",
+            "sent verification",
+            "verification sent",
+            "who was verification sent to",
+            "sent document",
         ),
     ),
 ]
@@ -1347,6 +1443,28 @@ _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "procured",
         ),
     ),
+    (
+        "Holding Equipment",
+        "HoldingEquipment",
+        (
+            "holding",
+            "who is holding",
+            "equipment holding",
+            "holding items",
+            "trainees holding",
+        ),
+    ),
+    (
+        "Agniveer Wise Equipment",
+        "AgniveerWiseEquipment",
+        (
+            "agniveerwise",
+            "agniveer wise",
+            "agniveer-wise",
+            "equipment by agniveer",
+            "equipment wise agniveer",
+        ),
+    ),
 ]
 
 
@@ -1450,8 +1568,6 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "best in sport",
             "by sport",
             "sport wise",
-            "roster by sport",
-            "skills by sport",
             "cricket players",
             "football players",
             "who plays cricket",
@@ -1463,6 +1579,56 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "who are the sportsmen",
             "sportsperson roster",
             "sport filter",
+            "football",
+        ),
+    ),
+    (
+        "By Class",
+        "ByClass",
+        (
+            "byclass",
+            "class",
+            "agniveers by class",
+            "by class",
+            "class wise",
+            "sikh class",
+            "dogra class",
+            "jat class",
+            "class wise roster",
+            "class distribution",
+            "which class has how many",
+            "class breakdown",
+            "class filter",
+        ),
+    ),
+]
+
+
+_ROSTER_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
+    (
+        "By Sport",
+        "BySport",
+        (
+            "bysport",
+            "sport",
+            "sports",
+            "best performers in sport",
+            "best in sport",
+            "by sport",
+            "sport wise",
+            "roster by sport",
+            "cricket players",
+            "football players",
+            "who plays cricket",
+            "who plays football",
+            "sports roster",
+            "sport category",
+            "sport wise roster",
+            "athletes",
+            "who are the sportsmen",
+            "sportsperson roster",
+            "sport filter",
+            "football",
         ),
     ),
     (
@@ -1475,7 +1641,6 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "by class",
             "class wise",
             "roster by class",
-            "skills by class",
             "sikh class",
             "dogra class",
             "jat class",
@@ -1488,28 +1653,69 @@ _SKILLS_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "class filter",
         ),
     ),
+]
+
+
+_STRENGTH_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
     (
-        "Blood Group",
-        "BloodGroup",
+        "Strength Breakdown",
+        "StrengthBreakdown",
         (
-            "bloodgroup",
-            "blood",
-            "blood group statistics",
-            "blood group distribution",
-            "blood group",
-            "blood type",
-            "a positive",
-            "b positive",
-            "o positive",
-            "ab positive",
-            "ab negative",
-            "blood group breakdown",
-            "how many with blood group",
-            "blood type distribution",
-            "blood group count",
-            "who has which blood group",
-            "blood group roster",
-            "blood group filter",
+            "strength",
+            "breakdown",
+            "strength breakdown",
+            "total strength",
+            "strength report",
+            "headcount breakdown",
+            "how many total",
+            "overall strength",
+            "strength statistics",
+            "total headcount",
+            "platoon strength",
+            "unit strength",
+            "platoon wise strength",
+            "total platoon count",
+            "active inactive breakdown",
+            "active count",
+            "total active",
+            "total inactive",
+        ),
+    ),
+]
+
+
+_OVERALL_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
+    (
+        "Overall Performance",
+        "OverallPerformance",
+        (
+            "overall",
+            "composite",
+            "allcriteria",
+            "overall performers",
+            "overall performance",
+            "overall performance report",
+            "overall score",
+            "overall scoring",
+            "overall marks",
+            "all criteria performance",
+            "all criteria",
+            "all section performance",
+            "multi section performance",
+            "combined performance",
+            "aggregate performance",
+            "total performance",
+            "holistic performance",
+            "performance across all sections",
+            "overall performer",
+            "all round performance",
+            "all-round performance",
+            "combined score",
+            "total score across sections",
+            "composite score",
+            "composite performance",
+            "performance in all sections",
+            "full performance report",
         ),
     ),
 ]
@@ -1888,6 +2094,8 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "headcount",
             "muster",
             "monthly",
+            "yearly",
+            "year",
         ),
         _ATTENDANCE_INTENTS,
     ),
@@ -2089,6 +2297,8 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "malaria",
             "dengue",
             "typhoid",
+            "blood group",
+            "blood type",
         ),
         _MEDICAL_INTENTS,
     ),
@@ -2108,6 +2318,7 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "verified",
             "document verification",
             "police verification",
+            "sent",
         ),
         _VERIFICATION_INTENTS,
     ),
@@ -2163,6 +2374,7 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "jungle shoes",
             "health card",
             "health card details",
+            "holding",
         ),
         _EQUIPMENT_INTENTS,
     ),
@@ -2193,16 +2405,37 @@ _MODULES: Dict[str, Tuple[Tuple[str, ...], List[Tuple[str, str, Tuple[str, ...]]
             "by class",
             "class wise",
             "byclass",
-            "blood group",
-            "blood type",
-            "bloodgroup",
             "skill",
             "sport",
             "sports",
             "roster",
-            "blood",
         ),
         _SKILLS_INTENTS,
+    ),
+    "Roster": (
+        (
+            "roster",
+            "by sport",
+            "by class",
+            "sport",
+            "class",
+        ),
+        _ROSTER_INTENTS,
+    ),
+    "Strength": (
+        (
+            "strength",
+            "breakdown",
+            "strength breakdown",
+        ),
+        _STRENGTH_INTENTS,
+    ),
+    "Overall": (
+        (
+            "overall",
+            "performance",
+        ),
+        _OVERALL_INTENTS,
     ),
 }
 
@@ -2505,6 +2738,9 @@ def _extract_intent_type(
         "Equipment": "Tabular",
         "Distribution": "Tabular",
         "Skills": "Tabular",
+        "Roster": "Tabular",
+        "Strength": "Tabular",
+        "Overall": "Tabular",
     }
     return category_defaults.get((category or "").strip(), "Tabular")
 
@@ -2786,6 +3022,9 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
 
     if intent_result.get("blood_group"):
         payload["bloodGroup"] = intent_result["blood_group"]
+
+    if intent_result.get("medical_status"):
+        payload["medicalStatus"] = intent_result["medical_status"]
 
     return payload
 

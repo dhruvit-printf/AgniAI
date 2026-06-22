@@ -87,8 +87,10 @@ def generate_analysis(
     """
     sections = answer.get("sections") or []
     is_empty = True
-    if query_type == "compare":
-        if answer.get("left") or answer.get("right"):
+    if query_type in ("compare", "comparison"):
+        left_data = answer.get("left", {}).get("data") or []
+        right_data = answer.get("right", {}).get("data") or []
+        if left_data or right_data:
             is_empty = False
     else:
         for sec in sections:
@@ -96,30 +98,66 @@ def generate_analysis(
                 is_empty = False
                 break
 
+    category = intent.get("category") or "Agniveer"
+
     if is_empty:
-        return {
-            "summary": "No matching records found.",
-            "observations": [],
-            "insights": []
-        }
+        if query_type == "cross_filter":
+            return {
+                "summary": "A detailed cross-filter query was executed across multiple datasets to identify common personnel matching all filter parameters. The resulting intersection yielded zero common records, demonstrating that the overlapping conditions specified in the query filter out all available Agniveers in the system database.",
+                "observations": [
+                    "A cross-filter search was performed across all selected category sets, but no overlapping records were retrieved."
+                ],
+                "insights": [
+                    "This suggests that the filter parameters are mutually exclusive for the current cohort of personnel."
+                ]
+            }
+        elif query_type in ("compare", "comparison"):
+            return {
+                "summary": "A side-by-side comparison was initiated to evaluate the metrics of the selected categories. However, since the query returned no records for any of the groups, a comparative breakdown cannot be compiled. There is no active data to compare across the selected dimensions.",
+                "observations": [
+                    "Both comparison groups returned empty datasets from the primary database query."
+                ],
+                "insights": [
+                    "The lack of records indicates that either no data has been logged yet or the categories do not contain any active personnel."
+                ]
+            }
+        elif query_type == "multi_independent":
+            return {
+                "summary": "The multi-section consolidation process compiled results from all requested data modules. Unfortunately, none of the query paths returned any active records, meaning that all sections in this report are currently empty and there are no statistics available for analysis.",
+                "observations": [
+                    "All requested independent sections returned zero active records from the system."
+                ],
+                "insights": [
+                    "This suggests a widespread absence of matching records across all requested data tables or filters."
+                ]
+            }
+        else:
+            return {
+                "summary": f"No matching data was found for the requested {category.lower()} query filter criteria. The database search completed successfully but returned an empty dataset, meaning there are no records available to display or analyze at this time.",
+                "observations": [
+                    f"The search returned 0 records matching the {category.lower()} query parameters."
+                ],
+                "insights": [
+                    "No active records match the specified filters, indicating either no data has been logged or filters are too restrictive."
+                ]
+            }
 
     aggregate_text = _build_aggregate_text(answer, query_type, intent)
     flags = get_flags()
 
     # Rule-based fallback generator
-    category = intent.get("category") or "Agniveer"
     fallback_summary = f"Summary of {category.lower()} metrics completed."
     fallback_obs = [f"Retrieved data for {category.lower()} query."]
     fallback_ins = ["Dataset matches the specified parameters."]
 
-    if query_type == "compare":
+    if query_type in ("compare", "comparison"):
         left = answer.get("left") or {}
         right = answer.get("right") or {}
         fallback_summary = f"Comparison completed between {left.get('label', 'Side 1')} and {right.get('label', 'Side 2')}."
         fallback_obs = [
             f"Compared {left.get('label', 'Side 1')} ({len(left.get('data', []))} records) with {right.get('label', 'Side 2')} ({len(right.get('data', []))} records)."
         ]
-        fallback_ins = ["Comparison highlights metric variations across categories."]
+        fallback_ins = ["Comparison highlights metric variances across categories."]
     elif query_type == "cross_filter":
         records = sections[0].get("data") if sections else []
         fallback_summary = f"Cross-filter analysis matched {len(records)} records."
@@ -148,7 +186,7 @@ def generate_analysis(
         "3. Do NOT mention any person's name unless it appears in the Aggregate Data.\n"
         "4. Output a single JSON object with EXACTLY this structure:\n"
         "{\n"
-        '  "summary": "A single sentence overview of the aggregate metrics.",\n'
+        '  "summary": "A detailed, natural language summary of the aggregate metrics (around 50 words).",\n'
         '  "observations": ["1-3 key data points/metrics from the aggregate data"],\n'
         '  "insights": ["1-2 trends or insights based on the aggregate data"]\n'
         "}\n\n"
