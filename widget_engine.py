@@ -8,6 +8,7 @@ Converts CombinedResult into a single deterministic FormattedData structure.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import ValidationError
 
@@ -121,7 +122,45 @@ def flatten_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             flat_records.extend(flatten_single_record(r))
         else:
             flat_records.append(r)
-    return flat_records
+    seen = set()
+    deduped = []
+    for record in flat_records:
+        if not isinstance(record, dict):
+            continue
+        record_id = None
+        for key in ("agniveerNo", "agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+            val = record.get(key)
+            if val is not None:
+                record_id = f"id:{val}"
+                break
+        if record_id is None:
+            record_id = "row:" + json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
+        if record_id in seen:
+            continue
+        seen.add(record_id)
+        deduped.append(record)
+    return deduped
+
+
+def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = set()
+    deduped: List[Dict[str, Any]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        record_id = None
+        for key in ("agniveerNo", "agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+            val = record.get(key)
+            if val is not None:
+                record_id = f"id:{val}"
+                break
+        if record_id is None:
+            record_id = "row:" + json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
+        if record_id in seen:
+            continue
+        seen.add(record_id)
+        deduped.append(record)
+    return deduped
 
 def _extract_records(combined_result: Any) -> List[Dict[str, Any]]:
     if isinstance(combined_result, dict):
@@ -254,7 +293,7 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
 
 def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not records:
-        return {"columns": [], "rows": []}
+        return {"columns": [], "row": [], "rows": []}
 
     def _flatten_cell_value(key: str, value: Any) -> Any:
         if value is None or isinstance(value, (str, int, float, bool)):
@@ -330,8 +369,8 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         for k in keys_seen:
             row[k] = _flatten_cell_value(k, r.get(k))
         rows.append(row)
-        
-    return {"columns": columns, "rows": rows}
+
+    return {"columns": columns, "row": rows, "rows": rows}
 
 def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
     if isinstance(combined_result, dict) and "sides" in combined_result:
@@ -346,7 +385,7 @@ def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
         for s in sides:
             row_item = {
                 "label": s.get("label", "Section"),
-                "recordCount": s.get("recordCount", 0)
+                "recordCount": s.get("recordCount", 0),
             }
             if "metrics" in s:
                 row_item.update(s["metrics"])
@@ -355,10 +394,22 @@ def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
         return {
             "xKey": "label",
             "yKey": y_key,
-            "rows": rows
+            "rows": [
+                {
+                    f"{'label'}:value": row.get("label", "Section"),
+                    f"{y_key}:value": row.get(y_key, row.get("recordCount", 0)),
+                    **{
+                        k: v
+                        for k, v in row.items()
+                        if k not in {"label", "recordCount", y_key}
+                    },
+                }
+                for row in rows
+            ],
         }
         
     records = _extract_records(combined_result)
+    records = _dedupe_records(records)
     if not records:
         return {"xKey": "label", "yKey": "value", "rows": []}
         
@@ -418,7 +469,13 @@ def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
     return {
         "xKey": x_key,
         "yKey": y_key,
-        "rows": rows
+        "rows": [
+            {
+                f"{x_key}:value": row.get(x_key),
+                f"{y_key}:value": row.get(y_key),
+            }
+            for row in rows
+        ],
     }
 
 def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
@@ -473,7 +530,16 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
     return {
         "xKey": x_key,
         "series": series,
-        "rows": rows
+        "rows": [
+            {
+                f"{x_key}:value": row.get(x_key),
+                **{
+                    f"series{idx}:value": row.get(sk, 0)
+                    for idx, sk in enumerate(series_keys)
+                },
+            }
+            for row in rows
+        ],
     }
 
 def build_pie_chart_data(combined_result: Any) -> Dict[str, Any]:
@@ -596,6 +662,9 @@ def build_formatted_data(
         data_payload = build_pie_chart_data(combined_result)
     else:
         data_payload = build_table_data(records)
+
+    if inferred_type == "TABLE" and "rows" in data_payload and "row" not in data_payload:
+        data_payload["row"] = data_payload["rows"]
         
     validate_payload(inferred_type, data_payload)
     

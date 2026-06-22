@@ -265,6 +265,7 @@ def admin_classify():
                 "question": message,
                 "intent": frontend_intent,
                 "type": frontend_intent.get("type") or "",
+                "intentFormed": bool(frontend_intent.get("category")),
             },
             ensure_ascii=False,
         )

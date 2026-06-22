@@ -197,6 +197,69 @@ def _get_cache_scope(data: Dict) -> Dict[str, Any]:
     return scope
 
 
+def _extract_combined_record_count(combined_result: Any) -> int:
+    if isinstance(combined_result, dict):
+        if isinstance(combined_result.get("records"), list):
+            return len(combined_result["records"])
+        if isinstance(combined_result.get("sections"), list):
+            total = 0
+            for section in combined_result["sections"]:
+                if isinstance(section, dict) and isinstance(section.get("data"), list):
+                    total += len(section["data"])
+            return total
+        if isinstance(combined_result.get("sides"), list):
+            total = 0
+            for side in combined_result["sides"]:
+                if isinstance(side, dict) and isinstance(side.get("data"), list):
+                    total += len(side["data"])
+            return total
+    if isinstance(combined_result, list):
+        return len(combined_result)
+    return 0
+
+
+def _log_combination_summary(
+    *,
+    question: str,
+    intent: Dict[str, Any],
+    qtype: str,
+    labeled_results: List[Tuple[str, Any]],
+    raw_results: List[Any],
+    combined_result: Any,
+) -> None:
+    if qtype not in ("cross_filter", "comparison", "compare", "multi_independent", "multi_operation"):
+        return
+
+    input_counts = []
+    for idx, (label, data) in enumerate(labeled_results):
+        if isinstance(data, dict) and data.get("unavailable") is True:
+            count = 0
+        else:
+            count = len(_extract_records(data))
+        input_counts.append(
+            {
+                "index": idx + 1,
+                "label": label,
+                "count": count,
+            }
+        )
+
+    output_count = _extract_combined_record_count(combined_result)
+    logger.info(
+        json.dumps(
+            {
+                "question": question,
+                "intent": intent,
+                "type": intent.get("type") or qtype,
+                "input": input_counts,
+                "outputCount": output_count,
+                "rawCount": len(raw_results),
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
 def _validate_model_payload(model_cls, payload: Any, context: str) -> None:
     """Validate the real payload while logging any unexpected keys."""
     if isinstance(payload, dict):
@@ -542,6 +605,17 @@ def execute_admin_query(
                 "confidence": 1.0,
             }
             set_audit_context(question=user_query or message, intent=greeting_intent)
+            logger.info(
+                json.dumps(
+                    {
+                        "question": user_query or message,
+                        "intent": greeting_intent,
+                        "type": greeting_intent.get("type") or qtype,
+                        "intentFormed": bool(greeting_intent.get("category")),
+                    },
+                    ensure_ascii=False,
+                )
+            )
 
             total_duration = time.time() - start_time
             durations = {
@@ -1132,6 +1206,14 @@ def execute_admin_query(
             combined_result = combine_results(
                 raw_results, labeled_results, qtype_str, primary_intent
             )
+            _log_combination_summary(
+                question=user_query,
+                intent=primary_intent,
+                qtype=qtype_str,
+                labeled_results=labeled_results,
+                raw_results=raw_results,
+                combined_result=combined_result,
+            )
 
             # Validate CombinedResponseModel
             if isinstance(combined_result, dict):
@@ -1343,6 +1425,7 @@ def execute_admin_query(
                     "question": user_query,
                     "intent": primary_intent,
                     "type": primary_intent.get("type") or "",
+                    "intentFormed": bool(primary_intent.get("category")),
                 },
                 ensure_ascii=False,
             )
@@ -1430,6 +1513,7 @@ def execute_admin_query(
                     "question": user_query,
                     "intent": error_intent,
                     "type": "error",
+                    "intentFormed": False,
                 },
                 ensure_ascii=False,
             )
