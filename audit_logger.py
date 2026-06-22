@@ -35,9 +35,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, Optional
+from contextvars import ContextVar
 
 # ── Config ─────────────────────────────────────────────────────────────────
 AUDIT_LOG_FILE = os.getenv("AUDIT_LOG_FILE", "audit.log")
@@ -49,6 +51,9 @@ AUDIT_LOG_RETENTION_DAYS = int(os.getenv("AUDIT_LOG_RETENTION_DAYS", "90"))
 
 # ── Audit logger instance ──────────────────────────────────────────────────
 _audit_logger: Optional[logging.Logger] = None
+_audit_question_var: ContextVar[str] = ContextVar("audit_question", default="")
+_audit_intent_var: ContextVar[Dict[str, Any]] = ContextVar("audit_intent", default={})
+_audit_written_var: ContextVar[bool] = ContextVar("audit_written", default=False)
 
 
 def _get_audit_logger() -> logging.Logger:
@@ -75,83 +80,16 @@ def _get_audit_logger() -> logging.Logger:
 # ── Schema ─────────────────────────────────────────────────────────────────
 
 
-class AuditLog:
-    """
-    Value object representing one audit log entry.
-    All fields are validated and sanitized on construction.
-    """
+def set_audit_context(*, question: str, intent: Optional[Dict[str, Any]] = None) -> None:
+    _audit_question_var.set((question or "").strip())
+    _audit_intent_var.set(dict(intent or {}))
+    _audit_written_var.set(False)
 
-    # Fields that must NEVER appear in audit logs
-    _FORBIDDEN_KEYS = frozenset(
-        {
-            "prompt",
-            "prompts",
-            "queryPlan",
-            "dotnetPayload",
-            "rawFragment",
-            "intentResult",
-            "operations",
-            "reasoning",
-            "raw_response",
-            "api_key",
-            "password",
-            "secret",
-            "token",
-            "traceback",
-            "stack_trace",
-            "exception_detail",
-        }
-    )
 
-    __slots__ = (
-        "timestamp",
-        "trace_id",
-        "session_id",
-        "query_type",
-        "query_duration",
-        "success",
-        "error_type",
-        "username",
-        "admin_name",
-    )
-
-    def __init__(
-        self,
-        *,
-        trace_id: str,
-        session_id: str,
-        query_type: str,
-        query_duration: float,
-        success: bool,
-        error_type: Optional[str] = None,
-        username: Optional[str] = None,
-        admin_name: Optional[str] = None,
-    ) -> None:
-        self.timestamp = datetime.now(timezone.utc).isoformat()
-        self.trace_id = str(trace_id)[:64]
-        self.session_id = str(session_id)[:128]
-        self.query_type = str(query_type)[:64]
-        self.query_duration = round(float(query_duration), 2)
-        self.success = bool(success)
-        self.error_type = str(error_type)[:64] if error_type else None
-        self.username = str(username)[:128] if username else None
-        self.admin_name = str(admin_name)[:128] if admin_name else None
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "timestamp": self.timestamp,
-            "trace_id": self.trace_id,
-            "session_id": self.session_id,
-            "query_type": self.query_type,
-            "query_duration": self.query_duration,
-            "success": self.success,
-            "error_type": self.error_type,
-            "username": self.username,
-            "admin_name": self.admin_name,
-        }
-
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=False)
+def reset_audit_context() -> None:
+    _audit_question_var.set("")
+    _audit_intent_var.set({})
+    _audit_written_var.set(False)
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
@@ -159,14 +97,9 @@ class AuditLog:
 
 def write_audit_log(
     *,
-    trace_id: str,
-    session_id: str,
-    query_type: str,
-    query_duration: float,
-    success: bool,
-    error_type: Optional[str] = None,
-    username: Optional[str] = None,
-    admin_name: Optional[str] = None,
+    question: Optional[str] = None,
+    intent: Optional[Dict[str, Any]] = None,
+    **_ignored: Any,
 ) -> None:
     """
     Write one audit log entry.
@@ -181,17 +114,18 @@ def write_audit_log(
         pass  # feature_flags not available, proceed
 
     try:
-        entry = AuditLog(
-            trace_id=trace_id,
-            session_id=session_id,
-            query_type=query_type,
-            query_duration=query_duration,
-            success=success,
-            error_type=error_type,
-            username=username,
-            admin_name=admin_name,
-        )
-        _get_audit_logger().info(entry.to_json())
+        if question is not None or intent is not None:
+            set_audit_context(question=question or "", intent=intent or {})
+        if _audit_written_var.get():
+            return
+        current_intent = dict(_audit_intent_var.get() or {})
+        entry = {
+            "question": _audit_question_var.get() or "",
+            "intent": current_intent,
+            "type": current_intent.get("type") or "",
+        }
+        _get_audit_logger().info(json.dumps(entry, ensure_ascii=False))
+        _audit_written_var.set(True)
     except Exception as exc:
         logging.getLogger(__name__).warning("Audit log write failed: %s", exc)
 

@@ -37,6 +37,7 @@ from admin_intent import (
     format_admin_payload,
 )
 from audit_logger import write_audit_log
+from audit_logger import reset_audit_context, set_audit_context
 from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
 from dotnet_executor import _call_dotnet
 from feature_flags import get_flags
@@ -73,6 +74,23 @@ from schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _QuestionIntentOnlyFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            payload = json.loads(record.getMessage())
+        except Exception:
+            return False
+        return (
+            isinstance(payload, dict)
+            and "question" in payload
+            and "intent" in payload
+            and "type" in payload
+        )
+
+
+logger.addFilter(_QuestionIntentOnlyFilter())
 
 SLOW_QUERY_THRESHOLD = float(os.getenv("SLOW_QUERY_THRESHOLD_SEC", "5.0"))
 from metrics import metrics_collector
@@ -444,6 +462,7 @@ def execute_admin_query(
     token_req = request_id_var.set(request_id)
     token_trace = trace_id_var.set(trace_id)
     token_sess = session_id_var.set(session_id)
+    set_audit_context(question=user_query or "", intent={"type": "Unknown"})
 
     # ── Check Cache ──
     from cache_manager import cache_manager
@@ -475,6 +494,12 @@ def execute_admin_query(
                     payload["sessionId"] = session_id
                 cached_val = dict(cached_val)
                 cached_val["response_payload"] = payload
+            cached_intent = {}
+            if isinstance(cached_val, dict):
+                cached_intent = (
+                    cached_val.get("response_payload", {}).get("intent") or {}
+                )
+            write_audit_log(question=user_query, intent=cached_intent)
             return cached_val
         else:
             metrics_collector.inc_cache_misses()
@@ -510,6 +535,13 @@ def execute_admin_query(
             _notify("report")
 
             qtype = response_data.get("type", "greeting")
+            greeting_intent = response_data.get("intent") or {
+                "category": qtype,
+                "subcategory": "",
+                "type": qtype,
+                "confidence": 1.0,
+            }
+            set_audit_context(question=user_query or message, intent=greeting_intent)
 
             total_duration = time.time() - start_time
             durations = {
@@ -546,16 +578,11 @@ def execute_admin_query(
             logger.info(
                 json.dumps(
                     {
-                        "message": "Admin pipeline complete",
                         "question": user_query,
-                        "query_type": qtype,
-                        "intent_formed": {
-                            "category": qtype,
-                            "subcategory": "",
-                            "confidence": 1.0,
-                        },
-                        "trace_id": trace_id,
-                    }
+                        "intent": greeting_intent,
+                        "type": greeting_intent.get("type") or qtype,
+                    },
+                    ensure_ascii=False,
                 )
             )
 
@@ -1309,15 +1336,15 @@ def execute_admin_query(
             report_strategy = "fallback"
 
         # Log all 10 required audit metrics
+        set_audit_context(question=user_query, intent=primary_intent)
         logger.info(
             json.dumps(
                 {
-                    "message": "Admin pipeline complete",
                     "question": user_query,
-                    "query_type": qtype_str,
-                    "intent_formed": primary_intent,
-                    "trace_id": trace_id,
-                }
+                    "intent": primary_intent,
+                    "type": primary_intent.get("type") or "",
+                },
+                ensure_ascii=False,
             )
         )
 
@@ -1363,13 +1390,7 @@ def execute_admin_query(
                 )
             )
 
-        write_audit_log(
-            trace_id=trace_id,
-            session_id=session_id,
-            query_type=qtype_str,
-            query_duration=durations["total_duration"],
-            success=True,
-        )
+        write_audit_log(question=user_query, intent=primary_intent)
 
         # Validate FinalResponseModel and MetadataModel
         if "metadata" in response_payload:
@@ -1401,16 +1422,16 @@ def execute_admin_query(
 
     except Exception as exc:
         total_duration = time.time() - start_time
+        error_intent = {"type": "error"}
+        set_audit_context(question=user_query, intent=error_intent)
         logger.error(
             json.dumps(
                 {
-                    "message": "Error in execute_admin_query",
-                    "trace_id": trace_id,
-                    "session_id": session_id or "admin-default",
-                    "query_type": "error",
-                    "duration_ms": round(total_duration * 1000, 2),
-                    "error": str(exc),
-                }
+                    "question": user_query,
+                    "intent": error_intent,
+                    "type": "error",
+                },
+                ensure_ascii=False,
             )
         )
 
@@ -1433,14 +1454,7 @@ def execute_admin_query(
                 )
             )
 
-        write_audit_log(
-            trace_id=trace_id,
-            session_id=session_id or "admin-default",
-            query_type="error",
-            query_duration=round(total_duration * 1000, 2),
-            success=False,
-            error_type="pipeline_exception",
-        )
+        write_audit_log(question=user_query, intent=error_intent)
 
         return {
             "type": "error",
