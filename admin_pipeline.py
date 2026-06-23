@@ -220,6 +220,12 @@ _VISUALIZATION_FIELD_ALIASES: Dict[str, Tuple[str, ...]] = {
     "data_type": ("data_type", "dataType", "type"),
 }
 
+_DISPLAY_ONLY_VISUALIZATION_FIELDS = {
+    "presentation",
+    "chart_type",
+    "widget_hint",
+}
+
 
 def _extract_frontend_intent(body: Dict[str, Any]) -> Dict[str, Any]:
     intent: Dict[str, Any] = {}
@@ -257,7 +263,8 @@ def _extract_frontend_visualization_intent(body: Dict[str, Any]) -> Dict[str, An
                 value = body_intent.get(alias)
                 if value not in (None, "", [], {}):
                     visual[key] = value
-                    frontend_hint_present = True
+                    if key in _DISPLAY_ONLY_VISUALIZATION_FIELDS:
+                        frontend_hint_present = True
                     break
 
     for canonical, aliases in _VISUALIZATION_FIELD_ALIASES.items():
@@ -267,12 +274,12 @@ def _extract_frontend_visualization_intent(body: Dict[str, Any]) -> Dict[str, An
             value = body.get(alias)
             if value not in (None, "", [], {}):
                 visual[canonical] = value
-                frontend_hint_present = True
+                if canonical in _DISPLAY_ONLY_VISUALIZATION_FIELDS:
+                    frontend_hint_present = True
                 break
 
     widgets_value = body.get("widgets")
     if isinstance(widgets_value, list) and widgets_value:
-        frontend_hint_present = True
         visual.setdefault("widgets", widgets_value)
 
     widget_hint = str(visual.get("widget_hint") or "").strip().lower()

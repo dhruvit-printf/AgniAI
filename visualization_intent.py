@@ -7,6 +7,7 @@ intent, and returned data shape.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Iterable, List, Optional
 
 
@@ -34,6 +35,32 @@ def _has_numeric_signal(records: Iterable[Dict[str, Any]]) -> bool:
     return False
 
 
+_EXPLICIT_PRESENTATION_PATTERNS = (
+    (r"\bpie chart\b", "chart", "pie"),
+    (r"\bbar chart\b", "chart", "bar"),
+    (r"\bline chart\b", "chart", "line"),
+    (r"\bdonut chart\b", "chart", "donut"),
+    (r"\bradial chart\b", "chart", "radial"),
+    (r"\barea chart\b", "chart", "area"),
+    (r"\btabular\b", "table", None),
+    (r"\btable\b", "table", None),
+    (r"\bcards?\b", "cards", None),
+)
+
+
+def _detect_explicit_presentation(text: str) -> Optional[Dict[str, Any]]:
+    for pattern, presentation, chart_type in _EXPLICIT_PRESENTATION_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            result: Dict[str, Any] = {
+                "frontend_override": True,
+                "presentation": presentation,
+            }
+            if chart_type:
+                result["chart_type"] = chart_type
+            return result
+    return None
+
+
 def build_visualization_intent(
     question: str,
     intent: Dict[str, Any],
@@ -56,6 +83,27 @@ def build_visualization_intent(
     trend = False
     group_by = intent.get("group_by") or intent.get("groupBy")
     metric = intent.get("metric") or ("average_score" if numeric_data else "count")
+
+    explicit_presentation = _detect_explicit_presentation(text)
+    if explicit_presentation:
+        presentation = explicit_presentation["presentation"]
+        chart_type = explicit_presentation.get("chart_type")
+        if chart_type == "bar":
+            comparison = "compare" in text or " vs " in text or "versus" in text
+        if chart_type == "line":
+            trend = "trend" in text or "timeline" in text or "growth" in text
+        result = {
+            "presentation": presentation,
+            "chart_type": chart_type,
+            "comparison": comparison,
+            "trend": trend,
+            "group_by": group_by,
+            "metric": metric,
+            "record_count": len(records),
+            "numeric_data": numeric_data,
+            "frontend_override": True,
+        }
+        return result
 
     if query_type in {"compare", "comparison"} or "compare" in text or " vs " in text or "versus" in text:
         presentation = "chart"
