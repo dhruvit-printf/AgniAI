@@ -72,36 +72,6 @@ def calculate_section_confidence(
     return _calculate_section_confidence(section, intent, api_success=api_success)
 
 
-class _CompatSectionDict(dict):
-    """Dict wrapper that still compares equal to the legacy flattened string."""
-
-    def __init__(self, payload: Optional[Dict[str, Any]], legacy_text: str) -> None:
-        super().__init__(payload or {})
-        self._legacy_text = legacy_text
-
-    def __str__(self) -> str:
-        return self._legacy_text
-
-    def __repr__(self) -> str:
-        return self._legacy_text
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, str):
-            return self._legacy_text == other
-        return dict.__eq__(self, other)
-
-
-class PublicResponseDict(dict):
-    """Dictionary with an optional filtered key view for legacy callers."""
-
-    def __init__(self, *args, hidden_keys: Optional[List[str]] = None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._hidden_keys = set(hidden_keys or [])
-
-    def keys(self):
-        return [key for key in super().keys() if key not in self._hidden_keys]
-
-
 def build_response(
     query_type: str,
     intro_message: str,
@@ -127,13 +97,7 @@ def build_response(
     """
     from schemas import FinalResponse
     from telemetry import request_id_var, trace_id_var, session_id_var
-    from normalized_models import (
-        build_answer,
-        combine_analysis_to_string,
-        combine_conclusion_to_string,
-        combine_prediction_to_string,
-        normalize_intent_confidence,
-    )
+    from normalized_models import build_answer, normalize_intent_confidence
     from visualization_intent import build_visualization_intent
 
     durations_dict = durations or {}
@@ -237,7 +201,6 @@ def build_response(
         sessionId=session_value,
         message=(intro_message or "").strip(),
         queryType=query_type,
-        introMessage=(intro_message or "").strip(),
         answer=answer_payload,
         result={"processedData": combined_result},
         widgets=[
@@ -262,20 +225,7 @@ def build_response(
     )
 
     model_dict = response_model.model_dump(by_alias=True)
-    if isinstance(model_dict.get("analysis"), dict):
-        model_dict["analysis"] = _CompatSectionDict(
-            model_dict["analysis"], combine_analysis_to_string(analysis)
-        )
-    if isinstance(model_dict.get("prediction"), dict):
-        model_dict["prediction"] = _CompatSectionDict(
-            model_dict["prediction"], combine_prediction_to_string(prediction)
-        )
-    if isinstance(model_dict.get("conclusion"), dict):
-        model_dict["conclusion"] = _CompatSectionDict(
-            model_dict["conclusion"], combine_conclusion_to_string(conclusion)
-        )
     model_dict["message"] = (intro_message or "").strip()
-    model_dict["introMessage"] = (intro_message or "").strip()
     model_dict["widget"] = widget_value
     model_dict["widgets"] = [
         {
@@ -308,9 +258,7 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
     public contract, preventing security leaks of raw .NET records or LLM details.
     """
     # Old code omitted analysis, prediction, conclusion, queryType, answer, overallConfidence, and metadata keys in the public view.
-    public_payload = PublicResponseDict(
-        {k: payload[k] for k in _PUBLIC_RESPONSE_KEYS if k in payload}
-    )
+    public_payload = {k: payload[k] for k in _PUBLIC_RESPONSE_KEYS if k in payload}
     
     # Filter metadata to remove internal trace ids, request ids, and timings to keep public view clean
     if "metadata" in public_payload and isinstance(public_payload["metadata"], dict):
@@ -321,9 +269,6 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
         public_payload["metadata"] = clean_meta
         
     public_payload["message"] = (payload.get("message") or payload.get("introMessage") or "").strip()
-    query_type = str(public_payload.get("queryType") or payload.get("queryType") or "").lower()
-    if query_type not in {"conversation", "conversational", "unclear", "greeting"}:
-        public_payload._hidden_keys.update({"widget", "records"})
     if "widget" not in public_payload:
         widgets = payload.get("widgets") or []
         if isinstance(widgets, list) and widgets:
@@ -351,8 +296,6 @@ def stream_response_chunks(payload: Dict[str, Any]) -> Generator[Dict[str, Any],
     keys = (
         "intro",
         "introMessage",
-        "widget",
-        "records",
         "formattedData",
         "answer",
         "analysis",

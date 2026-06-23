@@ -29,8 +29,6 @@ _CONVERSATIONAL_PHRASES = (
 
 _ADMIN_SIGNAL_WORDS = {
     "performance",
-    "performer",
-    "performers",
     "leave",
     "attendance",
     "medical",
@@ -76,18 +74,6 @@ _ADMIN_SIGNAL_WORDS = {
     "candidate",
     "candidates",
     "results",
-    "top",
-    "bottom",
-    "highest",
-    "lowest",
-    "best",
-    "worst",
-    "firing",
-    "drill",
-    "ppt",
-    "bpet",
-    "bept",
-    "grading",
     "metric",
     "section",
     "platoon",
@@ -105,10 +91,7 @@ def normalize_text(text: str) -> str:
 
 
 def _contains_conversational_phrase(text: str) -> bool:
-    for phrase in _CONVERSATIONAL_PHRASES:
-        if re.search(r"\b" + re.escape(phrase) + r"\b", text):
-            return True
-    return False
+    return any(phrase in text for phrase in _CONVERSATIONAL_PHRASES)
 
 
 def _contains_admin_signal(text: str) -> bool:
@@ -143,7 +126,6 @@ def build_conversational_response(
         "sessionId": session_id or "admin-default",
         "message": intro,
         "queryType": query_type,
-        "introMessage": intro,
         "answer": {},
         "result": {"processedData": None},
         "widget": None,
@@ -158,21 +140,6 @@ def build_conversational_response(
         "metadata": {
             "sessionId": session_id or "admin-default",
             "metrics": {"queryType": query_type, "operationCount": 0, "confidence": 1.0},
-            "timings": {
-                "entityResolutionMs": 0,
-                "planningMs": 0,
-                "plannerDurationMs": 0,
-                "intentDurationMs": 0,
-                "dotnetDurationMs": 0,
-                "combineDurationMs": 0,
-                "widgetMs": 0,
-                "responseAssemblyMs": 0,
-                "analysisDurationMs": 0,
-                "predictionDurationMs": 0,
-                "conclusionDurationMs": 0,
-                "totalDurationMs": 0,
-                "executionTimeMs": 0,
-            },
         },
         "overallConfidence": 1.0,
         "partialFailure": False,
