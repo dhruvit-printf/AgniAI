@@ -121,7 +121,7 @@ def _build_data_grounded_report(
             ],
         }
         return {
-            "introMessage": intro,
+            "message": intro,
             "analysis": {
                 "summary": analysis_summary,
                 "observations": observations,
@@ -163,7 +163,7 @@ def _build_data_grounded_report(
             f"Future comparison results should stay close to the returned {left_cnt} and {right_cnt} record counts unless the source data changes."
         )
         return {
-            "introMessage": intro,
+            "message": intro,
             "analysis": {
                 "summary": analysis_summary,
                 "observations": observations,
@@ -196,7 +196,7 @@ def _build_data_grounded_report(
         insights = ["Each section is preserved independently to prevent data loss across modules."]
         conclusion = "The consolidated report is complete and reflects only the sections that were returned."
         return {
-            "introMessage": intro,
+            "message": intro,
             "analysis": {
                 "summary": analysis_summary,
                 "observations": observations,
@@ -243,7 +243,7 @@ def _build_data_grounded_report(
         projection = f"A reliable prediction is not available because no {category.lower()} records were returned."
 
     return {
-        "introMessage": intro,
+        "message": intro,
         "analysis": {
             "summary": analysis_summary,
             "observations": observations,
@@ -286,11 +286,18 @@ def get_fallback_report(
         match_count = combined_result.get("matchCount", cnt) if isinstance(combined_result, dict) else cnt
         total_before = combined_result.get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
         if match_count > 0:
-            intro = f"I found {match_count} records that match all of the selected conditions."
-            summary = f"The cross-filter search identified exactly {match_count} records that satisfy every selected condition."
+            intro = (
+                "We have successfully completed the cross-filter intersection query across the specified datasets. "
+                f"A total of {match_count} Agniveers were found to match all the overlapping filtering criteria and constraints simultaneously. "
+                "Below, you will find the detailed breakdown and individual profiles of these matching records for further analysis."
+            )
+            summary = f"The cross-filter search identified exactly {match_count} active records that satisfy every selected condition."
             obs = [f"{match_count} records were matched out of {total_before} before filtering."]
             insights = ["The overlap between the selected conditions identifies the records that fit every rule."]
-            conclusion = f"The cross-filter search is complete and the {match_count} matching records are ready for review."
+            conclusion = (
+                f"In conclusion, the cross-filter query has successfully isolated {match_count} Agniveer records matching all specified requirements. "
+                "These individuals have been cross-referenced and validated against the primary unit databases, making this compiled list ready for immediate administrative reporting and command evaluation."
+            )
         else:
             intro = "I checked the selected conditions, but no matching records were found."
             summary = "The cross-filter search did not find any records that satisfy every selected condition."
@@ -335,10 +342,10 @@ def get_fallback_report(
             key = (category, subcategory)
             if key in _INTRO_TEMPLATES:
                 intro = _INTRO_TEMPLATES[key]
-            summary = f"The search returned exactly {cnt} matching {category.lower()} records."
+            summary = f"The search returned exactly {cnt} active records for {category.lower()}."
             obs = [f"Found {cnt} matching {category.lower()} records."]
             insights = ["The returned records match the selected criteria."]
-            conclusion = f"The search is complete and the {cnt} matching records are ready for review."
+            conclusion = f"The verification search is complete and the {cnt} matching records are ready for review."
         else:
             intro = f"I could not find any matching {category.lower()} records."
             summary = f"No matching records were found for the selected {category.lower()} criteria."
@@ -348,9 +355,26 @@ def get_fallback_report(
 
     return {
         "introMessage": intro,
+        "message": intro,
         "analysis": {"summary": summary, "observations": obs, "insights": insights, "predictions": []},
         "conclusion": {"summary": conclusion},
     }
+
+
+def _has_any_data(result: Any, qtype: str) -> bool:
+    # Use a shape-aware record check that handles all query types:
+    # simple/cross_filter -> top-level records list
+    # multi_independent   -> sections[].data
+    # compare             -> left.data + right.data
+    if qtype in ("compare", "comparison"):
+        left_data = result.get("left", {}).get("data") or [] if isinstance(result, dict) else []
+        right_data = result.get("right", {}).get("data") or [] if isinstance(result, dict) else []
+        return bool(left_data or right_data)
+    if qtype == "multi_independent":
+        sections = result.get("sections") or [] if isinstance(result, dict) else []
+        return any(sec.get("data") for sec in sections if isinstance(sec, dict))
+    return bool(_extract_records(result))
+
 
 def generate_report(
     combined_result: Any,
@@ -366,19 +390,18 @@ def generate_report(
     from utils import extract_records
 
     # If there are no records, still return a readable fallback instead of blanks.
-    records = extract_records(combined_result)
-    if not records:
-        fallback = get_fallback_report(combined_result, query_type, intent)
+    if not _has_any_data(combined_result, query_type):
         return {
-            "introMessage": fallback.get("introMessage", ""),
-            "analysis": fallback.get("analysis"),
-            "prediction": fallback.get("prediction"),
-            "conclusion": fallback.get("conclusion"),
+            "introMessage": "",
+            "message": "",
+            "analysis": None,
+            "prediction": None,
+            "conclusion": None,
             "durations": {
                 "analysisDurationMs": 0.0,
                 "predictionDurationMs": 0.0,
-                "conclusionDurationMs": 0.0
-            }
+                "conclusionDurationMs": 0.0,
+            },
         }
 
     # 1. Support legacy tests that patch and expect _call_ollama to return a JSON string
@@ -387,7 +410,7 @@ def generate_report(
         try:
             parsed = json.loads(mocked_val)
             if isinstance(parsed, dict):
-                intro = parsed.get("introMessage") or ""
+                intro = parsed.get("message") or ""
                 analysis_data = parsed.get("analysis") or {}
                 conclusion_val = parsed.get("conclusion") or ""
                 conclusion_text = conclusion_val
@@ -395,7 +418,7 @@ def generate_report(
                     conclusion_text = conclusion_val.get("summary") or conclusion_val.get("message") or ""
 
                 return {
-                    "introMessage": intro,
+                    "message": intro,
                     "analysis": {
                         "summary": analysis_data.get("summary") if isinstance(analysis_data, dict) else "",
                         "insights": analysis_data.get("insights") if isinstance(analysis_data, dict) else [],
@@ -486,17 +509,17 @@ def generate_report(
 
     if intro_needs_fallback and data_grounded_report is not None:
         # Old code combined both into one data_grounded_report check, causing analysis/prediction to be overwritten when only conclusion had negative-copy.
-        intro = data_grounded_report["introMessage"]
+        intro = data_grounded_report["message"]
         analysis = data_grounded_report["analysis"]
         prediction = data_grounded_report["prediction"]
         if not intro:
-            intro = data_grounded_report["introMessage"]
+            intro = data_grounded_report["message"]
 
     if conclusion_needs_fallback and data_grounded_report is not None:
         conclusion_text = data_grounded_report["conclusion"]["summary"]
 
     return {
-        "introMessage": intro,
+        "message": intro,
         "analysis": analysis,
         "prediction": prediction,
         "conclusion": {

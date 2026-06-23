@@ -1471,17 +1471,6 @@ _EQUIPMENT_INTENTS: List[Tuple[str, str, Tuple[str, ...]]] = [
             "trainees holding",
         ),
     ),
-    (
-        "Agniveer Wise Equipment",
-        "AgniveerWiseEquipment",
-        (
-            "agniveerwise",
-            "agniveer wise",
-            "agniveer-wise",
-            "equipment by agniveer",
-            "equipment wise agniveer",
-        ),
-    ),
 ]
 
 

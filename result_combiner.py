@@ -401,10 +401,13 @@ def combine_results(
         )
         return cross_filter_datasets(raw_results, primary_index=0)
     elif qtype_str in ("comparison", "compare"):
-        logger.info(
-            "result_combiner: compare_datasets across %d sides", len(labeled_results)
-        )
-        return compare_datasets(labeled_results)
+         logger.info(
+             "result_combiner: compare_datasets across %d sides", len(labeled_results)
+         )
+         res = compare_datasets(labeled_results)
+         res["queryType"] = "comparison"
+         return res
+         
     elif qtype_str in ("multi_independent", "multi_operation"):
         logger.info(
             "result_combiner: merge_results across %d sections", len(labeled_results)
