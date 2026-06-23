@@ -129,7 +129,45 @@ def flatten_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             flat_records.extend(flatten_single_record(r))
         else:
             flat_records.append(r)
-    return flat_records
+    seen = set()
+    deduped = []
+    for record in flat_records:
+        if not isinstance(record, dict):
+            continue
+        record_id = None
+        for key in ("agniveerNo", "agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+            val = record.get(key)
+            if val is not None:
+                record_id = f"id:{val}"
+                break
+        if record_id is None:
+            record_id = "row:" + json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
+        if record_id in seen:
+            continue
+        seen.add(record_id)
+        deduped.append(record)
+    return deduped
+
+
+def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = set()
+    deduped: List[Dict[str, Any]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        record_id = None
+        for key in ("agniveerNo", "agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+            val = record.get(key)
+            if val is not None:
+                record_id = f"id:{val}"
+                break
+        if record_id is None:
+            record_id = "row:" + json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
+        if record_id in seen:
+            continue
+        seen.add(record_id)
+        deduped.append(record)
+    return deduped
 
 def _extract_records(combined_result: Any) -> List[Dict[str, Any]]:
     if isinstance(combined_result, dict):
@@ -292,6 +330,40 @@ _OPERATION_ALIASES: Dict[str, str] = {
     "AttemptWise":            "AttemptWise",
     "PassPercentage":         "PassPercentage",
     "FailPercentage":         "FailPercentage",
+    # Direct subcategory → map key (for cases where alias = key itself)
+    "Top":                    "Top",
+    "Bottom":                 "Bottom",
+    "Grading":                "Grading",
+    "Average":                "Average",
+    "Summary":                "Summary",
+    "Compare":                "Compare",
+    "Overall":                "Overall",
+    "Most":                   "Most",
+    "Least":                  "Least",
+    "Current":                "Current",
+    "Absconded":              "Absconded",
+    "LeaveType":              "LeaveType",
+    "Active":                 "Active",
+    "Disease":                "Disease",
+    "Monthly":                "Monthly",
+    "Weekly":                 "Weekly",
+    "Daily":                  "Daily",
+    "Present":                "Present",
+    "Pending":                "Pending",
+    "Completed":              "Completed",
+    "NotResponded":           "NotResponded",
+    "Verified":               "Verified",
+    "Rejected":               "Rejected",
+    "Overdue":                "Overdue",
+    "Returned":               "Returned",
+    "Returend":               "Returend",
+    "BySport":                "BySport",
+    "ByClass":                "ByClass",
+    "Latest":                 "Latest",
+    "ByUnit":                 "ByUnit",
+    "Unassigned":             "Unassigned",
+    "TopUnit":                "TopUnit",
+    "Schedule":               "Schedule",
 }
 
 # ---------------------------------------------------------------------------
@@ -457,13 +529,16 @@ def infer_supported_type(
 
     if isinstance(visualization_intent, dict):
         # ── Priority 1: explicit frontend override ───────────────────────────
-        raw_requested = (
-            visualization_intent.get("requested_widget_type")
-            or visualization_intent.get("widget_type")
-        )
-        normalized = _normalize_requested_widget_type(raw_requested)
-        if normalized:
-            return normalized
+        # Only honour this when frontend_override=True, meaning the user
+        # actively chose a different widget type.
+        if visualization_intent.get("frontend_override"):
+            raw_requested = (
+                visualization_intent.get("requested_widget_type")
+                or visualization_intent.get("widget_type")
+            )
+            normalized = _normalize_requested_widget_type(raw_requested)
+            if normalized:
+                return normalized
 
         # ── Priority 2: presentation/chart_type hints (non-override) ────────
         # These are soft hints — they lose to WIDGET_MAP if a map entry exists.
@@ -488,17 +563,25 @@ def infer_supported_type(
             # generic "chart" hint without chart_type — fall through to map
 
     # ── Priority 3: WIDGET_MAP ───────────────────────────────────────────────
-    category  = (intent.get("category")  or "").strip()
-    operation = (
-        intent.get("operation")
-        or intent.get("subcategory")
-        or ""
-    ).strip()
-    default_widget = _default_widget_type_for_intent(category, operation, query_type)
+    # Use subcategory first because `operation` holds query mechanics
+    # ("ranking", "filter") which have no map entries, while subcategory
+    # holds the semantic command name ("TopPerformers", "BMIAnalysis", etc.).
+    category   = (intent.get("category")   or "").strip()
+    subcategory = (intent.get("subcategory") or "").strip()
+    operation   = (intent.get("operation")   or "").strip()
+
+    # Try subcategory first, then fall back to operation
+    default_widget = _default_widget_type_for_intent(category, subcategory, query_type)
+    if not default_widget and operation:
+        default_widget = _default_widget_type_for_intent(category, operation, query_type)
     if default_widget:
         return default_widget
 
     # ── Priority 4 / 5: record count ────────────────────────────────────────
+    rec_count = len(_extract_records(combined_result))
+    if rec_count == 1:
+        return "CARD"
+
     return "TABLE"
 
 
@@ -642,6 +725,7 @@ def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
         }
         
     records = _extract_records(combined_result)
+    records = _dedupe_records(records)
     if not records:
         return {"xKey": "label", "yKey": "value", "rows": []}
         
