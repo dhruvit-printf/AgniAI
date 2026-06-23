@@ -286,18 +286,11 @@ def get_fallback_report(
         match_count = combined_result.get("matchCount", cnt) if isinstance(combined_result, dict) else cnt
         total_before = combined_result.get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
         if match_count > 0:
-            intro = (
-                "We have successfully completed the cross-filter intersection query across the specified datasets. "
-                f"A total of {match_count} Agniveers were found to match all the overlapping filtering criteria and constraints simultaneously. "
-                "Below, you will find the detailed breakdown and individual profiles of these matching records for further analysis."
-            )
-            summary = f"The cross-filter search identified exactly {match_count} active records that satisfy every selected condition."
+            intro = f"I found {match_count} records that match all of the selected conditions."
+            summary = f"The cross-filter search identified exactly {match_count} records that satisfy every selected condition."
             obs = [f"{match_count} records were matched out of {total_before} before filtering."]
             insights = ["The overlap between the selected conditions identifies the records that fit every rule."]
-            conclusion = (
-                f"In conclusion, the cross-filter query has successfully isolated {match_count} Agniveer records matching all specified requirements. "
-                "These individuals have been cross-referenced and validated against the primary unit databases, making this compiled list ready for immediate administrative reporting and command evaluation."
-            )
+            conclusion = f"The cross-filter search is complete and the {match_count} matching records are ready for review."
         else:
             intro = "I checked the selected conditions, but no matching records were found."
             summary = "The cross-filter search did not find any records that satisfy every selected condition."
@@ -342,10 +335,10 @@ def get_fallback_report(
             key = (category, subcategory)
             if key in _INTRO_TEMPLATES:
                 intro = _INTRO_TEMPLATES[key]
-            summary = f"The search returned exactly {cnt} active records for {category.lower()}."
+            summary = f"The search returned exactly {cnt} matching {category.lower()} records."
             obs = [f"Found {cnt} matching {category.lower()} records."]
             insights = ["The returned records match the selected criteria."]
-            conclusion = f"The verification search is complete and the {cnt} matching records are ready for review."
+            conclusion = f"The search is complete and the {cnt} matching records are ready for review."
         else:
             intro = f"I could not find any matching {category.lower()} records."
             summary = f"No matching records were found for the selected {category.lower()} criteria."
@@ -354,27 +347,10 @@ def get_fallback_report(
             conclusion = f"No matching {category.lower()} records were found. Try broadening the criteria and search again."
 
     return {
-        "introMessage": intro,
         "message": intro,
         "analysis": {"summary": summary, "observations": obs, "insights": insights, "predictions": []},
         "conclusion": {"summary": conclusion},
     }
-
-
-def _has_any_data(result: Any, qtype: str) -> bool:
-    # Use a shape-aware record check that handles all query types:
-    # simple/cross_filter -> top-level records list
-    # multi_independent   -> sections[].data
-    # compare             -> left.data + right.data
-    if qtype in ("compare", "comparison"):
-        left_data = result.get("left", {}).get("data") or [] if isinstance(result, dict) else []
-        right_data = result.get("right", {}).get("data") or [] if isinstance(result, dict) else []
-        return bool(left_data or right_data)
-    if qtype == "multi_independent":
-        sections = result.get("sections") or [] if isinstance(result, dict) else []
-        return any(sec.get("data") for sec in sections if isinstance(sec, dict))
-    return bool(_extract_records(result))
-
 
 def generate_report(
     combined_result: Any,
@@ -390,19 +366,34 @@ def generate_report(
     from utils import extract_records
 
     # If there are no records, still return a readable fallback instead of blanks.
-    if not _has_any_data(combined_result, query_type):
-        return {
-            "introMessage": "",
-            "message": "",
-            "analysis": None,
-            "prediction": None,
-            "conclusion": None,
-            "durations": {
-                "analysisDurationMs": 0.0,
-                "predictionDurationMs": 0.0,
-                "conclusionDurationMs": 0.0,
-            },
-        }
+     # Use a shape-aware record check that handles all query types:
+     # simple/cross_filter → top-level records list
+     # multi_independent  → sections[].data
+     # compare            → left.data + right.data
+     def _has_any_data(result: Any, qtype: str) -> bool:
+         if qtype in ("compare", "comparison"):
+             left_data = result.get("left", {}).get("data") or [] if isinstance(result, dict) else []
+             right_data = result.get("right", {}).get("data") or [] if isinstance(result, dict) else []
+             return bool(left_data or right_data)
+         if qtype == "multi_independent":
+             sections = result.get("sections") or [] if isinstance(result, dict) else []
+             return any(sec.get("data") for sec in sections if isinstance(sec, dict))
+         # simple / cross_filter / trend / distribution
+         return bool(extract_records(result))
+
+     if not _has_any_data(combined_result, query_type):
+         fallback = get_fallback_report(combined_result, query_type, intent)
+         return {
+             "message": fallback.get("message"),
+             "analysis": fallback.get("analysis"),
+             "prediction": fallback.get("prediction"),
+             "conclusion": fallback.get("conclusion"),
+             "durations": {
+                 "analysisDurationMs": 0.0,
+                 "predictionDurationMs": 0.0,
+                 "conclusionDurationMs": 0.0
+             }
+         }
 
     # 1. Support legacy tests that patch and expect _call_ollama to return a JSON string
     mocked_val = _call_ollama("dummy prompt")
