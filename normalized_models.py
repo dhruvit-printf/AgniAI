@@ -126,10 +126,20 @@ def _infer_simple_section_label(combined_result: Any, intent: Dict[str, Any]) ->
     Prefer a real domain label over the generic "Result" bucket for simple
     record queries.
     """
+    category = (intent.get("category") or "").strip()
+    subcategory = (intent.get("subcategory") or "").strip()
+
     for key in ("section", "sub_section"):
         value = intent.get(key)
         if value:
             return str(value).strip()
+
+    filters = intent.get("filters") or {}
+    if isinstance(filters, dict):
+        for key in ("section", "sub_section", "platoon", "platoonName", "unit", "unitName", "class", "sport"):
+            value = filters.get(key)
+            if value:
+                return str(value).strip()
 
     records = extract_records(combined_result)
     if records:
@@ -138,7 +148,6 @@ def _infer_simple_section_label(combined_result: Any, intent: Dict[str, Any]) ->
             "sectionFilter",
             "sectionName",
             "section",
-            "platoonName",
             "unitName",
             "class",
             "sport",
@@ -147,6 +156,20 @@ def _infer_simple_section_label(combined_result: Any, intent: Dict[str, Any]) ->
             value = sample.get(key)
             if value:
                 return str(value).strip()
+
+        if category == "Performance" and subcategory in {"TopPerformers", "LowestPerformers"}:
+            # Top/bottom performer queries often return an overall ranking across
+            # the whole dataset. Do not infer a platoon label from the first row,
+            # because that can make an overall ranking look like it belongs to one
+            # platoon only.
+            platoons = {
+                str(record.get("platoonName")).strip()
+                for record in records
+                if isinstance(record, dict) and record.get("platoonName")
+            }
+            if len(platoons) == 1:
+                return next(iter(platoons))
+            return "Overall"
 
     return "Result"
 

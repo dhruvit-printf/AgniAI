@@ -3110,6 +3110,37 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     if semantic.get("confidence", 0.0) >= 0.5 and result.get("confidence") == "low":
         result["confidence"] = "medium"
 
+    # Attendance queries that mention a month-year but not a weekly/daily
+    # timeframe should route to the monthly attendance intent.
+    if result.get("category") == "Attendance":
+        has_month_year = bool(
+            re.search(
+                r"\b(?:January|February|March|April|May|June|July|August|September|"
+                r"October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b",
+                raw_query,
+                re.IGNORECASE,
+            )
+        )
+        mentions_explicit_week = any(
+            token in q for token in ("weekly", "week wise", "this week", "per week", "by week")
+        )
+        mentions_explicit_day = any(
+            token in q for token in ("daily", "day wise", "by day", "today", "on this day")
+        )
+        mentions_explicit_year = any(
+            token in q for token in ("yearly", "annual", "this year", "per year", "by year")
+        )
+        mentions_present_today = any(
+            token in q for token in ("present today", "on campus today", "who is present", "how many present")
+        )
+
+        if has_month_year and not any(
+            (mentions_explicit_week, mentions_explicit_day, mentions_explicit_year, mentions_present_today)
+        ):
+            result["subcategory"] = "MonthlyAttendance"
+            result["type"] = _extract_intent_type(q, module, result["subcategory"])
+            result["confidence"] = "high"
+
     # Old code used stale subcategory names 'EquipmentStats' and 'ReturnedEquipment' instead of 'EquipmentSummary' and 'PoorConditionEquipment'.
     # We remove specific subcategories like OverdueEquipment and PoorConditionEquipment from override check so they are not lost when item_cat is detected.
     if item_cat and result.get("subcategory") in (

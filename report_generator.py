@@ -352,6 +352,19 @@ def get_fallback_report(
         "conclusion": {"summary": conclusion},
     }
 
+
+def _has_any_data(result: Any, qtype: str) -> bool:
+    # Use a shape-aware record check that handles all query types.
+    if qtype in ("compare", "comparison"):
+        left_data = result.get("left", {}).get("data") or [] if isinstance(result, dict) else []
+        right_data = result.get("right", {}).get("data") or [] if isinstance(result, dict) else []
+        return bool(left_data or right_data)
+    if qtype == "multi_independent":
+        sections = result.get("sections") or [] if isinstance(result, dict) else []
+        return any(sec.get("data") for sec in sections if isinstance(sec, dict))
+    return bool(extract_records(result))
+
+
 def generate_report(
     combined_result: Any,
     query_type: str,
@@ -370,30 +383,19 @@ def generate_report(
      # simple/cross_filter → top-level records list
      # multi_independent  → sections[].data
      # compare            → left.data + right.data
-     def _has_any_data(result: Any, qtype: str) -> bool:
-         if qtype in ("compare", "comparison"):
-             left_data = result.get("left", {}).get("data") or [] if isinstance(result, dict) else []
-             right_data = result.get("right", {}).get("data") or [] if isinstance(result, dict) else []
-             return bool(left_data or right_data)
-         if qtype == "multi_independent":
-             sections = result.get("sections") or [] if isinstance(result, dict) else []
-             return any(sec.get("data") for sec in sections if isinstance(sec, dict))
-         # simple / cross_filter / trend / distribution
-         return bool(extract_records(result))
-
-     if not _has_any_data(combined_result, query_type):
-         fallback = get_fallback_report(combined_result, query_type, intent)
-         return {
-             "message": fallback.get("message"),
-             "analysis": fallback.get("analysis"),
-             "prediction": fallback.get("prediction"),
-             "conclusion": fallback.get("conclusion"),
-             "durations": {
-                 "analysisDurationMs": 0.0,
-                 "predictionDurationMs": 0.0,
-                 "conclusionDurationMs": 0.0
-             }
-         }
+    if not _has_any_data(combined_result, query_type):
+        fallback = get_fallback_report(combined_result, query_type, intent)
+        return {
+            "message": fallback.get("message"),
+            "analysis": fallback.get("analysis"),
+            "prediction": fallback.get("prediction"),
+            "conclusion": fallback.get("conclusion"),
+            "durations": {
+                "analysisDurationMs": 0.0,
+                "predictionDurationMs": 0.0,
+                "conclusionDurationMs": 0.0,
+            },
+        }
 
     # 1. Support legacy tests that patch and expect _call_ollama to return a JSON string
     mocked_val = _call_ollama("dummy prompt")

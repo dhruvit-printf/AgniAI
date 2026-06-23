@@ -1673,7 +1673,7 @@ def execute_admin_query(
             )
         except Exception as widget_exc:
             import traceback as _tb
-           widget_duration = time.time() - widget_start if 'widget_start' in locals() else 0.0
+            widget_duration = time.time() - widget_start if 'widget_start' in locals() else 0.0
             logger.error(
                 json.dumps({
                     "stage": "widget",

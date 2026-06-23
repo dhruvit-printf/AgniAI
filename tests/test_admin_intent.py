@@ -184,6 +184,14 @@ def test_monthly_attendance():
     assert r["type"] == "Bar Chart"
 
 
+def test_month_year_attendance_defaults_to_monthly():
+    r = classify_admin_intent("Give June 2026 attendance of Agniveer A0701558N.")
+    assert r["category"] == "Attendance"
+    assert r["subcategory"] == "MonthlyAttendance"
+    assert r["type"] == "Bar Chart"
+    assert r["date"] == "June 2026"
+
+
 def test_weekly_attendance():
     r = classify_admin_intent("Show weekly attendance stats")
     assert r["category"] == "Attendance"

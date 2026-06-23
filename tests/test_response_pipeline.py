@@ -166,6 +166,35 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertIn("A (100)", resp["message"])
         self.assertIn("B (99)", resp["message"])
 
+    def test_build_response_uses_overall_label_for_top_performers(self):
+        intent = {
+            "category": "Performance",
+            "subcategory": "TopPerformers",
+            "confidence": "high",
+        }
+        combined = [
+            {"fullName": "A", "bestTotal": 100, "platoonName": "PL-05"},
+            {"fullName": "B", "bestTotal": 99, "platoonName": "PL-18"},
+        ]
+
+        resp = build_response(
+            query_type="simple",
+            intro_message="Top performers retrieved.",
+            combined_result=combined,
+            analysis={"summary": "Summary", "observations": ["A", "B"], "insights": []},
+            conclusion={"summary": "Done"},
+            intent=intent,
+            raw_results=[],
+            confidence=0.95,
+            operation_count=1,
+            formatted_data="",
+        )
+
+        self.assertEqual(resp["answer"]["sections"][0]["label"], "Overall")
+        self.assertIn("Overall top records", resp["message"])
+        self.assertIn("A (100)", resp["message"])
+        self.assertIn("B (99)", resp["message"])
+
     def test_public_response_view_matches_external_contract(self):
         intent = {
             "category": "Performance",
