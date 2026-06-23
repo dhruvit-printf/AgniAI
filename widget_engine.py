@@ -129,45 +129,7 @@ def flatten_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             flat_records.extend(flatten_single_record(r))
         else:
             flat_records.append(r)
-    seen = set()
-    deduped = []
-    for record in flat_records:
-        if not isinstance(record, dict):
-            continue
-        record_id = None
-        for key in ("agniveerNo", "agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-            val = record.get(key)
-            if val is not None:
-                record_id = f"id:{val}"
-                break
-        if record_id is None:
-            record_id = "row:" + json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
-        if record_id in seen:
-            continue
-        seen.add(record_id)
-        deduped.append(record)
-    return deduped
-
-
-def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    seen = set()
-    deduped: List[Dict[str, Any]] = []
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        record_id = None
-        for key in ("agniveerNo", "agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-            val = record.get(key)
-            if val is not None:
-                record_id = f"id:{val}"
-                break
-        if record_id is None:
-            record_id = "row:" + json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
-        if record_id in seen:
-            continue
-        seen.add(record_id)
-        deduped.append(record)
-    return deduped
+    return flat_records
 
 def _extract_records(combined_result: Any) -> List[Dict[str, Any]]:
     if isinstance(combined_result, dict):
@@ -687,7 +649,6 @@ def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
         }
         
     records = _extract_records(combined_result)
-    records = _dedupe_records(records)
     if not records:
         return {"xKey": "label", "yKey": "value", "rows": []}
         
