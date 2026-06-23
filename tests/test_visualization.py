@@ -30,7 +30,7 @@ class TestWidgetEngine(unittest.TestCase):
             "comparison": {"averageScore": {"higher": "PPT", "lower": "BPET"}},
         }
         res = build_formatted_data(answer, query_type="compare", intent={})
-        self.assertEqual(res["type"], "CHART_BAR")
+        self.assertEqual(res["type"], "AREA_CHART")
 
     def test_distribution_widgets_yield_pie_chart(self):
         answer = {

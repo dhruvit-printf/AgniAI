@@ -208,6 +208,51 @@ _INTENT_FIELD_ALIASES: Dict[str, Tuple[str, ...]] = {
     "top_n": ("top_n", "topN"),
 }
 
+_VISUALIZATION_FIELD_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "presentation": ("presentation", "widget", "widgetType", "widget_type"),
+    "chart_type": ("chart_type", "chartType"),
+    "comparison": ("comparison",),
+    "trend": ("trend",),
+    "group_by": ("group_by", "groupBy"),
+    "metric": ("metric",),
+    "widget_hint": ("widget_hint", "widgetHint"),
+    "data_type": ("data_type", "dataType", "type"),
+}
+
+
+def _normalize_requested_widget_type(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+
+    aliases = {
+        "table": "TABLE",
+        "tabular": "TABLE",
+        "grid": "TABLE",
+        "card": "CARD",
+        "cards": "CARD",
+        "bar": "CHART_BAR",
+        "bar chart": "CHART_BAR",
+        "trend": "CHART_LINE",
+        "trend chart": "CHART_LINE",
+        "line": "CHART_LINE",
+        "line chart": "CHART_LINE",
+        "area": "AREA_CHART",
+        "area chart": "AREA_CHART",
+        "pie": "CHART_PIE",
+        "pie chart": "CHART_PIE",
+        "donut": "DONUT_CHART",
+        "donut chart": "DONUT_CHART",
+        "radial": "RADIAL_CHART",
+        "radial chart": "RADIAL_CHART",
+    }
+    normalized = aliases.get(text)
+    if normalized:
+        return normalized
+
+    normalized = aliases.get(text.replace("_", " ").replace("-", " "))
+    return normalized or ""
+
 
 def _extract_frontend_intent(body: Dict[str, Any]) -> Dict[str, Any]:
     intent: Dict[str, Any] = {}
@@ -233,6 +278,71 @@ def _extract_frontend_intent(body: Dict[str, Any]) -> Dict[str, Any]:
             filters[field] = value
     intent["filters"] = filters
     return intent
+
+
+def _extract_frontend_visualization_intent(body: Dict[str, Any]) -> Dict[str, Any]:
+    visual: Dict[str, Any] = {}
+    body_intent = body.get("intent")
+    if isinstance(body_intent, dict):
+        for key, aliases in _VISUALIZATION_FIELD_ALIASES.items():
+            for alias in aliases:
+                value = body_intent.get(alias)
+                if value not in (None, "", [], {}):
+                    visual[key] = value
+                    break
+
+    for canonical, aliases in _VISUALIZATION_FIELD_ALIASES.items():
+        if canonical in visual and visual[canonical] not in (None, "", [], {}):
+            continue
+        for alias in aliases:
+            value = body.get(alias)
+            if value not in (None, "", [], {}):
+                visual[canonical] = value
+                break
+
+    widgets_value = body.get("widgets")
+    if isinstance(widgets_value, list) and widgets_value:
+        visual.setdefault("widgets", widgets_value)
+
+    widget_hint = str(visual.get("widget_hint") or "").strip().lower()
+    presentation = str(visual.get("presentation") or "").strip().lower()
+    if widget_hint and not presentation:
+        if widget_hint in {"card", "cards"}:
+            visual["presentation"] = "cards"
+        elif widget_hint in {"table", "grid"}:
+            visual["presentation"] = "table"
+        elif widget_hint in {"chart", "bar", "line", "pie", "area", "donut", "radial"}:
+            visual["presentation"] = "chart"
+            if widget_hint == "bar":
+                visual["chart_type"] = "bar"
+            elif widget_hint == "line":
+                visual["chart_type"] = "line"
+            elif widget_hint == "pie":
+                visual["chart_type"] = "pie"
+            elif widget_hint == "area":
+                visual["chart_type"] = "area"
+            elif widget_hint == "donut":
+                visual["chart_type"] = "pie"
+            elif widget_hint == "radial":
+                visual["chart_type"] = "pie"
+    if presentation in {"card", "cards"}:
+        visual["presentation"] = "cards"
+    elif presentation in {"table", "grid"}:
+        visual["presentation"] = "table"
+    elif presentation in {"chart", "graph", "plot"}:
+        visual["presentation"] = "chart"
+
+    requested = (
+        _normalize_requested_widget_type(visual.get("data_type"))
+        or _normalize_requested_widget_type(visual.get("widget_hint"))
+        or _normalize_requested_widget_type(visual.get("presentation"))
+        or _normalize_requested_widget_type(visual.get("chart_type"))
+        or _normalize_requested_widget_type(widgets_value[0] if isinstance(widgets_value, list) and widgets_value else "")
+    )
+    if requested:
+        visual["requested_widget_type"] = requested
+
+    return visual
 
 
 def _merge_intents(*sources: Dict[str, Any]) -> Dict[str, Any]:
@@ -656,6 +766,7 @@ def execute_admin_query(
     try:
         message = clean_query(user_query or "").strip()
         frontend_intent = _extract_frontend_intent(body)
+        frontend_visualization_intent = _extract_frontend_visualization_intent(body)
         if session_id is None:
             session_id = _get_session_id(body)
         id_filters = _get_id_filters(body)
@@ -1535,6 +1646,11 @@ def execute_admin_query(
             visualization_intent = build_visualization_intent(
                 message, primary_intent, combined_result
             )
+            if frontend_visualization_intent:
+                visualization_intent = {
+                    **visualization_intent,
+                    **frontend_visualization_intent,
+                }
             formatted_data_payload = build_formatted_data(
                 combined_result=combined_result,
                 query_type=qtype_str,
@@ -1613,6 +1729,7 @@ def execute_admin_query(
                     suggested_questions=suggested,
                     prediction=report.get("prediction"),
                     dotnet_payload=response_dotnet_payload,
+                    answer_dict=answer,
                 )
                 response_assembly_duration = time.time() - response_assembly_start
                 logger.info(
@@ -1651,6 +1768,7 @@ def execute_admin_query(
                     "prediction": report.get("prediction"),
                     "conclusion": report.get("conclusion") or {"summary": "", "bullets": []},
                 },
+                "answer": answer,
                 "suggestedQuestions": suggested or [],
                 "dotnetPayload": response_dotnet_payload if "response_dotnet_payload" in locals() else {},
                 "metadata": {

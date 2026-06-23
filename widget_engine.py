@@ -194,17 +194,50 @@ from schemas import (
 
 WIDGET_MAP: Dict[Tuple[str, str], str] = {
     ("Performance", "Top"): "TABLE",
-    ("Performance", "Compare"): "CHART_BAR",
+    ("Performance", "Bottom"): "TABLE",
+    ("Performance", "Improvement"): "CHART_LINE",
+    ("Performance", "Drop"): "CHART_LINE",
+    ("Performance", "Grading"): "TABLE",
+    ("Performance", "GradingSummary"): "CHART_BAR",
+    ("Performance", "Average"): "CHART_PIE",
+    ("Performance", "AttemptWise"): "TABLE",
+    ("Performance", "BestAttempt"): "TABLE",
+    ("Performance", "Compare"): "AREA_CHART",
+    ("Performance", "Summary"): "TABLE",
+    ("Performance", "PassPercentage"): "CHART_PIE",
+    ("Performance", "FailPercentage"): "CHART_PIE",
+    ("Performance", "Overall"): "TABLE",
+    ("Leave", "Most"): "TABLE",
+    ("Leave", "Least"): "TABLE",
+    ("Leave", "Current"): "TABLE",
+    ("Leave", "Absconded"): "TABLE",
+    ("Leave", "LeaveType"): "TABLE",
+    ("Medical", "Active"): "TABLE",
+    ("Medical", "BMI"): "DONUT_CHART",
+    ("Medical", "Disease"): "TABLE",
     ("Attendance", "Monthly"): "CHART_BAR",
     ("Attendance", "Weekly"): "CHART_BAR",
-    ("Attendance", "Yearly"): "CHART_BAR",
-    ("Attendance", "Trend"): "CHART_LINE",
-    ("Medical", "BMI"): "CHART_PIE",
+    ("Attendance", "Daily"): "TABLE",
     ("Attendance", "Present"): "CHART_PIE",
-    ("Strength", "Strength"): "CHART_PIE",
-    ("Strength", "Overall"): "CHART_PIE",
-    ("Overall", "Overall"): "TABLE",
+    ("Strength", "Strength"): "RADIAL_CHART",
+    ("Verification", "Pending"): "TABLE",
+    ("Verification", "Completed"): "TABLE",
+    ("Verification", "NotResponded"): "TABLE",
+    ("Verification", "Verified"): "TABLE",
+    ("Verification", "Rejected"): "TABLE",
     ("Equipment", "Stats"): "CARD",
+    ("Equipment", "Overdue"): "TABLE",
+    ("Equipment", "Returend"): "TABLE",
+    ("Skills", "BySport"): "TABLE",
+    ("Skills", "ByClass"): "TABLE",
+    ("Roster", "BySport"): "TABLE",
+    ("Roster", "ByClass"): "TABLE",
+    ("Distribution", "Latest"): "TABLE",
+    ("Distribution", "ByUnit"): "TABLE",
+    ("Distribution", "Unassigned"): "TABLE",
+    ("Distribution", "TopUnit"): "CARD",
+    ("Overall", "Overall"): "TABLE",
+    ("schedule", "Date"): "TABLE",
 }
 
 _OPERATION_ALIASES: Dict[str, str] = {
@@ -255,6 +288,64 @@ def _map_to_supported_type(inferred: str) -> str:
     }
     return mapped.get(inferred, "TABLE")
 
+
+def _normalize_requested_widget_type(value: Any) -> Optional[str]:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+
+    aliases = {
+        "table": "TABLE",
+        "tabular": "TABLE",
+        "grid": "TABLE",
+        "card": "CARD",
+        "cards": "CARD",
+        "bar": "CHART_BAR",
+        "bar chart": "CHART_BAR",
+        "chart bar": "CHART_BAR",
+        "line": "CHART_LINE",
+        "trend": "CHART_LINE",
+        "trend chart": "CHART_LINE",
+        "line chart": "CHART_LINE",
+        "area": "AREA_CHART",
+        "area chart": "AREA_CHART",
+        "pie": "CHART_PIE",
+        "pie chart": "CHART_PIE",
+        "donut": "DONUT_CHART",
+        "donut chart": "DONUT_CHART",
+        "radial": "RADIAL_CHART",
+        "radial chart": "RADIAL_CHART",
+    }
+    if text in aliases:
+        return aliases[text]
+
+    normalized = text.replace("_", " ").replace("-", " ")
+    return aliases.get(normalized) or aliases.get(normalized.strip())
+
+
+def _default_widget_type_for_intent(
+    category: str,
+    operation: str,
+    query_type: str,
+) -> Optional[str]:
+    category_key = (category or "").strip()
+    operation_key = _OPERATION_ALIASES.get((operation or "").strip(), (operation or "").strip())
+    if category_key and operation_key:
+        widget_type = WIDGET_MAP.get((category_key, operation_key))
+        if widget_type:
+            return widget_type
+
+    qtype = (query_type or "").strip().lower()
+    if qtype == "compare" or qtype == "comparison":
+        return "AREA_CHART"
+    if qtype == "trend":
+        return "CHART_LINE"
+    if qtype == "distribution":
+        return "CHART_PIE"
+    if qtype == "cross_filter":
+        return "TABLE"
+    return None
+
 def infer_supported_type(
     combined_result: Any,
     query_type: str,
@@ -264,6 +355,12 @@ def infer_supported_type(
     qtype = (query_type or "").strip().lower()
 
     if isinstance(visualization_intent, dict):
+        requested_widget_type = _normalize_requested_widget_type(
+            visualization_intent.get("requested_widget_type")
+            or visualization_intent.get("widget_type")
+        )
+        if requested_widget_type:
+            return requested_widget_type
         presentation = (visualization_intent.get("presentation") or "").strip().lower()
         chart_type = (visualization_intent.get("chart_type") or "").strip().lower()
         if presentation == "cards":
@@ -275,32 +372,20 @@ def infer_supported_type(
                 return "CHART_LINE"
             if chart_type == "pie":
                 return "CHART_PIE"
+            if chart_type == "area":
+                return "AREA_CHART"
             return "CHART_BAR"
 
-    if qtype == "compare" or qtype == "comparison":
-        return "CHART_BAR"
-    elif qtype == "trend":
-        return "CHART_LINE"
-    elif qtype == "distribution":
-        return "CHART_PIE"
-    elif qtype == "cross_filter":
-        return "TABLE"
-        
     category = (intent.get("category") or "").strip()
     operation = (intent.get("operation") or intent.get("subcategory") or "").strip()
-    operation = _OPERATION_ALIASES.get(operation, operation)
-    
-    business_widget = None
-    if category and operation:
-        business_widget = WIDGET_MAP.get((category, operation))
-        
-    if business_widget:
-        return _map_to_supported_type(business_widget)
-        
+    default_widget = _default_widget_type_for_intent(category, operation, query_type)
+    if default_widget:
+        return default_widget
+
     rec_count = len(_extract_records(combined_result))
     if rec_count == 1:
         return "CARD"
-    
+
     return "TABLE"
 
 def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]:
@@ -645,7 +730,7 @@ def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
             for col in cols:
                 if col not in row:
                     row[col] = None
-    elif inferred_type == "CHART_BAR":
+    elif inferred_type in {"CHART_BAR", "BAR_CHART"}:
         x = data.get("xKey")
         y = data.get("yKey")
         rows = data.get("rows", [])
@@ -654,7 +739,7 @@ def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
                 rows[0][x] = "Category"
             if y not in rows[0]:
                 rows[0][y] = 0
-    elif inferred_type == "CHART_LINE":
+    elif inferred_type in {"CHART_LINE", "LINE_CHART", "AREA_CHART"}:
         x = data.get("xKey")
         series = data.get("series", [])
         rows = data.get("rows", [])
@@ -664,7 +749,7 @@ def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
             for s in series:
                 if s["key"] not in row:
                     row[s["key"]] = 0
-    elif inferred_type == "CHART_PIE":
+    elif inferred_type in {"CHART_PIE", "PIE_CHART", "DONUT_CHART", "RADIAL_CHART"}:
         rows = data.get("rows", [])
         for row in rows:
             if "label" not in row:
@@ -696,11 +781,11 @@ def build_formatted_data(
     
     if inferred_type == "CARD":
         data_payload = build_card_data(records, title)
-    elif inferred_type == "CHART_BAR":
+    elif inferred_type in {"CHART_BAR", "BAR_CHART"}:
         data_payload = build_bar_chart_data(combined_result)
-    elif inferred_type == "CHART_LINE":
+    elif inferred_type in {"CHART_LINE", "LINE_CHART", "AREA_CHART"}:
         data_payload = build_line_chart_data(combined_result)
-    elif inferred_type == "CHART_PIE":
+    elif inferred_type in {"CHART_PIE", "PIE_CHART", "DONUT_CHART", "RADIAL_CHART"}:
         data_payload = build_pie_chart_data(combined_result)
     else:
         data_payload = build_table_data(records)

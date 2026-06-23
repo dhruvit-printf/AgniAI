@@ -16,7 +16,7 @@ class TestVisualizationQueryAware(unittest.TestCase):
             "comparison": {"averageScore": {"higher": "A", "lower": "B"}},
         }
         res = build_formatted_data(combined, query_type="compare", intent={})
-        self.assertEqual(res["type"], "CHART_BAR")
+        self.assertEqual(res["type"], "AREA_CHART")
 
     def test_cross_filter_guarantee(self):
         combined = {
@@ -33,6 +33,18 @@ class TestVisualizationQueryAware(unittest.TestCase):
         }
         res = build_formatted_data(combined, query_type="simple", intent={})
         self.assertEqual(res["type"], "CARD")
+
+    def test_frontend_widget_override_wins(self):
+        combined = {
+            "sections": [{"label": "Result", "data": [{"count": 5}, {"count": 7}]}]
+        }
+        res = build_formatted_data(
+            combined,
+            query_type="simple",
+            intent={},
+            visualization_intent={"requested_widget_type": "DONUT_CHART"},
+        )
+        self.assertEqual(res["type"], "DONUT_CHART")
 
 
 if __name__ == "__main__":
