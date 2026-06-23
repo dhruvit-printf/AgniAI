@@ -414,6 +414,9 @@ def _detect_comparison(
 ) -> Optional[Tuple[str, str]]:
     if not any(kw in text_lower for kw in _COMPARISON_KEYWORDS):
         return None
+    fragments = _extract_comparison_fragments(text_lower, categories)
+    if fragments and len(fragments) >= 2:
+        return ("comparison", "comparison")
     sections_found = [
         s for s in {"bpet", "bept", "ppt", "firing", "drill"} if s in text_lower
     ]
@@ -681,6 +684,10 @@ def _extract_comparison_fragments(
     if m:
         return list(_normalize_shared_category(m.group(1).strip(), m.group(2).strip()))
 
+    m = re.search(r"(?:difference between|difference\s+between)\s+(.+?)\s+and\s+(.+)", text_lower)
+    if m:
+        return list(_normalize_shared_category(m.group(1).strip(), m.group(2).strip()))
+
     return None
 
 
@@ -878,6 +885,40 @@ def plan_query(query: str) -> QueryPlan:
                     "Filtered comparison: each side carries the cross-filter",
                     filters=combined_filters,
                 )
+
+        fragments = _extract_comparison_fragments(q, categories)
+        if fragments and len(fragments) >= 2:
+            ops = [_build_sub_operation(f) for f in fragments]
+            combined_filters = {}
+            compare_values: List[str] = []
+            for op in ops:
+                combined_filters.update(_extract_filters_dict(op.intent_result))
+                if op.intent_result.get("bmi_category"):
+                    compare_values.append(op.intent_result["bmi_category"])
+                elif op.intent_result.get("platoon_id") is not None:
+                    compare_values.append(f"Platoon {op.intent_result['platoon_id']}")
+                elif op.intent_result.get("company_id") is not None:
+                    compare_values.append(f"Company {op.intent_result['company_id']}")
+                elif op.intent_result.get("batch_id") is not None:
+                    compare_values.append(f"Batch {op.intent_result['batch_id']}")
+                elif op.intent_result.get("section"):
+                    compare_values.append(op.intent_result["section"])
+                elif op.intent_result.get("sport"):
+                    compare_values.append(op.intent_result["sport"])
+                elif op.intent_result.get("class"):
+                    compare_values.append(op.intent_result["class"])
+                elif op.intent_result.get("group_by"):
+                    compare_values.append(str(op.intent_result["group_by"]))
+            if len(compare_values) >= 2:
+                combined_filters.setdefault("compareValues", compare_values[:2])
+            return QueryPlan(
+                QueryType.COMPARE,
+                ops,
+                0.85,
+                raw_query,
+                "Comparison query detected from explicit comparator",
+                filters=combined_filters,
+            )
 
     comparison_entities = _detect_comparison(q, categories)
     if comparison_entities is not None:

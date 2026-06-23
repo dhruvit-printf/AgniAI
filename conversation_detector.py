@@ -85,13 +85,55 @@ _ADMIN_SIGNAL_WORDS = {
     "agniveers",
 }
 
+_ADMIN_CONTEXT_WORDS = {
+    "current",
+    "currently",
+    "today",
+    "today's",
+    "present",
+    "attendance",
+    "medical",
+    "hospital",
+    "hospitalized",
+    "hospitalised",
+    "obese",
+    "overweight",
+    "underweight",
+    "blood",
+    "compare",
+    "comparison",
+    "distribution",
+    "trend",
+    "summary",
+    "performance",
+    "score",
+    "marks",
+    "platoon",
+    "company",
+    "batch",
+    "section",
+    "firing",
+    "bpet",
+    "ppt",
+    "leave",
+    "absconded",
+    "absent",
+}
+
 
 def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
 
 
 def _contains_conversational_phrase(text: str) -> bool:
-    return any(phrase in text for phrase in _CONVERSATIONAL_PHRASES)
+    for phrase in _CONVERSATIONAL_PHRASES:
+        if " " in phrase:
+            if phrase in text:
+                return True
+        else:
+            if re.search(rf"\b{re.escape(phrase)}\b", text):
+                return True
+    return False
 
 
 def _contains_admin_signal(text: str) -> bool:
@@ -107,9 +149,9 @@ def is_conversational_query(text: str) -> bool:
         return True
     if _contains_admin_signal(cleaned):
         return False
-    if len(cleaned.split()) <= 3 and not any(
-        phrase in cleaned for phrase in ("show", "list", "compare", "find", "count", "how many")
-    ):
+    tokens = re.findall(r"[a-z0-9']+", cleaned)
+    has_admin_context = any(token in _ADMIN_CONTEXT_WORDS for token in tokens)
+    if len(tokens) <= 3 and not has_admin_context:
         return True
     return False
 

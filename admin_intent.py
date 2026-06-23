@@ -3030,7 +3030,16 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         "confidence": "low",
     }
 
-    module = _match_module(q)
+    medical_override = any(
+        value is not None
+        for value in (
+            _extract_bmi_category(q),
+            _extract_blood_group(q),
+            _extract_medical_status(q),
+        )
+    )
+
+    module = "Medical" if medical_override else _match_module(q)
 
     if module is None:
         best_module = None

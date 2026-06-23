@@ -40,7 +40,6 @@ from admin_intent import (
 from audit_logger import write_audit_log
 from audit_logger import reset_audit_context, set_audit_context
 from conversation_detector import build_conversational_response as build_conversation_payload
-from conversation_detector import is_conversational_query
 from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
 from dotnet_executor import _call_dotnet
 from feature_flags import get_flags
@@ -664,7 +663,7 @@ def execute_admin_query(
         semantic_understanding = understand_query(message)
 
         # ── Greeting / conversational short-circuit ──────────────────────────
-        if is_conversational_query(message) or semantic_understanding.get("conversational"):
+        if _is_admin_conversational(message) and semantic_understanding.get("conversational"):
             intent_start = time.time()
             if _is_greeting(message):
                 _, reply_text = _build_greeting_response(body, session_id)
