@@ -1321,7 +1321,15 @@ def execute_admin_query(
                         "title": "No Results",
                         "data": {"columns": [], "rows": []},
                         "analysis": {"summary": "", "insights": [], "statistics": {}},
-                        "prediction": None,
+                        "prediction": {
+                            "trend": "Insufficient Data",
+                            "projection": "No matching records were returned, so a reliable prediction is not available yet.",
+                            "heuristicEstimate": "No matching records were returned, so a reliable prediction is not available yet.",
+                            "shortTerm": "insufficient data",
+                            "futureTrends": [
+                                "No matching records were returned, so a reliable prediction is not available yet."
+                            ],
+                        },
                         "conclusion": {"summary": "", "bullets": []},
                     },
                     "suggestedQuestions": [],
@@ -1369,9 +1377,15 @@ def execute_admin_query(
 
         # ── Step 5: Report Generator ──────────────────────────────────────────
         report = {
-            "introMessage": "Report generated with partial metrics.",
+            "introMessage": "I could only prepare a partial summary for this request.",
             "analysis": None,
-            "prediction": None,
+            "prediction": {
+                "trend": "Insufficient Data",
+                "projection": "A reliable prediction is not available yet.",
+                "heuristicEstimate": "A reliable prediction is not available yet.",
+                "shortTerm": "insufficient data",
+                "futureTrends": ["A reliable prediction is not available yet."],
+            },
             "conclusion": None,
             "durations": {"analysisDurationMs": 0.0, "predictionDurationMs": 0.0, "conclusionDurationMs": 0.0},
         }

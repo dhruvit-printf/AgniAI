@@ -88,13 +88,19 @@ def normalize_prediction(
     prediction: Optional[Dict[str, Any]],
 ) -> Optional[Dict[str, Any]]:
     if not prediction:
-        return None
+        return {
+            "trend": "Stable",
+            "projection": "A reliable prediction is not available yet.",
+            "heuristicEstimate": "A reliable prediction is not available yet.",
+            "shortTerm": "stable",
+            "futureTrends": ["A reliable prediction is not available yet."],
+        }
 
     projection = prediction.get("projection") or prediction.get("forecast") or (
         prediction.get("futureTrends")[0] if prediction.get("futureTrends") else ""
     )
     if not projection:
-        projection = "Metrics are expected to align with historical standards."
+        projection = "A reliable prediction is not available yet."
 
     heuristic_estimate = prediction.get("heuristicEstimate") or projection
     trend = prediction.get("trend") or "Stable"
@@ -111,7 +117,7 @@ def normalize_prediction(
 def build_intro_message(title: str, intro_message: str, category: str) -> Dict[str, Any]:
     return {
         "title": title,
-        "description": intro_message or f"Retrieved {category.lower()} records matching request.",
+        "description": intro_message or f"I have prepared a summary of the matching {category.lower()} records.",
     }
 
 

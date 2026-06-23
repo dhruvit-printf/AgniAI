@@ -92,11 +92,19 @@ def _normalize_conclusion_block(conclusion: Optional[Dict[str, Any]]) -> Dict[st
 
 def _normalize_prediction_block(prediction: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not prediction:
-        return None
+        return {
+            "summary": "A reliable prediction is not available yet.",
+            "confidence": 0.0,
+            "forecast": ["A reliable prediction is not available yet."],
+        }
     if isinstance(prediction, str):
         summary = prediction.strip()
         if not summary:
-            return None
+            return {
+                "summary": "A reliable prediction is not available yet.",
+                "confidence": 0.0,
+                "forecast": ["A reliable prediction is not available yet."],
+            }
         return {"summary": summary, "confidence": 0.0, "forecast": []}
 
     forecast = prediction.get("forecast") or prediction.get("futureTrends") or []
@@ -118,7 +126,11 @@ def _normalize_prediction_block(prediction: Optional[Dict[str, Any]]) -> Optiona
         summary = clean_forecast[0]
 
     if not summary and not clean_forecast:
-        return None
+        return {
+            "summary": "A reliable prediction is not available yet.",
+            "confidence": round(max(0.0, min(1.0, confidence_value)), 2),
+            "forecast": ["A reliable prediction is not available yet."],
+        }
 
     return {
         "summary": summary,

@@ -48,6 +48,45 @@ def _build_prediction_grounding_text(answer: Dict[str, Any], query_type: str) ->
 
     return "\n".join(lines)
 
+def _build_fallback_prediction(answer: Dict[str, Any], query_type: str, intent: Dict[str, Any]) -> Dict[str, Any]:
+    category = intent.get("category") or "Agniveer"
+    sections = answer.get("sections") or []
+    record_count = 0
+
+    if query_type in ("compare", "comparison"):
+        left_data = answer.get("left", {}).get("data") or []
+        right_data = answer.get("right", {}).get("data") or []
+        record_count = len(left_data) + len(right_data)
+    else:
+        for sec in sections:
+            data = sec.get("data") or []
+            if isinstance(data, list):
+                record_count += len(data)
+
+    if record_count <= 0:
+        projection = (
+            f"Not enough {category.lower()} records were returned to make a reliable forecast."
+        )
+        trend = "Insufficient Data"
+    elif record_count == 1:
+        projection = (
+            f"The single returned {category.lower()} record suggests the near-term picture will stay broadly steady unless new records are added."
+        )
+        trend = "Stable"
+    else:
+        projection = (
+            f"The current {category.lower()} results suggest the near-term picture should stay broadly steady unless the underlying records change."
+        )
+        trend = "Stable"
+
+    return {
+        "trend": trend,
+        "projection": projection,
+        "heuristicEstimate": projection,
+        "shortTerm": trend.lower() if isinstance(trend, str) else "stable",
+        "futureTrends": [projection],
+    }
+
 def generate_predictions(
     answer: Dict[str, Any],
     query_type: str,
@@ -80,9 +119,6 @@ def generate_predictions(
         total_points = len(left_data) + len(right_data)
     else:
         total_points = len(sections[0].get("data", [])) if sections else 0
-
-    if total_points < 2:
-        return None
 
     # 1. Determine shortTerm direction (stable, increasing, decreasing)
     short_term = "stable"
@@ -167,6 +203,11 @@ def generate_predictions(
 
     projection_text = sanitized_trends[0] if sanitized_trends else "Metrics are expected to align with historical standards."
     heuristic_text = projection_text
+
+    if not projection_text or not sanitized_trends:
+        fallback = _build_fallback_prediction(answer, query_type, intent)
+        if fallback:
+            return fallback
 
     return {
         "trend": trend_val,

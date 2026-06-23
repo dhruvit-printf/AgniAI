@@ -95,7 +95,7 @@ def _build_data_grounded_report(
         observations = [f"{match_count} records satisfied all filter conditions."]
         if total_before:
             observations.append(f"{match_count} of {total_before} candidates remained after filtering.")
-        insights = ["The result set is grounded in the overlapping criteria returned by the JSON payload."]
+        insights = ["The result set is grounded in the overlapping criteria that were returned."]
         conclusion = (
             f"The cross-filter result set is complete with {match_count} matching records and is ready for review."
         )
@@ -145,7 +145,7 @@ def _build_data_grounded_report(
         diff = None
         if isinstance(comparison, dict):
             diff = comparison.get("difference")
-        intro = f"The comparison between {labels[0]} and {labels[1]} completed using the returned JSON data."
+        intro = f"I completed a side-by-side comparison between {labels[0]} and {labels[1]}."
         analysis_summary = (
             f"Comparison analysis reviewed {left_cnt} records on {labels[0]} and {right_cnt} records on {labels[1]}."
         )
@@ -155,7 +155,7 @@ def _build_data_grounded_report(
         ]
         if diff is not None:
             observations.append(f"The recorded comparison difference is {diff}.")
-        insights = ["The comparison is grounded in the returned side-by-side payload."]
+        insights = ["The comparison is grounded in the records returned for each side."]
         conclusion = (
             f"The comparison is complete and the returned metrics show {labels[0]} versus {labels[1]} without inventing any unreturned values."
         )
@@ -187,14 +187,14 @@ def _build_data_grounded_report(
             data = section.get("data") or []
             section_counts.append((section.get("label", "Section"), len(data)))
         intro = (
-            f"The consolidated report includes {len(section_counts)} independent sections backed by the returned JSON payload."
+            f"I combined {len(section_counts)} independent sections into one report."
         )
         analysis_summary = (
             f"The multi-section report contains {len(section_counts)} independent sections with grounded record counts."
         )
         observations = [f"{label} returned {count} records." for label, count in section_counts[:5]]
         insights = ["Each section is preserved independently to prevent data loss across modules."]
-        conclusion = "The consolidated report is complete and reflects only the sections returned by the source payload."
+        conclusion = "The consolidated report is complete and reflects only the sections that were returned."
         return {
             "introMessage": intro,
             "analysis": {
@@ -205,10 +205,10 @@ def _build_data_grounded_report(
             },
             "prediction": {
                 "trend": "Stable",
-                "projection": "Future section counts should remain aligned with the current source payload unless upstream data changes.",
-                "heuristicEstimate": "Future section counts should remain aligned with the current source payload unless upstream data changes.",
+                "projection": "Future section counts should remain aligned with the current information unless the source data changes.",
+                "heuristicEstimate": "Future section counts should remain aligned with the current information unless the source data changes.",
                 "shortTerm": "stable",
-                "futureTrends": ["Future section counts should remain aligned with the current source payload unless upstream data changes."],
+                "futureTrends": ["Future section counts should remain aligned with the current information unless the source data changes."],
             },
             "conclusion": {"summary": conclusion},
         }
@@ -218,7 +218,7 @@ def _build_data_grounded_report(
     if cnt == 0:
         intro = f"The {category.lower()} query completed successfully but returned no records."
 
-    analysis_summary = f"Matched {cnt} {category.lower()} records from the returned JSON payload."
+    analysis_summary = f"Matched {cnt} {category.lower()} records."
     if scores:
         avg_score = round(sum(scores) / len(scores), 2)
         analysis_summary = (
@@ -231,7 +231,7 @@ def _build_data_grounded_report(
         observations.append(f"Average score: {round(sum(scores) / len(scores), 2)}.")
         observations.append(f"Score range: {round(min(scores), 2)} to {round(max(scores), 2)}.")
 
-    insights = ["The response is grounded in the records returned by the JSON payload."]
+    insights = ["The response is grounded in the records that were returned."]
     if scores:
         insights.append("The score distribution is based on the actual returned values.")
 
@@ -240,7 +240,7 @@ def _build_data_grounded_report(
             f"Future {category.lower()} results should remain broadly stable unless the underlying records change."
         )
     else:
-        projection = f"Future trend projection is unavailable because no {category.lower()} records were returned."
+        projection = f"A reliable prediction is not available because no {category.lower()} records were returned."
 
     return {
         "introMessage": intro,
@@ -259,7 +259,7 @@ def _build_data_grounded_report(
         },
         "conclusion": {
             "summary": (
-                f"The {category.lower()} query returned {cnt} records and the result set is grounded in the returned JSON."
+                f"The {category.lower()} search returned {cnt} records and the result set is ready for review."
             ),
         },
     }
@@ -286,66 +286,65 @@ def get_fallback_report(
         match_count = combined_result.get("matchCount", cnt) if isinstance(combined_result, dict) else cnt
         total_before = combined_result.get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
         if match_count > 0:
-            intro = f"We have successfully completed the cross-filter intersection query across the specified datasets. A total of {match_count} Agniveers were found to match all the overlapping filtering criteria and constraints simultaneously. Below, you will find the detailed breakdown and individual profiles of these matching records for further analysis."
-            summary = f"The cross-filter intersection operation was completed successfully across the chosen database sectors. This process identified exactly {match_count} active records that satisfy all filtering constraints concurrently. This narrow subset represents the specific personnel within the system who meet every single one of your query conditions simultaneously."
-            obs = [f"A total of {match_count} records were successfully matched out of {total_before} primary records after applying all cross-filters."]
-            insights = ["The intersection logic helps identify specific individuals who meet all overlapping criteria concurrently."]
-            conclusion = f"In conclusion, the cross-filter query has successfully isolated {match_count} Agniveer records matching all specified requirements. These individuals have been cross-referenced and validated against the primary unit databases, making this compiled list ready for immediate administrative reporting and command evaluation."
+            intro = f"I found {match_count} records that match all of the selected conditions."
+            summary = f"The cross-filter search identified exactly {match_count} records that satisfy every selected condition."
+            obs = [f"{match_count} records were matched out of {total_before} before filtering."]
+            insights = ["The overlap between the selected conditions identifies the records that fit every rule."]
+            conclusion = f"The cross-filter search is complete and the {match_count} matching records are ready for review."
         else:
-            intro = "We conducted a comprehensive cross-filter analysis across the selected categories, but unfortunately, no matching records were found that satisfy all the overlapping criteria simultaneously. This indicates that there are currently no individuals in the database who meet every single filter condition you specified for this search."
-            summary = "A detailed cross-filter query was executed across multiple datasets to identify common personnel matching all filter parameters. The resulting intersection yielded zero common records, demonstrating that the overlapping conditions specified in the query filter out all available Agniveers in the system database."
-            obs = ["A cross-filter search was performed across all selected category sets, but no overlapping records were retrieved."]
-            insights = ["This suggests that the filter parameters are mutually exclusive for the current cohort of personnel."]
-            conclusion = "In conclusion, the cross-filter query did not return any matching records from the active database. To proceed with the analysis, we recommend adjusting your filter criteria or broadening the search parameters to see if any matching personnel can be identified under less restrictive conditions."
+            intro = "I checked the selected conditions, but no matching records were found."
+            summary = "The cross-filter search did not find any records that satisfy every selected condition."
+            obs = ["The search did not return any overlapping records."]
+            insights = ["The selected conditions may be too narrow for the current set of records."]
+            conclusion = "The cross-filter search did not return any matches. You may want to broaden the conditions and try again."
     elif query_type in ("comparison", "compare"):
         sides = combined_result.get("sides", []) if isinstance(combined_result, dict) else []
         labels = [s.get("label", "Section") for s in sides]
         labels_str = " and ".join(labels) if labels else "selected categories"
         has_data = any(len(s.get("data", [])) > 0 for s in sides) if sides else (cnt > 0)
         if has_data:
-            intro = f"We have successfully completed the side-by-side comparison analysis between {labels_str}. This evaluation compares the performance and administrative metrics for each target category, highlighting key variances and trends between the groups. Below is the detailed comparative breakdown to support your review and command decision-making."
-            summary = f"The comparative summary has been generated for the target categories, specifically {labels_str}. This side-by-side evaluation outlines the differences and statistical variances across the selected metric fields. The resulting analysis is designed to help identify strengths, weaknesses, and performance deviations between the compared groups."
-            obs = [f"Compared {len(sides)} groups: {', '.join(labels)} to analyze metric variations and identify standout categories."]
-            insights = ["Comparing these groups side by side highlights critical variance in performance metrics and personnel distribution."]
-            conclusion = f"In conclusion, the comparative review of {labels_str} is complete. The side-by-side metrics and average score differences provide a clear statistical overview of how these categories compare. These findings are finalized and recorded to assist with ongoing evaluation and training updates."
+            intro = f"I completed a side-by-side comparison between {labels_str}."
+            summary = f"The comparison highlights the differences across {labels_str}."
+            obs = [f"Compared {len(sides)} groups: {', '.join(labels)}."]
+            insights = ["Looking at the groups side by side makes the main differences easy to spot."]
+            conclusion = f"The comparison of {labels_str} is complete and ready for review."
         else:
-            intro = "The comparative analysis between the selected categories has been completed, but we found no matching data for the metrics you requested. Because both datasets are currently empty or unavailable, we are unable to generate a side-by-side comparison of their performance or tracking history at this time."
-            summary = "A side-by-side comparison was initiated to evaluate the metrics of the selected categories. However, since the query returned no records for any of the groups, a comparative breakdown cannot be compiled. There is no active data to compare across the selected dimensions."
-            obs = ["Both comparison groups returned empty datasets from the primary database query."]
-            insights = ["The lack of records indicates that either no data has been logged yet or the categories do not contain any active personnel."]
-            conclusion = "In conclusion, the side-by-side comparison could not be completed because no matching data was found for either of the categories. We recommend verifying that records exist for these groups in the database before trying to perform another comparison query."
+            intro = "I could not complete the comparison because no matching records were found for either side."
+            summary = "The comparison could not be completed because the selected groups returned no records."
+            obs = ["Both comparison groups returned no records."]
+            insights = ["There is not enough data available yet to compare the selected groups."]
+            conclusion = "The comparison could not be completed because no matching records were found."
     elif query_type == "multi_independent":
         sections = combined_result.get("sections") or [] if isinstance(combined_result, dict) else []
         has_data = any(len(s.get("data", [])) > 0 for s in sections)
         if has_data:
-            intro = f"We have successfully compiled and consolidated the data from {len(sections)} independent modules into this report. Each section below presents a distinct category of records, allowing you to review diverse datasets side by side without correlation. Please scroll down to view each individual module's details."
-            summary = f"The consolidated report successfully merges records from {len(sections)} independent administrative modules. The statistics and entries for each category are organized and presented in their respective sections. This unified layout allows command personnel to review multiple distinct data points in a single reporting screen without correlation."
-            obs = [f"Merged {len(sections)} independent sections to present unified metrics across the selected modules."]
-            insights = ["Consolidating independent modules provides a high-level administrative overview without requiring cross-category correlations."]
-            conclusion = f"In conclusion, the consolidation of the requested independent administrative modules is complete. All {len(sections)} sections have been successfully populated with their respective active database records, verified for completeness, and formatted to provide a comprehensive and clean administrative review."
+            intro = f"I combined data from {len(sections)} independent sections into one report."
+            summary = f"The consolidated report brings together {len(sections)} separate sections."
+            obs = [f"Merged {len(sections)} independent sections into one view."]
+            insights = ["Keeping each section separate makes the report easier to review."]
+            conclusion = f"The consolidated report is complete and includes all {len(sections)} sections."
         else:
-            intro = "We attempted to compile the consolidated statistics from multiple independent modules, but no matching data was found in any of the requested sections. As a result, we cannot display any record breakdowns or statistics for these independent categories in this report."
-            summary = "The multi-section consolidation process compiled results from all requested data modules. Unfortunately, none of the query paths returned any active records, meaning that all sections in this report are currently empty and there are no statistics available for analysis."
-            obs = ["All requested independent sections returned zero active records from the system."]
-            insights = ["This suggests a widespread absence of matching records across all requested data tables or filters."]
-            conclusion = "In conclusion, the consolidated report is empty because no matching data was found across any of the independent categories. Please check your query parameters or ensure that the target modules have active records available for reporting."
+            intro = "I compiled the report, but none of the requested sections returned any records."
+            summary = "The multi-section report is empty because no records were returned for the requested sections."
+            obs = ["All requested sections returned no records."]
+            insights = ["There is not enough data available in the requested sections to build a fuller report."]
+            conclusion = "The consolidated report is empty because no matching records were found."
     else:
-        # simple and other query types
         if cnt > 0:
-            intro = f"The database query for {category.lower()} records has completed successfully. We have identified a total of {cnt} active entries matching your search parameters and filters. Below is a detailed breakdown of these records, including statistical observations and visualizations to support your administrative review."
+            intro = f"I found {cnt} matching {category.lower()} records."
             key = (category, subcategory)
             if key in _INTRO_TEMPLATES:
                 intro = _INTRO_TEMPLATES[key]
-            summary = f"A search of the unit database retrieved exactly {cnt} active records under the {category.lower()} category. The records have been parsed, validated, and summarized to highlight the relevant entries, ensuring that all matching personnel are accurately listed and represented in the report data."
-            obs = [f"Found {cnt} active {category.lower()} records in the database matching search criteria."]
-            insights = ["The retrieved dataset matches the specified query parameters and is ready for use."]
-            conclusion = f"In conclusion, the search of the {category.lower()} dataset was completed successfully, returning {cnt} verified matching entries. These records have been verified against the unit logs and are ready for administrative use, reporting, or subsequent follow-up queries."
+            summary = f"The search returned exactly {cnt} matching {category.lower()} records."
+            obs = [f"Found {cnt} matching {category.lower()} records."]
+            insights = ["The returned records match the selected criteria."]
+            conclusion = f"The search is complete and the {cnt} matching records are ready for review."
         else:
-            intro = f"The database query for the requested {category.lower()} records has completed, but unfortunately, no matching data was found. This indicates that there are currently no active personnel or records in the database matching your specified search parameters. Please adjust your query and try again."
-            summary = f"No matching records were found for the requested {category.lower()} query filter criteria. The database search completed successfully but returned an empty dataset, which means there are no active personnel records or statistical values available to display or analyze in this section of the report."
-            obs = [f"The query returned 0 records for the {category.lower()} category."]
-            insights = ["An empty dataset suggests either that no matching records exist or the filter conditions are too restrictive."]
-            conclusion = f"In conclusion, the database query returned zero active {category.lower()} records. We recommend adjusting your filter criteria, checking the spelling of your query parameters, or verifying that active records are present in the source system before attempting this search again."
+            intro = f"I could not find any matching {category.lower()} records."
+            summary = f"No matching records were found for the selected {category.lower()} criteria."
+            obs = [f"The search returned 0 records for the {category.lower()} category."]
+            insights = ["The selected criteria may be too narrow for the available records."]
+            conclusion = f"No matching {category.lower()} records were found. Try broadening the criteria and search again."
 
     return {
         "introMessage": intro,
@@ -366,14 +365,15 @@ def generate_report(
     import json
     from utils import extract_records
 
-    # If the combined result has no matching records, do not pass introMessage, analysis, prediction, or conclusion.
+    # If there are no records, still return a readable fallback instead of blanks.
     records = extract_records(combined_result)
     if not records:
+        fallback = get_fallback_report(combined_result, query_type, intent)
         return {
-            "introMessage": "",
-            "analysis": None,
-            "prediction": None,
-            "conclusion": None,
+            "introMessage": fallback.get("introMessage", ""),
+            "analysis": fallback.get("analysis"),
+            "prediction": fallback.get("prediction"),
+            "conclusion": fallback.get("conclusion"),
             "durations": {
                 "analysisDurationMs": 0.0,
                 "predictionDurationMs": 0.0,
@@ -509,4 +509,3 @@ def generate_report(
             "conclusionDurationMs": conclusion_ms
         }
     }
-

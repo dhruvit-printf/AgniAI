@@ -72,13 +72,13 @@ def generate_conclusion(
 
         if is_empty:
             if query_type == "cross_filter":
-                msg = "In conclusion, the cross-filter query did not return any matching records from the active database. To proceed with the analysis, we recommend adjusting your filter criteria or broadening the search parameters to see if any matching personnel can be identified under less restrictive conditions."
+                msg = "The cross-filter search did not return any matching records. You may want to broaden the criteria and try again."
             elif query_type in ("compare", "comparison"):
-                msg = "In conclusion, the side-by-side comparison could not be completed because no matching data was found for either of the categories. We recommend verifying that records exist for these groups in the database before trying to perform another comparison query."
+                msg = "The side-by-side comparison could not be completed because no matching records were found for either side."
             elif query_type == "multi_independent":
-                msg = "In conclusion, the consolidated report is empty because no matching data was found across any of the independent categories. Please check your query parameters or ensure that the target modules have active records available for reporting."
+                msg = "The consolidated report is empty because no matching records were found across the requested sections."
             else:
-                msg = f"In conclusion, the database query returned zero active {category.lower()} records. We recommend adjusting your filter criteria, checking the spelling of your query parameters, or verifying that active records are present in the source system before attempting this search again."
+                msg = f"The search returned zero matching {category.lower()} records. Try broadening the criteria and search again."
             return {"summary": msg, "bullets": [msg[:120]]}
 
         # ── Pure Python conclusion generation (max 3 bullets) ────────────
@@ -137,4 +137,3 @@ def generate_conclusion(
         category = intent.get("category") or "Agniveer"
         fallback = f"The review of {category.lower()} records is complete."
         return {"summary": fallback, "bullets": [fallback]}
-

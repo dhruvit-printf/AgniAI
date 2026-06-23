@@ -162,7 +162,7 @@ def build_conversational_response(
     session_id: str = "admin-default",
     query_type: str = "conversation",
 ) -> Dict[str, Any]:
-    intro = (message or "").strip() or "I can help with administrative queries."
+    intro = (message or "").strip() or "I can help with data, reports, and analysis."
     payload: Dict[str, Any] = {
         "status": True,
         "sessionId": session_id or "admin-default",
@@ -212,11 +212,11 @@ def conversational_reply(query: str, body: Dict[str, Any] | None = None) -> str:
     if "thank" in cleaned:
         return "You're welcome. I'm here if you need anything else."
     if "who are you" in cleaned or "what are you" in cleaned:
-        return "I’m AgniAI, your administrative assistant for data review and reporting."
+        return "I am AgniAI, your assistant for data review and reporting."
     if "how are you" in cleaned:
-        return "I’m ready to help with your administrative queries."
+        return "I am ready to help with your questions."
     if "weather" in cleaned:
-        return "I can help with administrative data, but I can’t check the weather."
+        return "I can help with data and reports, but I cannot check the weather."
     if "joke" in cleaned:
-        return "I’m focused on data work, but I can help with reports or analysis."
-    return "I can help with administrative queries, reports, and analysis."
+        return "I am focused on data work, but I can help with reports or analysis."
+    return "I can help with data, reports, and analysis."

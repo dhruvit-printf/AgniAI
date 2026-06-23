@@ -113,41 +113,41 @@ def generate_analysis(
         if is_empty:
             if query_type == "cross_filter":
                 return _analysis_payload(
-                    "A detailed cross-filter query was executed across multiple datasets to identify common personnel matching all filter parameters. The resulting intersection yielded zero common records, demonstrating that the overlapping conditions specified in the query filter out all available Agniveers in the system database.",
+                    "The cross-filter search was completed across the selected conditions, but it did not find any matching records.",
                     [
-                        "A cross-filter search was performed across all selected category sets, but no overlapping records were retrieved."
+                        "The search did not return any overlapping records."
                     ],
                     {"record_count": 0, "match_count": 0},
                 )
             elif query_type in ("compare", "comparison"):
                 return _analysis_payload(
-                    "A side-by-side comparison was initiated to evaluate the metrics of the selected categories. However, since the query returned no records for any of the groups, a comparative breakdown cannot be compiled. There is no active data to compare across the selected dimensions.",
+                    "The side-by-side comparison could not be completed because neither group returned any records.",
                     [
-                        "Both comparison groups returned empty datasets from the primary database query."
+                        "Both comparison groups returned no records."
                     ],
                     {"left_count": 0, "right_count": 0},
                 )
             elif query_type == "multi_independent":
                 return _analysis_payload(
-                    "The multi-section consolidation process compiled results from all requested data modules. Unfortunately, none of the query paths returned any active records, meaning that all sections in this report are currently empty and there are no statistics available for analysis.",
+                    "The multi-section report could not include any records because none of the requested sections returned data.",
                     [
-                        "All requested independent sections returned zero active records from the system."
+                        "All requested sections returned no records."
                     ],
                     {"section_count": len(sections)},
                 )
             else:
                 return _analysis_payload(
-                    f"No matching data was found for the requested {category.lower()} query filter criteria. The database search completed successfully but returned an empty dataset, meaning there are no records available to display or analyze at this time.",
+                    f"No matching data was found for the selected {category.lower()} criteria.",
                     [
-                        f"The search returned 0 records matching the {category.lower()} query parameters."
+                        f"The search returned 0 records matching the selected {category.lower()} criteria."
                     ],
                     {"record_count": 0},
                 )
 
         # ── Pure Python statistics (no LLM) ──────────────────────────────
         stats: Dict[str, Any] = {}
-        summary = f"Summary of {category.lower()} metrics completed."
-        insights: List[str] = ["Dataset matches the specified parameters."]
+        summary = f"Summary of {category.lower()} metrics is complete."
+        insights: List[str] = ["The returned records match the selected parameters."]
 
         if query_type in ("compare", "comparison"):
             left = answer.get("left") or {}
@@ -213,7 +213,7 @@ def generate_analysis(
                     "std_dev": std_dev,
                 })
             else:
-                summary = f"Matched {len(records)} {category.lower()} records from the returned JSON payload."
+                summary = f"Matched {len(records)} {category.lower()} records."
                 insights = [f"The query returned {len(records)} {category.lower()} records."]
 
         return _analysis_payload(summary, insights, stats)
@@ -226,4 +226,3 @@ def generate_analysis(
             ["Dataset matches the specified parameters."],
             {},
         )
-
