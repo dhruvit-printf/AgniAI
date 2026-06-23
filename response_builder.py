@@ -518,8 +518,11 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
         "message": (payload.get("introMessage") or payload.get("message") or "").strip(),
         "formattedData": clean_formatted,
         "suggestedQuestions": list(payload.get("suggestedQuestions") or []),
-        "queryType": payload.get("queryType") or clean_meta["queryType"],
-        "overallConfidence": round(float(payload.get("overallConfidence") or clean_meta["confidence"]), 2),
+        "queryType": payload.get("queryType") or (clean_meta.get("metrics") or {}).get("queryType", ""),
+        "overallConfidence": round(
+            float(payload.get("overallConfidence") or (clean_meta.get("metrics") or {}).get("confidence") or 0.0),
+            2,
+        ),
         "metadata": clean_meta,
     }
     return public_payload
