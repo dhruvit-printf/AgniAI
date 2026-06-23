@@ -32,6 +32,7 @@ from config import (
     DOCSTORE_PATH,
     EMBEDDING_DIM,
     FAISS_INDEX_PATH,
+    INGEST_ALLOWED_ROOT,
 )
 from rag import embed_texts, load_docstore, load_index, save_index
 
@@ -411,6 +412,9 @@ def ingest_pdf(
 ) -> int:
     """Extract text from a PDF and add it to the knowledge base."""
     path = Path(file_path).expanduser().resolve()
+    # Security Fix: The old code lacked path containment validation, allowing arbitrary local file read.
+    if not path.is_relative_to(INGEST_ALLOWED_ROOT):
+        raise ValueError(f"Path '{path}' is not within the allowed ingest root directory.")
     if not path.exists():
         raise FileNotFoundError(f"PDF not found: {path}")
     if path.suffix.lower() != ".pdf":
@@ -454,6 +458,9 @@ def ingest_txt(
 ) -> int:
     """Ingest a plain .txt file."""
     path = Path(file_path).expanduser().resolve()
+    # Security Fix: The old code lacked path containment validation, allowing arbitrary local file read.
+    if not path.is_relative_to(INGEST_ALLOWED_ROOT):
+        raise ValueError(f"Path '{path}' is not within the allowed ingest root directory.")
     if not path.exists():
         raise FileNotFoundError(f"Text file not found: {path}")
 
@@ -479,6 +486,9 @@ def ingest_docx(
 ) -> int:
     """Ingest a Microsoft Word (.docx) file."""
     path = Path(file_path).expanduser().resolve()
+    # Security Fix: The old code lacked path containment validation, allowing arbitrary local file read.
+    if not path.is_relative_to(INGEST_ALLOWED_ROOT):
+        raise ValueError(f"Path '{path}' is not within the allowed ingest root directory.")
     if not path.exists():
         raise FileNotFoundError(f"Word file not found: {path}")
     if path.suffix.lower() != ".docx":
@@ -527,6 +537,9 @@ def ingest_doc(
     Raises RuntimeError with a helpful message if none of the tools are available.
     """
     path = Path(file_path).expanduser().resolve()
+    # Security Fix: The old code lacked path containment validation, allowing arbitrary local file read.
+    if not path.is_relative_to(INGEST_ALLOWED_ROOT):
+        raise ValueError(f"Path '{path}' is not within the allowed ingest root directory.")
     if not path.exists():
         raise FileNotFoundError(f"Word .doc file not found: {path}")
     if path.suffix.lower() != ".doc":
@@ -550,10 +563,44 @@ def ingest_doc(
     )
 
 
+def _validate_url(url: str) -> None:
+    # Security Fix: The old code lacked target host/IP validation, enabling SSRF attacks against internal networks.
+    if os.getenv("ALLOW_INTERNAL_INGEST_URLS") == "1":
+        return
+
+    from urllib.parse import urlparse
+    import socket
+    import ipaddress
+
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("Invalid URL: missing hostname.")
+
+    try:
+        ips = socket.getaddrinfo(hostname, None)
+    except Exception as e:
+        raise ValueError(f"Failed to resolve hostname '{hostname}': {e}")
+
+    for item in ips:
+        ip = item[4][0]
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+            if ip_obj.is_loopback or ip_obj.is_private or ip_obj.is_link_local:
+                raise ValueError(f"URL resolves to a restricted IP address: {ip}")
+        except ValueError as ve:
+            if "resolves to a restricted IP address" in str(ve):
+                raise
+            raise ValueError(f"Invalid IP address resolved: {ip}")
+
+
 def ingest_url(url: str, force: bool = False) -> int:
     """Fetch a webpage, extract visible text, and add it to the knowledge base."""
     if not force and _source_already_ingested(url):
         return 0
+
+    # Security Fix: The old code had no host/IP checks, allowing SSRF.
+    _validate_url(url)
 
     session = requests.Session()
     session.max_redirects = 5

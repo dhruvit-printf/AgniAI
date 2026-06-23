@@ -85,6 +85,33 @@ class TestPredictions(unittest.TestCase):
         # Should not crash and analysis block should be None (or omitted) as today
         self.assertIsNone(resp.get("analysis"))
 
+    def test_comparison_prediction_direction(self):
+        from prediction_engine import generate_predictions
+        
+        answer = {
+            "left": {"label": "Company A", "data": [{"score": 90}]},
+            "right": {"label": "Company B", "data": [{"score": 70}]},
+            "comparison": {
+                "difference": 20.0,
+                "higher": "Company A"
+            }
+        }
+        res = generate_predictions(answer, "compare", {"category": "Performance"})
+        # Since Company A (left_label) is higher, shortTerm should be "increasing" / trend "Increasing"
+        self.assertEqual(res["trend"], "Increasing")
+
+        answer_decreasing = {
+            "left": {"label": "Company A", "data": [{"score": 70}]},
+            "right": {"label": "Company B", "data": [{"score": 90}]},
+            "comparison": {
+                "difference": 20.0,
+                "higher": "Company B"
+            }
+        }
+        res_dec = generate_predictions(answer_decreasing, "compare", {"category": "Performance"})
+        # Since Company B (right_label) is higher, trend should be "Decreasing"
+        self.assertEqual(res_dec["trend"], "Decreasing")
+
 
 if __name__ == "__main__":
     unittest.main()

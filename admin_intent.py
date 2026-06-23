@@ -2556,12 +2556,28 @@ def _extract_number(text: str) -> Optional[int]:
     )
     if explicit:
         return int(explicit.group(1))
+    # Old code failed to ignore entity ID/number phrases, resulting in ID numbers being misidentified as bare counts.
     stripped = re.sub(
         r"\b(?:attempt\s*(?:no\.?\s*)?|from\s*attempt\s*|to\s*attempt\s*)\d+\b",
         "",
         text,
         flags=re.IGNORECASE,
     )
+    stripped = re.sub(
+        r"\b(?:company|co|platoon|pl|batch|bt|section|sec)\s*(?:id|no\.?|number)?\s*\d+\b",
+        "",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    stripped = re.sub(
+        r"\bagniveers?\s*(?:no\.?|number)?\s*(?:ag\d{3,8}|\d{3,8})\b",
+        "",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    stripped = re.sub(r"\b[a-z]\d{7}[a-z]\b", "", stripped, flags=re.IGNORECASE)
+    stripped = re.sub(r"\bag\d{3,8}\b", "", stripped, flags=re.IGNORECASE)
+    stripped = re.sub(r"\b\d{3,8}\b", "", stripped)
     match = re.search(r"\b(\d+)\b", stripped)
     return int(match.group(1)) if match else None
 
@@ -2802,19 +2818,31 @@ def _extract_agniveer_no(text: str) -> Optional[str]:
             return True
         return False
 
-    patterns = [
+    explicit_patterns = [
         r"\bagniveer\s*(?:no\.?|number)?\s*(ag\d{3,8}|\d{3,8})\b",
         r"\bagniveers?\s*(?:no\.?|number)?\s*(ag\d{3,8}|\d{3,8})\b",
         r"\b([a-z]\d{7}[a-z])\b",
         r"\b(ag\d{3,8})\b",
-        r"\b(\d{3,8})\b",
     ]
 
-    for pattern in patterns:
+    for pattern in explicit_patterns:
         for match in re.finditer(pattern, text_lower, re.IGNORECASE):
             candidate = text[match.start(1) : match.end(1)].strip()
             if _valid(candidate):
                 return candidate.upper() if candidate.lower().startswith("ag") else candidate
+
+    # Old code failed to filter out other entity ID phrases and count limits before matching bare numbers for agniveer_no.
+    stripped = text_lower
+    stripped = re.sub(r"\b(?:top|bottom|show|best|worst|lowest|highest|last|first)\s+\d+\b", "", stripped)
+    stripped = re.sub(r"\b(?:company|co|platoon|pl|batch|bt|section|sec)\s*(?:id|no\.?|number)?\s*\d+\b", "", stripped)
+    stripped = re.sub(r"\b(?:attempt\s*(?:no\.?\s*)?|from\s*attempt\s*|to\s*attempt\s*)\d+\b", "", stripped)
+
+    bare_pattern = r"\b(\d{3,8})\b"
+    for match in re.finditer(bare_pattern, stripped):
+        candidate = match.group(1).strip()
+        if _valid(candidate):
+            return candidate
+
     return None
 
 
@@ -3051,10 +3079,11 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     result["item_name"] = item_name
     result["item_category"] = item_cat
 
+    # Old code used stale subcategory names 'EquipmentStats' and 'ReturnedEquipment' instead of 'EquipmentSummary' and 'PoorConditionEquipment'.
     if item_cat and result.get("subcategory") in (
-        "EquipmentStats",
+        "EquipmentSummary",
         "OverdueEquipment",
-        "ReturnedEquipment",
+        "PoorConditionEquipment",
         None,
     ):
         result["subcategory"] = item_cat

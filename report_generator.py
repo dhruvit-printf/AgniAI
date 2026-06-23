@@ -439,30 +439,34 @@ def generate_report(
 
     # Keep the intro honest; if the LLM output claims there is no data while
     # records exist, replace it with a grounded summary.
-    data_grounded_report = None
+    intro_needs_fallback = False
     analysis_summary_text = analysis.get("summary") if analysis else ""
     if _has_negative_copy(intro) or _has_negative_copy(analysis_summary_text):
+        intro_needs_fallback = True
+
+    # Parse conclusion summary text
+    conclusion_needs_fallback = False
+    conclusion_text = conclusion.get("message") or ""
+    if _has_negative_copy(conclusion_text):
+        conclusion_needs_fallback = True
+
+    data_grounded_report = None
+    if intro_needs_fallback or conclusion_needs_fallback:
         fallback = get_fallback_report(combined_result, query_type, intent)
         data_grounded_report = fallback
         if _extract_records_from_combined(combined_result) or _extract_records(combined_result):
             data_grounded_report = _build_data_grounded_report(combined_result, query_type, intent)
+
+    if intro_needs_fallback and data_grounded_report is not None:
+        # Old code combined both into one data_grounded_report check, causing analysis/prediction to be overwritten when only conclusion had negative-copy.
         intro = data_grounded_report["introMessage"]
-
-    # Parse conclusion summary text
-    conclusion_text = conclusion.get("message") or ""
-    if _has_negative_copy(conclusion_text):
-        if data_grounded_report is None:
-            fallback = get_fallback_report(combined_result, query_type, intent)
-            data_grounded_report = fallback
-            if _extract_records_from_combined(combined_result) or _extract_records(combined_result):
-                data_grounded_report = _build_data_grounded_report(combined_result, query_type, intent)
-        conclusion_text = data_grounded_report["conclusion"]["summary"]
-
-    if data_grounded_report is not None:
         analysis = data_grounded_report["analysis"]
         prediction = data_grounded_report["prediction"]
         if not intro:
             intro = data_grounded_report["introMessage"]
+
+    if conclusion_needs_fallback and data_grounded_report is not None:
+        conclusion_text = data_grounded_report["conclusion"]["summary"]
 
     return {
         "introMessage": intro,

@@ -505,3 +505,26 @@ def test_auto_detect_agniveer_no():
     assert r2["agniveer_no"] == "B1234567Z"
     p2 = format_admin_payload(r2)
     assert p2["agniveerNo"] == "B1234567Z"
+
+
+def test_id_vs_count_exclusion():
+    # "show top performers in section 123" -> number is None, not 123
+    r1 = classify_admin_intent("show top performers in section 123")
+    assert r1["number"] is None
+
+    # "show agniveer 12345 performance" -> agniveer_no is "12345", number is None
+    r2 = classify_admin_intent("show agniveer 12345 performance")
+    assert r2["agniveer_no"] == "12345"
+    assert r2["number"] is None
+
+    # "show top 5 agniveers in section 123" -> number is 5
+    r3 = classify_admin_intent("show top 5 agniveers in section 123")
+    assert r3["number"] == 5
+
+
+def test_subcategory_override_canonical_names():
+    # Test subcategory override mapping for poor condition equipment items
+    r = classify_admin_intent("show pt shoes in poor condition")
+    assert r["subcategory"] == "PoorConditionEquipment"
+    assert r["item_name"] == "Pt Shoes"
+

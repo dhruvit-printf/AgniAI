@@ -47,6 +47,7 @@ from config import (
     API_SECRET_KEY,
     CHAT_SYSTEM_PROMPT,
     GENERAL_KNOWLEDGE_FALLBACK_PROMPT,
+    INGEST_ALLOWED_ROOT,
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_CHARS_DEFAULT,
     MAX_TOKENS_DEFAULT,
@@ -1152,6 +1153,8 @@ def chat():
 
 
 @app.route("/api/ingest", methods=["POST"])
+# Security Fix: The old code lacked authentication, allowing any client to trigger ingestion.
+@_require_secret
 @_limit_route(RATE_LIMIT_INGEST)
 def ingest():
     data = request.get_json(force=True, silent=True) or {}
@@ -1202,6 +1205,8 @@ def ingest():
 
 
 @app.route("/api/upload", methods=["POST"])
+# Security Fix: The old code lacked authentication, allowing any client to upload files.
+@_require_secret
 @_limit_route(RATE_LIMIT_INGEST)
 def upload_file():
     if "file" not in request.files:
@@ -1245,10 +1250,11 @@ def upload_file():
 
     tmp_path = None
     try:
+        # Security Fix: The old code stored temp files in the OS temp dir, failing the confinement check.
         with tempfile.NamedTemporaryFile(
             suffix=f".{ext}",
             delete=False,
-            dir=tempfile.gettempdir(),
+            dir=str(INGEST_ALLOWED_ROOT),
         ) as tmp:
             uploaded.save(tmp.name)
             tmp_path = tmp.name

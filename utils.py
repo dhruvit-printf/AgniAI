@@ -86,7 +86,10 @@ def extract_records(data: Any) -> List[Dict]:
         for key in _WRAPPER_KEY_CANDIDATES:
             val = data.get(key)
             if isinstance(val, list):
-                return [item for item in val if isinstance(item, dict)]
+                res = [item for item in val if isinstance(item, dict)]
+                if res:
+                    # Old code returned early on an empty list under a key, failing to check subsequent non-empty wrapper keys.
+                    return res
             if isinstance(val, dict):
                 nested = extract_records(val)
                 if nested:

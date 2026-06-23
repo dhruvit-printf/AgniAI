@@ -203,16 +203,27 @@ class TestResponseBuilder(unittest.TestCase):
                 "message",
                 "formattedData",
                 "suggestedQuestions",
+                "analysis",
+                "prediction",
+                "conclusion",
+                "queryType",
+                "answer",
+                "overallConfidence",
+                "metadata",
             },
         )
-        self.assertNotIn("answer", public)
         self.assertNotIn("result", public)
         self.assertNotIn("intent", public)
-        self.assertNotIn("analysis", public)
-        self.assertNotIn("prediction", public)
-        self.assertNotIn("conclusion", public)
         self.assertEqual(public["sessionId"], "admin-default")
         self.assertEqual(public["message"], internal["message"])
+
+        # Verify metadata filtering
+        metadata = public["metadata"]
+        self.assertNotIn("requestId", metadata)
+        self.assertNotIn("traceId", metadata)
+        self.assertNotIn("timings", metadata)
+        self.assertIn("metrics", metadata)
+        self.assertEqual(metadata["metrics"]["confidence"], 0.95)
         self.assertEqual(public["formattedData"]["prediction"], internal["prediction"])
         if isinstance(public["formattedData"], dict) and "data" in public["formattedData"]:
             data = public["formattedData"]["data"]
@@ -497,6 +508,42 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         self.assertIsNone(report["analysis"])
         self.assertIsNone(report["prediction"])
         self.assertIsNone(report["conclusion"])
+
+    @patch("report_generator.generate_analysis")
+    @patch("report_generator.generate_predictions")
+    @patch("report_generator.generate_conclusion")
+    def test_generate_report_fallback_gating(self, mock_conclusion, mock_predictions, mock_analysis):
+        mock_analysis.return_value = {
+            "summary": "Healthy Analysis Summary",
+            "observations": ["Obs"],
+            "insights": ["Insight"]
+        }
+        mock_predictions.return_value = {
+            "trend": "Stable",
+            "projection": "Stable Projection",
+            "heuristicEstimate": "Est",
+            "shortTerm": "stable",
+            "futureTrends": ["Trend"]
+        }
+        # Conclusion returns a negative copy marker triggering fallback for conclusion
+        mock_conclusion.return_value = {
+            "message": "insufficient data to make conclusion"
+        }
+
+        combined = {
+            "queryType": "simple",
+            "records": [{"agniveerNo": "1", "score": 85}],
+        }
+        intent = {"category": "Performance"}
+        report = generate_report(combined, "simple", intent, "query")
+
+        # Analysis and prediction must remain unchanged (not overwritten by fallback)
+        self.assertEqual(report["analysis"]["summary"], "Healthy Analysis Summary")
+        self.assertEqual(report["prediction"]["projection"], "Stable Projection")
+
+        # Conclusion must be replaced by the fallback conclusion summary
+        self.assertNotEqual(report["conclusion"]["summary"], "insufficient data to make conclusion")
+        self.assertIn("returned 1 records", report["conclusion"]["summary"])
 
 
 if __name__ == "__main__":

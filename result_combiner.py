@@ -258,7 +258,12 @@ def process_trend(raw_results: List[Any], intent: Dict[str, Any]) -> Dict[str, A
         if key is not None:
             score = _get_score(r)
             if score is None:
-                present = r.get("present") or r.get("Present")
+                # Old code used falsy check 'r.get("present") or r.get("Present")' which evaluated False as None when the other was missing.
+                present = None
+                if "present" in r:
+                    present = r["present"]
+                elif "Present" in r:
+                    present = r["Present"]
                 if present is not None:
                     score = 1.0 if present else 0.0
                 else:

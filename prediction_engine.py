@@ -128,13 +128,14 @@ def generate_predictions(
         comp = answer.get("comparison") or {}
         # if comparison difference is high
         diff = _safe_float(comp.get("difference"))
+        left_label = answer.get("left", {}).get("label", "Side 1")
+        right_label = answer.get("right", {}).get("label", "Side 2")
         if diff and diff > 10:
-            short_term = "increasing" if comp.get("higher") == "Side 1" else "decreasing"
+            # Old code used hardcoded 'Side 1' comparison which did not work for dynamic left labels.
+            short_term = "increasing" if comp.get("higher") == left_label else "decreasing"
         else:
             short_term = "stable"
 
-        left_label = answer.get("left", {}).get("label", "Side 1")
-        right_label = answer.get("right", {}).get("label", "Side 2")
         future_trends.append(f"Based on the side-by-side evaluation, the current performance differences observed between {left_label} and {right_label} are projected to persist in future training cycles unless targeted training interventions are implemented.")
 
     elif query_type == "cross_filter":

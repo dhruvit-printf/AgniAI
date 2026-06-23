@@ -2850,7 +2850,9 @@ def answer_is_grounded(answer: str, context: str) -> bool:
     context_norm = _normalise_text(context)
     numbers = re.findall(r"\b\d+(?:\.\d+)?%?\b", answer_norm)
     for num in numbers:
-        if num not in context_norm:
+        # Old code used substring check 'num in context_norm' which incorrectly matched '5' in '25'.
+        pattern = r"\b" + re.escape(num) + (r"(?!\w)" if num.endswith("%") else r"\b")
+        if not re.search(pattern, context_norm):
             return False
     tokens = [tok for tok in _meaningful_tokens(answer_norm) if len(tok) >= 5]
     if not tokens:

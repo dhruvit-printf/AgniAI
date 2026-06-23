@@ -40,6 +40,10 @@ class TestExtractCompanyMention:
     def test_empty_string(self):
         assert extract_company_mention("") is None
 
+    def test_single_letter_company(self):
+        assert extract_company_mention("show A company performance") == "a"
+        assert extract_company_mention("show B coy stats") == "b"
+
 
 class TestExtractPlatoonMention:
     def test_platoon_3(self):

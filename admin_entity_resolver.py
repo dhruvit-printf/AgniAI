@@ -82,7 +82,8 @@ def extract_company_mention(text: str) -> Optional[str]:
 
         before: List[str] = []
         for candidate in reversed(tokens[max(0, idx - 3) : idx]):
-            if candidate in _NOISE_WORDS:
+            # Old code skipped single letter 'a' as a noise word, failing to extract A Company.
+            if candidate in _NOISE_WORDS and not (len(candidate) == 1 and candidate.isalpha()):
                 continue
             before.append(candidate)
         if before:
@@ -90,7 +91,8 @@ def extract_company_mention(text: str) -> Optional[str]:
 
         after: List[str] = []
         for candidate in tokens[idx + 1 : idx + 4]:
-            if candidate in _NOISE_WORDS:
+            # Old code skipped single letter 'a' as a noise word, failing to extract A Company.
+            if candidate in _NOISE_WORDS and not (len(candidate) == 1 and candidate.isalpha()):
                 break
             after.append(candidate)
         if after:

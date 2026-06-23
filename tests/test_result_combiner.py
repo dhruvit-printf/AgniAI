@@ -1,6 +1,6 @@
 import unittest
 
-from result_combiner import compare_results, intersect_results, merge_results
+from result_combiner import compare_results, intersect_results, merge_results, process_trend
 
 
 class TestResultCombiner(unittest.TestCase):
@@ -33,6 +33,16 @@ class TestResultCombiner(unittest.TestCase):
         compared = compare_results(labeled)
         self.assertIn("average", compared["comparedMetrics"])
         self.assertEqual(len(compared["sides"]), 2)
+
+    def test_process_trend_false_present(self):
+        records = [
+            {"date": "2026-01-01", "present": False},
+            {"date": "2026-01-02", "present": True},
+        ]
+        res = process_trend([records], {})
+        # First point value (Jan 1) should be 0.0, second point value (Jan 2) should be 1.0
+        self.assertEqual(res["chartData"][0]["value"], 0.0)
+        self.assertEqual(res["chartData"][1]["value"], 1.0)
 
 
 if __name__ == "__main__":

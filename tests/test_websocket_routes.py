@@ -28,7 +28,7 @@ class TestRunPipelineSuccessPath:
         sent = []
         with patch(
             "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append("done" if "done" in p else list(p.keys())[0]),
+            side_effect=lambda sid, p: sent.append(p.get("type") or ("done" if "done" in p else list(p.keys())[0])),
         ), patch(
             "websocket_routes.execute_admin_query",
             return_value=self._make_pipeline_result(),
@@ -37,8 +37,10 @@ class TestRunPipelineSuccessPath:
 
             websocket_routes._run_pipeline("sid1", "show attendance", {}, "trace-001")
         assert sent == [
-            "message",
-            "formattedData",
+            "intro",
+            "result",
+            "analysis",
+            "conclusion",
             "done",
         ]
 
@@ -46,7 +48,7 @@ class TestRunPipelineSuccessPath:
         sent = []
         with patch(
             "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append("done" if "done" in p else list(p.keys())[0]),
+            side_effect=lambda sid, p: sent.append(p.get("type") or ("done" if "done" in p else list(p.keys())[0])),
         ), patch(
             "websocket_routes.execute_admin_query",
             return_value=self._make_pipeline_result(),
@@ -60,7 +62,7 @@ class TestRunPipelineSuccessPath:
         sent = []
         with patch(
             "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append("done" if "done" in p else list(p.keys())[0]),
+            side_effect=lambda sid, p: sent.append(p.get("type") or ("done" if "done" in p else list(p.keys())[0])),
         ), patch(
             "websocket_routes.execute_admin_query",
             return_value=self._make_pipeline_result("greeting"),

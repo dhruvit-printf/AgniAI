@@ -20,6 +20,10 @@ DOCSTORE_PATH = INDEX_DIR / "docstore.json"
 FAISS_INDEX_PATH = INDEX_DIR / "agni.index"
 BM25_INDEX_PATH = INDEX_DIR / "bm25.pkl"
 
+# Security Fix: The old code lacked an allowed root path for ingestion, enabling arbitrary directory traversal.
+INGEST_ALLOWED_ROOT = Path(os.getenv("INGEST_ALLOWED_ROOT", "./data/uploads")).resolve()
+INGEST_ALLOWED_ROOT.mkdir(parents=True, exist_ok=True)
+
 # ── Embeddings ─────────────────────────────────────────────────────────────
 EMBEDDING_MODEL = os.getenv(
     "EMBEDDING_MODEL", "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"

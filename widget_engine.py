@@ -609,7 +609,9 @@ def build_pie_chart_data(combined_result: Any) -> Dict[str, Any]:
     rows = []
     for r in records:
         label_val = r.get(label_key) or r.get("fullName") or r.get("name") or "Category"
-        value_val = r.get(value_key) or 1
+        # Old code used falsy check 'r.get(value_key) or 1' which replaced zero values with 1.
+        raw_val = r.get(value_key)
+        value_val = raw_val if raw_val is not None else 1
         rows.append({
             "label": str(label_val),
             "value": value_val

@@ -147,19 +147,38 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
             )
         )
 
+        # Old code streamed only message and formattedData fields. We align events to intro, result, analysis, conclusion, done.
         ws_manager.send_json(
             sid,
             {
+                "type": "intro",
+                "introMessage": response_payload.get("introMessage") or response_payload.get("message", ""),
                 "message": response_payload.get("message", ""),
             },
         )
         ws_manager.send_json(
             sid,
             {
+                "type": "result",
                 "formattedData": response_payload.get("formattedData", {}),
             },
         )
-        ws_manager.send_json(sid, {"done": True})
+        ws_manager.send_json(
+            sid,
+            {
+                "type": "analysis",
+                "analysis": response_payload.get("analysis"),
+                "prediction": response_payload.get("prediction"),
+            },
+        )
+        ws_manager.send_json(
+            sid,
+            {
+                "type": "conclusion",
+                "conclusion": response_payload.get("conclusion"),
+            },
+        )
+        ws_manager.send_json(sid, {"type": "done", "done": True})
 
     except Exception as exc:
         duration_ms = round((time.time() - start_time) * 1000, 2)

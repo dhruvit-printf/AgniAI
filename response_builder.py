@@ -27,6 +27,13 @@ _PUBLIC_RESPONSE_KEYS = (
     "message",
     "formattedData",
     "suggestedQuestions",
+    "analysis",
+    "prediction",
+    "conclusion",
+    "queryType",
+    "answer",
+    "overallConfidence",
+    "metadata",
 )
 
 
@@ -222,7 +229,17 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
     Filter the internal response dict to only expose fields matching the
     public contract, preventing security leaks of raw .NET records or LLM details.
     """
+    # Old code omitted analysis, prediction, conclusion, queryType, answer, overallConfidence, and metadata keys in the public view.
     public_payload = {k: payload[k] for k in _PUBLIC_RESPONSE_KEYS if k in payload}
+    
+    # Filter metadata to remove internal trace ids, request ids, and timings to keep public view clean
+    if "metadata" in public_payload and isinstance(public_payload["metadata"], dict):
+        clean_meta = dict(public_payload["metadata"])
+        clean_meta.pop("requestId", None)
+        clean_meta.pop("traceId", None)
+        clean_meta.pop("timings", None)
+        public_payload["metadata"] = clean_meta
+        
     combined_message = (payload.get("message") or "").strip()
     intro_message = (payload.get("introMessage") or "").strip()
     public_payload["message"] = combined_message or intro_message
