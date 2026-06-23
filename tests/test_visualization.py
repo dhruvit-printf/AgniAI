@@ -9,10 +9,10 @@ from widget_engine import build_formatted_data
 
 class TestWidgetEngine(unittest.TestCase):
 
-    def test_simple_record_yields_card(self):
+    def test_simple_record_yields_table(self):
         answer = {"sections": [{"label": "Result", "data": [{"id": 1}]}]}
         res = build_formatted_data(answer, query_type="simple", intent={})
-        self.assertEqual(res["type"], "CARD")
+        self.assertEqual(res["type"], "TABLE")
 
     def test_multiple_records_yield_table(self):
         answer = {

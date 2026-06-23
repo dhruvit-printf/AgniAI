@@ -89,13 +89,13 @@ class TestArchitecturalFixes(unittest.TestCase):
         self.assertIn("sections", resp["answer"])
 
     def test_widgets_selection_step_12(self):
-        # 1. Single record -> CARD
+        # 1. Single record -> TABLE
         fd_single = build_formatted_data(
             {"sections": [{"label": "Result", "data": [{"id": 1}]}]},
             query_type="simple",
             intent={},
         )
-        self.assertEqual(fd_single["type"], "CARD")
+        self.assertEqual(fd_single["type"], "TABLE")
 
         # 2. Multiple records -> TABLE
         fd_multi = build_formatted_data(

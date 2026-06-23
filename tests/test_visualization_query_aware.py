@@ -32,7 +32,7 @@ class TestVisualizationQueryAware(unittest.TestCase):
             "sections": [{"label": "Result", "data": [{"count": 5}]}]
         }
         res = build_formatted_data(combined, query_type="simple", intent={})
-        self.assertEqual(res["type"], "CARD")
+        self.assertEqual(res["type"], "TABLE")
 
     def test_frontend_widget_override_wins(self):
         combined = {

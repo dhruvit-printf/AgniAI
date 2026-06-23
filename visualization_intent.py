@@ -48,7 +48,6 @@ def build_visualization_intent(
     ).lower()
     query_type = (intent.get("query_type") or "").lower()
     records = _flatten_records(combined_result)
-    row_count = len(records)
     numeric_data = _has_numeric_signal(records)
 
     presentation = "table"
@@ -69,24 +68,11 @@ def build_visualization_intent(
     elif query_type == "distribution" or any(token in text for token in ("distribution", "breakdown", "percentage", "share")):
         presentation = "chart"
         chart_type = "pie"
-    elif any(token in text for token in ("top performers", "top performer", "best performers", "highest performers", "worst performers", "weakest", "rank", "ranking")):
-        presentation = "cards"
     elif any(token in text for token in ("show all", "list all", "all candidates", "all records", "show all candidates")):
         presentation = "table"
-    elif operation == "ranking":
-        presentation = "cards" if row_count <= 10 else "chart"
-        chart_type = "bar" if presentation == "chart" else None
-    elif operation == "lookup" and row_count == 1:
-        presentation = "cards"
 
     if not chart_type and presentation == "chart":
         chart_type = "bar" if comparison else ("line" if trend else "pie")
-
-    # Data shape is a tie-breaker, not the primary selector.
-    if presentation == "table" and row_count == 1 and not comparison and not trend:
-        presentation = "cards"
-    elif presentation == "cards" and row_count > 15 and not comparison and not trend:
-        presentation = "table"
 
     return {
         "presentation": presentation,
@@ -95,6 +81,6 @@ def build_visualization_intent(
         "trend": trend,
         "group_by": group_by,
         "metric": metric,
-        "record_count": row_count,
+        "record_count": len(records),
         "numeric_data": numeric_data,
     }

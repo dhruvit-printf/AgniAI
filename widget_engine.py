@@ -457,16 +457,13 @@ def infer_supported_type(
 
     if isinstance(visualization_intent, dict):
         # ── Priority 1: explicit frontend override ───────────────────────────
-        # Only honour this when frontend_override=True, meaning the user
-        # actively chose a different widget type.
-        if visualization_intent.get("frontend_override"):
-            raw_requested = (
-                visualization_intent.get("requested_widget_type")
-                or visualization_intent.get("widget_type")
-            )
-            normalized = _normalize_requested_widget_type(raw_requested)
-            if normalized:
-                return normalized
+        raw_requested = (
+            visualization_intent.get("requested_widget_type")
+            or visualization_intent.get("widget_type")
+        )
+        normalized = _normalize_requested_widget_type(raw_requested)
+        if normalized:
+            return normalized
 
         # ── Priority 2: presentation/chart_type hints (non-override) ────────
         # These are soft hints — they lose to WIDGET_MAP if a map entry exists.
@@ -502,10 +499,6 @@ def infer_supported_type(
         return default_widget
 
     # ── Priority 4 / 5: record count ────────────────────────────────────────
-    rec_count = len(_extract_records(combined_result))
-    if rec_count == 1:
-        return "CARD"
-
     return "TABLE"
 
 
