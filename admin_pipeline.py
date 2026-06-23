@@ -220,40 +220,6 @@ _VISUALIZATION_FIELD_ALIASES: Dict[str, Tuple[str, ...]] = {
 }
 
 
-def _normalize_requested_widget_type(value: Any) -> str:
-    text = str(value or "").strip().lower()
-    if not text:
-        return ""
-
-    aliases = {
-        "table": "TABLE",
-        "tabular": "TABLE",
-        "grid": "TABLE",
-        "card": "CARD",
-        "cards": "CARD",
-        "bar": "CHART_BAR",
-        "bar chart": "CHART_BAR",
-        "trend": "CHART_LINE",
-        "trend chart": "CHART_LINE",
-        "line": "CHART_LINE",
-        "line chart": "CHART_LINE",
-        "area": "AREA_CHART",
-        "area chart": "AREA_CHART",
-        "pie": "CHART_PIE",
-        "pie chart": "CHART_PIE",
-        "donut": "DONUT_CHART",
-        "donut chart": "DONUT_CHART",
-        "radial": "RADIAL_CHART",
-        "radial chart": "RADIAL_CHART",
-    }
-    normalized = aliases.get(text)
-    if normalized:
-        return normalized
-
-    normalized = aliases.get(text.replace("_", " ").replace("-", " "))
-    return normalized or ""
-
-
 def _extract_frontend_intent(body: Dict[str, Any]) -> Dict[str, Any]:
     intent: Dict[str, Any] = {}
     body_intent = body.get("intent")
@@ -282,6 +248,7 @@ def _extract_frontend_intent(body: Dict[str, Any]) -> Dict[str, Any]:
 
 def _extract_frontend_visualization_intent(body: Dict[str, Any]) -> Dict[str, Any]:
     visual: Dict[str, Any] = {}
+    frontend_hint_present = False
     body_intent = body.get("intent")
     if isinstance(body_intent, dict):
         for key, aliases in _VISUALIZATION_FIELD_ALIASES.items():
@@ -289,6 +256,7 @@ def _extract_frontend_visualization_intent(body: Dict[str, Any]) -> Dict[str, An
                 value = body_intent.get(alias)
                 if value not in (None, "", [], {}):
                     visual[key] = value
+                    frontend_hint_present = True
                     break
 
     for canonical, aliases in _VISUALIZATION_FIELD_ALIASES.items():
@@ -298,10 +266,12 @@ def _extract_frontend_visualization_intent(body: Dict[str, Any]) -> Dict[str, An
             value = body.get(alias)
             if value not in (None, "", [], {}):
                 visual[canonical] = value
+                frontend_hint_present = True
                 break
 
     widgets_value = body.get("widgets")
     if isinstance(widgets_value, list) and widgets_value:
+        frontend_hint_present = True
         visual.setdefault("widgets", widgets_value)
 
     widget_hint = str(visual.get("widget_hint") or "").strip().lower()
@@ -311,20 +281,10 @@ def _extract_frontend_visualization_intent(body: Dict[str, Any]) -> Dict[str, An
             visual["presentation"] = "cards"
         elif widget_hint in {"table", "grid"}:
             visual["presentation"] = "table"
-        elif widget_hint in {"chart", "bar", "line", "pie", "area", "donut", "radial"}:
+        elif widget_hint in {"chart", "bar", "line", "pie"}:
             visual["presentation"] = "chart"
-            if widget_hint == "bar":
-                visual["chart_type"] = "bar"
-            elif widget_hint == "line":
-                visual["chart_type"] = "line"
-            elif widget_hint == "pie":
-                visual["chart_type"] = "pie"
-            elif widget_hint == "area":
-                visual["chart_type"] = "area"
-            elif widget_hint == "donut":
-                visual["chart_type"] = "pie"
-            elif widget_hint == "radial":
-                visual["chart_type"] = "pie"
+            if widget_hint in {"bar", "line", "pie"}:
+                visual["chart_type"] = widget_hint
     if presentation in {"card", "cards"}:
         visual["presentation"] = "cards"
     elif presentation in {"table", "grid"}:
@@ -332,15 +292,10 @@ def _extract_frontend_visualization_intent(body: Dict[str, Any]) -> Dict[str, An
     elif presentation in {"chart", "graph", "plot"}:
         visual["presentation"] = "chart"
 
-    requested = (
-        _normalize_requested_widget_type(visual.get("data_type"))
-        or _normalize_requested_widget_type(visual.get("widget_hint"))
-        or _normalize_requested_widget_type(visual.get("presentation"))
-        or _normalize_requested_widget_type(visual.get("chart_type"))
-        or _normalize_requested_widget_type(widgets_value[0] if isinstance(widgets_value, list) and widgets_value else "")
-    )
-    if requested:
-        visual["requested_widget_type"] = requested
+    if frontend_hint_present:
+        visual["frontend_override"] = True
+        visual["presentation"] = "chart"
+        visual["chart_type"] = "bar"
 
     return visual
 
@@ -1729,7 +1684,6 @@ def execute_admin_query(
                     suggested_questions=suggested,
                     prediction=report.get("prediction"),
                     dotnet_payload=response_dotnet_payload,
-                    answer_dict=answer,
                 )
                 response_assembly_duration = time.time() - response_assembly_start
                 logger.info(
@@ -1768,7 +1722,7 @@ def execute_admin_query(
                     "prediction": report.get("prediction"),
                     "conclusion": report.get("conclusion") or {"summary": "", "bullets": []},
                 },
-                "answer": answer,
+                
                 "suggestedQuestions": suggested or [],
                 "dotnetPayload": response_dotnet_payload if "response_dotnet_payload" in locals() else {},
                 "metadata": {

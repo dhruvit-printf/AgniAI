@@ -765,10 +765,12 @@ def build_formatted_data(
     prediction: Optional[Any] = None,
     conclusion: Optional[Any] = None,
     visualization_intent: Optional[Dict[str, Any]] = None,
+    answer_dict: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    
+    source_result = answer_dict if isinstance(answer_dict, dict) else combined_result
+
     inferred_type = infer_supported_type(
-        combined_result,
+        source_result,
         query_type,
         intent,
         visualization_intent=visualization_intent,
@@ -777,16 +779,16 @@ def build_formatted_data(
     from normalized_models import _derive_title
     title = _derive_title(query_type, intent)
     
-    records = _extract_records(combined_result)
+    records = _extract_records(source_result)
     
     if inferred_type == "CARD":
         data_payload = build_card_data(records, title)
     elif inferred_type in {"CHART_BAR", "BAR_CHART"}:
-        data_payload = build_bar_chart_data(combined_result)
+        data_payload = build_bar_chart_data(source_result)
     elif inferred_type in {"CHART_LINE", "LINE_CHART", "AREA_CHART"}:
-        data_payload = build_line_chart_data(combined_result)
+        data_payload = build_line_chart_data(source_result)
     elif inferred_type in {"CHART_PIE", "PIE_CHART", "DONUT_CHART", "RADIAL_CHART"}:
-        data_payload = build_pie_chart_data(combined_result)
+        data_payload = build_pie_chart_data(source_result)
     else:
         data_payload = build_table_data(records)
 

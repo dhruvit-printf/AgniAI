@@ -292,6 +292,11 @@ def build_response(
         conclusion=conclusion,
     )
     widget_value = (fd_payload.get("type") or "TABLE")
+    answer_payload = (
+        answer_dict
+        if isinstance(answer_dict, dict)
+        else build_answer(query_type, combined_result, intent)
+    )
 
     try:
         response_model = FinalResponse(
@@ -322,6 +327,7 @@ def build_response(
     model_dict["message"] = (intro_message or "").strip()
     model_dict["widget"] = widget_value
     model_dict["sessionId"] = session_value
+    model_dict["answer"] = answer_payload
     return model_dict
 
 
