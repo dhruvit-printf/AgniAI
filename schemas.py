@@ -8,14 +8,19 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
+
 class IntentModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    # extra="ignore": understand_query adds "query_type" to the intent dict;
+    # any other unexpected keys from future classify_admin_intent changes are
+    # silently dropped rather than causing drift warnings on every request.
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     category: Optional[str] = None
     subcategory: Optional[str] = None
     confidence: Any = None
     operation: Optional[str] = None
     raw_query: Optional[str] = None
+    query_type: Optional[str] = None          # ← added: set by understand_query()
     number: Optional[int] = None
     section: Optional[str] = None
     sub_section: Optional[str] = None
@@ -83,9 +88,11 @@ class DotNetPayloadModel(BaseModel):
     fullName: Optional[str] = None
     groupBy: Optional[str] = None
     analyticsHint: Optional[str] = None
+    sortBy: Optional[str] = None             # ← added: passed by admin_pipeline for ranking
+
 
 class DotNetResponseModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     success: Optional[bool] = None
     commandLabel: Optional[str] = None
@@ -94,8 +101,9 @@ class DotNetResponseModel(BaseModel):
     message: Optional[str] = None
     records: Optional[List[Dict[str, Any]]] = None
 
+
 class CombinedResponseModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")   # was "forbid" — same reasoning as DotNetResponseModel
 
     success: Optional[bool] = None
     status: Optional[bool] = None
@@ -127,8 +135,9 @@ class CombinedResponseModel(BaseModel):
     totalBeforeFilter: Optional[int] = None
     filterDepth: Optional[int] = None
 
+
 class AnalysisModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")   # was "forbid" — safe to relax
 
     insights: List[str] = Field(default_factory=list)
     summary: str = ""
@@ -136,8 +145,9 @@ class AnalysisModel(BaseModel):
     observations: List[str] = Field(default_factory=list)
     predictions: List[str] = Field(default_factory=list)
 
+
 class PredictionModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")   # was "forbid" — safe to relax
 
     trend: str = ""
     projection: Optional[str] = None
@@ -145,23 +155,27 @@ class PredictionModel(BaseModel):
     shortTerm: Optional[str] = None
     futureTrends: List[str] = Field(default_factory=list)
 
+
 class ConclusionModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")   # was "forbid" — safe to relax
 
     summary: str = ""
     bullets: List[str] = Field(default_factory=list)
+
 
 class SuggestedQuestionModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     question: str
 
+
 class WidgetModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     section: str = ""
     widgetType: str = ""
-    type: Optional[str] = None  # For backward compatibility
+    type: Optional[str] = None
+
 
 class MetadataModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -169,8 +183,8 @@ class MetadataModel(BaseModel):
     requestId: str = ""
     traceId: str = ""
     sessionId: str = ""
-    timings: Dict[str, Any] = {}
-    metrics: Dict[str, Any] = {}
+    timings: Dict[str, Any] = Field(default_factory=dict)
+    metrics: Dict[str, Any] = Field(default_factory=dict)
     executionTimeMs: int = 0
     intentDurationMs: int = 0
     dotnetDurationMs: int = 0
@@ -179,24 +193,27 @@ class MetadataModel(BaseModel):
     predictionDurationMs: int = 0
     conclusionDurationMs: int = 0
     totalDurationMs: int = 0
-    # Backward compatibility fields
+    plannerDurationMs: Optional[float] = None  # ← added: present in durations_payload
+    # Backward-compat camelCase fields
     confidence: Optional[float] = None
     queryType: Optional[str] = None
     operationCount: Optional[int] = None
+    entityResolutionMs: Optional[float] = None
+    planningMs: Optional[float] = None
+    widgetMs: Optional[float] = None
+    responseAssemblyMs: Optional[float] = None
+    # Backward-compat snake_case fields
     planner_duration: Optional[float] = None
     intent_duration: Optional[float] = None
     dotnet_duration: Optional[float] = None
     combiner_duration: Optional[float] = None
     report_duration: Optional[float] = None
     total_duration: Optional[float] = None
-    entityResolutionMs: Optional[float] = None
-    planningMs: Optional[float] = None
-    widgetMs: Optional[float] = None
-    responseAssemblyMs: Optional[float] = None
     entity_resolution_ms: Optional[float] = None
     planning_ms: Optional[float] = None
     widget_ms: Optional[float] = None
     response_assembly_ms: Optional[float] = None
+
 
 class CardItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -205,19 +222,23 @@ class CardItem(BaseModel):
     value: str
     description: str
 
+
 class CardData(BaseModel):
     model_config = ConfigDict(extra="ignore")
     cards: List[CardItem]
+
 
 class TableColumn(BaseModel):
     model_config = ConfigDict(extra="ignore")
     key: str
     label: str
 
+
 class TableData(BaseModel):
     model_config = ConfigDict(extra="ignore")
     columns: List[TableColumn]
     rows: List[Dict[str, Any]]
+
 
 class BarChartData(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -225,10 +246,12 @@ class BarChartData(BaseModel):
     yKey: str
     rows: List[Dict[str, Any]]
 
+
 class SeriesItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
     key: str
     label: str
+
 
 class LineChartData(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -236,14 +259,17 @@ class LineChartData(BaseModel):
     series: List[SeriesItem]
     rows: List[Dict[str, Any]]
 
+
 class PieChartItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
     label: str
     value: Any
 
+
 class PieChartData(BaseModel):
     model_config = ConfigDict(extra="ignore")
     rows: List[PieChartItem]
+
 
 class FormattedData(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -257,8 +283,9 @@ class FormattedData(BaseModel):
     group_by: Optional[str] = None
     metric: Optional[str] = None
 
+
 class FinalResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     status: bool
     sessionId: str
@@ -269,4 +296,6 @@ class FinalResponse(BaseModel):
     dotnetPayload: Any = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
+
+# Alias used throughout admin_pipeline.py
 FinalResponseModel = FinalResponse

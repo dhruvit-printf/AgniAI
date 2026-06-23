@@ -296,9 +296,29 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
     ("Distribution", "Schedule"):       "TABLE",
     # ── Overall (top-level) ──────────────────────────────────────────────────
     ("Overall", "Overall"):             "TABLE",
+    ("Overall", "OverallPerformance"):  "TABLE",
     # ── Schedule ─────────────────────────────────────────────────────────────
+    # Keyed by both .NET operation string AND subcategory name
     ("schedule", "Date"):               "TABLE",
+    ("schedule", "date"):               "TABLE",
+    ("schedule", "company"):            "TABLE",
+    ("schedule", "agniveer"):           "TABLE",
+    ("schedule", "CompanySchedule"):    "TABLE",
+    ("schedule", "AgniveerSchedule"):   "TABLE",
+    ("schedule", "DateSchedule"):       "TABLE",
     ("Schedule", "Date"):               "TABLE",
+    # ── Medical extras ───────────────────────────────────────────────────────
+    ("Medical", "Individual"):          "TABLE",
+    ("Medical", "IndividualMedical"):   "TABLE",
+    ("Medical", "BloodGroup"):          "TABLE",
+    # ── Attendance extras ────────────────────────────────────────────────────
+    ("Attendance", "Yearly"):           "CHART_BAR",
+    ("Attendance", "YearlyAttendance"): "CHART_BAR",
+    # ── Performance subcategory-keyed (direct lookup without alias) ───────────
+    ("Performance", "GradeDistribution"):  "TABLE",
+    ("Performance", "AverageScore"):       "CHART_PIE",
+    ("Performance", "SectionSummary"):     "TABLE",
+    ("Performance", "OverallPerformance"): "TABLE",
 }
 
 # ---------------------------------------------------------------------------
@@ -330,6 +350,31 @@ _OPERATION_ALIASES: Dict[str, str] = {
     "AttemptWise":            "AttemptWise",
     "PassPercentage":         "PassPercentage",
     "FailPercentage":         "FailPercentage",
+    # admin_intent subcategory names → WIDGET_MAP keys
+    "GradeDistribution":      "Grading",        # → ("Performance","Grading") TABLE
+    "AverageScore":           "Average",         # → ("Performance","Average") CHART_PIE
+    "SectionSummary":         "Summary",         # → ("Performance","Summary") TABLE
+    "OverallPerformance":     "Overall",         # → ("Performance","Overall") TABLE
+    "MostLeaveTaken":         "Most",
+    "LeastLeaveTaken":        "Least",
+    "CurrentLeaveStatus":     "Current",
+    "AbscondedPerson":        "Absconded",
+    "ActiveCases":            "Active",
+    "DiseaseStatistics":      "Disease",
+    "BloodGroup":             "BloodGroup",      # → ("Medical","BloodGroup") TABLE
+    "DailyAttendance":        "Daily",
+    "PendingVerification":    "Pending",
+    "NotRespondedVerification": "NotResponded",
+    "VerifiedVerification":   "Verified",
+    "RejectedVerification":   "Rejected",
+    "OverdueEquipment":       "Overdue",
+    "PoorConditionEquipment": "Returned",
+    "LatestDistribution":     "Latest",
+    "DistributionByUnit":     "ByUnit",
+    "UnassignedItems":        "Unassigned",
+    "CompanySchedule":        "company",
+    "AgniveerSchedule":       "agniveer",
+    "DateSchedule":           "date",
     # Direct subcategory → map key (for cases where alias = key itself)
     "Top":                    "Top",
     "Bottom":                 "Bottom",
