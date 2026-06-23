@@ -679,6 +679,8 @@ def execute_admin_query(
                 session_id=session_id,
                 query_type=qtype,
             )
+            response_payload.setdefault("metadata", {})
+            response_payload["metadata"].setdefault("timings", {})
             response_payload["metadata"]["timings"]["intentDurationMs"] = round(intent_duration * 1000, 2)
             response_payload["metadata"]["executionTimeMs"] = round(total_duration * 1000)
             set_audit_context(
@@ -1068,6 +1070,8 @@ def execute_admin_query(
                         session_id=session_id,
                         query_type="unclear",
                     )
+                    response_payload.setdefault("metadata", {})
+                    response_payload["metadata"].setdefault("timings", {})
                     response_payload["metadata"]["timings"].update(
                         {
                             "entityResolutionMs": round(entity_resolution_duration * 1000),
@@ -1085,6 +1089,7 @@ def execute_admin_query(
                             "executionTimeMs": round(total_duration * 1000),
                         }
                     )
+                    response_payload["metadata"].setdefault("metrics", {})
                     response_payload["metadata"]["metrics"]["confidence"] = round(
                         float(semantic_understanding.get("confidence") or 0.0), 2
                     )
@@ -1615,6 +1620,7 @@ def execute_admin_query(
             }
 
         execution_time_ms = round(total_duration * 1000)
+        response_payload.setdefault("metadata", {})
         response_payload["metadata"]["executionTimeMs"] = execution_time_ms
         logger.info(
             {
