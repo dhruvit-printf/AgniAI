@@ -821,6 +821,8 @@ def execute_admin_query(
                         int(os.getenv("DOTNET_MAX_PARALLEL", "4")),
                     )
 
+                    response_dotnet_payload = [None] * len(query_plan.operations)
+
                     def run_op(idx, op):
                         payload = dict(op.dotnet_payload)
                         payload.update(id_filters)
@@ -846,6 +848,8 @@ def execute_admin_query(
                                 }
                             )
                         )
+
+                        response_dotnet_payload[idx] = dict(payload)
 
                         try:
                             with trace_context(request_id, trace_id, session_id):
@@ -1181,6 +1185,8 @@ def execute_admin_query(
                     if query_plan.analytics_hint:
                         dotnet_payload["analyticsHint"] = query_plan.analytics_hint
 
+                response_dotnet_payload = dict(dotnet_payload)
+
                 intent_duration = time.time() - intent_start
 
                 # ── Step 3: Execute .NET API Call ─────────────────────────────
@@ -1308,8 +1314,34 @@ def execute_admin_query(
                 total_duration = time.time() - start_time
                 response_payload = {
                     "status": False,
-                    "queryType": qtype_str,
-                    "message": combined_result.get("message", "No matching records found")
+                    "sessionId": session_id,
+                    "message": combined_result.get("message", "No matching records found"),
+                    "widget": "TABLE",
+                    "formattedData": {
+                        "type": "TABLE",
+                        "title": "No Results",
+                        "data": {"columns": [], "rows": []},
+                        "analysis": {"summary": "", "insights": [], "statistics": {}},
+                        "prediction": None,
+                        "conclusion": {"summary": "", "bullets": []},
+                    },
+                    "suggestedQuestions": [],
+                    "dotnetPayload": response_dotnet_payload if "response_dotnet_payload" in locals() else {},
+                    "metadata": {
+                        "sessionId": session_id,
+                        "confidence": round(float(query_plan.confidence), 2),
+                        "queryType": qtype_str,
+                        "operationCount": operation_count,
+                        "timings": {
+                            "plannerMs": round(planner_duration * 1000, 2),
+                            "intentMs": round(intent_duration * 1000, 2),
+                            "dotnetMs": round(dotnet_duration * 1000, 2),
+                            "combinerMs": round(combiner_duration * 1000, 2),
+                            "reportMs": round(report_duration * 1000, 2),
+                            "totalMs": round(total_duration * 1000, 2),
+                        },
+                        "executionTimeMs": round(total_duration * 1000, 2),
+                    },
                 }
                 return {
                     "type": qtype_str,
@@ -1565,12 +1597,9 @@ def execute_admin_query(
                     formatted_data=formatted_data_payload,
                     session_id=session_id,
                     durations=durations_payload,
-                    widgets=None,
                     suggested_questions=suggested,
                     prediction=report.get("prediction"),
-                    partial_failure=partial_failure,
-                    failed_sections=failed_sections,
-                    answer_dict=answer,
+                    dotnet_payload=response_dotnet_payload,
                 )
                 response_assembly_duration = time.time() - response_assembly_start
                 logger.info(
@@ -1596,27 +1625,36 @@ def execute_admin_query(
                 })
             )
             # Build minimal valid response preserving .NET data
-            from normalized_models import build_answer as _ba
             response_payload = {
                 "status": True,
                 "sessionId": session_id,
                 "message": report.get("introMessage", ""),
-                "queryType": qtype_str,
-                "answer": answer,
-                "result": {"processedData": combined_result},
-                "widgets": [],
                 "widget": "table",
-                "records": _extract_records(combined_result),
-                "analysis": None,
-                "prediction": None,
-                "conclusion": None,
-                "intent": primary_intent,
-                "formattedData": formatted_data_payload,
-                "suggestedQuestions": [],
-                "metadata": {"timings": durations_payload, "metrics": {"confidence": query_plan.confidence, "queryType": qtype_str}},
-                "overallConfidence": round(float(query_plan.confidence), 2),
-                "partialFailure": True,
-                "failedSections": ["response_builder"],
+                "formattedData": {
+                    "type": (formatted_data_payload or {}).get("type", "TABLE"),
+                    "title": (formatted_data_payload or {}).get("title", "Data Summary"),
+                    "data": (formatted_data_payload or {}).get("data", {"columns": [], "rows": []}),
+                    "analysis": report.get("analysis") or {"summary": "", "insights": [], "statistics": {}},
+                    "prediction": report.get("prediction"),
+                    "conclusion": report.get("conclusion") or {"summary": "", "bullets": []},
+                },
+                "suggestedQuestions": suggested or [],
+                "dotnetPayload": response_dotnet_payload if "response_dotnet_payload" in locals() else {},
+                "metadata": {
+                    "sessionId": session_id,
+                    "confidence": round(float(query_plan.confidence), 2),
+                    "queryType": qtype_str,
+                    "operationCount": operation_count,
+                    "timings": {
+                        "plannerMs": round(planner_duration * 1000, 2),
+                        "intentMs": round(intent_duration * 1000, 2),
+                        "dotnetMs": round(dotnet_duration * 1000, 2),
+                        "combinerMs": round(combiner_duration * 1000, 2),
+                        "reportMs": round(report_duration * 1000, 2),
+                        "totalMs": round(total_duration * 1000, 2),
+                    },
+                    "executionTimeMs": round(total_duration * 1000, 2),
+                },
             }
 
         execution_time_ms = round(total_duration * 1000)

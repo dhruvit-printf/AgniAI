@@ -128,28 +128,12 @@ def admin_chat():
     # ── Successful query / greeting / conversational ────────────────────────
     payload = result.get("response_payload") or {}
 
-    # Log partial failures but still return HTTP 200
-    if payload.get("partialFailure"):
-        logger.warning(
-            json.dumps(
-                {
-                    "message": "HTTP admin chat partial failure",
-                    "question": message,
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": payload.get("queryType"),
-                    "failed_sections": payload.get("failedSections", []),
-                    "duration_ms": duration_ms,
-                }
-            )
-        )
-
     logger.info(
         json.dumps(
             {
                 "question": message,
-                "query_type": payload.get("queryType"),
-                "intent_formed": payload.get("intent"),
+                "query_type": (payload.get("metadata") or {}).get("queryType"),
+                "intent_formed": payload.get("formattedData", {}).get("title"),
             }
         )
     )

@@ -141,18 +141,18 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
             json.dumps(
                 {
                     "question": message,
-                    "query_type": response_payload.get("queryType") or result.get("type"),
-                    "intent_formed": response_payload.get("intent") or result.get("response_payload", {}).get("intent"),
+                    "query_type": (response_payload.get("metadata") or {}).get("queryType") or result.get("type"),
+                    "intent_formed": (response_payload.get("formattedData") or {}).get("title"),
                 }
             )
         )
 
-        # Old code streamed only message and formattedData fields. We align events to intro, result, analysis, conclusion, done.
+        # Stream a minimal intro, then the full final payload, then a completion signal.
         ws_manager.send_json(
             sid,
             {
                 "type": "intro",
-                "introMessage": response_payload.get("introMessage") or response_payload.get("message", ""),
+                "introMessage": response_payload.get("message", ""),
                 "message": response_payload.get("message", ""),
             },
         )
@@ -160,25 +160,10 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
             sid,
             {
                 "type": "result",
-                "formattedData": response_payload.get("formattedData", {}),
+                "response": response_payload,
             },
         )
-        ws_manager.send_json(
-            sid,
-            {
-                "type": "analysis",
-                "analysis": response_payload.get("analysis"),
-                "prediction": response_payload.get("prediction"),
-            },
-        )
-        ws_manager.send_json(
-            sid,
-            {
-                "type": "conclusion",
-                "conclusion": response_payload.get("conclusion"),
-            },
-        )
-        ws_manager.send_json(sid, {"type": "done", "done": True})
+        ws_manager.send_json(sid, {"type": "done"})
 
     except Exception as exc:
         duration_ms = round((time.time() - start_time) * 1000, 2)

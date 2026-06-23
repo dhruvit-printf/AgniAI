@@ -27,17 +27,178 @@ _PUBLIC_RESPONSE_KEYS = (
     "sessionId",
     "message",
     "widget",
-    "records",
     "formattedData",
     "suggestedQuestions",
-    "analysis",
-    "prediction",
-    "conclusion",
-    "queryType",
-    "answer",
-    "overallConfidence",
+    "dotnetPayload",
     "metadata",
 )
+
+_DEFAULT_ANALYSIS = {"summary": "", "insights": [], "statistics": {}}
+_DEFAULT_CONCLUSION = {"summary": "", "bullets": []}
+_DEFAULT_FORMATTED_DATA = {
+    "type": "TABLE",
+    "title": "Data Summary",
+    "data": {"columns": [], "rows": []},
+    "analysis": dict(_DEFAULT_ANALYSIS),
+    "prediction": None,
+    "conclusion": dict(_DEFAULT_CONCLUSION),
+}
+
+
+def _normalize_analysis_block(analysis: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not analysis:
+        return {"summary": "", "insights": [], "statistics": {}}
+    if isinstance(analysis, str):
+        return {"summary": analysis.strip(), "insights": [], "statistics": {}}
+
+    insights = analysis.get("insights") or []
+    if isinstance(insights, list):
+        clean_insights = [str(item).strip() for item in insights if str(item).strip()]
+    elif isinstance(insights, str):
+        clean_insights = [insights.strip()] if insights.strip() else []
+    else:
+        clean_insights = []
+
+    statistics = analysis.get("statistics") or {}
+    if not isinstance(statistics, dict):
+        statistics = {}
+
+    return {
+        "summary": (analysis.get("summary") or "").strip(),
+        "insights": clean_insights,
+        "statistics": statistics,
+    }
+
+
+def _normalize_conclusion_block(conclusion: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not conclusion:
+        return {"summary": "", "bullets": []}
+    if isinstance(conclusion, str):
+        return {"summary": conclusion.strip(), "bullets": []}
+
+    bullets = conclusion.get("bullets") or []
+    if isinstance(bullets, list):
+        clean_bullets = [str(item).strip() for item in bullets if str(item).strip()]
+    elif isinstance(bullets, str):
+        clean_bullets = [bullets.strip()] if bullets.strip() else []
+    else:
+        clean_bullets = []
+
+    return {
+        "summary": (conclusion.get("summary") or conclusion.get("message") or "").strip(),
+        "bullets": clean_bullets,
+    }
+
+
+def _normalize_prediction_block(prediction: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not prediction:
+        return None
+    if isinstance(prediction, str):
+        summary = prediction.strip()
+        if not summary:
+            return None
+        return {"summary": summary, "confidence": 0.0, "forecast": []}
+
+    forecast = prediction.get("forecast") or prediction.get("futureTrends") or []
+    if isinstance(forecast, list):
+        clean_forecast = [str(item).strip() for item in forecast if str(item).strip()]
+    elif isinstance(forecast, str):
+        clean_forecast = [forecast.strip()] if forecast.strip() else []
+    else:
+        clean_forecast = []
+
+    confidence = prediction.get("confidence")
+    try:
+        confidence_value = float(confidence) if confidence is not None else 0.0
+    except (TypeError, ValueError):
+        confidence_value = 0.0
+
+    summary = (prediction.get("summary") or prediction.get("projection") or "").strip()
+    if not summary and clean_forecast:
+        summary = clean_forecast[0]
+
+    if not summary and not clean_forecast:
+        return None
+
+    return {
+        "summary": summary,
+        "confidence": round(max(0.0, min(1.0, confidence_value)), 2),
+        "forecast": clean_forecast,
+    }
+
+
+def _build_exact_formatted_data(
+    formatted_data: Any,
+    *,
+    analysis: Optional[Dict[str, Any]],
+    prediction: Optional[Dict[str, Any]],
+    conclusion: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if isinstance(formatted_data, dict):
+        fd_payload = dict(formatted_data)
+    else:
+        fd_payload = {}
+
+    fd_payload = {
+        "type": fd_payload.get("type") or _DEFAULT_FORMATTED_DATA["type"],
+        "title": fd_payload.get("title") or _DEFAULT_FORMATTED_DATA["title"],
+        "data": fd_payload.get("data")
+        if isinstance(fd_payload.get("data"), dict)
+        else _DEFAULT_FORMATTED_DATA["data"],
+        "analysis": _normalize_analysis_block(analysis),
+        "prediction": _normalize_prediction_block(prediction),
+        "conclusion": _normalize_conclusion_block(conclusion),
+    }
+    return fd_payload
+
+
+def _build_exact_metadata(
+    *,
+    session_id: str,
+    confidence: float,
+    query_type: str,
+    operation_count: int,
+    durations: Optional[Dict[str, float]] = None,
+) -> Dict[str, Any]:
+    durations_dict = durations or {}
+    planner_ms = durations_dict.get("plannerMs")
+    if planner_ms is None:
+        planner_ms = durations_dict.get("plannerDurationMs") or durations_dict.get("planningMs") or durations_dict.get("planning_ms") or 0
+    intent_ms = durations_dict.get("intentMs")
+    if intent_ms is None:
+        intent_ms = durations_dict.get("intentDurationMs") or durations_dict.get("intent_duration") or 0
+    dotnet_ms = durations_dict.get("dotnetMs")
+    if dotnet_ms is None:
+        dotnet_ms = durations_dict.get("dotnetDurationMs") or durations_dict.get("dotnet_duration") or 0
+    combiner_ms = durations_dict.get("combinerMs")
+    if combiner_ms is None:
+        combiner_ms = durations_dict.get("combineDurationMs") or durations_dict.get("combiner_duration") or 0
+    report_ms = durations_dict.get("reportMs")
+    if report_ms is None:
+        report_ms = durations_dict.get("report_duration") or durations_dict.get("analysisDurationMs") or 0
+    total_ms = durations_dict.get("totalMs")
+    if total_ms is None:
+        total_ms = durations_dict.get("totalDurationMs") or durations_dict.get("executionTimeMs") or durations_dict.get("total_duration") or 0
+
+    execution_ms = durations_dict.get("executionTimeMs")
+    if execution_ms is None:
+        execution_ms = total_ms
+
+    return {
+        "sessionId": session_id,
+        "confidence": round(float(confidence), 2),
+        "queryType": query_type,
+        "operationCount": int(operation_count),
+        "timings": {
+            "plannerMs": round(float(planner_ms), 2),
+            "intentMs": round(float(intent_ms), 2),
+            "dotnetMs": round(float(dotnet_ms), 2),
+            "combinerMs": round(float(combiner_ms), 2),
+            "reportMs": round(float(report_ms), 2),
+            "totalMs": round(float(total_ms), 2),
+        },
+        "executionTimeMs": round(float(execution_ms), 2),
+    }
 
 
 def _extract_records(data: Any) -> List[Dict]:
@@ -88,6 +249,7 @@ def build_response(
     widgets: Optional[List[Dict[str, str]]] = None,
     suggested_questions: Optional[List[str]] = None,
     prediction: Optional[Dict[str, Any]] = None,
+    dotnet_payload: Optional[Any] = None,
     partial_failure: bool = False,
     failed_sections: Optional[List[str]] = None,
     answer_dict: Optional[Dict[str, Any]] = None,
@@ -101,170 +263,52 @@ def build_response(
     _logger = _log.getLogger(__name__)
 
     from schemas import FinalResponse
-    from telemetry import request_id_var, trace_id_var, session_id_var
-    from normalized_models import build_answer, normalize_intent_confidence
-    from visualization_intent import build_visualization_intent
+    from telemetry import session_id_var
 
-    durations_dict = durations or {}
     session_value = session_id or session_id_var.get("admin-default") or "admin-default"
-    request_value = durations_dict.get("requestId") or request_id_var.get("N/A")
-    trace_value = durations_dict.get("traceId") or trace_id_var.get("N/A")
-
-    metadata = {
-        "requestId": request_value,
-        "traceId": trace_value,
-        "sessionId": session_value,
-        "timings": {
-            "entityResolutionMs": durations_dict.get("entityResolutionMs")
-            or durations_dict.get("entity_resolution_ms", 0.0),
-            "planningMs": durations_dict.get("planningMs")
-            or durations_dict.get("planning_ms", 0.0),
-            "plannerDurationMs": durations_dict.get("plannerDurationMs")
-            or durations_dict.get("planner_duration", 0.0),
-            "intentDurationMs": durations_dict.get("intentDurationMs")
-            or durations_dict.get("intent_duration", 0.0),
-            "dotnetDurationMs": durations_dict.get("dotnetDurationMs")
-            or durations_dict.get("dotnet_duration", 0.0),
-            "combineDurationMs": durations_dict.get("combineDurationMs")
-            or durations_dict.get("combiner_duration", 0.0),
-            "widgetMs": durations_dict.get("widgetMs")
-            or durations_dict.get("widget_duration", 0.0),
-            "responseAssemblyMs": durations_dict.get("responseAssemblyMs")
-            or durations_dict.get("response_assembly_duration", 0.0),
-            "analysisDurationMs": durations_dict.get("analysisDurationMs")
-            or durations_dict.get("analysis_duration", 0.0),
-            "predictionDurationMs": durations_dict.get("predictionDurationMs")
-            or durations_dict.get("prediction_duration", 0.0),
-            "conclusionDurationMs": durations_dict.get("conclusionDurationMs")
-            or durations_dict.get("conclusion_duration", 0.0),
-            "totalDurationMs": durations_dict.get("totalDurationMs")
-            or durations_dict.get("total_duration", 0.0),
-            "executionTimeMs": durations_dict.get("executionTimeMs")
-            or durations_dict.get("execution_time_ms", 0.0),
-        },
-        "metrics": {
-            "confidence": round(float(confidence), 2),
-            "queryType": query_type,
-            "operationCount": int(operation_count),
-        },
-        "planner_duration": durations_dict.get("planner_duration")
-        or durations_dict.get("plannerDurationMs", 0.0),
-        "intent_duration": durations_dict.get("intent_duration")
-        or durations_dict.get("intentDurationMs", 0.0),
-        "dotnet_duration": durations_dict.get("dotnet_duration")
-        or durations_dict.get("dotnetDurationMs", 0.0),
-        "combiner_duration": durations_dict.get("combiner_duration")
-        or durations_dict.get("combineDurationMs", 0.0),
-        "report_duration": durations_dict.get("report_duration")
-        or durations_dict.get("analysisDurationMs", 0.0),
-        "total_duration": durations_dict.get("total_duration")
-        or durations_dict.get("totalDurationMs", 0.0),
-        "confidence": round(float(confidence), 2),
-        "queryType": query_type,
-        "operationCount": int(operation_count),
-    }
-
-    normalized_intent = normalize_intent_confidence(intent, confidence)
-    answer_payload = (
-        answer_dict
-        if answer_dict is not None
-        else build_answer(query_type, combined_result, normalized_intent)
+    metadata = _build_exact_metadata(
+        session_id=session_value,
+        confidence=confidence,
+        query_type=query_type,
+        operation_count=operation_count,
+        durations=durations,
     )
-    viz_intent = build_visualization_intent(
-        intro_message or "",
-        normalized_intent,
-        combined_result,
+    fd_payload = _build_exact_formatted_data(
+        formatted_data,
+        analysis=analysis,
+        prediction=prediction,
+        conclusion=conclusion,
     )
-
-    if isinstance(formatted_data, dict):
-        fd_payload = dict(formatted_data)
-    else:
-        fd_payload = None
-
-    if fd_payload is None:
-        fd_payload = {
-            "type": "TABLE",
-            "title": "Data Summary",
-            "data": {"columns": [], "rows": []},
-        }
-
-    # Ensure the formatted payload never leaks analytics/report text.
-    for noisy_key in ("analysis", "prediction", "conclusion"):
-        fd_payload.pop(noisy_key, None)
-
-    if "type" not in fd_payload:
-        fd_payload["type"] = "TABLE"
-    if "title" not in fd_payload:
-        fd_payload["title"] = "Data Summary"
-    if "data" not in fd_payload:
-        fd_payload["data"] = {"columns": [], "rows": []}
-
-    widget_value = viz_intent.get("presentation") or "table"
+    widget_value = (fd_payload.get("type") or "TABLE")
 
     try:
         response_model = FinalResponse(
             status=True,
             sessionId=session_value,
             message=(intro_message or "").strip(),
-            queryType=query_type,
-            answer=answer_payload,
-            result={"processedData": combined_result},
-            widgets=[
-                {
-                    "section": fd_payload.get("title", "Result"),
-                    "type": (fd_payload.get("type") or "TABLE"),
-                    "widgetType": (fd_payload.get("type") or "TABLE"),
-                }
-            ],
             widget=widget_value,
-            records=_extract_records(combined_result),
-            analysis=analysis,
-            prediction=prediction,
-            conclusion=conclusion,
-            intent=normalized_intent,
-            formattedData=fd_payload if fd_payload else None,
+            formattedData=fd_payload,
             suggestedQuestions=suggested_questions or [],
+            dotnetPayload=dotnet_payload if dotnet_payload is not None else {},
             metadata=metadata,
-            overallConfidence=round(float(confidence), 2),
-            partialFailure=partial_failure,
-            failedSections=failed_sections or [],
         )
 
         model_dict = response_model.model_dump(by_alias=True)
     except Exception as schema_exc:
         _logger.error("FinalResponse schema construction failed: %s", schema_exc, exc_info=True)
-        # Build minimal valid response dict preserving message and formattedData
         model_dict = {
             "status": True,
             "sessionId": session_value,
             "message": (intro_message or "").strip(),
-            "queryType": query_type,
-            "answer": answer_payload,
-            "result": {"processedData": combined_result},
-            "widgets": [],
             "widget": widget_value,
-            "records": _extract_records(combined_result),
-            "analysis": None,
-            "prediction": None,
-            "conclusion": None,
-            "intent": normalized_intent,
             "formattedData": fd_payload,
-            "suggestedQuestions": [],
+            "suggestedQuestions": suggested_questions or [],
+            "dotnetPayload": dotnet_payload if dotnet_payload is not None else {},
             "metadata": metadata,
-            "overallConfidence": round(float(confidence), 2),
-            "partialFailure": True,
-            "failedSections": (failed_sections or []) + ["schema_validation"],
         }
 
     model_dict["message"] = (intro_message or "").strip()
     model_dict["widget"] = widget_value
-    model_dict["widgets"] = [
-        {
-            "section": fd_payload.get("title", "Result"),
-            "type": (fd_payload.get("type") or "TABLE"),
-            "widgetType": (fd_payload.get("type") or "TABLE"),
-        }
-    ]
     model_dict["sessionId"] = session_value
     return model_dict
 
@@ -288,34 +332,48 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
     Filter the internal response dict to only expose fields matching the
     public contract, preventing security leaks of raw .NET records or LLM details.
     """
-    # Old code omitted analysis, prediction, conclusion, queryType, answer, overallConfidence, and metadata keys in the public view.
-    public_payload = {k: payload[k] for k in _PUBLIC_RESPONSE_KEYS if k in payload}
-    
-    # Filter metadata to remove internal trace ids, request ids, and timings to keep public view clean
-    if "metadata" in public_payload and isinstance(public_payload["metadata"], dict):
-        clean_meta = dict(public_payload["metadata"])
-        clean_meta.pop("requestId", None)
-        clean_meta.pop("traceId", None)
-        clean_meta.pop("timings", None)
-        public_payload["metadata"] = clean_meta
-        
-    public_payload["message"] = (payload.get("message") or payload.get("introMessage") or "").strip()
-    if "widget" not in public_payload:
-        widgets = payload.get("widgets") or []
-        if isinstance(widgets, list) and widgets:
-            first_widget = widgets[0] if isinstance(widgets[0], dict) else {}
-            public_payload["widget"] = (
-                payload.get("widget")
-                or first_widget.get("widgetType")
-                or first_widget.get("type")
-                or "table"
-            )
-        else:
-            fd = payload.get("formattedData") or {}
-            if isinstance(fd, dict):
-                public_payload["widget"] = fd.get("type", "table")
-            else:
-                public_payload["widget"] = "table"
+    if not isinstance(payload, dict):
+        payload = {}
+
+    formatted = payload.get("formattedData") if isinstance(payload, dict) else None
+    metadata = payload.get("metadata") if isinstance(payload, dict) else None
+    if not isinstance(formatted, dict):
+        formatted = {}
+
+    clean_formatted = _build_exact_formatted_data(
+        formatted,
+        analysis=formatted.get("analysis"),
+        prediction=formatted.get("prediction"),
+        conclusion=formatted.get("conclusion"),
+    )
+
+    clean_meta = metadata if isinstance(metadata, dict) else {}
+    clean_meta = {
+        "sessionId": clean_meta.get("sessionId") or payload.get("sessionId") or "admin-default",
+        "confidence": round(float(clean_meta.get("confidence") or 0.0), 2),
+        "queryType": clean_meta.get("queryType") or "",
+        "operationCount": int(clean_meta.get("operationCount") or 0),
+        "timings": {
+            "plannerMs": round(float((clean_meta.get("timings") or {}).get("plannerMs") or 0), 2),
+            "intentMs": round(float((clean_meta.get("timings") or {}).get("intentMs") or 0), 2),
+            "dotnetMs": round(float((clean_meta.get("timings") or {}).get("dotnetMs") or 0), 2),
+            "combinerMs": round(float((clean_meta.get("timings") or {}).get("combinerMs") or 0), 2),
+            "reportMs": round(float((clean_meta.get("timings") or {}).get("reportMs") or 0), 2),
+            "totalMs": round(float((clean_meta.get("timings") or {}).get("totalMs") or 0), 2),
+        },
+        "executionTimeMs": round(float(clean_meta.get("executionTimeMs") or 0), 2),
+    }
+
+    public_payload = {
+        "status": bool(payload.get("status", True)),
+        "sessionId": payload.get("sessionId") or clean_meta["sessionId"],
+        "message": (payload.get("message") or payload.get("introMessage") or "").strip(),
+        "widget": payload.get("widget") or clean_formatted.get("type") or "TABLE",
+        "formattedData": clean_formatted,
+        "suggestedQuestions": list(payload.get("suggestedQuestions") or []),
+        "dotnetPayload": payload.get("dotnetPayload") or {},
+        "metadata": clean_meta,
+    }
     return public_payload
 
 
@@ -325,19 +383,14 @@ def stream_response_chunks(payload: Dict[str, Any]) -> Generator[Dict[str, Any],
     Yields each major section of the response independently.
     """
     keys = (
-        "intro",
-        "introMessage",
+        "status",
+        "sessionId",
+        "message",
+        "widget",
         "formattedData",
-        "answer",
-        "analysis",
-        "prediction",
-        "conclusion",
         "suggestedQuestions",
-        "widgets",
+        "dotnetPayload",
         "metadata",
-        "overallConfidence",
-        "partialFailure",
-        "failedSections",
     )
     for key in keys:
         if key in payload:

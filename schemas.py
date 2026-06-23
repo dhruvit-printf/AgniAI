@@ -263,21 +263,10 @@ class FinalResponse(BaseModel):
     status: bool
     sessionId: str
     message: str
-    queryType: str
-    answer: Dict[str, Any]
-    result: Dict[str, Any]
-    widgets: List[Dict[str, Any]]
     widget: Optional[str] = None
-    records: List[Dict[str, Any]] = Field(default_factory=list)
-    analysis: Optional[Any] = None
-    prediction: Optional[Any] = None
-    conclusion: Optional[Any] = None
-    intent: Dict[str, Any] = Field(default_factory=dict)
-    formattedData: Optional[Dict[str, Any]] = None
+    formattedData: Dict[str, Any] = Field(default_factory=dict)
     suggestedQuestions: List[str] = Field(default_factory=list)
+    dotnetPayload: Any = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    overallConfidence: float = 0.0
-    partialFailure: bool = False
-    failedSections: List[str] = Field(default_factory=list)
 
 FinalResponseModel = FinalResponse
