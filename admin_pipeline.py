@@ -1606,6 +1606,42 @@ def execute_admin_query(
         try:
             widget_start = time.time()
             from widget_engine import build_formatted_data
+            import re as _re
+
+            # ── Inline widget extraction from natural language ────────────────
+            # Catches phrases like:
+            #   "top 10 in bar chart"
+            #   "show attendance as pie chart"
+            #   "give me bmi as donut chart"
+            #   "display in tabular"
+            # Only fires when the frontend hasn't already sent an explicit override.
+            _INLINE_WIDGET_PATTERNS = [
+                # "as/in/show/display/using/with <widget>" — most specific first
+                r'\b(?:as|in|show(?:ing)?|display(?:ing)?|using|with)\s+'
+                r'(bar chart|line chart|pie chart|donut chart|area chart|'
+                r'radial chart|compare area chart|improvement trend chart|'
+                r'drop trend chart|tabular|table|card|cards)\b',
+                # bare widget name anywhere in the query
+                r'\b(bar chart|line chart|pie chart|donut chart|area chart|'
+                r'radial chart|compare area chart|improvement trend chart|'
+                r'drop trend chart|tabular|table)\b',
+            ]
+
+            inline_widget: Optional[str] = None
+            if not frontend_visualization_intent.get("frontend_override"):
+                msg_lower = message.lower()
+                for _pattern in _INLINE_WIDGET_PATTERNS:
+                    _m = _re.search(_pattern, msg_lower)
+                    if _m:
+                        inline_widget = _m.group(1)
+                        break
+
+            # Merge inline widget into visualization intent as an override
+            if inline_widget:
+                frontend_visualization_intent = dict(frontend_visualization_intent)
+                frontend_visualization_intent["requested_widget_type"] = inline_widget
+                frontend_visualization_intent["frontend_override"] = True
+
             visualization_intent = build_visualization_intent(
                 message, primary_intent, combined_result
             )
@@ -1615,6 +1651,7 @@ def execute_admin_query(
                     **frontend_visualization_intent,
                 }
             formatted_data_payload = build_formatted_data(
+
                 combined_result=combined_result,
                 query_type=qtype_str,
                 intent=primary_intent,
