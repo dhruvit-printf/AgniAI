@@ -17,7 +17,10 @@ from dotnet_adapter import extract_records as _normalize_records
 from normalized_models import (
     assemble_admin_response,
     build_answer,
+    combine_analysis_to_string,
     calculate_section_confidence as _calculate_section_confidence,
+    combine_conclusion_to_string,
+    combine_prediction_to_string,
     normalize_intent_confidence,
 )
 from conversation_detector import build_conversational_response as _build_conversational_payload
@@ -42,6 +45,13 @@ _DEFAULT_FORMATTED_DATA = {
     "analysis": dict(_DEFAULT_ANALYSIS),
     "prediction": None,
     "conclusion": dict(_DEFAULT_CONCLUSION),
+}
+_NO_DATA_FALLBACKS = {
+    "compare": "I could not complete the comparison because there was not enough matching information on one or both sides. Please try again with broader filters.",
+    "cross_filter": "I checked the selected conditions, but nothing matched all of them. Please try a wider search.",
+    "multi_independent": "I gathered the sections you asked for, but none of them returned anything to show.",
+    "trend": "I could not find enough matching information to describe a clear pattern. Please try a broader search.",
+    "distribution": "I could not find enough matching information to break down the result set. Please try a broader search.",
 }
 
 
@@ -93,17 +103,17 @@ def _normalize_conclusion_block(conclusion: Optional[Dict[str, Any]]) -> Dict[st
 def _normalize_prediction_block(prediction: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not prediction:
         return {
-            "summary": "A reliable prediction is not available yet.",
+            "summary": "I do not have enough information to say what comes next.",
             "confidence": 0.0,
-            "forecast": ["A reliable prediction is not available yet."],
+            "forecast": ["I do not have enough information to say what comes next."],
         }
     if isinstance(prediction, str):
         summary = prediction.strip()
         if not summary:
             return {
-                "summary": "A reliable prediction is not available yet.",
+                "summary": "I do not have enough information to say what comes next.",
                 "confidence": 0.0,
-                "forecast": ["A reliable prediction is not available yet."],
+                "forecast": ["I do not have enough information to say what comes next."],
             }
         return {"summary": summary, "confidence": 0.0, "forecast": []}
 
@@ -127,9 +137,9 @@ def _normalize_prediction_block(prediction: Optional[Dict[str, Any]]) -> Optiona
 
     if not summary and not clean_forecast:
         return {
-            "summary": "A reliable prediction is not available yet.",
+            "summary": "I do not have enough information to say what comes next.",
             "confidence": round(max(0.0, min(1.0, confidence_value)), 2),
-            "forecast": ["A reliable prediction is not available yet."],
+            "forecast": ["I do not have enough information to say what comes next."],
         }
 
     return {
@@ -137,6 +147,73 @@ def _normalize_prediction_block(prediction: Optional[Dict[str, Any]]) -> Optiona
         "confidence": round(max(0.0, min(1.0, confidence_value)), 2),
         "forecast": clean_forecast,
     }
+
+
+def _has_any_records(combined_result: Any, answer_payload: Optional[Dict[str, Any]] = None) -> bool:
+    if isinstance(answer_payload, dict):
+        sections = answer_payload.get("sections") or []
+        for section in sections:
+            if isinstance(section, dict) and section.get("data"):
+                return True
+    return bool(_extract_records(combined_result))
+
+
+def _build_no_data_message(query_type: str, intent: Dict[str, Any]) -> str:
+    query_key = (query_type or "").strip().lower()
+    if query_key in _NO_DATA_FALLBACKS:
+        return _NO_DATA_FALLBACKS[query_key]
+
+    category = (intent.get("category") or "").strip().lower()
+    if category:
+        return f"I could not find any matching {category} information right now. Please try a broader search."
+    return "I could not find any matching information right now. Please try a broader search."
+
+
+def _build_natural_answer_message(
+    *,
+    query_type: str,
+    intro_message: str,
+    combined_result: Any,
+    answer_payload: Optional[Dict[str, Any]],
+    analysis: Optional[Dict[str, Any]],
+    prediction: Optional[Dict[str, Any]],
+    conclusion: Optional[Dict[str, Any]],
+    intent: Dict[str, Any],
+    has_data: bool,
+) -> str:
+    if not has_data:
+        return _build_no_data_message(query_type, intent)
+
+    parts: List[str] = []
+
+    intro = (intro_message or "").strip()
+    if intro:
+        parts.append(intro)
+
+    data_summary = _build_formatted_summary(
+        query_type=query_type,
+        combined_result=combined_result,
+        answer_dict=answer_payload or {},
+    )
+    if data_summary:
+        parts.append(data_summary)
+
+    analysis_text = combine_analysis_to_string(analysis)
+    if analysis_text:
+        parts.append(f"Here is what stands out: {analysis_text}")
+
+    prediction_text = combine_prediction_to_string(prediction)
+    if prediction_text:
+        parts.append(f"Looking ahead, {prediction_text}")
+
+    conclusion_text = combine_conclusion_to_string(conclusion)
+    if conclusion_text:
+        parts.append(f"To wrap up, {conclusion_text}")
+
+    if not parts:
+        return "I have prepared a summary of the matching information."
+
+    return "\n\n".join(parts)
 
 
 def _build_exact_formatted_data(
@@ -297,12 +374,23 @@ def build_response(
         if isinstance(answer_dict, dict)
         else build_answer(query_type, combined_result, intent)
     )
+    message_value = _build_natural_answer_message(
+        query_type=query_type,
+        intro_message=intro_message,
+        combined_result=combined_result,
+        answer_payload=answer_payload,
+        analysis=analysis,
+        prediction=prediction,
+        conclusion=conclusion,
+        intent=intent,
+        has_data=_has_any_records(combined_result, answer_payload),
+    )
 
     try:
         response_model = FinalResponse(
             status=True,
             sessionId=session_value,
-            message=(intro_message or "").strip(),
+            message=message_value,
             widget=widget_value,
             formattedData=fd_payload,
             suggestedQuestions=suggested_questions or [],
@@ -316,7 +404,7 @@ def build_response(
         model_dict = {
             "status": True,
             "sessionId": session_value,
-            "message": (intro_message or "").strip(),
+            "message": message_value,
             "widget": widget_value,
             "formattedData": fd_payload,
             "suggestedQuestions": suggested_questions or [],
@@ -324,10 +412,18 @@ def build_response(
             "metadata": metadata,
         }
 
-    model_dict["message"] = (intro_message or "").strip()
+    model_dict["message"] = message_value
+    model_dict["introMessage"] = (intro_message or "").strip()
     model_dict["widget"] = widget_value
     model_dict["sessionId"] = session_value
+    model_dict["queryType"] = query_type
     model_dict["answer"] = answer_payload
+    model_dict["analysis"] = combine_analysis_to_string(analysis)
+    model_dict["prediction"] = _normalize_prediction_block(prediction)
+    model_dict["conclusion"] = combine_conclusion_to_string(conclusion)
+    model_dict["overallConfidence"] = round(float(confidence), 2)
+    model_dict["result"] = {"processedData": combined_result}
+    model_dict["intent"] = normalize_intent_confidence(intent, confidence)
     return model_dict
 
 
@@ -368,16 +464,10 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
     clean_meta = metadata if isinstance(metadata, dict) else {}
     clean_meta = {
         "sessionId": clean_meta.get("sessionId") or payload.get("sessionId") or "admin-default",
-        "confidence": round(float(clean_meta.get("confidence") or 0.0), 2),
-        "queryType": clean_meta.get("queryType") or "",
-        "operationCount": int(clean_meta.get("operationCount") or 0),
-        "timings": {
-            "plannerMs": round(float((clean_meta.get("timings") or {}).get("plannerMs") or 0), 2),
-            "intentMs": round(float((clean_meta.get("timings") or {}).get("intentMs") or 0), 2),
-            "dotnetMs": round(float((clean_meta.get("timings") or {}).get("dotnetMs") or 0), 2),
-            "combinerMs": round(float((clean_meta.get("timings") or {}).get("combinerMs") or 0), 2),
-            "reportMs": round(float((clean_meta.get("timings") or {}).get("reportMs") or 0), 2),
-            "totalMs": round(float((clean_meta.get("timings") or {}).get("totalMs") or 0), 2),
+        "metrics": {
+            "confidence": round(float(clean_meta.get("confidence") or 0.0), 2),
+            "queryType": clean_meta.get("queryType") or "",
+            "operationCount": int(clean_meta.get("operationCount") or 0),
         },
         "executionTimeMs": round(float(clean_meta.get("executionTimeMs") or 0), 2),
     }
@@ -386,10 +476,17 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
         "status": bool(payload.get("status", True)),
         "sessionId": payload.get("sessionId") or clean_meta["sessionId"],
         "message": (payload.get("message") or payload.get("introMessage") or "").strip(),
-        "widget": payload.get("widget") or clean_formatted.get("type") or "TABLE",
         "formattedData": clean_formatted,
         "suggestedQuestions": list(payload.get("suggestedQuestions") or []),
-        "dotnetPayload": payload.get("dotnetPayload") or {},
+        "analysis": payload.get("analysis")
+        or combine_analysis_to_string(clean_formatted.get("analysis")),
+        "prediction": payload.get("prediction")
+        or _normalize_prediction_block(clean_formatted.get("prediction")),
+        "conclusion": payload.get("conclusion")
+        or combine_conclusion_to_string(clean_formatted.get("conclusion")),
+        "queryType": payload.get("queryType") or clean_meta["queryType"],
+        "answer": payload.get("answer") or {},
+        "overallConfidence": round(float(payload.get("overallConfidence") or clean_meta["confidence"]), 2),
         "metadata": clean_meta,
     }
     return public_payload
