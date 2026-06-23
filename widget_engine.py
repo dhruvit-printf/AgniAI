@@ -4,6 +4,13 @@ widget_engine.py
 Widget / Schema Inference Engine for the AgniAI admin pipeline.
 
 Converts CombinedResult into a single deterministic FormattedData structure.
+
+Widget selection priority:
+  1. visualization_intent["requested_widget_type"]  — frontend override (user chose a view)
+  2. WIDGET_MAP[(category, operation)]              — intent-keyed defaults
+  3. query_type heuristic                           — comparison/trend/distribution
+  4. record count heuristic                        — 1 record → CARD
+  5. TABLE                                         — last resort
 """
 
 from __future__ import annotations
@@ -192,74 +199,218 @@ from schemas import (
     FormattedData,
 )
 
+# ---------------------------------------------------------------------------
+# WIDGET_MAP — (category, operation) → widget type constant
+#
+# Keys must match exactly what classify_admin_intent() returns for
+# intent["category"] and intent["operation"] / intent["subcategory"].
+#
+# Widget type constants:
+#   TABLE        — tabular grid
+#   CARD         — stat cards
+#   CHART_BAR    — vertical bar chart
+#   CHART_LINE   — line / trend chart
+#   AREA_CHART   — area chart (comparison)
+#   CHART_PIE    — pie chart
+#   DONUT_CHART  — donut chart
+#   RADIAL_CHART — radial / gauge chart
+# ---------------------------------------------------------------------------
 WIDGET_MAP: Dict[Tuple[str, str], str] = {
-    ("Performance", "Top"): "TABLE",
-    ("Performance", "Bottom"): "TABLE",
-    ("Performance", "Improvement"): "CHART_LINE",
-    ("Performance", "Drop"): "CHART_LINE",
-    ("Performance", "Grading"): "TABLE",
-    ("Performance", "GradingSummary"): "CHART_BAR",
-    ("Performance", "Average"): "CHART_PIE",
-    ("Performance", "AttemptWise"): "TABLE",
-    ("Performance", "BestAttempt"): "TABLE",
-    ("Performance", "Compare"): "AREA_CHART",
-    ("Performance", "Summary"): "TABLE",
-    ("Performance", "PassPercentage"): "CHART_PIE",
-    ("Performance", "FailPercentage"): "CHART_PIE",
-    ("Performance", "Overall"): "TABLE",
-    ("Leave", "Most"): "TABLE",
-    ("Leave", "Least"): "TABLE",
-    ("Leave", "Current"): "TABLE",
-    ("Leave", "Absconded"): "TABLE",
-    ("Leave", "LeaveType"): "TABLE",
-    ("Medical", "Active"): "TABLE",
-    ("Medical", "BMI"): "DONUT_CHART",
-    ("Medical", "Disease"): "TABLE",
-    ("Attendance", "Monthly"): "CHART_BAR",
-    ("Attendance", "Weekly"): "CHART_BAR",
-    ("Attendance", "Daily"): "TABLE",
-    ("Attendance", "Present"): "CHART_PIE",
-    ("Strength", "Strength"): "RADIAL_CHART",
-    ("Verification", "Pending"): "TABLE",
-    ("Verification", "Completed"): "TABLE",
-    ("Verification", "NotResponded"): "TABLE",
-    ("Verification", "Verified"): "TABLE",
-    ("Verification", "Rejected"): "TABLE",
-    ("Equipment", "Stats"): "CARD",
-    ("Equipment", "Overdue"): "TABLE",
-    ("Equipment", "Returend"): "TABLE",
-    ("Skills", "BySport"): "TABLE",
-    ("Skills", "ByClass"): "TABLE",
-    ("Roster", "BySport"): "TABLE",
-    ("Roster", "ByClass"): "TABLE",
-    ("Distribution", "Latest"): "TABLE",
-    ("Distribution", "ByUnit"): "TABLE",
-    ("Distribution", "Unassigned"): "TABLE",
-    ("Distribution", "TopUnit"): "CARD",
-    ("Overall", "Overall"): "TABLE",
-    ("schedule", "Date"): "TABLE",
+    # ── Performance ──────────────────────────────────────────────────────────
+    ("Performance", "Top"):             "TABLE",
+    ("Performance", "Bottom"):          "TABLE",
+    ("Performance", "Improvement"):     "CHART_LINE",
+    ("Performance", "ImprovementTrend"):"CHART_LINE",
+    ("Performance", "Drop"):            "CHART_LINE",
+    ("Performance", "DropTrend"):       "CHART_LINE",
+    ("Performance", "Grading"):         "TABLE",
+    ("Performance", "GradingSummary"):  "CHART_BAR",
+    ("Performance", "Average"):         "CHART_PIE",
+    ("Performance", "AttemptWise"):     "TABLE",
+    ("Performance", "BestAttempt"):     "TABLE",
+    ("Performance", "Compare"):         "AREA_CHART",
+    ("Performance", "Comparison"):      "AREA_CHART",
+    ("Performance", "Summary"):         "TABLE",
+    ("Performance", "PassPercentage"):  "CHART_PIE",
+    ("Performance", "FailPercentage"):  "CHART_PIE",
+    ("Performance", "Overall"):         "TABLE",
+    # ── Leave ─────────────────────────────────────────────────────────────────
+    ("Leave", "Most"):                  "TABLE",
+    ("Leave", "Least"):                 "TABLE",
+    ("Leave", "Current"):               "TABLE",
+    ("Leave", "Absconded"):             "TABLE",
+    ("Leave", "LeaveType"):             "TABLE",
+    # ── Medical ──────────────────────────────────────────────────────────────
+    ("Medical", "Active"):              "TABLE",
+    ("Medical", "BMI"):                 "DONUT_CHART",
+    ("Medical", "BMIAnalysis"):         "DONUT_CHART",
+    ("Medical", "Disease"):             "TABLE",
+    # ── Attendance ───────────────────────────────────────────────────────────
+    ("Attendance", "Monthly"):          "CHART_BAR",
+    ("Attendance", "MonthlyAttendance"):"CHART_BAR",
+    ("Attendance", "Weekly"):           "CHART_BAR",
+    ("Attendance", "WeeklyAttendance"): "CHART_BAR",
+    ("Attendance", "Daily"):            "TABLE",
+    ("Attendance", "Present"):          "CHART_PIE",
+    ("Attendance", "PresentToday"):     "CHART_PIE",
+    ("Attendance", "Summary"):          "TABLE",
+    ("Attendance", "AttendanceSummary"):"TABLE",
+    # ── Strength ─────────────────────────────────────────────────────────────
+    ("Strength", "Strength"):           "RADIAL_CHART",
+    ("Strength", "StrengthBreakdown"):  "RADIAL_CHART",
+    ("Strength", "Overall"):            "RADIAL_CHART",
+    # ── Verification ─────────────────────────────────────────────────────────
+    ("Verification", "Pending"):        "TABLE",
+    ("Verification", "Completed"):      "TABLE",
+    ("Verification", "CompletedVerification"): "TABLE",
+    ("Verification", "NotResponded"):   "TABLE",
+    ("Verification", "Verified"):       "TABLE",
+    ("Verification", "Rejected"):       "TABLE",
+    ("Verification", "Sent"):           "TABLE",
+    ("Verification", "SentVerification"):"TABLE",
+    # ── Equipment ────────────────────────────────────────────────────────────
+    ("Equipment", "Stats"):             "CARD",
+    ("Equipment", "EquipmentSummary"):  "CARD",
+    ("Equipment", "Overdue"):           "TABLE",
+    ("Equipment", "Returned"):          "TABLE",
+    ("Equipment", "Returend"):          "TABLE",   # typo in original, keep for compat
+    ("Equipment", "Issued"):            "TABLE",
+    ("Equipment", "IssuedItems"):       "TABLE",
+    ("Equipment", "Procured"):          "TABLE",
+    ("Equipment", "ProcuredItems"):     "TABLE",
+    ("Equipment", "Holding"):           "TABLE",
+    ("Equipment", "HoldingEquipment"):  "TABLE",
+    ("Equipment", "AgniveerWise"):      "TABLE",
+    ("Equipment", "AgniveerWiseEquipment"): "TABLE",
+    # ── Skills / Roster ──────────────────────────────────────────────────────
+    ("Skills", "BySport"):              "TABLE",
+    ("Skills", "ByClass"):              "TABLE",
+    ("Roster", "BySport"):              "TABLE",
+    ("Roster", "ByClass"):              "TABLE",
+    # ── Distribution ─────────────────────────────────────────────────────────
+    ("Distribution", "Latest"):         "TABLE",
+    ("Distribution", "ByUnit"):         "TABLE",
+    ("Distribution", "Unassigned"):     "TABLE",
+    ("Distribution", "TopUnit"):        "CARD",
+    ("Distribution", "Overall"):        "TABLE",
+    ("Distribution", "Schedule"):       "TABLE",
+    # ── Overall (top-level) ──────────────────────────────────────────────────
+    ("Overall", "Overall"):             "TABLE",
+    # ── Schedule ─────────────────────────────────────────────────────────────
+    ("schedule", "Date"):               "TABLE",
+    ("Schedule", "Date"):               "TABLE",
 }
 
+# ---------------------------------------------------------------------------
+# Operation aliases — maps .NET command names → canonical operation keys
+# ---------------------------------------------------------------------------
 _OPERATION_ALIASES: Dict[str, str] = {
-    "TopPerformers": "Top",
-    "LowestPerformers": "Bottom",
-    "Comparison": "Compare",
-    "MonthlyAttendance": "Monthly",
-    "WeeklyAttendance": "Weekly",
-    "YearlyAttendance": "Yearly",
-    "PresentToday": "Present",
-    "StrengthBreakdown": "Strength",
-    "BMIAnalysis": "BMI",
-    "EquipmentSummary": "Stats",
-    "IssuedItems": "Issued",
-    "ProcuredItems": "Procured",
-    "CompletedVerification": "Verified",
-    "SentVerification": "Sent",
-    "HoldingEquipment": "Holding",
-    "AgniveerWiseEquipment": "AgniveerWise",
-    "IndividualMedical": "Individual",
-    "AttendanceSummary": "Summary",
+    "TopPerformers":          "Top",
+    "LowestPerformers":       "Bottom",
+    "Comparison":             "Compare",
+    "MonthlyAttendance":      "Monthly",
+    "WeeklyAttendance":       "Weekly",
+    "YearlyAttendance":       "Yearly",
+    "PresentToday":           "Present",
+    "StrengthBreakdown":      "Strength",
+    "BMIAnalysis":            "BMI",
+    "EquipmentSummary":       "Stats",
+    "IssuedItems":            "Issued",
+    "ProcuredItems":          "Procured",
+    "CompletedVerification":  "Verified",
+    "SentVerification":       "Sent",
+    "HoldingEquipment":       "Holding",
+    "AgniveerWiseEquipment":  "AgniveerWise",
+    "IndividualMedical":      "Individual",
+    "AttendanceSummary":      "Summary",
+    "ImprovementTrend":       "Improvement",
+    "DropTrend":              "Drop",
+    "GradingSummary":         "GradingSummary",
+    "BestAttempt":            "BestAttempt",
+    "AttemptWise":            "AttemptWise",
+    "PassPercentage":         "PassPercentage",
+    "FailPercentage":         "FailPercentage",
 }
+
+# ---------------------------------------------------------------------------
+# _normalize_requested_widget_type
+# Accepts any label the frontend might send and returns the canonical constant.
+# This is the frontend override — if set, it ALWAYS wins.
+# ---------------------------------------------------------------------------
+def _normalize_requested_widget_type(value: Any) -> Optional[str]:
+    """
+    Map a frontend-supplied widget label to a canonical widget type constant.
+    Returns None if the value is empty or unrecognized.
+
+    Accepts:
+      - Exact canonical constants: "TABLE", "CHART_BAR", etc.
+      - Human-readable labels matching what the frontend dropdown shows:
+        "Tabular", "Bar Chart", "Improvement Trend Chart", etc.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+
+    # Direct canonical match (frontend already sending internal constant)
+    _CANONICAL = {
+        "TABLE", "CARD", "CHART_BAR", "CHART_LINE",
+        "AREA_CHART", "CHART_PIE", "DONUT_CHART", "RADIAL_CHART",
+    }
+    if text in _CANONICAL:
+        return text
+
+    # Case-insensitive label lookup covering all labels from the widget menu
+    _LABEL_MAP: Dict[str, str] = {
+        # ── Tabular ───────────────────────────────────────────────────────────
+        "tabular":                      "TABLE",
+        "table":                        "TABLE",
+        "grid":                         "TABLE",
+        # ── Card ──────────────────────────────────────────────────────────────
+        "card":                         "CARD",
+        "cards":                        "CARD",
+        "stats card":                   "CARD",
+        # ── Bar Chart ─────────────────────────────────────────────────────────
+        "bar chart":                    "CHART_BAR",
+        "bar":                          "CHART_BAR",
+        "monthly bar chart":            "CHART_BAR",
+        "weekly bar chart":             "CHART_BAR",
+        "gradingsummary bar chart":     "CHART_BAR",
+        # ── Line / Trend Chart ────────────────────────────────────────────────
+        "line chart":                   "CHART_LINE",
+        "line":                         "CHART_LINE",
+        "trend chart":                  "CHART_LINE",
+        "trend":                        "CHART_LINE",
+        "improvement trend chart":      "CHART_LINE",
+        "drop trend chart":             "CHART_LINE",
+        # ── Area Chart ────────────────────────────────────────────────────────
+        "area chart":                   "AREA_CHART",
+        "area":                         "AREA_CHART",
+        "compare area chart":           "AREA_CHART",
+        # ── Pie Chart ─────────────────────────────────────────────────────────
+        "pie chart":                    "CHART_PIE",
+        "pie":                          "CHART_PIE",
+        "average pie chart":            "CHART_PIE",
+        "present pie chart":            "CHART_PIE",
+        "passpercentage pie chart":     "CHART_PIE",
+        "failpercentage pie chart":     "CHART_PIE",
+        # ── Donut Chart ───────────────────────────────────────────────────────
+        "donut chart":                  "DONUT_CHART",
+        "donut":                        "DONUT_CHART",
+        "bmi donut chart":              "DONUT_CHART",
+        # ── Radial Chart ──────────────────────────────────────────────────────
+        "radial chart":                 "RADIAL_CHART",
+        "radial":                       "RADIAL_CHART",
+        "strength radial chart":        "RADIAL_CHART",
+    }
+
+    lower = text.lower()
+    result = _LABEL_MAP.get(lower)
+    if result:
+        return result
+
+    # Normalise separators and retry
+    normalised = lower.replace("_", " ").replace("-", " ")
+    return _LABEL_MAP.get(normalised)
 
 
 def _collect_keys(data: Any) -> Set[str]:
@@ -275,52 +426,21 @@ def _collect_keys(data: Any) -> Set[str]:
 
 def _map_to_supported_type(inferred: str) -> str:
     mapped = {
-        "TABLE": "TABLE",
-        "CARD": "CARD",
-        "METRIC_CARD": "CARD",
-        "BAR_CHART": "CHART_BAR",
-        "LINE_CHART": "CHART_LINE",
-        "AREA_CHART": "CHART_LINE",
-        "PIE_CHART": "CHART_PIE",
-        "DONUT_CHART": "CHART_PIE",
+        "TABLE":        "TABLE",
+        "CARD":         "CARD",
+        "METRIC_CARD":  "CARD",
+        "BAR_CHART":    "CHART_BAR",
+        "CHART_BAR":    "CHART_BAR",
+        "LINE_CHART":   "CHART_LINE",
+        "CHART_LINE":   "CHART_LINE",
+        "AREA_CHART":   "CHART_LINE",   # area renders as line in current frontend
+        "PIE_CHART":    "CHART_PIE",
+        "CHART_PIE":    "CHART_PIE",
+        "DONUT_CHART":  "CHART_PIE",
         "RADIAL_CHART": "CHART_PIE",
-        "CALENDAR_UI": "TABLE",
+        "CALENDAR_UI":  "TABLE",
     }
     return mapped.get(inferred, "TABLE")
-
-
-def _normalize_requested_widget_type(value: Any) -> Optional[str]:
-    text = str(value or "").strip().lower()
-    if not text:
-        return None
-
-    aliases = {
-        "table": "TABLE",
-        "tabular": "TABLE",
-        "grid": "TABLE",
-        "card": "CARD",
-        "cards": "CARD",
-        "bar": "CHART_BAR",
-        "bar chart": "CHART_BAR",
-        "chart bar": "CHART_BAR",
-        "line": "CHART_LINE",
-        "trend": "CHART_LINE",
-        "trend chart": "CHART_LINE",
-        "line chart": "CHART_LINE",
-        "area": "AREA_CHART",
-        "area chart": "AREA_CHART",
-        "pie": "CHART_PIE",
-        "pie chart": "CHART_PIE",
-        "donut": "DONUT_CHART",
-        "donut chart": "DONUT_CHART",
-        "radial": "RADIAL_CHART",
-        "radial chart": "RADIAL_CHART",
-    }
-    if text in aliases:
-        return aliases[text]
-
-    normalized = text.replace("_", " ").replace("-", " ")
-    return aliases.get(normalized) or aliases.get(normalized.strip())
 
 
 def _default_widget_type_for_intent(
@@ -329,14 +449,23 @@ def _default_widget_type_for_intent(
     query_type: str,
 ) -> Optional[str]:
     category_key = (category or "").strip()
-    operation_key = _OPERATION_ALIASES.get((operation or "").strip(), (operation or "").strip())
+    operation_key = _OPERATION_ALIASES.get(
+        (operation or "").strip(), (operation or "").strip()
+    )
+
+    # Try exact (category, operation) lookup first
     if category_key and operation_key:
         widget_type = WIDGET_MAP.get((category_key, operation_key))
         if widget_type:
             return widget_type
+        # Also try the raw operation without alias resolution
+        widget_type = WIDGET_MAP.get((category_key, (operation or "").strip()))
+        if widget_type:
+            return widget_type
 
+    # Query-type heuristics when no map entry matches
     qtype = (query_type or "").strip().lower()
-    if qtype == "compare" or qtype == "comparison":
+    if qtype in ("compare", "comparison"):
         return "AREA_CHART"
     if qtype == "trend":
         return "CHART_LINE"
@@ -346,23 +475,42 @@ def _default_widget_type_for_intent(
         return "TABLE"
     return None
 
+
 def infer_supported_type(
     combined_result: Any,
     query_type: str,
     intent: Dict[str, Any],
     visualization_intent: Optional[Dict[str, Any]] = None,
 ) -> str:
+    """
+    Resolve the widget type using priority order:
+      1. visualization_intent["requested_widget_type"]  — frontend override
+      2. visualization_intent presentation/chart_type hints (non-override path)
+      3. WIDGET_MAP[(category, operation)]
+      4. query_type heuristic
+      5. Record-count heuristic (1 record → CARD)
+      6. TABLE
+    """
     qtype = (query_type or "").strip().lower()
 
     if isinstance(visualization_intent, dict):
-        requested_widget_type = _normalize_requested_widget_type(
-            visualization_intent.get("requested_widget_type")
-            or visualization_intent.get("widget_type")
-        )
-        if requested_widget_type:
-            return requested_widget_type
+        # ── Priority 1: explicit frontend override ───────────────────────────
+        # Only honour this when frontend_override=True, meaning the user
+        # actively chose a different widget type.
+        if visualization_intent.get("frontend_override"):
+            raw_requested = (
+                visualization_intent.get("requested_widget_type")
+                or visualization_intent.get("widget_type")
+            )
+            normalized = _normalize_requested_widget_type(raw_requested)
+            if normalized:
+                return normalized
+
+        # ── Priority 2: presentation/chart_type hints (non-override) ────────
+        # These are soft hints — they lose to WIDGET_MAP if a map entry exists.
         presentation = (visualization_intent.get("presentation") or "").strip().lower()
-        chart_type = (visualization_intent.get("chart_type") or "").strip().lower()
+        chart_type   = (visualization_intent.get("chart_type")   or "").strip().lower()
+
         if presentation == "cards":
             return "CARD"
         if presentation == "table":
@@ -374,19 +522,30 @@ def infer_supported_type(
                 return "CHART_PIE"
             if chart_type == "area":
                 return "AREA_CHART"
-            return "CHART_BAR"
+            if chart_type == "donut":
+                return "DONUT_CHART"
+            if chart_type == "radial":
+                return "RADIAL_CHART"
+            # generic "chart" hint without chart_type — fall through to map
 
-    category = (intent.get("category") or "").strip()
-    operation = (intent.get("operation") or intent.get("subcategory") or "").strip()
+    # ── Priority 3: WIDGET_MAP ───────────────────────────────────────────────
+    category  = (intent.get("category")  or "").strip()
+    operation = (
+        intent.get("operation")
+        or intent.get("subcategory")
+        or ""
+    ).strip()
     default_widget = _default_widget_type_for_intent(category, operation, query_type)
     if default_widget:
         return default_widget
 
+    # ── Priority 4 / 5: record count ────────────────────────────────────────
     rec_count = len(_extract_records(combined_result))
     if rec_count == 1:
         return "CARD"
 
     return "TABLE"
+
 
 def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]:
     cards = []
@@ -713,7 +872,6 @@ def build_pie_chart_data(combined_result: Any) -> Dict[str, Any]:
     rows = []
     for r in records:
         label_val = r.get(label_key) or r.get("fullName") or r.get("name") or "Category"
-        # Old code used falsy check 'r.get(value_key) or 1' which replaced zero values with 1.
         raw_val = r.get(value_key)
         value_val = raw_val if raw_val is not None else 1
         rows.append({

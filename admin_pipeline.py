@@ -295,8 +295,6 @@ def _extract_frontend_visualization_intent(body: Dict[str, Any]) -> Dict[str, An
 
     if frontend_hint_present:
         visual["frontend_override"] = True
-        visual["presentation"] = "chart"
-        visual["chart_type"] = "bar"
 
     return visual
 
