@@ -109,7 +109,7 @@ def admin_chat():
     result_type = result.get("type", "error")
     duration_ms = round((time.time() - start_time) * 1000, 2)
 
-    # ── Error ───────────────────────────────────────────────────────────────
+    # ── Error (only when the pipeline itself fails, e.g. .NET unreachable) ──
     if result_type == "error":
         logger.error(
             json.dumps(
@@ -123,10 +123,27 @@ def admin_chat():
                 }
             )
         )
-        return jsonify({"type": "error", "message": "Failed to process request."}), 500
+        return jsonify({"type": "error", "message": result.get("error_message", "Failed to process request.")}), 500
 
     # ── Successful query / greeting / conversational ────────────────────────
     payload = result.get("response_payload") or {}
+
+    # Log partial failures but still return HTTP 200
+    if payload.get("partialFailure"):
+        logger.warning(
+            json.dumps(
+                {
+                    "message": "HTTP admin chat partial failure",
+                    "question": message,
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": payload.get("queryType"),
+                    "failed_sections": payload.get("failedSections", []),
+                    "duration_ms": duration_ms,
+                }
+            )
+        )
+
     logger.info(
         json.dumps(
             {

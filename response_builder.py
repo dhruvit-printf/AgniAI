@@ -94,7 +94,12 @@ def build_response(
 ) -> Dict[str, Any]:
     """
     Assemble the final response payload strictly using the canonical schema.
+    Fault-tolerant: if the schema model fails, returns a minimal valid response
+    preserving message and formattedData.
     """
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+
     from schemas import FinalResponse
     from telemetry import request_id_var, trace_id_var, session_id_var
     from normalized_models import build_answer, normalize_intent_confidence
@@ -196,35 +201,61 @@ def build_response(
 
     widget_value = viz_intent.get("presentation") or "table"
 
-    response_model = FinalResponse(
-        status=True,
-        sessionId=session_value,
-        message=(intro_message or "").strip(),
-        queryType=query_type,
-        answer=answer_payload,
-        result={"processedData": combined_result},
-        widgets=[
-            {
-                "section": fd_payload.get("title", "Result"),
-                "type": (fd_payload.get("type") or "TABLE"),
-                "widgetType": (fd_payload.get("type") or "TABLE"),
-            }
-        ],
-        widget=widget_value,
-        records=_extract_records(combined_result),
-        analysis=analysis,
-        prediction=prediction,
-        conclusion=conclusion,
-        intent=normalized_intent,
-        formattedData=fd_payload if fd_payload else None,
-        suggestedQuestions=suggested_questions or [],
-        metadata=metadata,
-        overallConfidence=round(float(confidence), 2),
-        partialFailure=partial_failure,
-        failedSections=failed_sections or [],
-    )
+    try:
+        response_model = FinalResponse(
+            status=True,
+            sessionId=session_value,
+            message=(intro_message or "").strip(),
+            queryType=query_type,
+            answer=answer_payload,
+            result={"processedData": combined_result},
+            widgets=[
+                {
+                    "section": fd_payload.get("title", "Result"),
+                    "type": (fd_payload.get("type") or "TABLE"),
+                    "widgetType": (fd_payload.get("type") or "TABLE"),
+                }
+            ],
+            widget=widget_value,
+            records=_extract_records(combined_result),
+            analysis=analysis,
+            prediction=prediction,
+            conclusion=conclusion,
+            intent=normalized_intent,
+            formattedData=fd_payload if fd_payload else None,
+            suggestedQuestions=suggested_questions or [],
+            metadata=metadata,
+            overallConfidence=round(float(confidence), 2),
+            partialFailure=partial_failure,
+            failedSections=failed_sections or [],
+        )
 
-    model_dict = response_model.model_dump(by_alias=True)
+        model_dict = response_model.model_dump(by_alias=True)
+    except Exception as schema_exc:
+        _logger.error("FinalResponse schema construction failed: %s", schema_exc, exc_info=True)
+        # Build minimal valid response dict preserving message and formattedData
+        model_dict = {
+            "status": True,
+            "sessionId": session_value,
+            "message": (intro_message or "").strip(),
+            "queryType": query_type,
+            "answer": answer_payload,
+            "result": {"processedData": combined_result},
+            "widgets": [],
+            "widget": widget_value,
+            "records": _extract_records(combined_result),
+            "analysis": None,
+            "prediction": None,
+            "conclusion": None,
+            "intent": normalized_intent,
+            "formattedData": fd_payload,
+            "suggestedQuestions": [],
+            "metadata": metadata,
+            "overallConfidence": round(float(confidence), 2),
+            "partialFailure": True,
+            "failedSections": (failed_sections or []) + ["schema_validation"],
+        }
+
     model_dict["message"] = (intro_message or "").strip()
     model_dict["widget"] = widget_value
     model_dict["widgets"] = [

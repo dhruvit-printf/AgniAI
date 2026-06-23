@@ -418,20 +418,44 @@ def generate_report(
     import time
     answer = build_answer(query_type, combined_result, intent)
 
-    t0 = time.time()
-    analysis = generate_analysis(answer, query_type, intent, user_query, trace_id)
-    analysis_ms = round((time.time() - t0) * 1000, 2)
-    _log_stage("analysis_time", analysis_ms, query_type=query_type, trace_id=trace_id)
+    # ── Analysis (independent — failure → analysis = None) ───────────
+    analysis = None
+    analysis_ms = 0.0
+    try:
+        t0 = time.time()
+        analysis = generate_analysis(answer, query_type, intent, user_query, trace_id)
+        analysis_ms = round((time.time() - t0) * 1000, 2)
+        _log_stage("analysis_time", analysis_ms, query_type=query_type, trace_id=trace_id)
+    except Exception as exc:
+        analysis_ms = round((time.time() - t0) * 1000, 2)
+        logger.error("report_generator: analysis stage failed: %s", exc, exc_info=True)
+        _log_stage("analysis_time", analysis_ms, query_type=query_type, trace_id=trace_id, error=str(exc))
 
-    t0 = time.time()
-    prediction = generate_predictions(answer, query_type, intent)
-    prediction_ms = round((time.time() - t0) * 1000, 2)
-    _log_stage("prediction_time", prediction_ms, query_type=query_type, trace_id=trace_id)
+    # ── Prediction (independent — failure → prediction = None) ───────
+    prediction = None
+    prediction_ms = 0.0
+    try:
+        t0 = time.time()
+        prediction = generate_predictions(answer, query_type, intent)
+        prediction_ms = round((time.time() - t0) * 1000, 2)
+        _log_stage("prediction_time", prediction_ms, query_type=query_type, trace_id=trace_id)
+    except Exception as exc:
+        prediction_ms = round((time.time() - t0) * 1000, 2)
+        logger.error("report_generator: prediction stage failed: %s", exc, exc_info=True)
+        _log_stage("prediction_time", prediction_ms, query_type=query_type, trace_id=trace_id, error=str(exc))
 
-    t0 = time.time()
-    conclusion = generate_conclusion(answer, query_type, intent, trace_id)
-    conclusion_ms = round((time.time() - t0) * 1000, 2)
-    _log_stage("conclusion_time", conclusion_ms, query_type=query_type, trace_id=trace_id)
+    # ── Conclusion (independent — failure → conclusion = None) ───────
+    conclusion = None
+    conclusion_ms = 0.0
+    try:
+        t0 = time.time()
+        conclusion = generate_conclusion(answer, query_type, intent, trace_id)
+        conclusion_ms = round((time.time() - t0) * 1000, 2)
+        _log_stage("conclusion_time", conclusion_ms, query_type=query_type, trace_id=trace_id)
+    except Exception as exc:
+        conclusion_ms = round((time.time() - t0) * 1000, 2)
+        logger.error("report_generator: conclusion stage failed: %s", exc, exc_info=True)
+        _log_stage("conclusion_time", conclusion_ms, query_type=query_type, trace_id=trace_id, error=str(exc))
 
     category = intent.get("category") or "Agniveer"
     intro = f"The review of {category.lower()} records is complete. Below are the key observations, insights, and visualizations."
@@ -447,7 +471,9 @@ def generate_report(
 
     # Parse conclusion summary text
     conclusion_needs_fallback = False
-    conclusion_text = conclusion.get("summary") or conclusion.get("message") or ""
+    conclusion_text = ""
+    if conclusion:
+        conclusion_text = conclusion.get("summary") or conclusion.get("message") or ""
     if _has_negative_copy(conclusion_text):
         conclusion_needs_fallback = True
 
@@ -475,7 +501,7 @@ def generate_report(
         "prediction": prediction,
         "conclusion": {
             "summary": conclusion_text,
-            "bullets": conclusion.get("bullets") if conclusion else [conclusion_text],
+            "bullets": conclusion.get("bullets") if conclusion else [conclusion_text] if conclusion_text else [],
         },
         "durations": {
             "analysisDurationMs": analysis_ms,
@@ -483,3 +509,4 @@ def generate_report(
             "conclusionDurationMs": conclusion_ms
         }
     }
+

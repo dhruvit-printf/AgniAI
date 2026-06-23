@@ -321,21 +321,21 @@ def _log_combination_summary(
 
 
 def _validate_model_payload(model_cls, payload: Any, context: str) -> None:
-    """Validate the real payload and fail fast if it drifts from the schema."""
+    """Validate payload against schema.  Log drift but NEVER raise — schema
+    mismatch must not crash the pipeline."""
     try:
         model_cls.model_validate(payload)
     except Exception as exc:
-        logger.error(
+        logger.warning(
             json.dumps(
                 {
-                    "message": "Validation failed",
+                    "message": "Schema validation drift (non-fatal)",
                     "context": context,
                     "model": model_cls.__name__,
                     "error": str(exc),
                 }
             )
         )
-        raise
 
 
 def _log_stage_duration(stage: str, duration_ms: float, **extra: Any) -> None:
@@ -1332,10 +1332,17 @@ def execute_admin_query(
             )
 
         # ── Step 5: Report Generator ──────────────────────────────────────────
-        with span(SPAN_GENERATE_REPORT, trace_id=trace_id):
-            report_start = time.time()
-            _notify("report")
-            try:
+        report = {
+            "introMessage": "Report generated with partial metrics.",
+            "analysis": None,
+            "prediction": None,
+            "conclusion": None,
+            "durations": {"analysisDurationMs": 0.0, "predictionDurationMs": 0.0, "conclusionDurationMs": 0.0},
+        }
+        try:
+            with span(SPAN_GENERATE_REPORT, trace_id=trace_id):
+                report_start = time.time()
+                _notify("report")
                 report = generate_report(
                     combined_result=combined_result,
                     query_type=qtype_str,
@@ -1343,81 +1350,79 @@ def execute_admin_query(
                     user_query=message,
                     trace_id=trace_id,
                 )
-            except Exception as report_exc:
-                logger.error(
-                    json.dumps(
-                        {
-                            "message": "Unexpected exception from generate_report",
-                            "trace_id": trace_id,
-                            "session_id": session_id,
-                            "query_type": qtype_str,
-                            "error": str(report_exc),
-                        }
-                    )
-                )
-                report = {
-                    "introMessage": "Report generated with partial metrics.",
-                    "analysis": None,
-                    "prediction": None,
-                    "conclusion": None,
-                }
 
-            # If the report layer intentionally returns blanks because the
-            # result set is empty, replace that with a grounded no-data report
-            # so the user still gets an explanation instead of a silent payload.
-            if (
-                not (report.get("introMessage") or "").strip()
-                and not report.get("analysis")
-                and not report.get("prediction")
-                and not report.get("conclusion")
-            ):
-                report = get_fallback_report(combined_result, qtype_str, primary_intent)
-                records = _extract_records(combined_result)
-                report["prediction"] = {
-                    "trend": "Stable" if records else "Insufficient Data",
-                    "projection": (
-                        f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
-                        if records
-                        else f"Future projection is unavailable because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
-                    ),
-                    "heuristicEstimate": (
-                        f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
-                        if records
-                        else f"Future projection is unavailable because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
-                    ),
-                    "shortTerm": "stable",
-                    "futureTrends": [
-                        (
+                # If the report layer intentionally returns blanks because the
+                # result set is empty, replace that with a grounded no-data report
+                # so the user still gets an explanation instead of a silent payload.
+                if (
+                    not (report.get("introMessage") or "").strip()
+                    and not report.get("analysis")
+                    and not report.get("prediction")
+                    and not report.get("conclusion")
+                ):
+                    report = get_fallback_report(combined_result, qtype_str, primary_intent)
+                    records = _extract_records(combined_result)
+                    report["prediction"] = {
+                        "trend": "Stable" if records else "Insufficient Data",
+                        "projection": (
                             f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
                             if records
-                            else f"No stable trend can be estimated because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
-                        )
-                    ],
-                }
-            report_duration = time.time() - report_start
-            logger.info(
-                {
-                    "stage": "report_time",
+                            else f"Future projection is unavailable because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
+                        ),
+                        "heuristicEstimate": (
+                            f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
+                            if records
+                            else f"Future projection is unavailable because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
+                        ),
+                        "shortTerm": "stable",
+                        "futureTrends": [
+                            (
+                                f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
+                                if records
+                                else f"No stable trend can be estimated because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
+                            )
+                        ],
+                    }
+                report_duration = time.time() - report_start
+                logger.info(
+                    json.dumps({
+                        "stage": "report",
+                        "duration_ms": round(report_duration * 1000, 2),
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": qtype_str,
+                        "output_shape": {k: type(v).__name__ for k, v in report.items()},
+                    })
+                )
+
+                # Validate report models (non-fatal)
+                if report.get("analysis"):
+                    _validate_model_payload(
+                        AnalysisModel, report.get("analysis"), "report.analysis"
+                    )
+                if report.get("prediction"):
+                    _validate_model_payload(
+                        PredictionModel, report.get("prediction"), "report.prediction"
+                    )
+                if report.get("conclusion"):
+                    _validate_model_payload(
+                        ConclusionModel, report.get("conclusion"), "report.conclusion"
+                    )
+        except Exception as report_exc:
+            import traceback as _tb
+            report_duration = time.time() - start_time
+            logger.error(
+                json.dumps({
+                    "stage": "report",
                     "duration_ms": round(report_duration * 1000, 2),
                     "trace_id": trace_id,
                     "session_id": session_id,
                     "query_type": qtype_str,
-                }
+                    "exception": str(report_exc),
+                    "traceback": _tb.format_exc(),
+                })
             )
-
-            # Validate report models
-            if report.get("analysis"):
-                _validate_model_payload(
-                    AnalysisModel, report.get("analysis"), "report.analysis"
-                )
-            if report.get("prediction"):
-                _validate_model_payload(
-                    PredictionModel, report.get("prediction"), "report.prediction"
-                )
-            if report.get("conclusion"):
-                _validate_model_payload(
-                    ConclusionModel, report.get("conclusion"), "report.conclusion"
-                )
+            # report keeps its safe defaults — pipeline continues
 
         # ── Update session context ────────────────────────────────────────────
         _session_context.update(session_id, message, primary_intent, combined_result)
@@ -1472,74 +1477,142 @@ def execute_admin_query(
             "total_duration": round(total_duration * 1000, 2),
         }
 
-        # ── Step 6: Response Builder & Schema Inference ───────────────────────
-        widget_start = time.time()
-        from widget_engine import build_formatted_data
-        visualization_intent = build_visualization_intent(
-            message, primary_intent, combined_result
-        )
-        formatted_data_payload = build_formatted_data(
-            combined_result=combined_result,
-            query_type=qtype_str,
-            intent=primary_intent,
-            analysis=report.get("analysis"),
-            prediction=report.get("prediction"),
-            conclusion=report.get("conclusion"),
-            visualization_intent=visualization_intent,
-        )
-        widget_duration = time.time() - widget_start
-        logger.info(
-            {
-                "stage": "widget_time",
-                "duration_ms": round(widget_duration * 1000, 2),
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "query_type": qtype_str,
-            }
-        )
-
-        answer = build_answer(qtype_str, combined_result, primary_intent)
-        suggested = generate_suggested_questions(qtype_str, primary_intent, answer)
-
-        # Validate SuggestedQuestionModel
-        if suggested:
-            for q in suggested:
-                _validate_model_payload(
-                    SuggestedQuestionModel, {"question": q}, "suggested_questions"
-                )
-
-        with span(SPAN_BUILD_RESPONSE, trace_id=trace_id):
-            response_assembly_start = time.time()
-            response_payload = build_response(
-                query_type=qtype_str,
-                intro_message=report.get("introMessage", ""),
-                combined_result=combined_result,
-                analysis=report.get("analysis"),
-                conclusion=report.get("conclusion"),
-                intent=primary_intent,
-                raw_results=raw_results,
-                confidence=query_plan.confidence,
-                operation_count=operation_count,
-                formatted_data=formatted_data_payload,
-                session_id=session_id,
-                durations=durations_payload,
-                widgets=None,
-                suggested_questions=suggested,
-                prediction=report.get("prediction"),
-                partial_failure=partial_failure,
-                failed_sections=failed_sections,
-                answer_dict=answer,
+        # ── Step 6: Widget Engine (independent) ─────────────────────────────
+        formatted_data_payload = None
+        try:
+            widget_start = time.time()
+            from widget_engine import build_formatted_data
+            visualization_intent = build_visualization_intent(
+                message, primary_intent, combined_result
             )
-            response_assembly_duration = time.time() - response_assembly_start
+            formatted_data_payload = build_formatted_data(
+                combined_result=combined_result,
+                query_type=qtype_str,
+                intent=primary_intent,
+                analysis=report.get("analysis"),
+                prediction=report.get("prediction"),
+                conclusion=report.get("conclusion"),
+                visualization_intent=visualization_intent,
+            )
+            widget_duration = time.time() - widget_start
             logger.info(
-                {
-                    "stage": "final_response_time",
-                    "duration_ms": round(response_assembly_duration * 1000, 2),
+                json.dumps({
+                    "stage": "widget",
+                    "duration_ms": round(widget_duration * 1000, 2),
                     "trace_id": trace_id,
                     "session_id": session_id,
                     "query_type": qtype_str,
-                }
+                    "output_shape": type(formatted_data_payload).__name__,
+                })
             )
+        except Exception as widget_exc:
+            import traceback as _tb
+            widget_duration = time.time() - widget_start if 'widget_start' in dir() else 0.0
+            logger.error(
+                json.dumps({
+                    "stage": "widget",
+                    "duration_ms": round(widget_duration * 1000, 2) if widget_duration else 0,
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": qtype_str,
+                    "exception": str(widget_exc),
+                    "traceback": _tb.format_exc(),
+                })
+            )
+
+        # ── Step 6b: Build answer & suggested questions (independent) ─────
+        answer = build_answer(qtype_str, combined_result, primary_intent)
+
+        suggested = []
+        try:
+            suggested = generate_suggested_questions(qtype_str, primary_intent, answer)
+            # Validate SuggestedQuestionModel (non-fatal)
+            if suggested:
+                for q in suggested:
+                    _validate_model_payload(
+                        SuggestedQuestionModel, {"question": q}, "suggested_questions"
+                    )
+        except Exception as sq_exc:
+            logger.error(
+                json.dumps({
+                    "stage": "suggested_questions",
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "exception": str(sq_exc),
+                })
+            )
+            suggested = []
+
+        # ── Step 7: Response Builder (independent) ────────────────────────
+        try:
+            with span(SPAN_BUILD_RESPONSE, trace_id=trace_id):
+                response_assembly_start = time.time()
+                response_payload = build_response(
+                    query_type=qtype_str,
+                    intro_message=report.get("introMessage", ""),
+                    combined_result=combined_result,
+                    analysis=report.get("analysis"),
+                    conclusion=report.get("conclusion"),
+                    intent=primary_intent,
+                    raw_results=raw_results,
+                    confidence=query_plan.confidence,
+                    operation_count=operation_count,
+                    formatted_data=formatted_data_payload,
+                    session_id=session_id,
+                    durations=durations_payload,
+                    widgets=None,
+                    suggested_questions=suggested,
+                    prediction=report.get("prediction"),
+                    partial_failure=partial_failure,
+                    failed_sections=failed_sections,
+                    answer_dict=answer,
+                )
+                response_assembly_duration = time.time() - response_assembly_start
+                logger.info(
+                    json.dumps({
+                        "stage": "response_builder",
+                        "duration_ms": round(response_assembly_duration * 1000, 2),
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": qtype_str,
+                        "output_shape": list(response_payload.keys()) if isinstance(response_payload, dict) else type(response_payload).__name__,
+                    })
+                )
+        except Exception as rb_exc:
+            import traceback as _tb
+            logger.error(
+                json.dumps({
+                    "stage": "response_builder",
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": qtype_str,
+                    "exception": str(rb_exc),
+                    "traceback": _tb.format_exc(),
+                })
+            )
+            # Build minimal valid response preserving .NET data
+            from normalized_models import build_answer as _ba
+            response_payload = {
+                "status": True,
+                "sessionId": session_id,
+                "message": report.get("introMessage", ""),
+                "queryType": qtype_str,
+                "answer": answer,
+                "result": {"processedData": combined_result},
+                "widgets": [],
+                "widget": "table",
+                "records": _extract_records(combined_result),
+                "analysis": None,
+                "prediction": None,
+                "conclusion": None,
+                "intent": primary_intent,
+                "formattedData": formatted_data_payload,
+                "suggestedQuestions": [],
+                "metadata": {"timings": durations_payload, "metrics": {"confidence": query_plan.confidence, "queryType": qtype_str}},
+                "overallConfidence": round(float(query_plan.confidence), 2),
+                "partialFailure": True,
+                "failedSections": ["response_builder"],
+            }
 
         execution_time_ms = round(total_duration * 1000)
         response_payload["metadata"]["executionTimeMs"] = execution_time_ms
@@ -1661,17 +1734,20 @@ def execute_admin_query(
         }
 
     except Exception as exc:
+        import traceback as _tb
         total_duration = time.time() - start_time
         error_intent = {"type": "error"}
         set_audit_context(question=user_query, intent=error_intent)
         logger.error(
             json.dumps(
                 {
-                    "message": "Admin query error audit",
+                    "message": "Admin pipeline outer catch-all",
                     "question": user_query,
                     "intent": error_intent,
                     "type": "error",
                     "intentFormed": False,
+                    "exception": str(exc),
+                    "traceback": _tb.format_exc(),
                 },
                 ensure_ascii=False,
             )

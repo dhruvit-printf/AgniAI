@@ -264,7 +264,6 @@ class FinalResponse(BaseModel):
     sessionId: str
     message: str
     queryType: str
-    introMessage: str
     answer: Dict[str, Any]
     result: Dict[str, Any]
     widgets: List[Dict[str, Any]]
