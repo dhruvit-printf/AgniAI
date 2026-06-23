@@ -232,19 +232,16 @@ class TestResponseBuilder(unittest.TestCase):
                 "message",
                 "formattedData",
                 "suggestedQuestions",
-                "analysis",
-                "prediction",
-                "conclusion",
                 "queryType",
-                "answer",
                 "overallConfidence",
                 "metadata",
             },
         )
         self.assertNotIn("result", public)
         self.assertNotIn("intent", public)
+        self.assertNotIn("answer", public)
         self.assertEqual(public["sessionId"], "admin-default")
-        self.assertEqual(public["message"], internal["message"])
+        self.assertEqual(public["message"], internal["introMessage"])
 
         # Verify metadata filtering
         metadata = public["metadata"]
@@ -253,7 +250,12 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("timings", metadata)
         self.assertIn("metrics", metadata)
         self.assertEqual(metadata["metrics"]["confidence"], 0.95)
-        self.assertEqual(public["formattedData"]["prediction"], internal["prediction"])
+        self.assertIn("analysis", public["formattedData"])
+        self.assertIn("prediction", public["formattedData"])
+        self.assertIn("conclusion", public["formattedData"])
+        self.assertNotIn("answer", public["formattedData"])
+        self.assertNotIn("introMessage", public["formattedData"])
+        self.assertNotIn("message", public["formattedData"])
         if isinstance(public["formattedData"], dict) and "data" in public["formattedData"]:
             data = public["formattedData"]["data"]
             if isinstance(data, dict) and "rows" in data:

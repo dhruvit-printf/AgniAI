@@ -241,6 +241,39 @@ def _build_exact_formatted_data(
     return fd_payload
 
 
+def _merge_answer_into_formatted_data(
+    formatted_data: Dict[str, Any],
+    answer_payload: Optional[Dict[str, Any]],
+    *,
+    intro_message: str,
+    message_value: str,
+) -> Dict[str, Any]:
+    """
+    Present one combined data object to the caller.
+
+    The structured table/chart data stays under `data`, while the answer
+    sections and the intro text are also surfaced on the same object so the
+    caller does not need to juggle separate shapes.
+    """
+    combined = dict(formatted_data or {})
+    answer_dict = answer_payload if isinstance(answer_payload, dict) else {}
+    base_data = combined.get("data")
+    if not isinstance(base_data, dict):
+        base_data = {}
+    merged_data = dict(base_data)
+
+    if isinstance(answer_dict, dict):
+        for key, value in answer_dict.items():
+            if key == "sections":
+                merged_data["sections"] = value
+            elif key not in merged_data:
+                merged_data[key] = value
+
+    combined["data"] = merged_data
+
+    return combined
+
+
 def _build_exact_metadata(
     *,
     session_id: str,
@@ -385,6 +418,12 @@ def build_response(
         intent=intent,
         has_data=_has_any_records(combined_result, answer_payload),
     )
+    combined_formatted_data = _merge_answer_into_formatted_data(
+        fd_payload,
+        answer_payload,
+        intro_message=intro_message,
+        message_value=message_value,
+    )
 
     try:
         response_model = FinalResponse(
@@ -392,7 +431,7 @@ def build_response(
             sessionId=session_value,
             message=message_value,
             widget=widget_value,
-            formattedData=fd_payload,
+            formattedData=combined_formatted_data,
             suggestedQuestions=suggested_questions or [],
             dotnetPayload=dotnet_payload if dotnet_payload is not None else {},
             metadata=metadata,
@@ -406,7 +445,7 @@ def build_response(
             "sessionId": session_value,
             "message": message_value,
             "widget": widget_value,
-            "formattedData": fd_payload,
+            "formattedData": combined_formatted_data,
             "suggestedQuestions": suggested_questions or [],
             "dotnetPayload": dotnet_payload if dotnet_payload is not None else {},
             "metadata": metadata,
@@ -417,7 +456,8 @@ def build_response(
     model_dict["widget"] = widget_value
     model_dict["sessionId"] = session_value
     model_dict["queryType"] = query_type
-    model_dict["answer"] = answer_payload
+    model_dict["formattedData"] = combined_formatted_data
+    model_dict["answer"] = combined_formatted_data
     model_dict["analysis"] = combine_analysis_to_string(analysis)
     model_dict["prediction"] = _normalize_prediction_block(prediction)
     model_dict["conclusion"] = combine_conclusion_to_string(conclusion)
@@ -475,17 +515,10 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
     public_payload = {
         "status": bool(payload.get("status", True)),
         "sessionId": payload.get("sessionId") or clean_meta["sessionId"],
-        "message": (payload.get("message") or payload.get("introMessage") or "").strip(),
+        "message": (payload.get("introMessage") or payload.get("message") or "").strip(),
         "formattedData": clean_formatted,
         "suggestedQuestions": list(payload.get("suggestedQuestions") or []),
-        "analysis": payload.get("analysis")
-        or combine_analysis_to_string(clean_formatted.get("analysis")),
-        "prediction": payload.get("prediction")
-        or _normalize_prediction_block(clean_formatted.get("prediction")),
-        "conclusion": payload.get("conclusion")
-        or combine_conclusion_to_string(clean_formatted.get("conclusion")),
         "queryType": payload.get("queryType") or clean_meta["queryType"],
-        "answer": payload.get("answer") or {},
         "overallConfidence": round(float(payload.get("overallConfidence") or clean_meta["confidence"]), 2),
         "metadata": clean_meta,
     }
