@@ -1895,6 +1895,14 @@ def clean_query(query: str) -> str:
     text = re.sub(r"(?is)```.*?```", " ", text)
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"(?im)^(?:ws:|socket:|event:|message:)\s*", "", text)
+    text = re.sub(
+        r"(?i)\b(?:agni\s*ai|agniai)\b.*?\bmay make mistakes\b(?:\.\s*|\s*)?",
+        " ",
+        text,
+    )
+    text = re.sub(r"(?i)\bverify important information\b\.?", " ", text)
+    text = re.sub(r"(?i)\bplease verify before use\b\.?", " ", text)
+    text = re.sub(r"(?i)\bverify before use\b\.?", " ", text)
     text = re.sub(r"(?i)agniai can make mistakes\.?\s*please verify before use\.?", " ", text)
     text = re.sub(r"(?m)^#{1,6}\s*", "", text)
     text = re.sub(r"[“”]", '"', text)
@@ -3029,6 +3037,9 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         "raw_query": raw_query,
         "confidence": "low",
     }
+
+    if not q:
+        return result
 
     medical_override = any(
         value is not None

@@ -27,6 +27,14 @@ _CONVERSATIONAL_PHRASES = (
     "weather",
 )
 
+_DISCLAIMER_PHRASES = (
+    "may make mistakes",
+    "verify important information",
+    "please verify before use",
+    "verify before use",
+    "as an ai",
+)
+
 _ADMIN_SIGNAL_WORDS = {
     "performance",
     "leave",
@@ -141,11 +149,17 @@ def _contains_admin_signal(text: str) -> bool:
     return any(token in _ADMIN_SIGNAL_WORDS for token in tokens)
 
 
+def _contains_disclaimer_phrase(text: str) -> bool:
+    return any(phrase in text for phrase in _DISCLAIMER_PHRASES)
+
+
 def is_conversational_query(text: str) -> bool:
     cleaned = normalize_text(text).rstrip("!?.,;")
     if not cleaned:
         return True
     if _contains_conversational_phrase(cleaned):
+        return True
+    if _contains_disclaimer_phrase(cleaned):
         return True
     if _contains_admin_signal(cleaned):
         return False

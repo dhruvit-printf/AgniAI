@@ -91,6 +91,21 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
     @patch("admin_pipeline._call_dotnet")
     @patch("admin_pipeline.generate_report")
+    def test_disclaimer_banner_stays_conversational(self, mock_generate_report, mock_call_dotnet):
+        result = execute_admin_query(
+            "AgniAI may make mistakes. Verify important information.",
+            {},
+        )
+
+        self.assertEqual(result["type"], "conversational")
+        response_payload = result["response_payload"]
+        self.assertEqual(response_payload["widget"], "conversation")
+        self.assertEqual(response_payload["metadata"]["queryType"], "conversational")
+        mock_call_dotnet.assert_not_called()
+        mock_generate_report.assert_not_called()
+
+    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.generate_report")
     def test_cross_filter_query_e2e(self, mock_generate_report, mock_call_dotnet):
         # 2. CROSS_FILTER: "Show top performer in PPT who plays cricket and is currently on leave"
         # Expects 3 .NET calls: Performance.Top, Skills.BySport (Cricket), Leave.Current

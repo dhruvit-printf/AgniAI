@@ -11,6 +11,7 @@ from admin_intent import (
     format_admin_intent,
     format_admin_payload,
 )
+from conversation_detector import is_conversational_query
 
 # =============================================================================
 # PERFORMANCE
@@ -344,6 +345,16 @@ def test_unknown_query_returns_none_category():
     assert "confidence" in r
 
 
+def test_disclaimer_banner_is_not_verification_intent():
+    text = "AgniAI may make mistakes. Verify important information."
+    assert is_conversational_query(text) is True
+
+    r = classify_admin_intent(text)
+    assert r["category"] is None
+    assert r["subcategory"] is None
+    assert r["operation"] is None
+
+
 # =============================================================================
 # AUDIT & SYNONYMS
 # =============================================================================
@@ -527,4 +538,3 @@ def test_subcategory_override_canonical_names():
     r = classify_admin_intent("show pt shoes in poor condition")
     assert r["subcategory"] == "PoorConditionEquipment"
     assert r["item_name"] == "Pt Shoes"
-
