@@ -592,7 +592,8 @@ def execute_admin_query(
     response_assembly_duration = 0.0
     report_duration = 0.0
     total_duration = 0.0
-    qtype_str = "filter_query"
+    # The old code used 'filter_query' which is a stale query type name that does not match 'simple' used elsewhere in the pipeline and vocabulary.
+    qtype_str = "simple"
     audit_success = True
     audit_error_type: Optional[str] = None
 

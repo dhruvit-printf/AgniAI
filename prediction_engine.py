@@ -187,9 +187,9 @@ def generate_predictions(
         trend_val = "Insufficient Data"
     else:
         st_lower = str(short_term).lower()
-        if "increase" in st_lower or "up" in st_lower:
+        if "increas" in st_lower or "up" in st_lower:
             trend_val = "Increasing"
-        elif "decrease" in st_lower or "down" in st_lower:
+        elif "decreas" in st_lower or "down" in st_lower:
             trend_val = "Decreasing"
         elif "insufficient" in st_lower or "no data" in st_lower:
             trend_val = "Insufficient Data"

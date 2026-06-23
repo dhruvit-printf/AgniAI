@@ -3080,10 +3080,9 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     result["item_category"] = item_cat
 
     # Old code used stale subcategory names 'EquipmentStats' and 'ReturnedEquipment' instead of 'EquipmentSummary' and 'PoorConditionEquipment'.
+    # We remove specific subcategories like OverdueEquipment and PoorConditionEquipment from override check so they are not lost when item_cat is detected.
     if item_cat and result.get("subcategory") in (
         "EquipmentSummary",
-        "OverdueEquipment",
-        "PoorConditionEquipment",
         None,
     ):
         result["subcategory"] = item_cat

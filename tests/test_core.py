@@ -88,3 +88,6 @@ def test_make_response_cache_key_deterministic():
 
 def test_trim_to_complete_sentence():
     assert trim_to_complete_sentence("This is complete.") == "This is complete."
+    # Added to verify the no-match branch behavior in trim_to_complete_sentence for both short and long texts without sentence boundary punctuation.
+    assert trim_to_complete_sentence("short phrase") == "short phrase"
+    assert trim_to_complete_sentence("this is a very long phrase with more than ten words in it and no punctuation") == "this is a very long phrase with more than ten words in it and no punctuation"

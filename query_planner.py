@@ -440,8 +440,9 @@ def _detect_multi_independent(
             left = text_lower[: m.start()].strip()
             right = text_lower[m.end() :].strip()
             if left and right:
+                # The old code was wrong because it did not check for 'suffer', 'suffered', or 'suffering' prefixes, leading to premature query splitting on cross-filter medical condition connectors.
                 if re.match(
-                    r"^(?:is|are|has|have|had|having|was|were|play|plays|who|which|that|with|on|in|under|currently)\b",
+                    r"^(?:is|are|has|have|had|having|was|were|play|plays|who|which|that|with|on|in|under|currently|suffer|suffered|suffering)\b",
                     right,
                 ):
                     continue

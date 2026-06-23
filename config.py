@@ -1500,8 +1500,7 @@ def trim_to_complete_sentence(text: str) -> str:
         return text
     matches = list(re.finditer(r"[.!?](?:\s|$)", text))
     if not matches:
-        if len(text.split()) >= 10:
-            return text
+        # The old code was wrong because it had redundant branches for >= 10 words check that both returned text identically.
         return text
     last_end = matches[-1].end()
     trimmed = text[:last_end].strip()
