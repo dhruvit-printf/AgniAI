@@ -56,7 +56,7 @@ def generate_conclusion(
     trace_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Generate a concise 20-40 words conclusion.
+    Generate a short conclusion with at most three bullet points.
     """
     sections = answer.get("sections") or []
     is_empty = True
@@ -82,13 +82,13 @@ def generate_conclusion(
             msg = "In conclusion, the consolidated report is empty because no matching data was found across any of the independent categories. Please check your query parameters or ensure that the target modules have active records available for reporting."
         else:
             msg = f"In conclusion, the database query returned zero active {category.lower()} records. We recommend adjusting your filter criteria, checking the spelling of your query parameters, or verifying that active records are present in the source system before attempting this search again."
-        return {"summary": msg, "message": msg}
+        return {"summary": msg, "bullets": [msg[:120]]}
 
     grounding_text = _build_conclusion_grounding_text(answer, query_type)
     flags = get_flags()
 
     # Rule-based fallback generator
-    fallback_message = f"The review of {category.lower()} records is complete. A total of {len(sections[0].get('data', [])) if sections else 0} matching entries are successfully filtered and analyzed for current command console reporting."
+    fallback_message = f"The review of {category.lower()} records is complete."
 
     if query_type in ("compare", "comparison"):
         left = answer.get("left") or {}
@@ -101,17 +101,17 @@ def generate_conclusion(
         fallback_message = f"In conclusion, the consolidation of the requested independent administrative modules is complete. All {len(sections)} sections have been successfully populated with their respective active database records, verified for completeness, and formatted to provide a comprehensive and clean administrative review."
 
     if not (flags.ENABLE_REPORTS and flags.ENABLE_OLLAMA):
-        return {"message": fallback_message}
+        return {"summary": fallback_message, "bullets": [fallback_message]}
 
     prompt = (
         "You are AgniAI, an intelligent military assistant.\n"
-        "Generate a brief conclusion summarizing the findings from the aggregate data below.\n\n"
+        "Generate a short conclusion and up to three bullet points from the aggregate data below.\n\n"
         "STRICT RULES:\n"
         "1. Base your response 100% on the Aggregate Data below.\n"
         "2. Do NOT hallucinate any numbers or names.\n"
-        "3. Write EXACTLY between 50 and 70 words in natural language.\n"
+        "3. Keep the summary short and the bullet list to 1-3 items.\n"
         f"Aggregate Data:\n{grounding_text}\n\n"
-        "Generate only the plain text conclusion without formatting."
+        "Return only JSON with keys summary and bullets."
     )
 
     try:
@@ -128,10 +128,10 @@ def generate_conclusion(
         raw = resp.json().get("message", {}).get("content", "").strip()
 
         sanitized = _ground_and_sanitize(raw, grounding_text)
-        if sanitized and 45 <= len(sanitized.split()) <= 75:
-            return {"message": sanitized}
+        if sanitized:
+            return {"summary": sanitized, "bullets": [sanitized]}
     except Exception as e:
         logger.warning("Ollama call failed in conclusion engine: %s", e)
         metrics_collector.inc_llm_failure()
 
-    return {"message": fallback_message}
+    return {"summary": fallback_message, "bullets": [fallback_message]}

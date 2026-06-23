@@ -78,15 +78,13 @@ def _build_aggregate_text(answer: Dict[str, Any], query_type: str, intent: Dict[
 
 def _analysis_payload(
     summary: str,
-    observations: List[str],
     insights: List[str],
-    predictions: Optional[List[str]] = None,
+    statistics: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     return {
         "summary": summary,
-        "observations": observations,
         "insights": insights,
-        "predictions": predictions or [],
+        "statistics": statistics or {},
     }
 
 def generate_analysis(
@@ -121,9 +119,7 @@ def generate_analysis(
                 [
                     "A cross-filter search was performed across all selected category sets, but no overlapping records were retrieved."
                 ],
-                [
-                    "This suggests that the filter parameters are mutually exclusive for the current cohort of personnel."
-                ],
+                {"record_count": 0, "match_count": 0},
             )
         elif query_type in ("compare", "comparison"):
             return _analysis_payload(
@@ -131,9 +127,7 @@ def generate_analysis(
                 [
                     "Both comparison groups returned empty datasets from the primary database query."
                 ],
-                [
-                    "The lack of records indicates that either no data has been logged yet or the categories do not contain any active personnel."
-                ],
+                {"left_count": 0, "right_count": 0},
             )
         elif query_type == "multi_independent":
             return _analysis_payload(
@@ -141,9 +135,7 @@ def generate_analysis(
                 [
                     "All requested independent sections returned zero active records from the system."
                 ],
-                [
-                    "This suggests a widespread absence of matching records across all requested data tables or filters."
-                ],
+                {"section_count": len(sections)},
             )
         else:
             return _analysis_payload(
@@ -151,9 +143,7 @@ def generate_analysis(
                 [
                     f"The search returned 0 records matching the {category.lower()} query parameters."
                 ],
-                [
-                    "No active records match the specified filters, indicating either no data has been logged or filters are too restrictive."
-                ],
+                {"record_count": 0},
             )
 
     aggregate_text = _build_aggregate_text(answer, query_type, intent)
@@ -161,31 +151,33 @@ def generate_analysis(
 
     # Rule-based fallback generator
     fallback_summary = f"Summary of {category.lower()} metrics completed."
-    fallback_obs = [f"Retrieved data for {category.lower()} query."]
     fallback_ins = ["Dataset matches the specified parameters."]
+    fallback_stats: Dict[str, Any] = {"record_count": len(sections[0].get("data", [])) if sections else 0}
 
     if query_type in ("compare", "comparison"):
         left = answer.get("left") or {}
         right = answer.get("right") or {}
         fallback_summary = f"Comparison completed between {left.get('label', 'Side 1')} and {right.get('label', 'Side 2')}."
-        fallback_obs = [
-            f"Compared {left.get('label', 'Side 1')} ({len(left.get('data', []))} records) with {right.get('label', 'Side 2')} ({len(right.get('data', []))} records)."
-        ]
         fallback_ins = ["Comparison highlights metric variances across categories."]
+        fallback_stats = {
+            "left_count": len(left.get("data", [])),
+            "right_count": len(right.get("data", [])),
+        }
     elif query_type == "cross_filter":
         records = sections[0].get("data") if sections else []
         fallback_summary = f"Cross-filter analysis matched {len(records)} records."
-        fallback_obs = [f"Found {len(records)} common records satisfying all filters."]
         fallback_ins = ["Records satisfy multiple overlapping conditions."]
+        fallback_stats = {"match_count": len(records)}
     elif query_type == "multi_independent":
         fallback_summary = f"Consolidated data from {len(sections)} sections."
-        fallback_obs = [f"Merged {len(sections)} independent categories: {', '.join(s.get('label','') for s in sections)}."]
         fallback_ins = ["Sections are presented independently without correlation."]
+        fallback_stats = {"section_count": len(sections)}
 
     fallback_report = {
         "summary": fallback_summary,
-        "observations": fallback_obs,
         "insights": fallback_ins
+        ,
+        "statistics": fallback_stats,
     }
 
     if not (flags.ENABLE_REPORTS and flags.ENABLE_OLLAMA):
@@ -193,16 +185,16 @@ def generate_analysis(
 
     prompt = (
         "You are AgniAI, an intelligent military assistant.\n"
-        "Generate a JSON object containing summary, observations, and insights based on the AGGREGATE data below.\n\n"
+        "Generate a JSON object containing summary, insights, and statistics based on the AGGREGATE data below.\n\n"
         "STRICT RULES:\n"
         "1. Base your response 100% on the Aggregate Data below. Never hallucinate, never invent details.\n"
         "2. Only mention numbers/metrics that appear verbatim in the Aggregate Data.\n"
         "3. Do NOT mention any person's name unless it appears in the Aggregate Data.\n"
         "4. Output a single JSON object with EXACTLY this structure:\n"
         "{\n"
-        '  "summary": "A detailed, natural language summary of the aggregate metrics (around 50 words).",\n'
-        '  "observations": ["1-3 key data points/metrics from the aggregate data"],\n'
-        '  "insights": ["1-2 trends or insights based on the aggregate data"]\n'
+        '  "summary": "A short natural language summary of the aggregate metrics.",\n'
+        '  "insights": ["1-2 trends or insights based on the aggregate data"],\n'
+        '  "statistics": {"key": "value"}\n'
         "}\n\n"
         f"User Query: {user_query}\n"
         f"Query Type: {query_type}\n"
@@ -229,17 +221,16 @@ def generate_analysis(
             parsed = json.loads(raw[start:end+1])
             if isinstance(parsed, dict):
                 summary = _ground_and_sanitize(parsed.get("summary", ""), aggregate_text) or fallback_summary
-                obs = [_ground_and_sanitize(str(o), aggregate_text) for o in parsed.get("observations", [])]
-                obs = [o for o in obs if o] or fallback_obs
                 ins = [_ground_and_sanitize(str(i), aggregate_text) for i in parsed.get("insights", [])]
                 ins = [i for i in ins if i] or fallback_ins
-                return _analysis_payload(summary, obs, ins)
+                stats = parsed.get("statistics") if isinstance(parsed.get("statistics"), dict) else fallback_stats
+                return _analysis_payload(summary, ins, stats)
     except Exception as e:
         logger.warning("Ollama call failed in analysis engine: %s", e)
         metrics_collector.inc_llm_failure()
 
     return _analysis_payload(
         fallback_report["summary"],
-        fallback_report["observations"],
         fallback_report["insights"],
+        fallback_report["statistics"],
     )

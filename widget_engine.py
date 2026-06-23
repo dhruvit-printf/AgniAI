@@ -255,9 +255,28 @@ def _map_to_supported_type(inferred: str) -> str:
     }
     return mapped.get(inferred, "TABLE")
 
-def infer_supported_type(combined_result: Any, query_type: str, intent: Dict[str, Any]) -> str:
+def infer_supported_type(
+    combined_result: Any,
+    query_type: str,
+    intent: Dict[str, Any],
+    visualization_intent: Optional[Dict[str, Any]] = None,
+) -> str:
     qtype = (query_type or "").strip().lower()
-    
+
+    if isinstance(visualization_intent, dict):
+        presentation = (visualization_intent.get("presentation") or "").strip().lower()
+        chart_type = (visualization_intent.get("chart_type") or "").strip().lower()
+        if presentation == "cards":
+            return "CARD"
+        if presentation == "table":
+            return "TABLE"
+        if presentation == "chart":
+            if chart_type == "line":
+                return "CHART_LINE"
+            if chart_type == "pie":
+                return "CHART_PIE"
+            return "CHART_BAR"
+
     if qtype == "compare" or qtype == "comparison":
         return "CHART_BAR"
     elif qtype == "trend":
@@ -660,9 +679,15 @@ def build_formatted_data(
     analysis: Optional[Any] = None,
     prediction: Optional[Any] = None,
     conclusion: Optional[Any] = None,
+    visualization_intent: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     
-    inferred_type = infer_supported_type(combined_result, query_type, intent)
+    inferred_type = infer_supported_type(
+        combined_result,
+        query_type,
+        intent,
+        visualization_intent=visualization_intent,
+    )
     
     from normalized_models import _derive_title
     title = _derive_title(query_type, intent)
@@ -682,21 +707,15 @@ def build_formatted_data(
 
     validate_payload(inferred_type, data_payload)
     
-    from normalized_models import (
-        combine_analysis_to_string,
-        combine_prediction_to_string,
-        combine_conclusion_to_string,
-    )
-    analysis_str = combine_analysis_to_string(analysis) if analysis else ""
-    prediction_str = combine_prediction_to_string(prediction) if prediction else ""
-    conclusion_str = combine_conclusion_to_string(conclusion) if conclusion else ""
-    
     fd = FormattedData(
         type=inferred_type,
         title=title,
         data=data_payload,
-        analysis=analysis_str,
-        prediction=prediction_str,
-        conclusion=conclusion_str,
+        presentation=(visualization_intent or {}).get("presentation"),
+        chart_type=(visualization_intent or {}).get("chart_type"),
+        comparison=(visualization_intent or {}).get("comparison"),
+        trend=(visualization_intent or {}).get("trend"),
+        group_by=(visualization_intent or {}).get("group_by"),
+        metric=(visualization_intent or {}).get("metric"),
     )
     return fd.model_dump()

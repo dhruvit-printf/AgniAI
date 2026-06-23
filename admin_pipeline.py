@@ -39,15 +39,19 @@ from admin_intent import (
 )
 from audit_logger import write_audit_log
 from audit_logger import reset_audit_context, set_audit_context
+from conversation_detector import build_conversational_response as build_conversation_payload
+from conversation_detector import is_conversational_query
 from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
 from dotnet_executor import _call_dotnet
 from feature_flags import get_flags
 from query_planner import QueryType, plan_query
+from query_understanding_engine import understand_query
 from report_generator import generate_report, get_fallback_report
 from response_builder import build_response, build_answer
 from normalized_models import extract_records as _extract_records
 from result_combiner import combine_results
 from suggested_question_engine import generate_suggested_questions
+from visualization_intent import build_visualization_intent
 from telemetry import (
     SPAN_BUILD_RESPONSE,
     SPAN_CALL_DOTNET,
@@ -657,144 +661,38 @@ def execute_admin_query(
             session_id = _get_session_id(body)
         id_filters = _get_id_filters(body)
         full_name = _get_full_name(body)
+        semantic_understanding = understand_query(message)
 
         # ── Greeting / conversational short-circuit ──────────────────────────
-        if _is_admin_conversational(message):
-            cleaned = message.lower().strip().rstrip("!?.,;")
-
+        if is_conversational_query(message) or semantic_understanding.get("conversational"):
             intent_start = time.time()
-            if _is_greeting(cleaned):
-                response_data, greeting_message = _build_greeting_response(
-                    body, session_id
-                )
+            if _is_greeting(message):
+                _, reply_text = _build_greeting_response(body, session_id)
+                qtype = "greeting"
             else:
-                response_data, greeting_message = _build_conversational_response(
-                    message, body, session_id, trace_id=trace_id
-                )
+                reply_text = "I can help with administrative data, reports, and analysis."
+                qtype = "conversational"
             intent_duration = time.time() - intent_start
-
-            _notify("planner")
-            _notify("intent")
-            _notify("dotnet")
-            _notify("combiner")
-            _notify("report")
-
-            qtype = response_data.get("type", "greeting")
-            greeting_intent = response_data.get("intent") or {
-                "category": qtype,
-                "subcategory": "",
-                "type": qtype,
-                "confidence": 1.0,
-            }
-            set_audit_context(question=user_query or message, intent=greeting_intent)
-            logger.info(
-                json.dumps(
-                    {
-                        "question": user_query or message,
-                        "intent": greeting_intent,
-                        "type": greeting_intent.get("type") or qtype,
-                        "intentFormed": bool(greeting_intent.get("category")),
-                    },
-                    ensure_ascii=False,
-                )
-            )
-
             total_duration = time.time() - start_time
-            durations = {
-                "entity_resolution_ms": 0.0,
-                "planning_ms": 0.0,
-                "planner_duration": round(planner_duration * 1000, 2),
-                "intent_duration": round(intent_duration * 1000, 2),
-                "dotnet_duration": round(dotnet_duration * 1000, 2),
-                "combiner_duration": round(combiner_duration * 1000, 2),
-                "widget_duration": 0.0,
-                "response_assembly_duration": 0.0,
-                "report_duration": round(report_duration * 1000, 2),
-                "total_duration": round(total_duration * 1000, 2),
-            }
-
-            response_payload = build_response(
-                query_type=qtype,
-                intro_message=greeting_message,
-                combined_result={},
-                analysis={"summary": "", "observations": [], "insights": []},
-                conclusion={"summary": ""},
-                intent={"category": qtype, "subcategory": "", "confidence": 1.0},
-                raw_results=[],
-                confidence=1.0,
-                operation_count=0,
-                formatted_data="",
+            response_payload = build_conversation_payload(
+                reply_text,
                 session_id=session_id,
-                durations=durations,
+                query_type=qtype,
             )
-
-            execution_time_ms = round(total_duration * 1000)
-            response_payload["metadata"]["executionTimeMs"] = execution_time_ms
-
-            logger.info(
-                json.dumps(
-                    {
-                        "question": user_query,
-                        "intent": greeting_intent,
-                        "type": greeting_intent.get("type") or qtype,
-                    },
-                    ensure_ascii=False,
-                )
+            response_payload["metadata"]["timings"]["intentDurationMs"] = round(intent_duration * 1000, 2)
+            response_payload["metadata"]["executionTimeMs"] = round(total_duration * 1000)
+            set_audit_context(
+                question=user_query or message,
+                intent=response_payload.get("intent") or {"category": qtype},
             )
-
             metrics_collector.inc_requests(qtype)
-            metrics_collector.record_duration(
-                "planner_duration", durations["planner_duration"]
-            )
-            metrics_collector.record_duration(
-                "intent_duration", durations["intent_duration"]
-            )
-            metrics_collector.record_duration(
-                "dotnet_duration", durations["dotnet_duration"]
-            )
-            metrics_collector.record_duration(
-                "report_duration", durations["report_duration"]
-            )
-            metrics_collector.record_duration(
-                "pipeline_duration", durations["total_duration"]
-            )
-
-            if total_duration > SLOW_QUERY_THRESHOLD:
-                logger.warning(
-                    json.dumps(
-                        {
-                            "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                            "trace_id": trace_id,
-                            "session_id": session_id,
-                            "query_type": qtype,
-                            "duration_ms": round(total_duration * 1000, 2),
-                        }
-                    )
-                )
-
-            write_audit_log(
-                trace_id=trace_id,
-                session_id=session_id,
-                query_type=qtype,
-                query_duration=durations["total_duration"],
-                success=True,
-            )
-
-            # Validate FinalResponseModel and MetadataModel
-            if "metadata" in response_payload:
-                _validate_model_payload(
-                    MetadataModel, response_payload["metadata"], "greeting.metadata"
-                )
-            _validate_model_payload(FinalResponseModel, response_payload, "greeting.final")
-
-            combined_message = response_payload.get("message", "")
             metrics_collector.inc_success(qtype)
-
+            write_audit_log(question=user_query or message, intent=response_payload.get("intent") or {})
             return {
                 "type": qtype,
                 "response_payload": response_payload,
-                "combined_message": combined_message,
-                "execution_time_ms": execution_time_ms,
+                "combined_message": response_payload.get("message", ""),
+                "execution_time_ms": round(total_duration * 1000),
             }
 
         if not message:
@@ -1141,14 +1039,14 @@ def execute_admin_query(
                     )
                 )
 
-                # Unrecognised query
-                if primary_intent.get("category") is None:
+                # Low-confidence or unrecognised query
+                if primary_intent.get("category") is None or float(
+                    semantic_understanding.get("confidence") or 0.0
+                ) < float(os.getenv("INTENT_CONFIDENCE_THRESHOLD", "0.35")):
                     intent_duration = time.time() - intent_start
                     unrecognised_msg = (
-                        "Sorry, I was unable to understand your request. "
-                        "I can help with Performance, Leave, Attendance, Medical, Equipment, "
-                        "Verification, Distribution, and Skills information. "
-                        "Please ask a relevant question."
+                        "I couldn't understand the query clearly. "
+                        "Could you please rephrase it?"
                     )
 
                     total_duration = time.time() - start_time
@@ -1165,20 +1063,37 @@ def execute_admin_query(
                         "total_duration": round(total_duration * 1000, 2),
                     }
 
-                    response_payload = build_response(
-                        query_type=qtype_str,
-                        intro_message=unrecognised_msg,
-                        combined_result={},
-                        analysis={"summary": "", "observations": [], "insights": []},
-                        conclusion={"summary": ""},
-                        intent=primary_intent,
-                        raw_results=[],
-                        confidence=query_plan.confidence,
-                        operation_count=0,
-                        formatted_data="",
+                    response_payload = build_conversation_payload(
+                        unrecognised_msg,
                         session_id=session_id,
-                        durations=durations,
+                        query_type="unclear",
                     )
+                    response_payload["metadata"]["timings"].update(
+                        {
+                            "entityResolutionMs": round(entity_resolution_duration * 1000),
+                            "planningMs": round(planning_duration * 1000),
+                            "plannerDurationMs": round(planner_duration * 1000),
+                            "intentDurationMs": round(intent_duration * 1000),
+                            "dotnetDurationMs": 0,
+                            "combineDurationMs": 0,
+                            "widgetMs": 0,
+                            "responseAssemblyMs": 0,
+                            "analysisDurationMs": 0,
+                            "predictionDurationMs": 0,
+                            "conclusionDurationMs": 0,
+                            "totalDurationMs": round(total_duration * 1000),
+                            "executionTimeMs": round(total_duration * 1000),
+                        }
+                    )
+                    response_payload["metadata"]["metrics"]["confidence"] = round(
+                        float(semantic_understanding.get("confidence") or 0.0), 2
+                    )
+                    response_payload["intent"] = {
+                        "category": "unclear",
+                        "confidence": round(
+                            float(semantic_understanding.get("confidence") or 0.0), 2
+                        ),
+                    }
 
                     logger.info(
                         json.dumps(
@@ -1560,6 +1475,9 @@ def execute_admin_query(
         # ── Step 6: Response Builder & Schema Inference ───────────────────────
         widget_start = time.time()
         from widget_engine import build_formatted_data
+        visualization_intent = build_visualization_intent(
+            message, primary_intent, combined_result
+        )
         formatted_data_payload = build_formatted_data(
             combined_result=combined_result,
             query_type=qtype_str,
@@ -1567,6 +1485,7 @@ def execute_admin_query(
             analysis=report.get("analysis"),
             prediction=report.get("prediction"),
             conclusion=report.get("conclusion"),
+            visualization_intent=visualization_intent,
         )
         widget_duration = time.time() - widget_start
         logger.info(

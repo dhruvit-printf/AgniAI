@@ -52,7 +52,7 @@ def generate_predictions(
     answer: Dict[str, Any],
     query_type: str,
     intent: Dict[str, Any]
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
     """
     Generate shortTerm and futureTrends predictions from JSON data.
     """
@@ -71,42 +71,18 @@ def generate_predictions(
 
     category = intent.get("category") or "Agniveer"
 
-    if is_empty:
-        trend_val = "Insufficient Data"
-        if query_type == "cross_filter":
-            proj = "Given the current database state, subsequent runs of this specific cross-filter query are expected to continue yielding zero matches unless the underlying records or the filter conditions are updated."
-            trends = [
-                "Subsequent queries with the same criteria will likely yield zero matches.",
-                "Adjusting filter criteria will be necessary to obtain non-empty result sets."
-            ]
-        elif query_type in ("compare", "comparison"):
-            proj = "Future comparisons will remain unavailable until records are successfully logged for the target categories in the database."
-            trends = [
-                "Comparisons will continue to show no data until records are populated.",
-                "Verifying database connection and record ingestion is recommended."
-            ]
-        elif query_type == "multi_independent":
-            proj = "The consolidated report will continue to show empty sections in subsequent runs unless data is populated in the source modules."
-            trends = [
-                "Report sections will remain empty until data ingestion occurs.",
-                "Query parameters should be verified to confirm they match existing records."
-            ]
-        else:
-            proj = f"No future trend projection can be generated since there is no historical or current {category.lower()} data available in the database at this time."
-            trends = [
-                "Projections will remain unavailable until active records are populated.",
-                "Ensure record logging is functional before planning trend analysis."
-            ]
-        return {
-            "trend": trend_val,
-            "projection": proj,
-            "heuristicEstimate": proj,
-            "shortTerm": "stable",
-            "futureTrends": trends,
-        }
-
     grounding_text = _build_prediction_grounding_text(answer, query_type)
     grounded_numbers = _extract_numbers_from_text(grounding_text)
+    total_points = 0
+    if query_type in ("compare", "comparison"):
+        left_data = answer.get("left", {}).get("data") or []
+        right_data = answer.get("right", {}).get("data") or []
+        total_points = len(left_data) + len(right_data)
+    else:
+        total_points = len(sections[0].get("data", [])) if sections else 0
+
+    if total_points < 2:
+        return None
 
     # 1. Determine shortTerm direction (stable, increasing, decreasing)
     short_term = "stable"
@@ -181,18 +157,13 @@ def generate_predictions(
             # fallback that doesn't contain ungrounded numbers
             sanitized_trends.append(f"Metrics for {category.lower()} are expected to align with historical baseline.")
 
-    # Strict enum check for short_term (examples: Stable, Increasing, Decreasing, Insufficient Data)
+    # Strict enum check for short_term (examples: Stable, Increasing, Decreasing)
     trend_val = "Stable"
-    if is_empty:
-        trend_val = "Insufficient Data"
-    else:
-        st_lower = str(short_term).lower()
-        if "increas" in st_lower or "up" in st_lower:
-            trend_val = "Increasing"
-        elif "decreas" in st_lower or "down" in st_lower:
-            trend_val = "Decreasing"
-        elif "insufficient" in st_lower or "no data" in st_lower:
-            trend_val = "Insufficient Data"
+    st_lower = str(short_term).lower()
+    if "increas" in st_lower or "up" in st_lower:
+        trend_val = "Increasing"
+    elif "decreas" in st_lower or "down" in st_lower:
+        trend_val = "Decreasing"
 
     projection_text = sanitized_trends[0] if sanitized_trends else "Metrics are expected to align with historical standards."
     heuristic_text = projection_text
@@ -201,7 +172,7 @@ def generate_predictions(
         "trend": trend_val,
         "projection": projection_text,
         "heuristicEstimate": heuristic_text,
-        "shortTerm": trend_val.lower() if trend_val != "Insufficient Data" else "stable",
+        "shortTerm": trend_val.lower(),
         "futureTrends": sanitized_trends[:3],
     }
 

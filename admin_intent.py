@@ -8,6 +8,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from query_understanding_engine import understand_query
+
 # =============================================================================
 # SUBCATEGORY → EXACT .NET OPERATION STRING
 # =============================================================================
@@ -2996,9 +2998,13 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "category": None,
         "subcategory": None,
+        "operation": None,
         "number": None,
         "section": None,
         "sub_section": None,
+        "metric": None,
+        "sort_by": None,
+        "group_by": None,
         "grading": None,
         "leave_type": None,
         "sport": None,
@@ -3079,6 +3085,22 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     result["item_name"] = item_name
     result["item_category"] = item_cat
 
+    semantic = understand_query(raw_query)
+    if semantic.get("operation") and semantic["operation"] != "lookup":
+        result["operation"] = semantic["operation"]
+    if semantic.get("metric"):
+        result["metric"] = semantic["metric"]
+    if semantic.get("sort"):
+        result["sort_by"] = semantic["sort"]
+    if semantic.get("group_by"):
+        result["group_by"] = semantic["group_by"]
+    if semantic.get("section") and not result.get("section"):
+        result["section"] = semantic["section"]
+    if semantic.get("category") and not result.get("category"):
+        result["category"] = semantic["category"]
+    if semantic.get("confidence", 0.0) >= 0.5 and result.get("confidence") == "low":
+        result["confidence"] = "medium"
+
     # Old code used stale subcategory names 'EquipmentStats' and 'ReturnedEquipment' instead of 'EquipmentSummary' and 'PoorConditionEquipment'.
     # We remove specific subcategories like OverdueEquipment and PoorConditionEquipment from override check so they are not lost when item_cat is detected.
     if item_cat and result.get("subcategory") in (
@@ -3108,6 +3130,8 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     subcategory = intent_result.get("subcategory")
     if subcategory:
         payload["operation"] = _SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory)
+    elif intent_result.get("operation"):
+        payload["operation"] = intent_result["operation"]
 
     if intent_result.get("number") is not None:
         payload["n"] = intent_result["number"]
@@ -3175,6 +3199,15 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
 
     if intent_result.get("medical_status"):
         payload["medicalStatus"] = intent_result["medical_status"]
+
+    if intent_result.get("group_by"):
+        payload["groupBy"] = intent_result["group_by"]
+
+    if intent_result.get("sort_by"):
+        payload["sortBy"] = intent_result["sort_by"]
+
+    if intent_result.get("metric"):
+        payload["metric"] = intent_result["metric"]
 
     return payload
 

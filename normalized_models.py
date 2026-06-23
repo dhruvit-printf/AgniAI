@@ -415,6 +415,14 @@ def combine_analysis_to_string(analysis: Optional[Any]) -> str:
     summary = (analysis.get("summary") or "").strip()
     if summary:
         parts.append(summary)
+    stats = analysis.get("statistics") or {}
+    if isinstance(stats, dict) and stats:
+        stat_bits = []
+        for key, value in stats.items():
+            if value not in (None, "", [], {}):
+                stat_bits.append(f"{key}: {value}")
+        if stat_bits:
+            parts.append(" ".join(stat_bits))
     obs = analysis.get("observations") or []
     if isinstance(obs, list):
         obs_str = " ".join(o.strip() for o in obs if o.strip())
@@ -441,9 +449,11 @@ def combine_conclusion_to_string(conclusion: Optional[Any]) -> str:
     summary = (conclusion.get("summary") or "").strip()
     if summary:
         parts.append(summary)
-    msg = (conclusion.get("message") or "").strip()
-    if msg and msg != summary:
-        parts.append(msg)
+    bullets = conclusion.get("bullets") or []
+    if isinstance(bullets, list):
+        bullet_text = " ".join(f"- {item.strip()}" for item in bullets if str(item).strip())
+        if bullet_text:
+            parts.append(bullet_text)
     return " ".join(p for p in parts if p)
 
 

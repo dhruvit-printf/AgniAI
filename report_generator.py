@@ -398,12 +398,13 @@ def generate_report(
                     "introMessage": intro,
                     "analysis": {
                         "summary": analysis_data.get("summary") if isinstance(analysis_data, dict) else "",
-                        "observations": analysis_data.get("observations") if isinstance(analysis_data, dict) else [],
                         "insights": analysis_data.get("insights") if isinstance(analysis_data, dict) else [],
-                        "predictions": []
+                        "statistics": analysis_data.get("statistics") if isinstance(analysis_data, dict) else {},
+                        "observations": [],
+                        "predictions": [],
                     },
                     "prediction": {"shortTerm": "stable", "futureTrends": []},
-                    "conclusion": {"summary": conclusion_text, "message": conclusion_text},
+                    "conclusion": {"summary": conclusion_text, "bullets": [conclusion_text] if conclusion_text else []},
                     "durations": {
                         "analysisDurationMs": 0.0,
                         "predictionDurationMs": 0.0,
@@ -446,7 +447,7 @@ def generate_report(
 
     # Parse conclusion summary text
     conclusion_needs_fallback = False
-    conclusion_text = conclusion.get("message") or ""
+    conclusion_text = conclusion.get("summary") or conclusion.get("message") or ""
     if _has_negative_copy(conclusion_text):
         conclusion_needs_fallback = True
 
@@ -470,14 +471,12 @@ def generate_report(
 
     return {
         "introMessage": intro,
-        "analysis": {
-            "summary": analysis.get("summary") if analysis else "",
-            "observations": analysis.get("observations") if analysis else [],
-            "insights": analysis.get("insights") if analysis else [],
-            "predictions": prediction.get("futureTrends") if prediction else []
-        },
+        "analysis": analysis,
         "prediction": prediction,
-        "conclusion": {"summary": conclusion_text, "message": conclusion_text},
+        "conclusion": {
+            "summary": conclusion_text,
+            "bullets": conclusion.get("bullets") if conclusion else [conclusion_text],
+        },
         "durations": {
             "analysisDurationMs": analysis_ms,
             "predictionDurationMs": prediction_ms,

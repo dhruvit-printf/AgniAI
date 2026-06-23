@@ -130,17 +130,18 @@ class CombinedResponseModel(BaseModel):
 class AnalysisModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    observations: List[str] = Field(default_factory=list)
     insights: List[str] = Field(default_factory=list)
-    predictions: List[str] = Field(default_factory=list)
     summary: str = ""
+    statistics: Dict[str, Any] = Field(default_factory=dict)
+    observations: List[str] = Field(default_factory=list)
+    predictions: List[str] = Field(default_factory=list)
 
 class PredictionModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     trend: str = ""
-    projection: str = ""
-    heuristicEstimate: str = ""
+    projection: Optional[str] = None
+    heuristicEstimate: Optional[str] = None
     shortTerm: Optional[str] = None
     futureTrends: List[str] = Field(default_factory=list)
 
@@ -148,7 +149,7 @@ class ConclusionModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: str = ""
-    message: Optional[str] = None
+    bullets: List[str] = Field(default_factory=list)
 
 class SuggestedQuestionModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -249,9 +250,12 @@ class FormattedData(BaseModel):
     type: str
     title: str
     data: Dict[str, Any]
-    analysis: str
-    prediction: str
-    conclusion: str
+    presentation: Optional[str] = None
+    chart_type: Optional[str] = None
+    comparison: Optional[bool] = None
+    trend: Optional[bool] = None
+    group_by: Optional[str] = None
+    metric: Optional[str] = None
 
 class FinalResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -264,11 +268,13 @@ class FinalResponse(BaseModel):
     answer: Dict[str, Any]
     result: Dict[str, Any]
     widgets: List[Dict[str, Any]]
-    analysis: Optional[str] = None
-    prediction: Optional[str] = None
-    conclusion: Optional[str] = None
+    widget: Optional[str] = None
+    records: List[Dict[str, Any]] = Field(default_factory=list)
+    analysis: Optional[Any] = None
+    prediction: Optional[Any] = None
+    conclusion: Optional[Any] = None
     intent: Dict[str, Any] = Field(default_factory=dict)
-    formattedData: FormattedData
+    formattedData: Optional[Dict[str, Any]] = None
     suggestedQuestions: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     overallConfidence: float = 0.0

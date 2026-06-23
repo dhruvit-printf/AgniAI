@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from admin_intent import _normalise, classify_admin_intent, format_admin_payload
+from query_understanding_engine import understand_query
 
 logger = logging.getLogger(__name__)
 
@@ -771,9 +772,21 @@ def _build_sub_operation(
 def plan_query(query: str) -> QueryPlan:
     raw_query = (query or "").strip()
     q = _normalise(raw_query)
+    semantic = understand_query(raw_query)
 
     if not q:
         return QueryPlan(QueryType.SIMPLE, [], 0.0, raw_query, "Empty query")
+
+    if semantic.get("conversational"):
+        op = _build_sub_operation(q)
+        return QueryPlan(
+            QueryType.SIMPLE,
+            [op],
+            0.0,
+            raw_query,
+            "Conversational query detected",
+            filters={},
+        )
 
     if _is_no_split_phrase(q):
         op = _build_sub_operation(q)
@@ -917,11 +930,21 @@ def plan_query(query: str) -> QueryPlan:
 
     op = _build_sub_operation(q, group_by=group_by)
     confidence = 0.95 if op.intent_result.get("category") else 0.3
+    if semantic.get("operation") == "ranking" and semantic.get("confidence", 0.0) >= 0.5:
+        return QueryPlan(
+            QueryType.SIMPLE,
+            [op],
+            float(semantic.get("confidence") or confidence),
+            raw_query,
+            "Semantic ranking query detected",
+            filters=_extract_filters_dict(op.intent_result),
+            analytics_hint="rank",
+        )
     filters = _extract_filters_dict(op.intent_result)
     return QueryPlan(
         QueryType.SIMPLE,
         [op],
-        confidence,
+        max(confidence, float(semantic.get("confidence") or 0.0)),
         raw_query,
         "Single-intent query with filters",
         filters=filters,
