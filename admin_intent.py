@@ -2934,7 +2934,7 @@ def _infer_category_from_semantics(
         return "Attendance"
     if _has_any(text_lower, ("improvement", "decline", "drop")):
         return "Performance"
-    if _has_any(text_lower, ("medical", "bmi", "blood group", "blood", "hospital", "disease")):
+    if _has_any(text_lower, ("medical", "bmi", "blood group", "blood", "hospital", "disease", "fever", "malaria", "injury", "illness", "sick")):
         return "Medical"
     if _has_any(text_lower, ("equipment", "issued", "procured", "overdue", "holding", "returned")):
         return "Equipment"
@@ -3314,7 +3314,7 @@ def classify_admin_intent(
         category = "Leave"
     if not category and result["medical_status"]:
         category = "Medical"
-    if not category and item_name and any(token in q for token in ("issued", "procured", "holding", "poor condition", "returned", "equipment")):
+    if not category and item_name:
         category = "Equipment"
 
     operation = _infer_operation_from_semantics(semantic, q)
@@ -3345,7 +3345,7 @@ def classify_admin_intent(
     if result["medical_status"] == "Active" and category is None:
         category = "Medical"
         operation = "Active"
-    if item_name and category is None and any(token in q for token in ("issued", "procured", "holding", "poor condition", "returned", "equipment")):
+    if item_name and category is None:
         category = "Equipment"
 
     subcategory = _infer_subcategory(category, operation, semantic, q)
@@ -3412,6 +3412,8 @@ def classify_admin_intent(
 def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     payload: Dict[str, Any] = {}
 
+    payload["commandId"] = 0
+
     if intent_result.get("category"):
         payload["category"] = intent_result["category"]
 
@@ -3460,6 +3462,7 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     if intent_result.get("item_name"):
         payload["equipmentName"] = intent_result["item_name"]
 
+    # Format additional filters
     if intent_result.get("company_id") is not None:
         payload["companyId"] = intent_result["company_id"]
 
@@ -3469,6 +3472,12 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     if intent_result.get("batch_id") is not None:
         payload["batchId"] = intent_result["batch_id"]
 
+    if intent_result.get("from_date"):
+        payload["fromDate"] = intent_result["from_date"]
+
+    if intent_result.get("to_date"):
+        payload["toDate"] = intent_result["to_date"]
+
     if intent_result.get("agniveer_no"):
         payload["agniveerNo"] = intent_result["agniveer_no"]
 
@@ -3477,6 +3486,28 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
 
     if intent_result.get("blood_group"):
         payload["bloodGroup"] = intent_result["blood_group"]
+
+    if intent_result.get("medical_status"):
+        payload["medicalStatus"] = intent_result["medical_status"]
+
+    # Only add groupBy for subcategories that support group-by aggregation.
+    # GradeDistribution, AverageScore, etc. use 'section' as a filter field,
+    # not as a groupBy dimension. Sending groupBy to these causes .NET 400.
+    _GROUPBY_UNSUPPORTED_SUBCATEGORIES = {
+        "GradeDistribution", "GradingSummary", "AverageScore",
+        "SectionSummary", "PassPercentage", "FailPercentage",
+        "BestAttempt", "AttemptWise", "Improvement", "Drop",
+        "OverallPerformance", "TopPerformers", "LowestPerformers",
+    }
+    subcategory = intent_result.get("subcategory") or ""
+    if intent_result.get("group_by") and subcategory not in _GROUPBY_UNSUPPORTED_SUBCATEGORIES:
+        payload["groupBy"] = intent_result["group_by"]
+
+    if intent_result.get("sort_by"):
+        payload["sortBy"] = intent_result["sort_by"]
+
+    if intent_result.get("metric"):
+        payload["metric"] = intent_result["metric"]
 
     return payload
 

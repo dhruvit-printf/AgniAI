@@ -39,8 +39,6 @@ class TestRunPipelineSuccessPath:
         assert sent == [
             "intro",
             "result",
-            "analysis",
-            "conclusion",
             "done",
         ]
 

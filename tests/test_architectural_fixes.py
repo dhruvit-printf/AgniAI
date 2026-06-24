@@ -67,26 +67,17 @@ class TestArchitecturalFixes(unittest.TestCase):
         self.assertEqual(dist["values"], [2, 1])
 
     def test_response_builder_answer_key(self):
-        intent = {
-            "category": "Performance",
-            "subcategory": "TopPerformers",
-            "confidence": "high",
-        }
         resp = build_response(
-            query_type="simple",
-            intro_message="Intro text",
-            combined_result={"data": 123},
-            analysis=None,
-            conclusion=None,
-            intent=intent,
-            raw_results=[],
-            confidence=0.9,
-            operation_count=1,
-            formatted_data="Formatted text",
+            message="Intro text",
+            formatted_data={"type": "TABLE", "data": {"columns": [], "rows": []}},
+            metadata={"sessionId": "session-123"},
+            session_id="session-123",
+            suggested_questions=[],
+            dotnet_payload={},
         )
-        self.assertIn("answer", resp)
-        self.assertIsInstance(resp["answer"], dict)
-        self.assertIn("sections", resp["answer"])
+        self.assertIn("formattedData", resp)
+        self.assertIsInstance(resp["formattedData"], dict)
+        self.assertEqual(resp["sessionId"], "session-123")
 
     def test_widgets_selection_step_12(self):
         # 1. Single record -> TABLE

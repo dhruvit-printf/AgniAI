@@ -1460,6 +1460,7 @@ def execute_admin_query(
                 report_duration = time.time() - report_start
                 logger.info(
                     json.dumps({
+                        "message": "Report generator stage finished",
                         "stage": "report",
                         "duration_ms": round(report_duration * 1000, 2),
                         "trace_id": trace_id,
@@ -1487,6 +1488,7 @@ def execute_admin_query(
             report_duration = time.time() - start_time
             logger.error(
                 json.dumps({
+                    "message": "Report generator stage failed",
                     "stage": "report",
                     "duration_ms": round(report_duration * 1000, 2),
                     "trace_id": trace_id,
@@ -1613,6 +1615,7 @@ def execute_admin_query(
             widget_duration = time.time() - widget_start
             logger.info(
                 json.dumps({
+                    "message": "Widget stage finished",
                     "stage": "widget",
                     "duration_ms": round(widget_duration * 1000, 2),
                     "trace_id": trace_id,
@@ -1626,6 +1629,7 @@ def execute_admin_query(
             widget_duration = time.time() - widget_start if 'widget_start' in locals() else 0.0
             logger.error(
                 json.dumps({
+                    "message": "Widget stage failed",
                     "stage": "widget",
                     "duration_ms": round(widget_duration * 1000, 2) if widget_duration else 0,
                     "trace_id": trace_id,
@@ -1649,6 +1653,7 @@ def execute_admin_query(
         except Exception as sq_exc:
             logger.error(
                 json.dumps({
+                    "message": "Suggested questions generation failed",
                     "stage": "suggested_questions",
                     "trace_id": trace_id,
                     "session_id": session_id,
@@ -1679,6 +1684,7 @@ def execute_admin_query(
                 response_assembly_duration = time.time() - response_assembly_start
                 logger.info(
                     json.dumps({
+                        "message": "Response builder stage finished",
                         "stage": "response_builder",
                         "duration_ms": round(response_assembly_duration * 1000, 2),
                         "trace_id": trace_id,
@@ -1691,6 +1697,7 @@ def execute_admin_query(
             import traceback as _tb
             logger.error(
                 json.dumps({
+                    "message": "Response builder stage failed",
                     "stage": "response_builder",
                     "trace_id": trace_id,
                     "session_id": session_id,

@@ -37,6 +37,12 @@ _CROSS_FILTER_MARKERS = (
     "with active medical",
     "among",
     "within",
+    "who",
+    "with",
+    "suffering",
+    "suffered",
+    "had",
+    "whose",
 )
 _RANKING_MARKERS = ("rank", "top", "highest", "best", "maximum", "most", "leading", "lowest", "worst", "minimum", "least", "bottom")
 _DISTRIBUTION_MARKERS = ("distribution", "breakdown", "share", "composition", "by unit", "unit wise")
@@ -203,7 +209,7 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
         if "strength" in text or "headcount" in text:
             return "Strength"
         return "Attendance"
-    if any(token in text for token in ("medical", "bmi", "blood group", "blood", "hospital", "disease")):
+    if any(token in text for token in ("medical", "bmi", "blood group", "blood", "hospital", "disease", "fever", "malaria", "injury", "illness", "sick")):
         return "Medical"
     if any(token in text for token in ("verification", "verified", "pending")):
         return "Verification"
@@ -348,36 +354,40 @@ def _extract_sub_requests(
         return [{"fragment": body or text, "category": category, "operation": operation, "entities": entities}]
 
     if any(marker in text for marker in _CROSS_FILTER_MARKERS):
-        for marker in ("who plays", "who is on leave", "currently on leave", "currently absent", "with medical", "with active medical"):
-            if marker in text:
-                head, tail = text.split(marker, 1)
-                head = head.strip(" ,")
-                tail = tail.strip(" ,")
-                if not head:
-                    return [{"fragment": text, "category": category, "operation": operation, "entities": entities}]
-                if " and " in tail and any(token in tail for token in ("leave", "absent", "medical")) and any(token in tail for token in ("cricket", "football", "sport", "players", "player", "plays")):
-                    left_tail, right_tail = tail.split(" and ", 1)
-                    left_tail = left_tail.strip(" ,")
-                    right_tail = right_tail.strip(" ,")
-                    return [
-                        {"fragment": head, "category": category, "operation": operation, "entities": entities},
-                        {"fragment": f"{marker} {left_tail}".strip(), "category": None, "operation": "lookup", "entities": entities},
-                        {"fragment": right_tail, "category": None, "operation": "lookup", "entities": entities},
-                    ]
-                return [
-                    {"fragment": head, "category": category, "operation": operation, "entities": entities},
-                    {"fragment": f"{marker} {tail}".strip(), "category": None, "operation": "lookup", "entities": entities},
-                ]
-        if " who " in f" {text} ":
-            head, tail = re.split(r"\bwho\b", text, maxsplit=1, flags=re.IGNORECASE)
-            head = head.strip(" ,")
-            tail = tail.strip(" ,")
-            if not head:
-                return [{"fragment": text, "category": category, "operation": operation, "entities": entities}]
-            return [
-                {"fragment": head, "category": category, "operation": operation, "entities": entities},
-                {"fragment": f"who {tail}".strip(), "category": None, "operation": "lookup", "entities": entities},
-            ]
+        parts = []
+        current = text
+        for sep in (r"\bwho\b", r"\bwith\b"):
+            split_parts = re.split(sep, current, maxsplit=1, flags=re.IGNORECASE)
+            if len(split_parts) > 1:
+                parts.append(split_parts[0].strip(" ,"))
+                current = " ".join(split_parts[1:])
+                break
+        else:
+            parts = [current]
+            current = ""
+
+        if current:
+            and_parts = [p.strip(" ,") for p in re.split(r"\band\b", current, flags=re.IGNORECASE) if p.strip(" ,")]
+            parts.extend(and_parts)
+        else:
+            new_parts = []
+            for p in parts:
+                and_parts = [ap.strip(" ,") for ap in re.split(r"\band\b", p, flags=re.IGNORECASE) if ap.strip(" ,")]
+                new_parts.extend(and_parts)
+            parts = new_parts
+
+        final_parts = []
+        for p in parts:
+            p_clean = p.strip(" ,")
+            if p_clean and p_clean not in ("who", "with", "and", "plays", "suffering", "suffered"):
+                final_parts.append(p_clean)
+
+        return [
+            {"fragment": p, "category": category, "operation": operation, "entities": entities}
+            if idx == 0 else
+            {"fragment": p, "category": None, "operation": "lookup", "entities": entities}
+            for idx, p in enumerate(final_parts)
+        ]
     if any(marker in text for marker in _MULTI_INDEPENDENT_MARKERS) or " and " in text:
         parts = _split_on_connectors(text, list(_MULTI_INDEPENDENT_MARKERS))
         if len(parts) == 1 and " and " in text:

@@ -47,4 +47,10 @@ def build_metadata(
             "totalMs": round(total_ms, 2),
         },
         "executionTimeMs": round(execution_ms or total_ms, 2),
+        "planner_duration": round(planner_ms, 2),
+        "intent_duration": round(intent_ms, 2),
+        "dotnet_duration": round(dotnet_ms, 2),
+        "combiner_duration": round(combiner_ms, 2),
+        "report_duration": round(report_ms, 2),
+        "total_duration": round(total_ms, 2),
     }

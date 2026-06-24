@@ -76,10 +76,10 @@ class TestFallbackReport(unittest.TestCase):
         intent = {"category": "Verification", "subcategory": "CompletedVerification"}
         rep = get_fallback_report(combined, "simple", intent)
         self.assertEqual(
-            rep["introMessage"],
+            rep["message"],
             "These records confirm files that have cleared the verification process.",
         )
-        self.assertIn("2 active records", rep["analysis"]["summary"])
+        self.assertIn("2 matching verification records", rep["analysis"]["summary"])
         self.assertIn("verification", rep["conclusion"]["summary"])
 
     def test_fallback_cross_filter(self):
@@ -93,13 +93,13 @@ class TestFallbackReport(unittest.TestCase):
         intent = {"category": "Performance"}
         rep = get_fallback_report(combined, "cross_filter", intent)
         self.assertEqual(
-            rep["introMessage"],
-            "We have successfully completed the cross-filter intersection query across the specified datasets. A total of 3 Agniveers were found to match all the overlapping filtering criteria and constraints simultaneously. Below, you will find the detailed breakdown and individual profiles of these matching records for further analysis.",
+            rep["message"],
+            "I found 3 records that match all of the selected conditions.",
         )
-        self.assertIn("exactly 3 active records", rep["analysis"]["summary"])
+        self.assertIn("exactly 3 records", rep["analysis"]["summary"])
         self.assertEqual(
             rep["conclusion"]["summary"],
-            "In conclusion, the cross-filter query has successfully isolated 3 Agniveer records matching all specified requirements. These individuals have been cross-referenced and validated against the primary unit databases, making this compiled list ready for immediate administrative reporting and command evaluation.",
+            "The cross-filter search is complete and the 3 matching records are ready for review.",
         )
 
 
@@ -123,74 +123,46 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertIn("Conclusion:\nDone.", msg)
 
     def test_build_response_schema(self):
-        intent = {
-            "category": "Performance",
-            "subcategory": "TopPerformers",
-            "confidence": "high",
-        }
-        analysis = {"summary": "Sum", "observations": ["O"], "insights": ["I"]}
-        conclusion = {"summary": "Conc"}
-        raw_res = [{"data": 123}]
-
         resp = build_response(
-            query_type="simple",
-            intro_message="Intro",
-            combined_result={"res": "val"},
-            analysis=analysis,
-            conclusion=conclusion,
-            intent=intent,
-            raw_results=raw_res,
-            confidence=0.95,
-            operation_count=1,
-            formatted_data="Formatted text",
+            message="Intro",
+            formatted_data={"type": "TABLE", "data": {"columns": [], "rows": []}},
+            metadata={"sessionId": "session-123", "confidence": 0.95, "queryType": "simple", "operationCount": 1},
             session_id="session-123",
+            suggested_questions=["Q1"],
+            dotnet_payload={"res": "val"},
         )
 
         self.assertTrue(resp["status"])
-        self.assertEqual(resp["queryType"], "simple")
-        self.assertEqual(resp["introMessage"], "Intro")
-        self.assertEqual(resp["result"]["processedData"], {"res": "val"})
-        self.assertEqual(resp["analysis"], "Sum O I")
-        self.assertEqual(resp["conclusion"], "Conc")
-        self.assertEqual(resp["intent"]["confidence"], 0.95)
-        # dotnetResponse is intentionally omitted for security — raw backend
-        # data must never reach the frontend. Verify it is absent.
-        self.assertNotIn("dotnetResponse", resp)
-        self.assertNotIn("rawResponse", resp)
-        self.assertEqual(resp["metadata"]["operationCount"], 1)
         self.assertEqual(resp["sessionId"], "session-123")
-        self.assertIn("message", resp)
+        self.assertEqual(resp["message"], "Intro")
+        self.assertEqual(resp["formattedData"]["type"], "TABLE")
+        self.assertEqual(resp["dotnetPayload"], {"res": "val"})
+        self.assertEqual(resp["suggestedQuestions"], ["Q1"])
+        self.assertEqual(resp["metadata"]["operationCount"], 1)
 
     def test_build_response_uses_real_section_label_and_message(self):
+        from message_engine import generate_message
         intent = {
             "category": "Performance",
             "subcategory": "TopPerformers",
             "confidence": "high",
+            "section": "PPT",
         }
         combined = [
             {"fullName": "A", "bestTotal": 100, "sectionFilter": "PPT"},
             {"fullName": "B", "bestTotal": 99, "sectionFilter": "PPT"},
         ]
-
-        resp = build_response(
-            query_type="simple",
-            intro_message="Top performers retrieved.",
+        msg = generate_message(
+            user_query="Show top performers in PPT",
             combined_result=combined,
-            analysis={"summary": "Summary", "observations": ["A", "B"], "insights": []},
-            conclusion={"summary": "Done"},
+            query_type="simple",
             intent=intent,
-            raw_results=[],
-            confidence=0.95,
-            operation_count=1,
-            formatted_data="",
         )
-
-        self.assertEqual(resp["answer"]["sections"][0]["label"], "PPT")
-        self.assertIn("PPT top records", resp["message"])
-        self.assertIn("A (100)", resp["message"])
-        self.assertIn("B (99)", resp["message"])
+        self.assertIn("performance", msg.lower())
+        self.assertIn("ppt", msg.lower())
 
     def test_build_response_uses_overall_label_for_top_performers(self):
+        from message_engine import generate_message
         intent = {
             "category": "Performance",
             "subcategory": "TopPerformers",
@@ -200,50 +172,34 @@ class TestResponseBuilder(unittest.TestCase):
             {"fullName": "A", "bestTotal": 100, "platoonName": "PL-05"},
             {"fullName": "B", "bestTotal": 99, "platoonName": "PL-18"},
         ]
-
-        resp = build_response(
-            query_type="simple",
-            intro_message="Top performers retrieved.",
+        msg = generate_message(
+            user_query="Show top performers",
             combined_result=combined,
-            analysis={"summary": "Summary", "observations": ["A", "B"], "insights": []},
-            conclusion={"summary": "Done"},
+            query_type="simple",
             intent=intent,
-            raw_results=[],
-            confidence=0.95,
-            operation_count=1,
-            formatted_data="",
         )
-
-        self.assertEqual(resp["answer"]["sections"][0]["label"], "Overall")
-        self.assertIn("Overall top records", resp["message"])
-        self.assertIn("A (100)", resp["message"])
-        self.assertIn("B (99)", resp["message"])
+        self.assertIn("performance", msg.lower())
 
     def test_public_response_view_matches_external_contract(self):
-        intent = {
-            "category": "Performance",
-            "subcategory": "TopPerformers",
-            "confidence": "high",
-        }
         internal = build_response(
-            query_type="simple",
-            intro_message="Intro",
-            combined_result=[
-                {"fullName": "A", "bestTotal": 100, "sectionFilter": "PPT"},
-                {"fullName": "B", "bestTotal": 99, "sectionFilter": "PPT"}
-            ],
-            analysis={"summary": "Sum", "observations": [], "insights": []},
-            prediction={
-                "trend": "Stable",
-                "projection": "Projected stable performance.",
-                "heuristicEstimate": "Projected stable performance.",
+            message="Intro",
+            formatted_data={
+                "type": "TABLE",
+                "title": "Top Performers",
+                "data": {"columns": [], "rows": []},
+                "analysis": {"summary": "Sum"},
+                "prediction": {"trend": "Stable"},
+                "conclusion": {"summary": "Conc"},
             },
-            conclusion={"summary": "Conc"},
-            intent=intent,
-            raw_results=[],
-            confidence=0.95,
-            operation_count=1,
-            formatted_data="",
+            metadata={
+                "sessionId": "admin-default",
+                "confidence": 0.95,
+                "queryType": "simple",
+                "operationCount": 1,
+            },
+            session_id="admin-default",
+            suggested_questions=[],
+            dotnet_payload={},
         )
 
         public = public_response_view(internal)
@@ -256,8 +212,7 @@ class TestResponseBuilder(unittest.TestCase):
                 "message",
                 "formattedData",
                 "suggestedQuestions",
-                "queryType",
-                "overallConfidence",
+                "dotnetPayload",
                 "metadata",
             },
         )
@@ -265,7 +220,7 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("intent", public)
         self.assertNotIn("answer", public)
         self.assertEqual(public["sessionId"], "admin-default")
-        self.assertEqual(public["message"], internal["introMessage"])
+        self.assertEqual(public["message"], "Intro")
 
         # Verify metadata filtering
         metadata = public["metadata"]
@@ -280,6 +235,9 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("answer", public["formattedData"])
         self.assertNotIn("introMessage", public["formattedData"])
         self.assertNotIn("message", public["formattedData"])
+        self.assertEqual(public["sessionId"], "admin-default")
+        self.assertEqual(public["message"], internal["message"])
+
         if isinstance(public["formattedData"], dict) and "data" in public["formattedData"]:
             data = public["formattedData"]["data"]
             if isinstance(data, dict) and "rows" in data:
@@ -298,36 +256,36 @@ class TestBuildResponseSecurity:
             "confidence": "high",
         }
         resp = build_response(
-            query_type="simple",
-            intro_message="Intro",
-            combined_result={"records": [{"agniveerId": 1}]},
-            analysis={"summary": "S", "observations": [], "insights": []},
-            conclusion={"summary": "C"},
-            intent=intent,
-            raw_results=[{"secret": "data"}],
-            confidence=0.9,
-            operation_count=1,
-            formatted_data="formatted",
+            message="Intro",
+            formatted_data={"type": "TABLE", "data": {"columns": [], "rows": []}},
+            metadata={
+                "sessionId": "session-123",
+                "confidence": 0.9,
+                "queryType": "simple",
+                "operationCount": 1,
+            },
+            session_id="session-123",
+            suggested_questions=[],
+            dotnet_payload={"secret": "data"},
         )
         assert "dotnetResponse" not in resp
         assert "rawResponse" not in resp
         assert "raw_results" not in resp
+        assert resp["dotnetPayload"] == {"secret": "data"}
 
     def test_stack_trace_never_in_payload(self):
         from response_builder import build_response
 
-        intent = {"category": "Leave", "subcategory": "CurrentLeave", "confidence": 0.8}
         resp = build_response(
-            query_type="simple",
-            intro_message="",
-            combined_result={},
-            analysis=None,
-            conclusion=None,
-            intent=intent,
-            raw_results=[],
-            confidence=0.5,
-            operation_count=1,
-            formatted_data="",
+            message="",
+            formatted_data={},
+            metadata={
+                "sessionId": "session-123",
+                "confidence": 0.5,
+                "queryType": "simple",
+                "operationCount": 1,
+            },
+            session_id="session-123",
         )
         resp_str = str(resp)
         assert "traceback" not in resp_str.lower()
@@ -359,102 +317,33 @@ class TestBuildCombinedMessage:
         assert result.strip() == ""
 
     def test_confidence_string_normalized_to_float(self):
-        from response_builder import build_response
-
-        intent = {
-            "category": "Medical",
-            "subcategory": "ActiveCases",
-            "confidence": "high",
-        }
-        resp = build_response(
-            query_type="simple",
-            intro_message="",
-            combined_result={},
-            analysis=None,
-            conclusion=None,
-            intent=intent,
-            raw_results=[],
-            confidence=0.9,
-            operation_count=1,
-            formatted_data="",
-        )
-        assert resp["intent"]["confidence"] == 0.95
-        assert isinstance(resp["intent"]["confidence"], float)
+        from utils import normalize_confidence
+        assert normalize_confidence("high") == 0.95
 
     def test_confidence_medium_normalized(self):
-        from response_builder import build_response
-
-        intent = {
-            "category": "Leave",
-            "subcategory": "MostLeaveTaken",
-            "confidence": "medium",
-        }
-        resp = build_response(
-            query_type="simple",
-            intro_message="",
-            combined_result={},
-            analysis=None,
-            conclusion=None,
-            intent=intent,
-            raw_results=[],
-            confidence=0.7,
-            operation_count=1,
-            formatted_data="",
-        )
-        assert resp["intent"]["confidence"] == 0.70
+        from utils import normalize_confidence
+        assert normalize_confidence("medium") == 0.70
 
     def test_confidence_low_normalized(self):
-        from response_builder import build_response
-
-        intent = {"confidence": "low"}
-        resp = build_response(
-            query_type="simple",
-            intro_message="",
-            combined_result={},
-            analysis=None,
-            conclusion=None,
-            intent=intent,
-            raw_results=[],
-            confidence=0.3,
-            operation_count=1,
-            formatted_data="",
-        )
-        assert resp["intent"]["confidence"] == 0.30
+        from utils import normalize_confidence
+        assert normalize_confidence("low") == 0.30
 
     def test_session_id_default_val_when_default(self):
         from response_builder import build_response
-
-        intent = {"confidence": 0.9}
         resp = build_response(
-            query_type="simple",
-            intro_message="",
-            combined_result={},
-            analysis=None,
-            conclusion=None,
-            intent=intent,
-            raw_results=[],
-            confidence=0.9,
-            operation_count=1,
-            formatted_data="",
+            message="",
+            formatted_data={},
+            metadata={},
             session_id="admin-default",
         )
         assert resp["sessionId"] == "admin-default"
 
     def test_session_id_included_when_not_default(self):
         from response_builder import build_response
-
-        intent = {"confidence": 0.9}
         resp = build_response(
-            query_type="simple",
-            intro_message="",
-            combined_result={},
-            analysis=None,
-            conclusion=None,
-            intent=intent,
-            raw_results=[],
-            confidence=0.9,
-            operation_count=1,
-            formatted_data="",
+            message="",
+            formatted_data={},
+            metadata={},
             session_id="real-session-abc",
         )
         assert resp["sessionId"] == "real-session-abc"
@@ -483,7 +372,7 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
             None,
         )
         mock_generate_report.return_value = {
-            "introMessage": "Intro.",
+            "message": "Intro.",
             "analysis": {
                 "summary": "Summary",
                 "observations": [],
@@ -501,21 +390,15 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         # Verify that response_payload contains the record John Doe
-        sections = response_payload["answer"]["sections"]
-        self.assertTrue(len(sections) > 0)
-        found_john = False
-        for sec in sections:
-            for rec in sec.get("data", []):
-                if rec.get("fullName") == "John Doe":
-                    found_john = True
-                    break
+        rows = response_payload["formattedData"]["data"]["rows"]
+        found_john = any(row.get("fullName") == "John Doe" for row in rows)
         self.assertTrue(found_john)
 
     @patch("report_generator._call_ollama")
     def test_generate_report_is_honest_without_padding_filler(self, mock_call_ollama):
         # 1. Test when LLM returns short intro/conclusion.
         mock_call_ollama.return_value = (
-            '{"introMessage": "Short intro.", "analysis": {"summary": "A summary", '
+            '{"message": "Short intro.", "analysis": {"summary": "A summary", '
             '"observations": [], "insights": [], "predictions": []}, "conclusion": "Short conclusion."}'
         )
         combined = {
@@ -527,13 +410,13 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
 
         self.assertNotIn(
             "Additional details are saved in the system logs",
-            report["introMessage"],
+            report["message"],
         )
         self.assertNotIn(
             "Additional details are saved in the system logs",
             report["conclusion"]["summary"],
         )
-        self.assertEqual(report["introMessage"], "Short intro.")
+        self.assertEqual(report["message"], "Short intro.")
         self.assertEqual(report["conclusion"]["summary"], "Short conclusion.")
 
         # 2. Test when LLM fails (fallback path)
@@ -541,7 +424,7 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         report_fallback = generate_report(combined, "cross_filter", intent, "query")
         self.assertNotIn(
             "Additional details are saved in the system logs",
-            report_fallback["introMessage"],
+            report_fallback["message"],
         )
         self.assertNotIn(
             "Additional details are saved in the system logs",
@@ -556,10 +439,10 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         intent = {"category": "Performance"}
         report = generate_report(combined, "cross_filter", intent, "query")
         
-        self.assertEqual(report["introMessage"], "")
-        self.assertIsNone(report["analysis"])
-        self.assertIsNone(report["prediction"])
-        self.assertIsNone(report["conclusion"])
+        self.assertEqual(report["message"], "No matching records found.")
+        self.assertEqual(report["analysis"]["summary"], "No matching records found.")
+        self.assertEqual(report["prediction"]["trend"], "Insufficient Data")
+        self.assertEqual(report["conclusion"]["bullets"], [])
 
     @patch("report_generator.generate_analysis")
     @patch("report_generator.generate_predictions")

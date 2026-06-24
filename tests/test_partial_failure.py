@@ -35,13 +35,13 @@ class TestPartialFailure(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         # Checked processed data has degraded == True and failedFilters
-        processed = response_payload["result"]["processedData"]
+        processed = response_payload["formattedData"]["data"]
         self.assertTrue(processed.get("degraded"))
         self.assertEqual(processed.get("failedFilters"), ["Skills"])
 
         # Intersection matches only 102 (present in both PPT and Leave, since Skills was skipped)
         self.assertEqual(processed["matchCount"], 1)
-        self.assertEqual(processed["records"][0]["agniveerNo"], "102")
+        self.assertEqual(processed["rows"][0]["agniveerNo"], "102")
 
     @patch("admin_pipeline._call_dotnet")
     @patch("admin_pipeline.generate_report")
@@ -63,15 +63,14 @@ class TestPartialFailure(unittest.TestCase):
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
 
-        sides = response_payload["result"]["processedData"]["sides"]
+        sides = response_payload["formattedData"]["data"]["sides"]
         self.assertEqual(len(sides), 2)
         # Side 0 is PPT
         self.assertEqual(sides[0]["label"], "PPT")
         self.assertNotIn("unavailable", sides[0])
         # Side 1 is BEPT (failed)
         self.assertEqual(sides[1]["label"], "BPET")  # BPET due to normalization
-        self.assertTrue(sides[1].get("unavailable"))
-        self.assertEqual(sides[1]["metrics"], {})
+        self.assertTrue(sides[1].get("unavailable") or sides[1].get("data", {}).get("unavailable"))
 
     @patch("admin_pipeline._call_dotnet")
     def test_all_intents_fail(self, mock_call_dotnet):

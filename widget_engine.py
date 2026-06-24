@@ -21,132 +21,143 @@ from pydantic import ValidationError
 
 from normalized_models import extract_records as _orig_extract_records
 
-def flatten_single_record(r: Dict[str, Any]) -> List[Dict[str, Any]]:
-    base = {}
-    attempts_key = None
-    sections_key = None
-    subitems_key = None
-    
-    for k in r.keys():
-        k_lower = k.lower()
-        if k_lower == "attempts":
-            attempts_key = k
-        elif k_lower == "sections":
-            sections_key = k
-        elif k_lower in ("subitems", "subitems"):
-            subitems_key = k
-            
-    for k, v in r.items():
-        if k in (attempts_key, sections_key, subitems_key):
-            continue
-        base[k] = v
-        
-    if attempts_key and isinstance(r[attempts_key], list) and r[attempts_key]:
-        res = []
-        for att in r[attempts_key]:
-            if not isinstance(att, dict):
-                continue
-            att_merged = dict(base)
-            
-            att_sections_key = None
-            att_subitems_key = None
-            for k in att.keys():
-                if k.lower() == "sections":
-                    att_sections_key = k
-                elif k.lower() in ("subitems", "subitems"):
-                    att_subitems_key = k
-            
-            for k, v in att.items():
-                if k in (att_sections_key, att_subitems_key):
-                    continue
-                att_merged[k] = v
-                
-            if att_sections_key and isinstance(att[att_sections_key], list) and att[att_sections_key]:
-                for sec in att[att_sections_key]:
-                    if not isinstance(sec, dict):
-                        continue
-                    sec_merged = dict(att_merged)
-                    
-                    sec_subitems_key = None
-                    for k in sec.keys():
-                        if k.lower() in ("subitems", "subitems"):
-                            sec_subitems_key = k
-                            
-                    for k, v in sec.items():
-                        if k == sec_subitems_key:
-                            continue
-                        sec_merged[k] = v
-                        
-                    if sec_subitems_key and isinstance(sec[sec_subitems_key], list) and sec[sec_subitems_key]:
-                        for sub in sec[sec_subitems_key]:
-                            if not isinstance(sub, dict):
-                                continue
-                            sub_merged = dict(sec_merged)
-                            for k, v in sub.items():
-                                sub_merged[k] = v
-                            res.append(sub_merged)
-                    else:
-                        res.append(sec_merged)
-            else:
-                res.append(att_merged)
-        return res
-        
-    elif sections_key and isinstance(r[sections_key], list) and r[sections_key]:
-        res = []
-        for sec in r[sections_key]:
-            if not isinstance(sec, dict):
-                continue
-            sec_merged = dict(base)
-            
-            sec_subitems_key = None
-            for k in sec.keys():
-                if k.lower() in ("subitems", "subitems"):
-                    sec_subitems_key = k
-                    
-            for k, v in sec.items():
-                if k == sec_subitems_key:
-                    continue
-                sec_merged[k] = v
-                
-            if sec_subitems_key and isinstance(sec[sec_subitems_key], list) and sec[sec_subitems_key]:
-                for sub in sec[sec_subitems_key]:
-                    if not isinstance(sub, dict):
-                        continue
-                    sub_merged = dict(sec_merged)
-                    for k, v in sub.items():
-                        sub_merged[k] = v
-                    res.append(sub_merged)
-            else:
-                res.append(sec_merged)
-        return res
-        
-    return [r]
+def capitalize_segment(s: str) -> str:
+    if not s:
+        return ""
+    cleaned = "".join(part[0].upper() + part[1:] for part in s.split() if part)
+    if cleaned.lower() in ("bmi", "bpet", "id"):
+        return cleaned.upper()
+    if cleaned.isupper():
+        return cleaned
+    return cleaned
 
-def flatten_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+def get_singular_key(key: str) -> str:
+    if key.lower().endswith("s"):
+        return key[:-1]
+    return key
+
+
+def recursive_flatten(val: Any, path_prefix: List[str], flat_dict: Dict[str, Any]) -> None:
+    if isinstance(val, dict):
+        if not path_prefix:
+            for k, v in val.items():
+                k_seg = capitalize_segment(k)
+                recursive_flatten(v, [k_seg], flat_dict)
+            return
+
+        name_key = None
+        for k in val.keys():
+            k_lower = k.lower()
+            if k_lower in ("name", "label", "sectionname", "subitemname", "itemname") or k_lower.endswith("name") or k_lower.endswith("label"):
+                name_key = k
+                break
+        
+        value_key = None
+        for k in val.keys():
+            k_lower = k.lower()
+            if k_lower in ("marks", "marksobtained", "score", "value", "quantity"):
+                if isinstance(val[k], (str, int, float, bool)) or val[k] is None:
+                    value_key = k
+                    break
+        
+        label_already_in_path = False
+        if name_key and path_prefix:
+            label_val = str(val[name_key])
+            if label_val:
+                label_seg = capitalize_segment(label_val)
+                if path_prefix[-1].lower() == label_seg.lower():
+                    label_already_in_path = True
+        
+        if label_already_in_path:
+            if value_key:
+                flat_dict["_".join(path_prefix)] = val[value_key]
+            for k, v in val.items():
+                if k == name_key or (value_key and k == value_key):
+                    continue
+                k_seg = capitalize_segment(k)
+                recursive_flatten(v, path_prefix + [k_seg], flat_dict)
+        else:
+            if name_key and value_key:
+                label_val = str(val[name_key])
+                label_seg = capitalize_segment(label_val)
+                flat_dict["_".join(path_prefix + [label_seg])] = val[value_key]
+                for k, v in val.items():
+                    if k in (name_key, value_key):
+                        continue
+                    k_seg = capitalize_segment(k)
+                    recursive_flatten(v, path_prefix + [label_seg, k_seg], flat_dict)
+            elif name_key:
+                label_val = str(val[name_key])
+                label_seg = capitalize_segment(label_val)
+                for k, v in val.items():
+                    if k == name_key:
+                        continue
+                    k_seg = capitalize_segment(k)
+                    recursive_flatten(v, path_prefix + [label_seg, k_seg], flat_dict)
+            else:
+                for k, v in val.items():
+                    k_seg = capitalize_segment(k)
+                    recursive_flatten(v, path_prefix + [k_seg], flat_dict)
+                    
+    elif isinstance(val, list):
+        parent_key = path_prefix[-1] if path_prefix else "Item"
+        singular = get_singular_key(parent_key)
+        base_prefix = capitalize_segment(singular)
+        
+        for idx, item in enumerate(val):
+            segment_name = None
+            if isinstance(item, dict):
+                name_key = None
+                for k in item.keys():
+                    k_lower = k.lower()
+                    if k_lower in ("name", "label", "sectionname", "subitemname", "itemname") or k_lower.endswith("name") or k_lower.endswith("label"):
+                        name_key = k
+                        break
+                if name_key:
+                    label_val = str(item[name_key])
+                    if label_val:
+                        segment_name = capitalize_segment(label_val)
+            
+            if not segment_name:
+                segment_name = f"{base_prefix}{idx + 1}"
+            
+            new_path = list(path_prefix)
+            if new_path:
+                new_path[-1] = segment_name
+            else:
+                new_path = [segment_name]
+            
+            recursive_flatten(item, new_path, flat_dict)
+            
+    else:
+        if val is None or isinstance(val, (str, int, float, bool)):
+            col_key = "_".join(path_prefix)
+            if col_key:
+                flat_dict[col_key] = val
+        else:
+            col_key = "_".join(path_prefix)
+            if col_key:
+                flat_dict[col_key] = str(val)
+
+
+def deep_flatten_record(r: Dict[str, Any]) -> Dict[str, Any]:
+    flat = {}
+    recursive_flatten(r, [], flat)
+    return flat
+
+
+def flatten_records(records: List[Dict[str, Any]], deep_flatten: bool = False) -> List[Dict[str, Any]]:
     flat_records = []
     for r in records:
         if isinstance(r, dict):
-            flat_records.extend(flatten_single_record(r))
+            if deep_flatten:
+                flat_records.append(deep_flatten_record(r))
+            else:
+                flat_records.append(r)
         else:
             flat_records.append(r)
-    seen = set()
-    deduped = []
-    for record in flat_records:
-        if not isinstance(record, dict):
-            continue
-        record_id = None
-        for key in ("agniveerNo", "agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-            val = record.get(key)
-            if val is not None:
-                record_id = f"id:{val}"
-                break
-        if record_id is None:
-            record_id = "row:" + json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
-        if record_id in seen:
-            continue
-        seen.add(record_id)
-        deduped.append(record)
-    return deduped
+    return flat_records
 
 
 def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -169,7 +180,8 @@ def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         deduped.append(record)
     return deduped
 
-def _extract_records(combined_result: Any) -> List[Dict[str, Any]]:
+
+def _extract_records(combined_result: Any, deep_flatten: bool = False) -> List[Dict[str, Any]]:
     if isinstance(combined_result, dict):
         if "sections" in combined_result and isinstance(combined_result["sections"], list):
             records = []
@@ -179,12 +191,12 @@ def _extract_records(combined_result: Any) -> List[Dict[str, Any]]:
                     if isinstance(data_val, list):
                         records.extend([r for r in data_val if isinstance(r, dict)])
             if records:
-                return flatten_records(records)
+                return flatten_records(records, deep_flatten=deep_flatten)
         if "records" in combined_result and isinstance(combined_result["records"], list):
-            return flatten_records([r for r in combined_result["records"] if isinstance(r, dict)])
+            return flatten_records([r for r in combined_result["records"] if isinstance(r, dict)], deep_flatten=deep_flatten)
     elif isinstance(combined_result, list):
-        return flatten_records([r for r in combined_result if isinstance(r, dict)])
-    return flatten_records(_orig_extract_records(combined_result))
+        return flatten_records([r for r in combined_result if isinstance(r, dict)], deep_flatten=deep_flatten)
+    return flatten_records(_orig_extract_records(combined_result), deep_flatten=deep_flatten)
 
 from schemas import (
     CardItem,
@@ -574,9 +586,8 @@ def infer_supported_type(
 
     if isinstance(visualization_intent, dict):
         # ── Priority 1: explicit frontend override ───────────────────────────
-        # Only honour this when frontend_override=True, meaning the user
-        # actively chose a different widget type.
-        if visualization_intent.get("frontend_override"):
+        # Honour this when user chose a different widget type or requested it.
+        if visualization_intent.get("frontend_override") or visualization_intent.get("requested_widget_type") or visualization_intent.get("widget_type"):
             raw_requested = (
                 visualization_intent.get("requested_widget_type")
                 or visualization_intent.get("widget_type")
@@ -622,11 +633,7 @@ def infer_supported_type(
     if default_widget:
         return default_widget
 
-    # ── Priority 4 / 5: record count ────────────────────────────────────────
-    rec_count = len(_extract_records(combined_result))
-    if rec_count == 1:
-        return "CARD"
-
+    # ── Priority 4 / 5: record count / fallback ────────────────────────────
     return "TABLE"
 
 
@@ -652,11 +659,26 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
         })
     return {"cards": cards}
 
+def make_readable_label(k: str) -> str:
+    import re
+    parts = k.split("_")
+    readable_parts = []
+    for part in parts:
+        if part.isupper():
+            readable_parts.append(part)
+        else:
+            s = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", part)
+            s = re.sub(r"([A-Z])([A-Z][a-z])", r"\1 \2", s)
+            readable_parts.append(s.strip().title())
+            
+    label = " ".join(readable_parts)
+    label = label.replace("Agniveer No", "Agniveer No.").replace("Id", "ID").replace("Bpet", "BPET").replace("Bmi", "BMI")
+    return label
+
+
 def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not records:
         return {"columns": [], "rows": []}
-
-    FORBIDDEN_COLUMNS = {"attempts", "sections", "subitems", "bestattempt", "rawobjects"}
 
     def _flatten_cell_value(key: str, value: Any) -> Any:
         if value is None or isinstance(value, (str, int, float, bool)):
@@ -681,7 +703,7 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     keys_seen = []
     for r in records:
         for k in r.keys():
-            if k not in keys_seen and k != "id" and k.lower() not in FORBIDDEN_COLUMNS:
+            if k not in keys_seen and k != "id":
                 keys_seen.append(k)
                 
     key_priority = {"fullname": -10, "agniveerno": -9, "name": -8, "agniveerid": -7, "score": -6, "besttotal": -5}
@@ -689,9 +711,7 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     
     columns = []
     for k in keys_seen:
-        import re
-        label = re.sub(r"([A-Z])", r" \1", k).strip().title()
-        label = label.replace("Agniveer No", "Agniveer No.").replace("Id", "ID")
+        label = make_readable_label(k)
         columns.append({
             "key": k,
             "label": label
@@ -939,6 +959,8 @@ def build_pie_chart_data(combined_result: Any) -> Dict[str, Any]:
 
 def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
     if inferred_type == "TABLE":
+        if "sides" in data:
+            return
         cols = {c["key"] for c in data.get("columns", [])}
         for row in data.get("rows", []):
             for col in cols:
@@ -992,9 +1014,8 @@ def build_formatted_data(
     from normalized_models import _derive_title
     title = _derive_title(query_type, intent)
     
-    records = _extract_records(source_result)
-    
     if inferred_type == "CARD":
+        records = _extract_records(source_result, deep_flatten=False)
         data_payload = build_card_data(records, title)
     elif inferred_type in {"CHART_BAR", "BAR_CHART"}:
         data_payload = build_bar_chart_data(source_result)
@@ -1003,7 +1024,23 @@ def build_formatted_data(
     elif inferred_type in {"CHART_PIE", "PIE_CHART", "DONUT_CHART", "RADIAL_CHART"}:
         data_payload = build_pie_chart_data(source_result)
     else:
-        data_payload = build_table_data(records)
+        if isinstance(source_result, dict) and "sides" in source_result:
+            data_payload = {
+                "sides": [
+                    {
+                        "label": side.get("label"),
+                        "data": [deep_flatten_record(r) for r in side.get("data", []) if isinstance(r, dict)]
+                    }
+                    for side in source_result["sides"]
+                ]
+            }
+        else:
+            table_records = _extract_records(source_result, deep_flatten=True)
+            data_payload = build_table_data(table_records)
+            if isinstance(source_result, dict):
+                for key in ("degraded", "failedFilters", "matchCount"):
+                    if key in source_result:
+                        data_payload[key] = source_result[key]
 
     validate_payload(inferred_type, data_payload)
     

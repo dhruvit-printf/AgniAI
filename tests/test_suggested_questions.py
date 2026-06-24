@@ -42,39 +42,22 @@ class TestSuggestedQuestions(unittest.TestCase):
 
     def test_build_response_payload_suggestions(self):
         # Verify that build_response correctly integrates suggestedQuestions
-        intent = {
-            "category": "Performance",
-            "subcategory": "TopPerformers",
-            "confidence": "high",
-        }
         suggested = ["Q1", "Q2", "Q3"]
         payload = build_response(
-            query_type="filter_query",
-            intro_message="Intro",
-            combined_result={},
-            analysis={"summary": "Sum", "observations": [], "insights": []},
-            conclusion={"summary": "Conc"},
-            intent=intent,
-            raw_results=[],
-            confidence=0.9,
-            operation_count=1,
-            formatted_data="formatted",
+            message="Intro",
+            formatted_data={"type": "TABLE", "data": {}},
+            metadata={},
+            session_id="session-123",
             suggested_questions=suggested,
         )
         self.assertEqual(payload["suggestedQuestions"], suggested)
 
         # Default fallback to empty list
         payload_default = build_response(
-            query_type="greeting",
-            intro_message="Hi",
-            combined_result={},
-            analysis=None,
-            conclusion=None,
-            intent={"category": "greeting"},
-            raw_results=[],
-            confidence=1.0,
-            operation_count=0,
-            formatted_data="",
+            message="Hi",
+            formatted_data={},
+            metadata={},
+            session_id="session-123",
         )
         self.assertEqual(payload_default["suggestedQuestions"], [])
 

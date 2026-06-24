@@ -28,14 +28,24 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
         payload = {}
 
     formatted = _clean_formatted_data(payload.get("formattedData"))
-    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    raw_meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    
+    clean_meta = {
+        "sessionId": raw_meta.get("sessionId") or payload.get("sessionId") or "admin-default",
+        "metrics": {
+            "confidence": round(float(raw_meta.get("confidence") or 0.0), 2),
+            "queryType": raw_meta.get("queryType") or "",
+            "operationCount": int(raw_meta.get("operationCount") or 0),
+        },
+        "executionTimeMs": round(float(raw_meta.get("executionTimeMs") or 0.0), 2),
+    }
 
     return {
         "status": bool(payload.get("status", True)),
-        "sessionId": payload.get("sessionId") or metadata.get("sessionId") or "admin-default",
+        "sessionId": payload.get("sessionId") or clean_meta["sessionId"],
         "message": (payload.get("message") or "").strip(),
         "formattedData": formatted,
         "suggestedQuestions": list(payload.get("suggestedQuestions") or []),
         "dotnetPayload": payload.get("dotnetPayload") or {},
-        "metadata": metadata,
+        "metadata": clean_meta,
     }

@@ -105,6 +105,9 @@ _ADMIN_CONTEXT_WORDS = {
     "unit",
     "class",
     "sport",
+    "sports",
+    "cricket",
+    "football",
     "medical",
     "performance",
     "equipment",
@@ -117,6 +120,18 @@ _ADMIN_CONTEXT_WORDS = {
     "blood",
     "compare",
     "comparison",
+    "fever",
+    "malaria",
+    "injury",
+    "illness",
+    "sick",
+    "disease",
+    "active",
+    "items",
+    "item",
+    "issue",
+    "issued",
+    "procured",
 }
 
 
