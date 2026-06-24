@@ -2904,6 +2904,221 @@ def _extract_medical_status(text_lower: str) -> Optional[str]:
     return None
 
 
+def _has_any(text: str, phrases: Tuple[str, ...]) -> bool:
+    return any(phrase in text for phrase in phrases)
+
+
+def _infer_category_from_semantics(
+    semantic: Dict[str, Any],
+    text_lower: str,
+    *,
+    section: Optional[str],
+) -> Optional[str]:
+    if semantic.get("comparison_intent"):
+        return "Performance"
+    if semantic.get("entities", {}).get("grading"):
+        return "Performance"
+    if _has_any(text_lower, ("leave", "on leave", "absconded")):
+        return "Leave"
+    if semantic.get("entities", {}).get("leave_type") and _has_any(text_lower, ("leave", "on leave", "absent", "absconded")):
+        return "Leave"
+    if semantic.get("entities", {}).get("bmi_category") or semantic.get("entities", {}).get("blood_group"):
+        return "Medical"
+    if semantic.get("entities", {}).get("sport") and _has_any(text_lower, ("play", "plays", "played", "player", "players", "roster", "sport", "sports")):
+        return "Roster"
+    if section in {"BPET", "PPT", "Firing", "Drill"}:
+        return "Performance"
+    if _has_any(text_lower, ("grade summary", "grading summary", "grade distribution", "grading distribution")):
+        return "Performance"
+    if _has_any(text_lower, ("attendance", "present", "campus", "headcount")):
+        return "Attendance"
+    if _has_any(text_lower, ("improvement", "decline", "drop")):
+        return "Performance"
+    if _has_any(text_lower, ("medical", "bmi", "blood group", "blood", "hospital", "disease")):
+        return "Medical"
+    if _has_any(text_lower, ("equipment", "issued", "procured", "overdue", "holding", "returned")):
+        return "Equipment"
+    if _has_any(text_lower, ("verification", "verified", "pending", "completed")):
+        return "Verification"
+    if _has_any(text_lower, ("distribution", "unassigned", "assigned", "by unit", "top unit")):
+        return "Distribution"
+    if _has_any(text_lower, ("roster",)) and not _has_any(text_lower, ("class",)):
+        return "Roster"
+    if _has_any(text_lower, ("sport", "sports")):
+        return "Roster"
+    if _has_any(text_lower, ("class",)):
+        return "Skills"
+    if _has_any(text_lower, ("strength", "headcount")):
+        return "Strength"
+    if _has_any(text_lower, ("overall", "composite")):
+        return "Overall"
+    if _has_any(text_lower, ("performance", "score", "marks", "grading", "top", "best", "highest", "lowest", "worst")):
+        return "Performance"
+    if _has_any(text_lower, ("leave", "absconded", "absent")):
+        return "Leave"
+    return None
+
+
+def _infer_operation_from_semantics(semantic: Dict[str, Any], text_lower: str) -> str:
+    entities = semantic.get("entities") or {}
+    if semantic.get("operation") == "ranking" or semantic.get("query_type") == "ranking":
+        return "Top"
+    if semantic.get("comparison_intent"):
+        return "Compare"
+    if entities.get("grading"):
+        return "Grading"
+    if entities.get("bmi_category"):
+        return "BMI"
+    if entities.get("blood_group"):
+        return "BloodGroup"
+    if "pass percentage" in text_lower or "pass rate" in text_lower:
+        return "PassPercentage"
+    if "fail percentage" in text_lower or "fail rate" in text_lower:
+        return "FailPercentage"
+    if "best attempt" in text_lower:
+        return "BestAttempt"
+    if "attempt" in text_lower:
+        return "AttemptWise"
+    if "current leave" in text_lower or "leave today" in text_lower or "on leave" in text_lower:
+        return "Current"
+    if "absconded" in text_lower:
+        return "Absconded"
+    if _has_any(text_lower, ("trend", "increase", "decrease", "improvement", "drop", "decline")):
+        return "Improvement" if "drop" not in text_lower and "decline" not in text_lower and "decrease" not in text_lower else "Drop"
+    if _has_any(text_lower, ("distribution", "breakdown", "share", "composition")):
+        return "Grading"
+    if _has_any(text_lower, ("average", "avg", "mean")):
+        return "Average"
+    if _has_any(text_lower, ("top", "highest", "best", "most", "maximum")):
+        return "Top"
+    if _has_any(text_lower, ("lowest", "worst", "least", "minimum", "bottom", "fewest")):
+        return "Bottom"
+    if "summary" in text_lower and "attendance" in text_lower:
+        return "Summary"
+    return "Lookup"
+
+
+def _infer_subcategory(category: Optional[str], operation: str, semantic: Dict[str, Any], text_lower: str) -> Optional[str]:
+    entities = semantic.get("entities") or {}
+    if category == "Performance":
+        if operation == "Compare":
+            return "Comparison"
+        if "grade distribution" in text_lower or "grading distribution" in text_lower:
+            return "GradeDistribution"
+        if "grade summary" in text_lower or "grading summary" in text_lower:
+            return "GradingSummary"
+        if entities.get("grading") and not any(token in text_lower for token in ("percentage", "percent", "rate")):
+            return "GradeDistribution"
+        if operation == "PassPercentage":
+            return "PassPercentage"
+        if operation == "FailPercentage":
+            return "FailPercentage"
+        if operation == "AttemptWise":
+            return "AttemptWise"
+        if operation == "BestAttempt":
+            return "BestAttempt"
+        if operation == "Average":
+            return "AverageScore"
+        if operation == "Drop":
+            return "Drop"
+        if operation == "Improvement":
+            return "Improvement"
+        if _has_any(text_lower, ("top", "highest", "best", "most", "maximum", "leading")):
+            return "TopPerformers"
+        if _has_any(text_lower, ("lowest", "worst", "least", "minimum", "bottom", "fewest")):
+            return "LowestPerformers"
+        return "SectionSummary" if semantic.get("section") else "OverallPerformance"
+    if category == "Medical":
+        if entities.get("agniveer_no") or (_has_any(text_lower, ("agniveer",)) and any(ch.isdigit() for ch in text_lower)):
+            return "IndividualMedical"
+        if entities.get("bmi_category"):
+            return "BMIAnalysis"
+        if entities.get("blood_group"):
+            return "BloodGroup"
+        if _has_any(text_lower, ("disease", "diagnosis", "diagnoses")):
+            return "DiseaseStatistics"
+        if _has_any(text_lower, ("active", "hospital", "admitted", "sick")):
+            return "ActiveCases"
+        return "BMIAnalysis"
+    if category == "Leave":
+        if operation == "Current":
+            return "CurrentLeaveStatus"
+        if operation == "Absconded":
+            return "AbscondedPerson"
+        if _has_any(text_lower, ("most", "maximum", "highest")):
+            return "MostLeaveTaken"
+        if _has_any(text_lower, ("least", "lowest", "fewest", "minimum")):
+            return "LeastLeaveTaken"
+        return "LeaveType"
+    if category == "Attendance":
+        if _has_any(text_lower, ("monthly", "month wise", "per month", "by month")):
+            return "MonthlyAttendance"
+        if _has_any(text_lower, ("weekly", "week wise", "this week", "per week", "by week")):
+            return "WeeklyAttendance"
+        if _has_any(text_lower, ("yearly", "annual", "this year", "per year", "by year")):
+            return "YearlyAttendance"
+        if _has_any(text_lower, ("daily", "day wise", "by day")):
+            return "DailyAttendance"
+        if _has_any(text_lower, ("today", "present today", "on campus today", "who is present", "how many present")):
+            return "PresentToday"
+        if _extract_date(text_lower):
+            return "MonthlyAttendance"
+        return "AttendanceSummary"
+    if category == "Equipment":
+        if _has_any(text_lower, ("overdue",)):
+            return "OverdueEquipment"
+        if _has_any(text_lower, ("poor condition", "returned")):
+            return "PoorConditionEquipment"
+        if _has_any(text_lower, ("issued",)):
+            return "IssuedItems"
+        if _has_any(text_lower, ("procured", "purchase")):
+            return "ProcuredItems"
+        if _has_any(text_lower, ("holding",)):
+            return "HoldingEquipment"
+        if _has_any(text_lower, ("agniveer wise",)):
+            return "AgniveerWiseEquipment"
+        return "EquipmentSummary"
+    if category == "Verification":
+        if _has_any(text_lower, ("pending",)):
+            return "PendingVerification"
+        if _has_any(text_lower, ("rejected",)):
+            return "RejectedVerification"
+        if _has_any(text_lower, ("sent",)):
+            return "SentVerification"
+        if _has_any(text_lower, ("completed", "verified")):
+            return "CompletedVerification"
+        return "PendingVerification"
+    if category == "Distribution":
+        if _has_any(text_lower, ("top unit", "highest unit", "best unit")) or ("unit" in text_lower and any(token in text_lower for token in ("highest", "best", "top", "most"))):
+            return "TopUnit"
+        if _has_any(text_lower, ("by unit", "unit wise")):
+            return "DistributionByUnit"
+        if _has_any(text_lower, ("unassigned",)):
+            return "UnassignedItems"
+        if _has_any(text_lower, ("latest", "today")):
+            return "LatestDistribution"
+        return "DistributionByUnit"
+    if category == "Skills":
+        if _has_any(text_lower, ("class",)):
+            return "ByClass"
+        return "BySport"
+    if category == "Roster":
+        if _has_any(text_lower, ("class",)):
+            return "ByClass"
+        return "BySport"
+    if category == "Strength":
+        return "StrengthBreakdown"
+    if category == "Overall":
+        return "OverallPerformance"
+    return None
+
+
+def _intent_type_for(category: Optional[str], subcategory: Optional[str]) -> str:
+    if category and subcategory and (category, subcategory) in _INTENT_TYPE_DEFAULTS:
+        return _INTENT_TYPE_DEFAULTS[(category, subcategory)]
+    return "Tabular"
+
+
 def _score_intent(query_lower: str, keywords: Tuple[str, ...]) -> int:
     score = 0
     for kw in keywords:
@@ -2988,9 +3203,15 @@ def _match_intent(
     return None
 
 
-def classify_admin_intent(query: str) -> Dict[str, Any]:
+def classify_admin_intent(
+    query: str,
+    resolved_entities: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     raw_query = clean_query(query or "").strip()
     q = _normalise(raw_query)
+    semantic = understand_query(raw_query)
+    semantic_entities = semantic.get("entities") or {}
+    resolved_entities = resolved_entities or {}
 
     result: Dict[str, Any] = {
         "category": None,
@@ -3023,6 +3244,7 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
         "blood_group": None,
         "type": None,
         "medical_status": None,
+        "filters": {},
         "raw_query": raw_query,
         "confidence": "low",
     }
@@ -3030,89 +3252,114 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
     if not q:
         return result
 
-    medical_override = any(
-        value is not None
-        for value in (
-            _extract_bmi_category(q),
-            _extract_blood_group(q),
-            _extract_medical_status(q),
-        )
-    )
-
-    module = "Medical" if medical_override else _match_module(q)
-
-    if module is None:
-        best_module = None
-        best_score = 0
-        for mod, (_, intents) in _MODULES.items():
-            for _, _, kws in intents:
-                sc = _score_intent(q, kws)
-                if sc > best_score:
-                    best_score = sc
-                    best_module = mod
-        module = best_module
-
-    if module is not None:
-        result["category"] = module
-        _, intent_list = _MODULES[module]
-
-        intent_match = _match_intent(q, intent_list)
-        if intent_match:
-            _, intent_code = intent_match
-            result["subcategory"] = intent_code
-            result["confidence"] = "high"
-        else:
-            result["subcategory"] = intent_list[0][1]
-            result["confidence"] = "medium"
-
     result["number"] = _extract_number(q)
-    result["section"] = _extract_section(q)
+    result["section"] = semantic_entities.get("section") or _extract_section(q)
     result["sub_section"] = _extract_subsection(q)
-    result["grading"] = _extract_grading(q)
-    result["leave_type"] = _extract_leave_type(q, category=module)
-    result["sport"] = _extract_sport(q)
-    result["class"] = _extract_class(q)
+    if any(token in q for token in ("percentage", "percent", "rate")):
+        result["grading"] = None
+    else:
+        result["grading"] = semantic_entities.get("grading") or _extract_grading(q)
+    result["leave_type"] = semantic_entities.get("leave_type") or _extract_leave_type(q)
+    result["sport"] = semantic_entities.get("sport") or _extract_sport(q)
+    result["class"] = semantic_entities.get("class") or _extract_class(q)
     result["unit_name"] = _extract_unit_name(raw_query)
     result["attempt_no"] = _extract_attempt_no(q)
     result["from_attempt"] = _extract_from_attempt(q)
     result["to_attempt"] = _extract_to_attempt(q)
     result["date"] = _extract_date(raw_query)
 
-    # Extract additional filters
-    result["company_id"] = _extract_company_id(q)
-    result["platoon_id"] = _extract_platoon_id(q)
-    result["batch_id"] = _extract_batch_id(q)
+    result["company_id"] = (
+        resolved_entities.get("companyId")
+        or resolved_entities.get("company_id")
+        or semantic_entities.get("company_id")
+        or _extract_company_id(q)
+    )
+    result["platoon_id"] = (
+        resolved_entities.get("platoonId")
+        or resolved_entities.get("platoon_id")
+        or semantic_entities.get("platoon_id")
+        or _extract_platoon_id(q)
+    )
+    result["batch_id"] = (
+        resolved_entities.get("batchId")
+        or resolved_entities.get("batch_id")
+        or semantic_entities.get("batch_id")
+        or _extract_batch_id(q)
+    )
     result["from_date"] = _extract_from_date(q)
     result["to_date"] = _extract_to_date(q)
-    result["agniveer_no"] = _extract_agniveer_no(raw_query)
-    result["bmi_category"] = _extract_bmi_category(q)
-    result["blood_group"] = _extract_blood_group(q)
-    result["type"] = _extract_intent_type(q, module, result["subcategory"])
+    result["agniveer_no"] = (
+        resolved_entities.get("agniveerNo")
+        or resolved_entities.get("agniveer_no")
+        or _extract_agniveer_no(raw_query)
+    )
+    result["bmi_category"] = semantic_entities.get("bmi_category") or _extract_bmi_category(q)
+    result["blood_group"] = semantic_entities.get("blood_group") or _extract_blood_group(q)
     result["medical_status"] = _extract_medical_status(q)
 
     item_name, item_cat = _extract_item_query(q)
     result["item_name"] = item_name
     result["item_category"] = item_cat
 
-    semantic = understand_query(raw_query)
-    if semantic.get("operation") and semantic["operation"] != "lookup":
-        result["operation"] = semantic["operation"]
-    if semantic.get("metric"):
-        result["metric"] = semantic["metric"]
-    if semantic.get("sort"):
-        result["sort_by"] = semantic["sort"]
-    if semantic.get("group_by"):
-        result["group_by"] = semantic["group_by"]
-    if semantic.get("section") and not result.get("section"):
-        result["section"] = semantic["section"]
-    if semantic.get("category") and not result.get("category"):
-        result["category"] = semantic["category"]
-    if semantic.get("confidence", 0.0) >= 0.5 and result.get("confidence") == "low":
-        result["confidence"] = "medium"
+    category = _infer_category_from_semantics(semantic, q, section=result["section"])
+    if not category and result["section"] in {"BPET", "PPT", "Firing", "Drill"}:
+        category = "Performance"
+    if not category and result["bmi_category"]:
+        category = "Medical"
+    if not category and result["blood_group"]:
+        category = "Medical"
+    if not category and result["leave_type"]:
+        category = "Leave"
+    if not category and "leave" in q:
+        category = "Leave"
+    if not category and result["medical_status"]:
+        category = "Medical"
+    if not category and item_name and any(token in q for token in ("issued", "procured", "holding", "poor condition", "returned", "equipment")):
+        category = "Equipment"
 
-    # Attendance queries that mention a month-year but not a weekly/daily
-    # timeframe should route to the monthly attendance intent.
-    if result.get("category") == "Attendance":
+    operation = _infer_operation_from_semantics(semantic, q)
+    if result["grading"]:
+        category = "Performance"
+        operation = "Grading"
+    if result["bmi_category"]:
+        category = "Medical"
+        operation = "BMI"
+    if result["blood_group"]:
+        category = "Medical"
+        operation = "BloodGroup"
+    if semantic.get("comparison_intent"):
+        category = "Performance"
+        operation = "Compare"
+    if "pass percentage" in q or "pass rate" in q:
+        category = "Performance"
+        operation = "PassPercentage"
+    if "fail percentage" in q or "fail rate" in q:
+        category = "Performance"
+        operation = "FailPercentage"
+    if result["attempt_no"] is not None or result["from_attempt"] is not None or result["to_attempt"] is not None:
+        category = "Performance"
+        operation = "AttemptWise"
+    if result["leave_type"] == "Current" and category is None:
+        category = "Leave"
+        operation = "Current"
+    if result["medical_status"] == "Active" and category is None:
+        category = "Medical"
+        operation = "Active"
+    if item_name and category is None and any(token in q for token in ("issued", "procured", "holding", "poor condition", "returned", "equipment")):
+        category = "Equipment"
+
+    subcategory = _infer_subcategory(category, operation, semantic, q)
+
+    result["category"] = category
+    result["operation"] = operation if operation != "Lookup" else None
+    result["subcategory"] = subcategory
+    result["type"] = _intent_type_for(category, subcategory)
+    if _has_any(q, ("tabular", "table")):
+        result["type"] = "Tabular"
+    result["query_type"] = semantic.get("query_type") or "simple"
+    result["confidence"] = "high" if category or subcategory else ("medium" if semantic.get("confidence", 0.0) >= 0.5 else "low")
+
+    if category == "Attendance" and result["subcategory"] is None:
         has_month_year = bool(
             re.search(
                 r"\b(?:January|February|March|April|May|June|July|August|September|"
@@ -3121,48 +3368,49 @@ def classify_admin_intent(query: str) -> Dict[str, Any]:
                 re.IGNORECASE,
             )
         )
-        mentions_explicit_week = any(
-            token in q for token in ("weekly", "week wise", "this week", "per week", "by week")
-        )
-        mentions_explicit_day = any(
-            token in q for token in ("daily", "day wise", "by day", "today", "on this day")
-        )
-        mentions_explicit_year = any(
-            token in q for token in ("yearly", "annual", "this year", "per year", "by year")
-        )
-        mentions_present_today = any(
-            token in q for token in ("present today", "on campus today", "who is present", "how many present")
-        )
-
-        if has_month_year and not any(
-            (mentions_explicit_week, mentions_explicit_day, mentions_explicit_year, mentions_present_today)
-        ):
+        if has_month_year:
             result["subcategory"] = "MonthlyAttendance"
-            result["type"] = _extract_intent_type(q, module, result["subcategory"])
-            result["confidence"] = "high"
+            result["type"] = _intent_type_for(category, result["subcategory"])
 
-    # Old code used stale subcategory names 'EquipmentStats' and 'ReturnedEquipment' instead of 'EquipmentSummary' and 'PoorConditionEquipment'.
-    # We remove specific subcategories like OverdueEquipment and PoorConditionEquipment from override check so they are not lost when item_cat is detected.
-    if item_cat and result.get("subcategory") in (
-        "EquipmentSummary",
-        None,
-    ):
-        result["subcategory"] = item_cat
-        if result.get("confidence") != "high":
-            result["confidence"] = "medium"
+    if item_cat and result.get("category") == "Equipment" and result.get("subcategory") in ("EquipmentSummary", None):
+        if not any(token in q for token in ("poor condition", "returned", "overdue", "holding", "issued", "procured")):
+            result["subcategory"] = item_cat
+            result["operation"] = _SUBCATEGORY_TO_OPERATION.get(item_cat, result["operation"])
+            result["type"] = _intent_type_for("Equipment", item_cat)
 
-    if result["confidence"] == "high":
-        if result["subcategory"] in ("TopPerformers", "LowestPerformers"):
-            if result["number"] is None:
-                result["confidence"] = "medium"
+    if result["subcategory"] in ("TopPerformers", "LowestPerformers") and result["number"] is None:
+        result["confidence"] = "medium"
+
+    result["filters"] = {
+        key: value
+        for key, value in (
+            ("section", result["section"]),
+            ("subSection", result["sub_section"]),
+            ("grading", result["grading"]),
+            ("leaveType", result["leave_type"]),
+            ("sport", result["sport"]),
+            ("class", result["class"]),
+            ("unitName", result["unit_name"]),
+            ("attemptNo", result["attempt_no"]),
+            ("fromAttempt", result["from_attempt"]),
+            ("toAttempt", result["to_attempt"]),
+            ("date", result["date"]),
+            ("companyId", result["company_id"]),
+            ("platoonId", result["platoon_id"]),
+            ("batchId", result["batch_id"]),
+            ("agniveerNo", result["agniveer_no"]),
+            ("bmiCategory", result["bmi_category"]),
+            ("bloodGroup", result["blood_group"]),
+            ("equipmentName", result["item_name"]),
+        )
+        if value is not None
+    }
 
     return result
 
 
 def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     payload: Dict[str, Any] = {}
-
-    payload["commandId"] = 0
 
     if intent_result.get("category"):
         payload["category"] = intent_result["category"]
@@ -3171,7 +3419,7 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     if subcategory:
         payload["operation"] = _SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory)
     elif intent_result.get("operation"):
-        payload["operation"] = intent_result["operation"]
+        payload["operation"] = _SUBCATEGORY_TO_OPERATION.get(intent_result["operation"], intent_result["operation"])
 
     if intent_result.get("number") is not None:
         payload["n"] = intent_result["number"]
@@ -3212,7 +3460,6 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     if intent_result.get("item_name"):
         payload["equipmentName"] = intent_result["item_name"]
 
-    # Format additional filters
     if intent_result.get("company_id") is not None:
         payload["companyId"] = intent_result["company_id"]
 
@@ -3222,12 +3469,6 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     if intent_result.get("batch_id") is not None:
         payload["batchId"] = intent_result["batch_id"]
 
-    if intent_result.get("from_date"):
-        payload["fromDate"] = intent_result["from_date"]
-
-    if intent_result.get("to_date"):
-        payload["toDate"] = intent_result["to_date"]
-
     if intent_result.get("agniveer_no"):
         payload["agniveerNo"] = intent_result["agniveer_no"]
 
@@ -3236,28 +3477,6 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
 
     if intent_result.get("blood_group"):
         payload["bloodGroup"] = intent_result["blood_group"]
-
-    if intent_result.get("medical_status"):
-        payload["medicalStatus"] = intent_result["medical_status"]
-
-    # Only add groupBy for subcategories that support group-by aggregation.
-    # GradeDistribution, AverageScore, etc. use 'section' as a filter field,
-    # not as a groupBy dimension. Sending groupBy to these causes .NET 400.
-    _GROUPBY_UNSUPPORTED_SUBCATEGORIES = {
-        "GradeDistribution", "GradingSummary", "AverageScore",
-        "SectionSummary", "PassPercentage", "FailPercentage",
-        "BestAttempt", "AttemptWise", "Improvement", "Drop",
-        "OverallPerformance", "TopPerformers", "LowestPerformers",
-    }
-    subcategory = intent_result.get("subcategory") or ""
-    if intent_result.get("group_by") and subcategory not in _GROUPBY_UNSUPPORTED_SUBCATEGORIES:
-        payload["groupBy"] = intent_result["group_by"]
-
-    if intent_result.get("sort_by"):
-        payload["sortBy"] = intent_result["sort_by"]
-
-    if intent_result.get("metric"):
-        payload["metric"] = intent_result["metric"]
 
     return payload
 

@@ -35,63 +35,32 @@ _DISCLAIMER_PHRASES = (
     "as an ai",
 )
 
-_ADMIN_SIGNAL_WORDS = {
-    "performance",
-    "leave",
-    "attendance",
-    "medical",
-    "equipment",
-    "verification",
-    "distribution",
-    "skills",
-    "roster",
-    "strength",
-    "overall",
-    "score",
-    "marks",
+_ADMIN_PHRASES = (
+    "top performer",
+    "top performers",
+    "highest performer",
+    "highest performers",
+    "best performer",
+    "best performers",
+    "football players",
+    "cricket players",
+    "players currently on leave",
+    "who plays",
+    "who is on leave",
+    "currently on leave",
+    "active medical",
+    "grade distribution",
+    "grading summary",
+    "monthly attendance",
+    "weekly attendance",
+    "pass percentage",
+    "fail percentage",
     "compare",
-    "comparison",
-    "trend",
-    "distribution",
-    "ranking",
-    "rank",
-    "top",
-    "bottom",
-    "highest",
-    "lowest",
-    "best",
-    "worst",
-    "average",
-    "percentage",
-    "count",
-    "group",
-    "grouping",
-    "filter",
-    "filters",
-    "intersection",
-    "show",
-    "list",
-    "display",
-    "view",
-    "find",
-    "analyze",
-    "analysis",
-    "report",
-    "records",
-    "record",
-    "candidate",
-    "candidates",
-    "results",
-    "metric",
-    "section",
-    "platoon",
-    "batch",
-    "company",
-    "sport",
-    "class",
-    "agniveer",
-    "agniveers",
-}
+    "bpet",
+    "ppt",
+    "firing",
+    "drill",
+)
 
 _ADMIN_CONTEXT_WORDS = {
     "current",
@@ -126,6 +95,28 @@ _ADMIN_CONTEXT_WORDS = {
     "leave",
     "absconded",
     "absent",
+    "agniveer",
+    "agniveers",
+    "section",
+    "subsection",
+    "platoon",
+    "company",
+    "batch",
+    "unit",
+    "class",
+    "sport",
+    "medical",
+    "performance",
+    "equipment",
+    "verification",
+    "distribution",
+    "attendance",
+    "strength",
+    "grading",
+    "bmi",
+    "blood",
+    "compare",
+    "comparison",
 }
 
 
@@ -146,7 +137,7 @@ def _contains_conversational_phrase(text: str) -> bool:
 
 def _contains_admin_signal(text: str) -> bool:
     tokens = re.findall(r"[a-z0-9']+", text)
-    return any(token in _ADMIN_SIGNAL_WORDS for token in tokens)
+    return any(token in _ADMIN_CONTEXT_WORDS for token in tokens)
 
 
 def _contains_disclaimer_phrase(text: str) -> bool:
@@ -161,11 +152,12 @@ def is_conversational_query(text: str) -> bool:
         return True
     if _contains_disclaimer_phrase(cleaned):
         return True
+    if any(phrase in cleaned for phrase in _ADMIN_PHRASES):
+        return False
     if _contains_admin_signal(cleaned):
         return False
     tokens = re.findall(r"[a-z0-9']+", cleaned)
-    has_admin_context = any(token in _ADMIN_CONTEXT_WORDS for token in tokens)
-    if len(tokens) <= 3 and not has_admin_context:
+    if len(tokens) <= 3:
         return True
     return False
 

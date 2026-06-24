@@ -809,197 +809,115 @@ def plan_query(query: str) -> QueryPlan:
             filters={},
         )
 
-    if _is_no_split_phrase(q):
+    qtype = (semantic.get("query_type") or "simple").strip().lower()
+
+    def _ops_from_semantic_fragments(default_fragment: str) -> List[SubOperation]:
+        fragments = semantic.get("sub_requests")
+        ops: List[SubOperation] = []
+        if isinstance(fragments, list) and fragments:
+            for fragment in fragments:
+                frag_text = fragment.get("fragment") if isinstance(fragment, dict) else None
+                if not frag_text:
+                    continue
+                ops.append(_build_sub_operation(frag_text))
+        if not ops:
+            ops = [_build_sub_operation(default_fragment)]
+        return ops
+
+    if qtype == "comparison":
+        ops = _ops_from_semantic_fragments(q)
+        valid_ops = [op for op in ops if op.intent_result.get("category") or op.intent_result.get("section") or op.intent_result.get("sport")]
+        if len(valid_ops) >= 2:
+            combined_filters = {}
+            for op in valid_ops:
+                combined_filters.update(_extract_filters_dict(op.intent_result))
+            return QueryPlan(
+                QueryType.COMPARE,
+                valid_ops,
+                max(float(semantic.get("confidence") or 0.85), 0.85),
+                raw_query,
+                "Comparison query detected from semantic understanding",
+                filters=combined_filters,
+            )
+
+    if qtype == "multi_independent":
+        ops = _ops_from_semantic_fragments(q)
+        valid_ops = [op for op in ops if op.intent_result.get("category")]
+        if len(valid_ops) >= 2:
+            combined_filters = {}
+            categories = {op.intent_result["category"] for op in valid_ops if op.intent_result.get("category")}
+            for op in valid_ops:
+                combined_filters.update(_extract_filters_dict(op.intent_result))
+            return QueryPlan(
+                QueryType.MULTI_INDEPENDENT,
+                valid_ops,
+                max(float(semantic.get("confidence") or 0.8), 0.8),
+                raw_query,
+                f"Multi-independent semantic query: {', '.join(sorted(categories))}",
+                filters=combined_filters,
+            )
+
+    if qtype == "cross_filter":
+        ops = _ops_from_semantic_fragments(q)
+        valid_ops = [op for op in ops if op.intent_result.get("category")]
+        if len(valid_ops) >= 2:
+            for op in valid_ops:
+                if op.intent_result.get("category") == "Roster" and op.intent_result.get("sport"):
+                    op.intent_result["category"] = "Skills"
+                    op.dotnet_payload = format_admin_payload(op.intent_result)
+            combined_filters = {}
+            for op in valid_ops:
+                combined_filters.update(_extract_filters_dict(op.intent_result))
+            return QueryPlan(
+                QueryType.CROSS_FILTER,
+                valid_ops,
+                max(float(semantic.get("confidence") or 0.8), 0.8),
+                raw_query,
+                "Cross-filter semantic query detected",
+                filters=combined_filters,
+            )
+
+    if qtype == "trend":
         op = _build_sub_operation(q)
-        filters = _extract_filters_dict(op.intent_result)
-        return QueryPlan(
-            QueryType.SIMPLE,
-            [op],
-            0.95,
-            raw_query,
-            "Contains split-prevention phrase",
-            filters=filters,
-        )
-
-    categories = _detect_categories(q)
-    group_by = _extract_group_by(q)
-
-    if _is_trend_query(q):
-        op = _build_sub_operation(q, group_by=group_by)
         filters = _extract_filters_dict(op.intent_result)
         return QueryPlan(
             QueryType.TREND,
             [op],
-            0.85,
+            max(float(semantic.get("confidence") or 0.85), 0.85),
             raw_query,
-            "Trend/timeline query detected",
+            "Trend query detected from semantic understanding",
             filters=filters,
         )
 
-    multi_fragments = _detect_multi_independent(q, categories)
-    if multi_fragments and not any(kw in q for kw in _COMPARISON_KEYWORDS):
-        ops = [_build_sub_operation(f) for f in multi_fragments]
-        valid_ops = [op for op in ops if op.intent_result.get("category")]
-        if len(valid_ops) >= 2:
-            op_categories = {op.intent_result["category"] for op in valid_ops}
-            if len(op_categories) >= 2:
-                combined_filters = {}
-                for op in valid_ops:
-                    combined_filters.update(_extract_filters_dict(op.intent_result))
-                return QueryPlan(
-                    QueryType.MULTI_INDEPENDENT,
-                    valid_ops,
-                    0.80,
-                    raw_query,
-                    f"Multi-independent: {', '.join(sorted(op_categories))}",
-                    filters=combined_filters,
-                )
-
-    if _is_distribution_query(q, categories, group_by):
-        op = _build_sub_operation(q, group_by=group_by)
+    if qtype == "distribution":
+        op = _build_sub_operation(q)
         filters = _extract_filters_dict(op.intent_result)
         return QueryPlan(
             QueryType.DISTRIBUTION,
             [op],
-            0.85,
+            max(float(semantic.get("confidence") or 0.85), 0.85),
             raw_query,
-            "Distribution/breakdown query detected",
+            "Distribution query detected from semantic understanding",
             filters=filters,
         )
 
-    analytics_hint = _detect_analytics(q)
-    if analytics_hint:
-        op = _build_sub_operation(q, group_by=group_by)
-        filters = _extract_filters_dict(op.intent_result)
-        qtype = QueryType.DISTRIBUTION if group_by else QueryType.SIMPLE
+    op = _build_sub_operation(q)
+    filters = _extract_filters_dict(op.intent_result)
+    confidence = max(0.3, float(semantic.get("confidence") or 0.0))
+    if semantic.get("operation") == "ranking" or semantic.get("query_type") == "ranking":
         return QueryPlan(
-            qtype,
+            QueryType.ANALYTICS,
             [op],
-            0.85,
-            raw_query,
-            f"Analytics/ranking query detected: hint={analytics_hint}",
-            filters=filters,
-            analytics_hint=analytics_hint,
-        )
-
-    if any(kw in q for kw in _COMPARISON_KEYWORDS):
-        filtered_frags = _extract_filtered_comparison_fragments(q)
-        if filtered_frags and len(filtered_frags) >= 2:
-            ops = [_build_sub_operation(f) for f in filtered_frags]
-            valid_ops = [op for op in ops if op.intent_result.get("category")]
-            if len(valid_ops) >= 2:
-                combined_filters = {}
-                for op in valid_ops:
-                    combined_filters.update(_extract_filters_dict(op.intent_result))
-                return QueryPlan(
-                    QueryType.COMPARE,
-                    valid_ops,
-                    0.85,
-                    raw_query,
-                    "Filtered comparison: each side carries the cross-filter",
-                    filters=combined_filters,
-                )
-
-        fragments = _extract_comparison_fragments(q, categories)
-        if fragments and len(fragments) >= 2:
-            ops = [_build_sub_operation(f) for f in fragments]
-            combined_filters = {}
-            compare_values: List[str] = []
-            for op in ops:
-                combined_filters.update(_extract_filters_dict(op.intent_result))
-                if op.intent_result.get("bmi_category"):
-                    compare_values.append(op.intent_result["bmi_category"])
-                elif op.intent_result.get("platoon_id") is not None:
-                    compare_values.append(f"Platoon {op.intent_result['platoon_id']}")
-                elif op.intent_result.get("company_id") is not None:
-                    compare_values.append(f"Company {op.intent_result['company_id']}")
-                elif op.intent_result.get("batch_id") is not None:
-                    compare_values.append(f"Batch {op.intent_result['batch_id']}")
-                elif op.intent_result.get("section"):
-                    compare_values.append(op.intent_result["section"])
-                elif op.intent_result.get("sport"):
-                    compare_values.append(op.intent_result["sport"])
-                elif op.intent_result.get("class"):
-                    compare_values.append(op.intent_result["class"])
-                elif op.intent_result.get("group_by"):
-                    compare_values.append(str(op.intent_result["group_by"]))
-            if len(compare_values) >= 2:
-                combined_filters.setdefault("compareValues", compare_values[:2])
-            return QueryPlan(
-                QueryType.COMPARE,
-                ops,
-                0.85,
-                raw_query,
-                "Comparison query detected from explicit comparator",
-                filters=combined_filters,
-            )
-
-    comparison_entities = _detect_comparison(q, categories)
-    if comparison_entities is not None:
-        fragments = _extract_comparison_fragments(q, categories)
-        if fragments and len(fragments) >= 2:
-            ops = []
-            for i, f in enumerate(fragments):
-                op = _build_sub_operation(f)
-                if not op.intent_result.get("category") and i < len(
-                    comparison_entities
-                ):
-                    op.intent_result["category"] = comparison_entities[i]
-                    op.dotnet_payload = format_admin_payload(op.intent_result)
-                ops.append(op)
-            valid_ops = [op for op in ops if op.intent_result.get("category")]
-            if len(valid_ops) >= 2:
-                combined_filters = {}
-                for op in valid_ops:
-                    combined_filters.update(_extract_filters_dict(op.intent_result))
-                return QueryPlan(
-                    QueryType.COMPARE,
-                    valid_ops,
-                    0.85,
-                    raw_query,
-                    f"Comparison between {comparison_entities[0]} and "
-                    f"{comparison_entities[1]}",
-                    filters=combined_filters,
-                )
-
-    if _has_cross_category_signal(q, categories):
-        fragments = _extract_cross_filter_fragments(q, categories)
-        if fragments and len(fragments) >= 2:
-            ops = [_build_sub_operation(f) for f in fragments]
-            valid_ops = [op for op in ops if op.intent_result.get("category")]
-            if len(valid_ops) >= 2:
-                op_categories = {op.intent_result["category"] for op in valid_ops}
-                if len(op_categories) >= 2:
-                    depth = "3-way" if len(valid_ops) >= 3 else "2-way"
-                    combined_filters = {}
-                    for op in valid_ops:
-                        combined_filters.update(_extract_filters_dict(op.intent_result))
-                    return QueryPlan(
-                        QueryType.CROSS_FILTER,
-                        valid_ops,
-                        0.85,
-                        raw_query,
-                        f"{depth} cross-filter: {', '.join(sorted(op_categories))}",
-                        filters=combined_filters,
-                    )
-
-    op = _build_sub_operation(q, group_by=group_by)
-    confidence = 0.95 if op.intent_result.get("category") else 0.3
-    if semantic.get("operation") == "ranking" and semantic.get("confidence", 0.0) >= 0.5:
-        return QueryPlan(
-            QueryType.SIMPLE,
-            [op],
-            float(semantic.get("confidence") or confidence),
+            max(confidence, 0.75),
             raw_query,
             "Semantic ranking query detected",
-            filters=_extract_filters_dict(op.intent_result),
+            filters=filters,
             analytics_hint="rank",
         )
-    filters = _extract_filters_dict(op.intent_result)
     return QueryPlan(
         QueryType.SIMPLE,
         [op],
-        max(confidence, float(semantic.get("confidence") or 0.0)),
+        max(confidence, 0.5 if filters else 0.3),
         raw_query,
         "Single-intent query with filters",
         filters=filters,

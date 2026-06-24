@@ -1090,7 +1090,7 @@ def execute_admin_query(
                         and query_plan.operations
                         and query_plan.operations[0].intent_result.get("category")
                     )
-                    else classify_admin_intent(message)
+                    else classify_admin_intent(message, resolved_entities=resolved_entities)
                 )
                 primary_intent = _merge_intents(
                     frontend_intent,

@@ -24,6 +24,7 @@ from admin_intent import (
     format_admin_payload,
 )
 from admin_pipeline import execute_admin_query
+from admin_entity_resolver import resolve_entities_from_query
 from response_builder import public_response_view
 
 logger = logging.getLogger(__name__)
@@ -240,7 +241,8 @@ def admin_classify():
     """
     body = request.get_json(force=True, silent=True) or {}
     message = (body.get("message") or "").strip()
-    intent = classify_admin_intent(message)
+    resolved_entities = resolve_entities_from_query(message)
+    intent = classify_admin_intent(message, resolved_entities=resolved_entities)
     frontend_intent = format_admin_intent(intent)
     dotnet_payload = format_admin_payload(intent)
     logger.info(
