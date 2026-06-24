@@ -408,28 +408,28 @@ def build_response(
         else build_answer(query_type, combined_result, intent)
     )
     try:
-         from message_engine import generate_message
-         message_value = generate_message(
-             user_query=intent.get("raw_query") or "",
-             combined_result=combined_result,
-             query_type=query_type,
-             intent=intent,
-         )
-         if not message_value:
-             message_value = intro_message or ""
-     except Exception as _msg_exc:
-         _logger.warning("build_response: message_engine failed: %s", _msg_exc)
-         message_value = _build_natural_answer_message(
-             query_type=query_type,
-             intro_message=intro_message,
-             combined_result=combined_result,
-             answer_payload=answer_payload,
-             analysis=analysis,
-             prediction=prediction,
-             conclusion=conclusion,
-             intent=intent,
-             has_data=_has_any_records(combined_result, answer_payload),
-         )
+        from message_engine import generate_message
+        message_value = generate_message(
+            user_query=intent.get("raw_query") or "",
+            combined_result=combined_result,
+            query_type=query_type,
+            intent=intent,
+        )
+        if not message_value:
+            message_value = intro_message or ""
+    except Exception as _msg_exc:
+        _logger.warning("build_response: message_engine failed: %s", _msg_exc)
+        message_value = _build_natural_answer_message(
+            query_type=query_type,
+            intro_message=intro_message,
+            combined_result=combined_result,
+            answer_payload=answer_payload,
+            analysis=analysis,
+            prediction=prediction,
+            conclusion=conclusion,
+            intent=intent,
+            has_data=_has_any_records(combined_result, answer_payload),
+        )
     
     combined_formatted_data = _merge_answer_into_formatted_data(
         fd_payload,
