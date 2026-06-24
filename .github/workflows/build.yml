@@ -1,21 +1,55 @@
 # .github/workflows/build.yml
 name: Build
-on: [push]
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-windows:
+    runs-on: windows-latest                     # ← Must be Windows for a .exe
     env:
       APP_ENV: testing
       DOTNET_API_BASE_URL: http://localhost
       ENABLE_OLLAMA: "false"
+      ENABLE_SENTRY: "false"
+      ENABLE_OPENTELEMETRY: "false"
       PYTHONPATH: .
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt
-      - run: python -c "import app; print('Import OK')"
-      - uses: actions/upload-artifact@v4
         with:
-          name: agniai-source
-          path: "*.py"
+          python-version: "3.11"
+          cache: pip                            # cache pip downloads between runs
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Smoke-test import
+        run: python -c "import app; print('Import OK')"
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build exe
+        run: pyinstaller agniai.spec --clean --noconfirm
+
+      # Sanity check — make sure the exe actually got produced
+      - name: Verify exe exists
+        run: |
+          if (!(Test-Path "dist\agniai\agniai.exe")) {
+            Write-Error "Build output missing: dist\agniai\agniai.exe"
+            exit 1
+          }
+          Write-Host "Build OK: dist\agniai\agniai.exe"
+        shell: pwsh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agniai-windows-${{ github.sha }}
+          path: dist/agniai/                   # entire COLLECT output folder
+          retention-days: 30
