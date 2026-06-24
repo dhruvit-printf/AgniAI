@@ -164,8 +164,13 @@ def _extract_entities(text: str) -> Dict[str, Any]:
 
     if re.search(r"\bcurrent(?:ly)?\s+on\s+leave\b", text) or re.search(r"\bon\s+leave\b", text):
         entities["leave_type"] = "Current"
-    if re.search(r"\babsconded\b|\babsent\b", text):
+    if re.search(r"\babsent\b", text) and not re.search(r"\babsconded\b", text):
+        # "absent" alone means currently absent (Current leave status).
+        # "absconded" is a separate operation — do not set leave_type=Current for it.
         entities["leave_type"] = entities.get("leave_type") or "Current"
+    if re.search(r"\babsconded\b", text):
+        # "absconded" is explicitly an AbscondedPerson operation, not a Current leave.
+        entities["leave_type"] = "Absconded"
 
     sport_match = re.search(r"\b(cricket|football|kabaddi|running|shooting|boxing|hockey)\b", text)
     if sport_match:

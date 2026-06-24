@@ -659,6 +659,54 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
         })
     return {"cards": cards}
 
+# ---------------------------------------------------------------------------
+# Column key normalisation helpers
+# ---------------------------------------------------------------------------
+
+# Suffixes that mark internal .NET metadata fields — never shown in the table.
+_EXCLUDED_COLUMN_SUFFIXES = (
+    "_SubItemId",
+    "_MaxMarks",
+    "_IsBestAttempt",
+    "_SectionId",
+    "_DisplayOrder",
+)
+
+# Top-level fields that are internal and should not appear as columns.
+_EXCLUDED_COLUMN_KEYS_EXACT = {
+    "IsActive", "isActive",
+    "ID", "id",
+    "DisplayOrder", "displayOrder",
+    "SectionId", "sectionId",
+}
+
+
+def _pascal_to_camel(key: str) -> str:
+    """Convert a PascalCase or mixed-case .NET key to camelCase.
+
+    Examples:
+        FullName          -> fullName
+        AgniveerNo        -> agniveerNo
+        BestTotal         -> bestTotal
+        Attempt1_BPET_5km -> attempt1_BPET_5km  (prefix only lowercased)
+    """
+    if not key:
+        return key
+    # For compound keys like "Attempt1_BPET_5km" only lower the very first char
+    # so that the uppercase section acronyms (BPET, PPT, FIRING, DRILL) are preserved.
+    return key[0].lower() + key[1:]
+
+
+def _should_exclude_column(key: str) -> bool:
+    """Return True for internal .NET metadata fields that should be hidden."""
+    if key in _EXCLUDED_COLUMN_KEYS_EXACT:
+        return True
+    for suffix in _EXCLUDED_COLUMN_SUFFIXES:
+        if key.endswith(suffix):
+            return True
+    return False
+
+
 def make_readable_label(k: str) -> str:
     import re
     parts = k.split("_")
@@ -679,34 +727,44 @@ def make_readable_label(k: str) -> str:
 def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not records:
         return {"columns": [], "rows": []}
-    
-    keys_seen = []
+
+    # Collect all keys, preserving insertion order across all records.
+    keys_seen: List[str] = []
     for r in records:
         if isinstance(r, dict):
             for k in r.keys():
                 if k not in keys_seen:
                     keys_seen.append(k)
-                
-    key_priority = {"fullname": -10, "agniveerno": -9, "name": -8, "agniveerid": -7, "id": -6.5, "score": -6, "besttotal": -5}
+
+    # Filter out internal metadata columns before building anything else.
+    keys_seen = [k for k in keys_seen if not _should_exclude_column(k)]
+
+    # Sort with priority fields first.
+    key_priority = {
+        "fullname": -10, "agniveerno": -9, "name": -8,
+        "agniveerid": -7, "score": -6, "besttotal": -5,
+    }
     keys_seen.sort(key=lambda k: key_priority.get(k.lower(), 0))
-    
+
+    # Build normalised column specs: camelCase key, human-readable label.
     columns = []
+    key_map: Dict[str, str] = {}   # original_key -> camelCase_key
     for k in keys_seen:
+        camel = _pascal_to_camel(k)
+        key_map[k] = camel
         label = make_readable_label(k)
-        columns.append({
-            "key": k,
-            "label": label
-        })
-        
+        columns.append({"key": camel, "label": label})
+
+    # Build rows using camelCase keys to match the column specs.
     rows = []
     for r in records:
-        row = {}
-        for k in keys_seen:
-            val = r.get(k)
+        row: Dict[str, Any] = {}
+        for orig_k, camel_k in key_map.items():
+            val = r.get(orig_k)
             if isinstance(val, (dict, list)):
-                row[k] = json.dumps(val, ensure_ascii=False, default=str)
+                row[camel_k] = json.dumps(val, ensure_ascii=False, default=str)
             else:
-                row[k] = val
+                row[camel_k] = val
         rows.append(row)
 
     return {"columns": columns, "rows": rows}

@@ -89,8 +89,8 @@ class TestF1CacheScopeIsolation(unittest.TestCase):
         first_records = first["response_payload"]["formattedData"]["data"]["rows"]
         second_records = second["response_payload"]["formattedData"]["data"]["rows"]
 
-        self.assertEqual(first_records[0]["FullName"], "COMPANY ONE")
-        self.assertEqual(second_records[0]["FullName"], "COMPANY TWO")
+        self.assertEqual(first_records[0]["fullName"], "COMPANY ONE")   # camelCase after normalisation
+        self.assertEqual(second_records[0]["fullName"], "COMPANY TWO")   # camelCase after normalisation
         self.assertEqual(mock_call_dotnet.call_count, 2)
 
 

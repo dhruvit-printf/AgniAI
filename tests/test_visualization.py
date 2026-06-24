@@ -125,8 +125,8 @@ class TestWidgetEngine(unittest.TestCase):
         res = build_formatted_data(answer, query_type="simple", intent={})
         self.assertEqual(res["type"], "TABLE")
         row = res["data"]["rows"][0]
-        self.assertIn("FullName", row)
-        self.assertIn("AgniveerNo", row)
+        self.assertIn("fullName", row)     # camelCase after normalisation
+        self.assertIn("agniveerNo", row)   # camelCase after normalisation
         self.assertNotIn("attempts", row)
         self.assertNotIn("sections", row)
 

@@ -124,7 +124,21 @@ def admin_chat():
                 }
             )
         )
-        return jsonify({"type": "error", "message": result.get("error_message", "Failed to process request.")}), 500
+        return jsonify({
+            "status": False,
+            "message": result.get("error_message", "Failed to process request."),
+            "formattedData": {
+                "type": "error",
+                "title": "Unable to process query",
+                "data": {},
+                "analysis": {},
+                "prediction": {},
+                "conclusion": {},
+            },
+            "suggestedQuestions": [],
+            "dotnetPayload": {},
+            "metadata": {"traceId": trace_id, "queryType": "error"},
+        }), 200
 
     # ── Successful query / greeting / conversational ────────────────────────
     payload = result.get("response_payload") or {}

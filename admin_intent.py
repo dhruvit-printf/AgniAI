@@ -3339,10 +3339,12 @@ def classify_admin_intent(
     if result["attempt_no"] is not None or result["from_attempt"] is not None or result["to_attempt"] is not None:
         category = "Performance"
         operation = "AttemptWise"
-    if result["leave_type"] == "Current" and category is None:
+    if result["leave_type"] == "Current" and (category is None or category == "Leave"):
+        # "absent today", "on leave", "currently absent", etc. all set leave_type=Current.
+        # Always map to CurrentLeaveStatus (operation=Current) for Leave category.
         category = "Leave"
         operation = "Current"
-    if result["medical_status"] == "Active" and category is None:
+    if result["medical_status"] == "Active" and (category is None or category == "Medical"):
         category = "Medical"
         operation = "Active"
     if item_name and category is None:
@@ -3435,7 +3437,10 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     if intent_result.get("grading"):
         payload["grading"] = intent_result["grading"]
 
-    if intent_result.get("leave_type"):
+    # Only include leaveType for Leave-category queries. Including it for Medical,
+    # Equipment, Attendance, etc. causes .NET to return a 400 Bad Request because
+    # those endpoints do not accept leaveType as a parameter.
+    if intent_result.get("leave_type") and intent_result.get("category") == "Leave":
         payload["leaveType"] = intent_result["leave_type"]
 
     if intent_result.get("sport"):

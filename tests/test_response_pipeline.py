@@ -208,7 +208,6 @@ class TestResponseBuilder(unittest.TestCase):
             set(public.keys()),
             {
                 "status",
-                "sessionId",
                 "message",
                 "formattedData",
                 "suggestedQuestions",
@@ -219,7 +218,7 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("result", public)
         self.assertNotIn("intent", public)
         self.assertNotIn("answer", public)
-        self.assertEqual(public["sessionId"], "admin-default")
+        self.assertNotIn("sessionId", public)
         self.assertEqual(public["message"], "Intro")
 
         # Verify metadata filtering
@@ -235,7 +234,7 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("answer", public["formattedData"])
         self.assertNotIn("introMessage", public["formattedData"])
         self.assertNotIn("message", public["formattedData"])
-        self.assertEqual(public["sessionId"], "admin-default")
+        self.assertEqual(metadata["sessionId"], "admin-default")
         self.assertEqual(public["message"], internal["message"])
 
         if isinstance(public["formattedData"], dict) and "data" in public["formattedData"]:

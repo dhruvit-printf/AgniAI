@@ -186,7 +186,6 @@ def build_conversational_response(
     intro = (message or "").strip() or "I can help with data, reports, and analysis."
     payload: Dict[str, Any] = {
         "status": True,
-        "sessionId": session_id or "admin-default",
         "message": intro,
         "formattedData": {
             "type": "MESSAGE",
@@ -213,8 +212,6 @@ def build_conversational_response(
             },
             "executionTimeMs": 0,
         },
-        "widget": "conversation",
-        "queryType": query_type,
     }
     return payload
 

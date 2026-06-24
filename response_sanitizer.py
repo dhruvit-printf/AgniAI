@@ -6,7 +6,6 @@ from typing import Any, Dict
 
 _ALLOWED_ROOT_KEYS = (
     "status",
-    "sessionId",
     "message",
     "formattedData",
     "suggestedQuestions",
@@ -42,7 +41,6 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "status": bool(payload.get("status", True)),
-        "sessionId": payload.get("sessionId") or clean_meta["sessionId"],
         "message": (payload.get("message") or "").strip(),
         "formattedData": formatted,
         "suggestedQuestions": list(payload.get("suggestedQuestions") or []),

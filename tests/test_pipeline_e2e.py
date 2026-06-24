@@ -97,7 +97,6 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         self.assertEqual(result["type"], "conversational")
         response_payload = result["response_payload"]
-        self.assertEqual(response_payload["widget"], "conversation")
         self.assertEqual(response_payload["metadata"]["queryType"], "conversational")
         mock_call_dotnet.assert_not_called()
         mock_generate_report.assert_not_called()
@@ -181,8 +180,8 @@ class TestPipelineEndToEnd(unittest.TestCase):
         # Verify intersection result (only AMIT KUMAR matches all three sets)
         rows = response_payload["formattedData"]["data"]["rows"]
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["FullName"], "AMIT KUMAR")
-        self.assertEqual(rows[0]["AgniveerNo"], "A01")
+        self.assertEqual(rows[0]["fullName"], "AMIT KUMAR")    # camelCase after normalisation
+        self.assertEqual(rows[0]["agniveerNo"], "A01")          # camelCase after normalisation
 
         self.assertEqual(mock_call_dotnet.call_count, 3)
 

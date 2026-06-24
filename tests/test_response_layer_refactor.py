@@ -59,13 +59,13 @@ class TestResponseLayerRefactor(unittest.TestCase):
         
         sec1 = data["sections"][0]
         self.assertEqual(sec1["label"], "Top Performers")
-        self.assertEqual(len(sec1["columns"]), 2)  # Name and Score
-        self.assertEqual(sec1["rows"][0]["Name"], "Amit")
-        
+        self.assertEqual(len(sec1["columns"]), 2)  # name and score
+        self.assertEqual(sec1["rows"][0]["name"], "Amit")  # camelCase key
+
         sec2 = data["sections"][1]
         self.assertEqual(sec2["label"], "Leave Takers")
-        self.assertEqual(len(sec2["columns"]), 2)  # Name and Days
-        self.assertEqual(sec2["rows"][0]["Name"], "Kapil")
+        self.assertEqual(len(sec2["columns"]), 2)  # name and days
+        self.assertEqual(sec2["rows"][0]["name"], "Kapil")  # camelCase key
 
     def test_comparison_preserves_left_right(self):
         # Verify comparison tables preserve left/right sides without flattening (Issue 2)
@@ -93,9 +93,9 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertIn("comparison", data)
         
         self.assertEqual(data["left"]["label"], "Company A")
-        self.assertEqual(data["left"]["rows"][0]["Name"], "A")
+        self.assertEqual(data["left"]["rows"][0]["name"], "A")  # camelCase
         self.assertEqual(data["right"]["label"], "Company B")
-        self.assertEqual(data["right"]["rows"][0]["Name"], "B")
+        self.assertEqual(data["right"]["rows"][0]["name"], "B")  # camelCase
         self.assertEqual(data["comparison"], {"diff": 10})
 
     def test_cross_filter_metadata_propagates(self):
@@ -158,9 +158,9 @@ class TestResponseLayerRefactor(unittest.TestCase):
             intent={"category": "Performance", "subcategory": "Top"},
             visualization_intent={"requested_widget_type": "TABLE", "frontend_override": True}
         )
-        # Verify that nested_info keys are flattened
-        self.assertIn("Nested_info_Sport", fd_table["data"]["rows"][0])
-        self.assertIn("Nested_info_Detail_Level", fd_table["data"]["rows"][0])
+        # Verify that nested_info keys are flattened (now camelCase: nested_info_Sport -> nested_info_Sport first char lowered)
+        self.assertIn("nested_info_Sport", fd_table["data"]["rows"][0])
+        self.assertIn("nested_info_Detail_Level", fd_table["data"]["rows"][0])
         
         # 2. BAR_CHART widget -> deep flatten should NOT happen
         fd_bar = build_formatted_data(
@@ -210,14 +210,15 @@ class TestResponseLayerRefactor(unittest.TestCase):
         columns = fd["data"]["columns"]
         col_keys = [c["key"] for c in columns]
         
-        self.assertIn("Name", col_keys)
-        self.assertIn("Attempts_section1_marks", col_keys)
-        
+        # Column keys are now camelCase (first char lowercased)
+        self.assertIn("name", col_keys)
+        self.assertIn("attempts_section1_marks", col_keys)
+
         rows = fd["data"]["rows"]
-        self.assertEqual(rows[0]["Name"], "A")
-        self.assertIsNone(rows[0]["Attempts_section1_marks"])
-        self.assertEqual(rows[1]["Name"], "B")
-        self.assertEqual(rows[1]["Attempts_section1_marks"], 90)
+        self.assertEqual(rows[0]["name"], "A")
+        self.assertIsNone(rows[0]["attempts_section1_marks"])
+        self.assertEqual(rows[1]["name"], "B")
+        self.assertEqual(rows[1]["attempts_section1_marks"], 90)
 
 
 if __name__ == "__main__":
