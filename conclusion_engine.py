@@ -45,21 +45,37 @@ def _build_conclusion_grounding_text(answer: Dict[str, Any], query_type: str) ->
     return "\n".join(lines)
 
 def generate_conclusion(
-    answer: Dict[str, Any],
+    combined_result: Any,
     query_type: str,
     intent: Dict[str, Any],
     trace_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Generate a short conclusion with at most three bullet points.
-    Pure Python — no LLM calls.  Never raises.
+    Pure Python — no LLM calls. Never raises.
     """
     try:
-        sections = answer.get("sections") or []
+        from normalized_models import extract_records as _extract_records
+        records = _extract_records(combined_result)
+
+        if isinstance(combined_result, dict):
+            sections = combined_result.get("sections") or []
+            left = combined_result.get("left") or {}
+            right = combined_result.get("right") or {}
+            comp = combined_result.get("comparison") or {}
+        else:
+            sections = []
+            left = {}
+            right = {}
+            comp = {}
+
+        if not sections and not (left or right):
+            sections = [{"label": "Result", "data": records}]
+
         is_empty = True
         if query_type in ("compare", "comparison"):
-            left_data = answer.get("left", {}).get("data") or []
-            right_data = answer.get("right", {}).get("data") or []
+            left_data = left.get("data") or []
+            right_data = right.get("data") or []
             if left_data or right_data:
                 is_empty = False
         else:
@@ -71,62 +87,50 @@ def generate_conclusion(
         category = intent.get("category") or "Agniveer"
 
         if is_empty:
-            if query_type == "cross_filter":
-                msg = "The cross-filter search did not return any matching records. You may want to broaden the criteria and try again."
-            elif query_type in ("compare", "comparison"):
-                msg = "The side-by-side comparison could not be completed because no matching records were found for either side."
-            elif query_type == "multi_independent":
-                msg = "The consolidated report is empty because no matching records were found across the requested sections."
-            else:
-                msg = f"The search returned zero matching {category.lower()} records. Try broadening the criteria and search again."
-            return {"summary": msg, "bullets": [msg[:120]]}
+            return {"summary": "No matching records found.", "bullets": []}
 
         # ── Pure Python conclusion generation (max 3 bullets) ────────────
         bullets: List[str] = []
 
         if query_type in ("compare", "comparison"):
-            left = answer.get("left") or {}
-            right = answer.get("right") or {}
             left_label = left.get("label", "Side 1")
             right_label = right.get("label", "Side 2")
             left_cnt = len(left.get("data", []))
             right_cnt = len(right.get("data", []))
-            bullets.append(f"Comparison of {left_label} ({left_cnt} records) vs {right_label} ({right_cnt} records) is complete.")
+            summary = f"Comparative review of {left_label} and {right_label} is complete."
+            bullets.append(f"Comparison evaluated {left_cnt} records on {left_label} and {right_cnt} records on {right_label}.")
             left_scores = [s for s in (_get_score(r) for r in (left.get("data") or []) if isinstance(r, dict)) if s is not None]
             right_scores = [s for s in (_get_score(r) for r in (right.get("data") or []) if isinstance(r, dict)) if s is not None]
             if left_scores and right_scores:
                 l_avg = round(sum(left_scores) / len(left_scores), 2)
                 r_avg = round(sum(right_scores) / len(right_scores), 2)
-                bullets.append(f"{left_label} average: {l_avg}, {right_label} average: {r_avg}.")
-            summary = f"The comparative review of {left_label} and {right_label} is complete."
+                bullets.append(f"Side 1 average: {l_avg}, Side 2 average: {r_avg}.")
 
         elif query_type == "cross_filter":
-            records = sections[0].get("data") if sections else []
             cnt = len(records)
-            bullets.append(f"Cross-filter query matched {cnt} records satisfying all conditions.")
+            summary = "Cross-filter analysis successfully completed."
+            bullets.append(f"Found {cnt} records satisfying all combined filter conditions.")
             scores = [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
             if scores:
-                bullets.append(f"Average score of matched records: {round(sum(scores) / len(scores), 2)}.")
-            summary = f"Cross-filter query isolated {cnt} matching records."
+                bullets.append(f"Average score across the matched subset: {round(sum(scores) / len(scores), 2)}.")
 
         elif query_type == "multi_independent":
-            bullets.append(f"Consolidated report covers {len(sections)} independent sections.")
+            summary = f"Consolidation of multi-section dataset is complete."
+            bullets.append(f"Consolidated data covers {len(sections)} independent sections.")
             for sec in sections[:2]:
                 label = sec.get("label", "Section")
                 cnt = len(sec.get("data", []))
-                bullets.append(f"{label}: {cnt} records.")
-            summary = f"Consolidation of {len(sections)} independent modules is complete."
+                bullets.append(f"{label} contains {cnt} records.")
 
         else:
             # simple / trend / distribution
-            records = sections[0].get("data", []) if sections else []
             cnt = len(records)
+            summary = f"Query lookup for {category.lower()} records is complete."
+            bullets.append(f"Found {cnt} matching {category.lower()} records.")
             scores = [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
-            bullets.append(f"Query returned {cnt} {category.lower()} records.")
             if scores:
                 avg = round(sum(scores) / len(scores), 2)
                 bullets.append(f"Average score: {avg} (range: {round(min(scores), 2)} to {round(max(scores), 2)}).")
-            summary = f"The {category.lower()} query returned {cnt} records and is ready for review."
 
         # Cap at 3 bullets
         bullets = bullets[:3]

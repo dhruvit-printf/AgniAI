@@ -247,94 +247,34 @@ def _static_fallback_message(
     intent: Dict[str, Any],
 ) -> str:
     """
-    Data-grounded static message when Ollama is unavailable.
-    References actual numbers — never a generic template.
+    Direct conversational message that answers what was asked,
+    without repeating detailed statistical metrics or predictions.
     """
     category = (intent.get("category") or "Agniveer").lower()
     qtype = data_summary.get("type", query_type)
+    count = data_summary.get("record_count", 0)
 
-    if qtype == "comparison":
+    if count == 0 and qtype not in ("comparison", "multi_independent"):
+        return "No matching records found."
+
+    if qtype == "comparison" or qtype == "compare":
         left = data_summary.get("left_label", "Side A")
         right = data_summary.get("right_label", "Side B")
-        lc = data_summary.get("left_count", 0)
-        rc = data_summary.get("right_count", 0)
-        la = data_summary.get("left_avg")
-        ra = data_summary.get("right_avg")
-        msg = f"Comparison between {left} ({lc} records) and {right} ({rc} records) is complete."
-        if la is not None and ra is not None:
-            higher = left if la > ra else right
-            msg += f" {higher} has a higher average score ({max(la, ra)} vs {min(la, ra)})."
-        return msg
+        return f"I have compiled the side-by-side comparison between {left} and {right} as requested. You can view the details in the comparative layout below."
 
     if qtype == "cross_filter":
         match = data_summary.get("match_count", 0)
-        total = data_summary.get("total_before", 0)
-        if match == 0:
-            return f"No records matched all the selected conditions. Try broadening the search criteria."
-        names = data_summary.get("sample_names", [])
-        msg = f"Found {match} records matching all conditions"
-        if total:
-            msg += f" out of {total} candidates"
-        msg += "."
-        if names:
-            msg += f" Includes: {', '.join(names[:3])}" + ("..." if len(names) > 3 else ".")
-        return msg
+        return f"I found {match} records that match all your overlapping search filters. The intersection details are displayed in the table below."
 
     if qtype == "multi_independent":
-        sections = data_summary.get("sections", [])
-        if not sections:
-            return "The consolidated report is ready."
-        parts = [f"{s['label']} ({s['count']} records)" for s in sections[:4]]
-        return f"Consolidated report across {len(sections)} sections: {', '.join(parts)}."
+        sections = data_summary.get("sections") or []
+        sec_count = len(sections)
+        return f"I have generated the consolidated report covering {sec_count} independent sections. The separate modules are detailed below."
 
-    # simple
-    count = data_summary.get("record_count", 0)
-    if count == 0:
-        return f"No matching {category} records were found. Try adjusting the search criteria."
-
-    # If it's a summary-type record (averageScore, etc.)
-    fields = data_summary.get("record_fields", {})
+    # simple / lookup
     section_filter = data_summary.get("section_filter", "")
-
-    # AverageScore / stats type
-    if "averageScore" in fields or "sectionName" in fields:
-        section_name = fields.get("sectionName", section_filter or category.title())
-        avg = fields.get("averageScore")
-        min_s = fields.get("minScore")
-        max_s = fields.get("maxScore")
-        total_r = fields.get("totalRecords", count)
-        max_p = fields.get("maxPossible")
-
-        parts = [f"In {section_name}"]
-        if total_r:
-            parts[0] += f", across {total_r} agniveers"
-        if avg is not None:
-            parts.append(f"the average score is {avg}")
-        if max_p is not None:
-            parts[-1] += f" out of {max_p}"
-        if min_s is not None and max_s is not None:
-            parts.append(f"ranging from {min_s} to {max_s}")
-        return ", ".join(parts) + "."
-
-    # Ranking type
-    avg = data_summary.get("avg_score")
-    max_s = data_summary.get("max_score")
-    top_names = data_summary.get("top_names", [])
-    section_label = f" in {section_filter}" if section_filter else ""
-
-    if top_names:
-        msg = f"Found {count} {category} records{section_label}. Top performers: {', '.join(top_names[:3])}"
-        msg += "..." if count > 3 else "."
-        if avg is not None:
-            msg += f" Group average: {avg}."
-        return msg
-
-    msg = f"Retrieved {count} {category} records{section_label}."
-    if avg is not None:
-        msg += f" Average score: {avg}."
-    if max_s is not None:
-        msg += f" Highest: {max_s}."
-    return msg
+    section_label = f" for {section_filter}" if section_filter else ""
+    return f"I have retrieved the requested {category}{section_label} records. The matching dataset is formatted for your review below."
 
 
 def generate_message(

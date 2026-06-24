@@ -276,6 +276,9 @@ class FormattedData(BaseModel):
     type: str
     title: str
     data: Dict[str, Any]
+    analysis: Dict[str, Any] = Field(default_factory=dict)
+    prediction: Dict[str, Any] = Field(default_factory=dict)
+    conclusion: Dict[str, Any] = Field(default_factory=dict)
     presentation: Optional[str] = None
     chart_type: Optional[str] = None
     comparison: Optional[bool] = None
@@ -290,7 +293,6 @@ class FinalResponse(BaseModel):
     status: bool
     sessionId: str
     message: str
-    widget: Optional[str] = None
     formattedData: Dict[str, Any] = Field(default_factory=dict)
     suggestedQuestions: List[str] = Field(default_factory=list)
     dotnetPayload: Any = Field(default_factory=dict)

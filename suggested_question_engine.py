@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 def generate_suggested_questions(
     query_type: str,
     intent: Dict[str, Any],
-    answer: Dict[str, Any],
+    combined_result: Any,
 ) -> List[str]:
     """
     Return 3-5 relevant next-step questions from the canonical suggested question list.
@@ -21,8 +21,8 @@ def generate_suggested_questions(
     subcategory = (intent.get("subcategory") or "").strip()
     qtype_normalized = (query_type or "").strip().lower()
 
-    # Extract dynamic properties from answer/intent
-    sections = answer.get("sections") or []
+    # Extract dynamic properties from combined_result/intent
+    sections = (combined_result or {}).get("sections") or [] if isinstance(combined_result, dict) else []
     section_name = ""
     if sections:
         section_name = sections[0].get("label") or ""
@@ -33,8 +33,8 @@ def generate_suggested_questions(
 
     # ── Override: Fallback to query type templates for complex modes ──
     if qtype_normalized == "compare" or qtype_normalized == "comparison":
-        left_label = answer.get("left", {}).get("label") or "Side A"
-        right_label = answer.get("right", {}).get("label") or "Side B"
+        left_label = (combined_result or {}).get("left", {}).get("label") or "Side A" if isinstance(combined_result, dict) else "Side A"
+        right_label = (combined_result or {}).get("right", {}).get("label") or "Side B" if isinstance(combined_result, dict) else "Side B"
         return [
             "Compare Drill and Firing performance.",
             "Compare BEPT and PPT scores.",

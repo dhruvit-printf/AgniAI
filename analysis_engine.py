@@ -14,63 +14,6 @@ from utils import get_score as _get_score
 from utils import safe_float as _safe_float
 
 
-def _build_aggregate_text(answer: Dict[str, Any], query_type: str, intent: Dict[str, Any]) -> str:
-    lines = []
-    category = intent.get("category") or "Agniveer"
-    sections = answer.get("sections") or []
-
-    if query_type == "cross_filter":
-        records = sections[0].get("data") if sections else []
-        lines.append(f"Query Type: cross_filter")
-        lines.append(f"Match Count: {len(records)}")
-        names = [r.get("fullName") or r.get("name") for r in records if r.get("fullName") or r.get("name")]
-        if names:
-            lines.append(f"Matched Agniveers: {', '.join(names)}")
-    elif query_type == "compare":
-        left = answer.get("left") or {}
-        right = answer.get("right") or {}
-        comp = answer.get("comparison") or {}
-        lines.append(f"Query Type: comparison")
-        if left:
-            lines.append(f"Side 1: {left.get('label')} - Count: {len(left.get('data', []))}")
-            for k, v in left.get("metrics", {}).items():
-                lines.append(f"  Side 1 {k}: {v}")
-        if right:
-            lines.append(f"Side 2: {right.get('label')} - Count: {len(right.get('data', []))}")
-            for k, v in right.get("metrics", {}).items():
-                lines.append(f"  Side 2 {k}: {v}")
-        for k, v in comp.items():
-            if isinstance(v, dict):
-                lines.append(f"  Comparison {k}: difference={v.get('difference')}, percentage={v.get('percentage')}, higher={v.get('higher')}, lower={v.get('lower')}")
-    elif query_type == "multi_independent":
-        lines.append(f"Query Type: multi_independent")
-        lines.append(f"Section Count: {len(sections)}")
-        for sec in sections:
-            lines.append(f"  Section: {sec.get('label')} - {len(sec.get('data', []))} records")
-    else:
-        # simple/trend/distribution
-        records = sections[0].get("data") if sections else []
-        lines.append(f"Query Type: simple")
-        lines.append(f"Category: {category}")
-        lines.append(f"Record Count: {len(records)}")
-        scores = []
-        for r in records:
-            score = _get_score(r)
-            if score is not None:
-                scores.append(score)
-        if scores:
-            lines.append(f"Average Score: {round(sum(scores) / len(scores), 2)}")
-            lines.append(f"Top Score: {max(scores)}")
-            lines.append(f"Bottom Score: {min(scores)}")
-        names = [r.get("fullName") or r.get("name") for r in records if r.get("fullName") or r.get("name")]
-        if names:
-            lines.append(f"Records: {', '.join(names[:20])}")
-            if len(names) > 20:
-                lines.append(f"...and {len(names) - 20} more")
-
-    return "\n".join(lines)
-
-
 def _analysis_payload(
     summary: str,
     insights: List[str],
@@ -83,23 +26,39 @@ def _analysis_payload(
     }
 
 def generate_analysis(
-    answer: Dict[str, Any],
+    combined_result: Any,
     query_type: str,
     intent: Dict[str, Any],
     user_query: str = "",
     trace_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Generate observations and insights from JSON answer using pure Python
-    statistics.  No LLM calls.  Never raises — returns a safe fallback on
+    Generate observations and insights from JSON combined_result using pure Python
+    statistics. No LLM calls. Never raises — returns a safe fallback on
     any internal error.
     """
     try:
-        sections = answer.get("sections") or []
+        from normalized_models import extract_records as _extract_records
+        records = _extract_records(combined_result)
+
+        if isinstance(combined_result, dict):
+            sections = combined_result.get("sections") or []
+            left = combined_result.get("left") or {}
+            right = combined_result.get("right") or {}
+            comp = combined_result.get("comparison") or {}
+        else:
+            sections = []
+            left = {}
+            right = {}
+            comp = {}
+
+        if not sections and not (left or right):
+            sections = [{"label": "Result", "data": records}]
+
         is_empty = True
         if query_type in ("compare", "comparison"):
-            left_data = answer.get("left", {}).get("data") or []
-            right_data = answer.get("right", {}).get("data") or []
+            left_data = left.get("data") or []
+            right_data = right.get("data") or []
             if left_data or right_data:
                 is_empty = False
         else:
@@ -113,45 +72,35 @@ def generate_analysis(
         if is_empty:
             if query_type == "cross_filter":
                 return _analysis_payload(
-                    "The cross-filter search was completed across the selected conditions, but it did not find any matching records.",
-                    [
-                        "The search did not return any overlapping records."
-                    ],
+                    "No matching records found.",
+                    [],
                     {"record_count": 0, "match_count": 0},
                 )
             elif query_type in ("compare", "comparison"):
                 return _analysis_payload(
-                    "The side-by-side comparison could not be completed because neither group returned any records.",
-                    [
-                        "Both comparison groups returned no records."
-                    ],
-                    {"left_count": 0, "right_count": 0},
+                    "No matching records found.",
+                    [],
+                    {"left_count": 0, "right_count": 0, "record_count": 0},
                 )
             elif query_type == "multi_independent":
                 return _analysis_payload(
-                    "The multi-section report could not include any records because none of the requested sections returned data.",
-                    [
-                        "All requested sections returned no records."
-                    ],
-                    {"section_count": len(sections)},
+                    "No matching records found.",
+                    [],
+                    {"section_count": len(sections), "record_count": 0},
                 )
             else:
                 return _analysis_payload(
-                    f"No matching data was found for the selected {category.lower()} criteria.",
-                    [
-                        f"The search returned 0 records matching the selected {category.lower()} criteria."
-                    ],
+                    "No matching records found.",
+                    [],
                     {"record_count": 0},
                 )
 
         # ── Pure Python statistics (no LLM) ──────────────────────────────
-        stats: Dict[str, Any] = {}
+        stats: Dict[str, Any] = {"record_count": len(records)}
         summary = f"Summary of {category.lower()} metrics is complete."
         insights: List[str] = ["The returned records match the selected parameters."]
 
         if query_type in ("compare", "comparison"):
-            left = answer.get("left") or {}
-            right = answer.get("right") or {}
             left_data = left.get("data") or []
             right_data = right.get("data") or []
             left_scores = [s for s in (_get_score(r) for r in left_data if isinstance(r, dict)) if s is not None]
@@ -170,26 +119,29 @@ def generate_analysis(
                 "right_count": len(right_data),
                 "left_average": left_avg,
                 "right_average": right_avg,
+                "record_count": len(left_data) + len(right_data),
             }
         elif query_type == "cross_filter":
-            records = sections[0].get("data") if sections else []
-            summary = f"Cross-filter analysis matched {len(records)} records after intersecting the requested conditions."
-            insights = [f"{len(records)} records satisfy all overlapping filter conditions."]
-            stats = {"match_count": len(records)}
+            match_records = sections[0].get("data") if sections else []
+            summary = f"Cross-filter analysis matched {len(match_records)} records after intersecting the requested conditions."
+            insights = [f"{len(match_records)} records satisfy all overlapping filter conditions."]
+            stats = {"match_count": len(match_records), "record_count": len(match_records)}
         elif query_type == "multi_independent":
             summary = f"Consolidated data from {len(sections)} independent sections."
             insights = ["Sections are presented independently without correlation."]
             section_details = {}
+            total_recs = 0
             for sec in sections:
                 label = sec.get("label", "Section")
                 count = len(sec.get("data", []))
                 section_details[label] = count
-            stats = {"section_count": len(sections), "sections": section_details}
+                total_recs += count
+            stats = {"section_count": len(sections), "sections": section_details, "record_count": total_recs}
         else:
             # simple / trend / distribution
-            records = sections[0].get("data", []) if sections else []
-            scores = [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
-            stats = {"record_count": len(records)}
+            target_records = sections[0].get("data", []) if sections else []
+            scores = [s for s in (_get_score(r) for r in target_records if isinstance(r, dict)) if s is not None]
+            stats = {"record_count": len(target_records)}
             if scores:
                 import statistics as _stats_mod
                 avg_score = round(sum(scores) / len(scores), 2)
@@ -197,7 +149,7 @@ def generate_analysis(
                 max_score = round(max(scores), 2)
                 std_dev = round(_stats_mod.pstdev(scores), 2) if len(scores) > 1 else 0.0
                 summary = (
-                    f"Matched {len(records)} {category.lower()} records with an average score of {avg_score}, "
+                    f"Matched {len(target_records)} {category.lower()} records with an average score of {avg_score}, "
                     f"ranging from {min_score} to {max_score}."
                 )
                 insights = [
@@ -213,8 +165,8 @@ def generate_analysis(
                     "std_dev": std_dev,
                 })
             else:
-                summary = f"Matched {len(records)} {category.lower()} records."
-                insights = [f"The query returned {len(records)} {category.lower()} records."]
+                summary = f"Matched {len(target_records)} {category.lower()} records."
+                insights = [f"The query returned {len(target_records)} {category.lower()} records."]
 
         return _analysis_payload(summary, insights, stats)
 
@@ -224,5 +176,5 @@ def generate_analysis(
         return _analysis_payload(
             f"Analysis of {category.lower()} records completed with limited metrics.",
             ["Dataset matches the specified parameters."],
-            {},
+            {"record_count": 0},
         )

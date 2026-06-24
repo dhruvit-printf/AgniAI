@@ -14,7 +14,6 @@ from grounding_utils import ground_and_sanitize as _strip_ungrounded_numbers
 from analysis_engine import generate_analysis
 from prediction_engine import generate_predictions
 from conclusion_engine import generate_conclusion
-from normalized_models import build_answer
 from utils import extract_records as _extract_records
 from utils import get_score as _get_score
 
@@ -374,8 +373,6 @@ def get_fallback_report(
         "analysis": {"summary": summary, "observations": obs, "insights": insights, "predictions": []},
         "conclusion": {"summary": conclusion},
     }
-
-
 def generate_report(
     combined_result: Any,
     query_type: str,
@@ -392,10 +389,23 @@ def generate_report(
     if not _has_any_data(combined_result, query_type):
         fallback = get_fallback_report(combined_result, query_type, intent)
         return {
-            "message": fallback.get("message", ""),
-            "analysis": fallback.get("analysis"),
-            "prediction": fallback.get("prediction"),
-            "conclusion": fallback.get("conclusion"),
+            "message": "No matching records found.",
+            "analysis": {
+                "summary": "No matching records found.",
+                "insights": [],
+                "statistics": {"record_count": 0},
+            },
+            "prediction": {
+                "trend": "Insufficient Data",
+                "projection": "No matching records were returned, so a reliable prediction is not available.",
+                "heuristicEstimate": "Unavailable",
+                "shortTerm": "insufficient data",
+                "futureTrends": [],
+            },
+            "conclusion": {
+                "summary": "No matching records found.",
+                "bullets": [],
+            },
             "durations": {
                 "analysisDurationMs": 0.0,
                 "predictionDurationMs": 0.0,
@@ -420,11 +430,18 @@ def generate_report(
                         "summary": analysis_data.get("summary") if isinstance(analysis_data, dict) else "",
                         "insights": analysis_data.get("insights") if isinstance(analysis_data, dict) else [],
                         "statistics": analysis_data.get("statistics") if isinstance(analysis_data, dict) else {},
-                        "observations": [],
-                        "predictions": [],
                     },
-                    "prediction": {"shortTerm": "stable", "futureTrends": []},
-                    "conclusion": {"summary": conclusion_text, "bullets": [conclusion_text] if conclusion_text else []},
+                    "prediction": {
+                        "trend": "Stable",
+                        "projection": "Performance is expected to remain stable.",
+                        "heuristicEstimate": "Performance is expected to remain stable.",
+                        "shortTerm": "stable",
+                        "futureTrends": [],
+                    },
+                    "conclusion": {
+                        "summary": conclusion_text,
+                        "bullets": [conclusion_text] if conclusion_text else [],
+                    },
                     "durations": {
                         "analysisDurationMs": 0.0,
                         "predictionDurationMs": 0.0,
@@ -434,28 +451,11 @@ def generate_report(
         except Exception:
             pass
 
-    try:
-        answer = build_answer(query_type, combined_result, intent)
-    except Exception as exc:
-        logger.error("report_generator: build_answer failed: %s", exc, exc_info=True)
-        fallback = get_fallback_report(combined_result, query_type, intent)
-        return {
-            "message": fallback.get("message", ""),
-            "analysis": fallback.get("analysis"),
-            "prediction": fallback.get("prediction"),
-            "conclusion": fallback.get("conclusion"),
-            "durations": {
-                "analysisDurationMs": 0.0,
-                "predictionDurationMs": 0.0,
-                "conclusionDurationMs": 0.0,
-            },
-        }
-
     analysis = None
     analysis_ms = 0.0
     t0 = time.time()
     try:
-        analysis = generate_analysis(answer, query_type, intent, user_query, trace_id)
+        analysis = generate_analysis(combined_result, query_type, intent, user_query, trace_id)
         analysis_ms = round((time.time() - t0) * 1000, 2)
         _log_stage("analysis_time", analysis_ms, query_type=query_type, trace_id=trace_id)
     except Exception as exc:
@@ -467,7 +467,7 @@ def generate_report(
     prediction_ms = 0.0
     t0 = time.time()
     try:
-        prediction = generate_predictions(answer, query_type, intent)
+        prediction = generate_predictions(combined_result, query_type, intent)
         prediction_ms = round((time.time() - t0) * 1000, 2)
         _log_stage("prediction_time", prediction_ms, query_type=query_type, trace_id=trace_id)
     except Exception as exc:
@@ -479,7 +479,7 @@ def generate_report(
     conclusion_ms = 0.0
     t0 = time.time()
     try:
-        conclusion = generate_conclusion(answer, query_type, intent, trace_id)
+        conclusion = generate_conclusion(combined_result, query_type, intent, trace_id)
         conclusion_ms = round((time.time() - t0) * 1000, 2)
         _log_stage("conclusion_time", conclusion_ms, query_type=query_type, trace_id=trace_id)
     except Exception as exc:
@@ -499,7 +499,7 @@ def generate_report(
     except Exception as exc:
         logger.warning("report_generator: message_engine failed: %s", exc)
         category = intent.get("category") or "Agniveer"
-        records = _extract_records_from_combined(combined_result)
+        records = extract_records(combined_result)
         message = (analysis or {}).get("summary") or \
                   f"The {category.lower()} query returned {len(records)} records."
 
@@ -524,7 +524,7 @@ def generate_report(
         "prediction": prediction,
         "conclusion": {
             "summary": conclusion_text,
-            "bullets": conclusion.get("bullets") if conclusion else ([conclusion_text] if conclusion_text else []),
+            "bullets": conclusion.get("bullets") if (conclusion and isinstance(conclusion, dict)) else [],
         },
         "durations": {
             "analysisDurationMs": analysis_ms,

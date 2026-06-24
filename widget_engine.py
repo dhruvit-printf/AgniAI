@@ -656,59 +656,32 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not records:
         return {"columns": [], "rows": []}
 
+    FORBIDDEN_COLUMNS = {"attempts", "sections", "subitems", "bestattempt", "rawobjects"}
+
     def _flatten_cell_value(key: str, value: Any) -> Any:
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
-
-        key_lower = (key or "").lower()
 
         if isinstance(value, list):
             if not value:
                 return None
             if all(isinstance(item, (str, int, float, bool)) or item is None for item in value):
                 return ", ".join(str(item) for item in value if item is not None)
-            if key_lower == "attempts":
-                return f"{len(value)} attempt(s)"
-            if key_lower == "sections":
-                return f"{len(value)} section(s)"
-            if key_lower == "subitems":
-                return f"{len(value)} sub-item(s)"
-            sample_labels = []
-            for item in value[:5]:
-                if isinstance(item, dict):
-                    label = (
-                        item.get("label")
-                        or item.get("sectionName")
-                        or item.get("subItemName")
-                        or item.get("name")
-                        or item.get("title")
-                    )
-                    if label:
-                        sample_labels.append(str(label))
-            if sample_labels:
-                return ", ".join(sample_labels)
-            return f"{len(value)} item(s)"
+            return None
 
         if isinstance(value, dict):
             for candidate in ("label", "sectionName", "subItemName", "name", "title", "fullName"):
                 nested = value.get(candidate)
                 if nested not in (None, ""):
                     return nested
-            scalar_parts = []
-            for nested_key, nested_val in value.items():
-                if isinstance(nested_val, (str, int, float, bool)) or nested_val is None:
-                    if nested_val is not None:
-                        scalar_parts.append(f"{nested_key}: {nested_val}")
-            if scalar_parts:
-                return "; ".join(scalar_parts)
-            return f"{len(value)} field(s)"
+            return None
 
         return str(value)
     
     keys_seen = []
     for r in records:
         for k in r.keys():
-            if k not in keys_seen and k != "id":
+            if k not in keys_seen and k != "id" and k.lower() not in FORBIDDEN_COLUMNS:
                 keys_seen.append(k)
                 
     key_priority = {"fullname": -10, "agniveerno": -9, "name": -8, "agniveerid": -7, "score": -6, "besttotal": -5}
@@ -1006,9 +979,8 @@ def build_formatted_data(
     prediction: Optional[Any] = None,
     conclusion: Optional[Any] = None,
     visualization_intent: Optional[Dict[str, Any]] = None,
-    answer_dict: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    source_result = answer_dict if isinstance(answer_dict, dict) else combined_result
+    source_result = combined_result
 
     inferred_type = infer_supported_type(
         source_result,
@@ -1039,6 +1011,9 @@ def build_formatted_data(
         type=inferred_type,
         title=title,
         data=data_payload,
+        analysis=analysis or {},
+        prediction=prediction or {},
+        conclusion=conclusion or {},
         presentation=(visualization_intent or {}).get("presentation"),
         chart_type=(visualization_intent or {}).get("chart_type"),
         comparison=(visualization_intent or {}).get("comparison"),

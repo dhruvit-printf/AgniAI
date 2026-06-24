@@ -15,10 +15,34 @@ from report_generator import (
     get_fallback_report,
 )
 from response_builder import (
-    build_combined_message,
     build_response,
-    public_response_view,
 )
+from response_sanitizer import public_response_view
+
+
+def build_combined_message(intro="", formatted="", analysis=None, conclusion=None):
+    parts = []
+    if intro:
+        parts.append(intro)
+    if formatted:
+        parts.append(formatted)
+    if analysis:
+        if analysis.get("summary"):
+            parts.append(analysis["summary"])
+        obs = analysis.get("observations") or []
+        if obs:
+            parts.append("\n".join(f"- {o}" for o in obs))
+        ins = analysis.get("insights") or []
+        if ins:
+            parts.append("\n".join(f"- {i}" for i in ins))
+        preds = analysis.get("predictions") or []
+        if preds:
+            parts.append("Predictions:\n" + "\n".join(f"- {p}" for p in preds))
+    if conclusion:
+        if conclusion.get("summary"):
+            parts.append(f"Conclusion:\n{conclusion['summary']}")
+    return "\n\n".join(parts) if parts else ""
+
 
 
 class TestGroundingGuard(unittest.TestCase):
@@ -312,14 +336,12 @@ class TestBuildResponseSecurity:
 
 class TestBuildCombinedMessage:
     def test_empty_analysis_no_crash(self):
-        from response_builder import build_combined_message
 
         result = build_combined_message("Intro", "Data", None, None)
         assert "Intro" in result
         assert "Data" in result
 
     def test_all_parts_present(self):
-        from response_builder import build_combined_message
 
         analysis = {"summary": "Sum", "observations": ["O1"], "insights": ["I1"]}
         conclusion = {"summary": "End"}
@@ -332,7 +354,6 @@ class TestBuildCombinedMessage:
         assert "End" in result
 
     def test_empty_strings_excluded(self):
-        from response_builder import build_combined_message
 
         result = build_combined_message("", "", None, None)
         assert result.strip() == ""

@@ -48,7 +48,6 @@ from query_planner import QueryType, plan_query
 from query_understanding_engine import understand_query
 from report_generator import generate_report, get_fallback_report
 from metadata_builder import build_metadata
-from normalized_models import build_answer
 from response_builder import build_response
 from normalized_models import extract_records as _extract_records
 from result_combiner import combine_results
@@ -1380,58 +1379,7 @@ def execute_admin_query(
                 _validate_model_payload(
                     CombinedResponseModel, combined_result, "combined.result"
                 )
-            if (
-                qtype_str == "cross_filter"
-                and isinstance(combined_result, dict)
-                and combined_result.get("status") is False
-            ):
-                # Return empty/no matches status false response
-                total_duration = time.time() - start_time
-                response_payload = {
-                    "status": False,
-                    "sessionId": session_id,
-                    "message": combined_result.get("message", "No matching records found"),
-                    "widget": "TABLE",
-                    "formattedData": {
-                        "type": "TABLE",
-                        "title": "No Results",
-                        "data": {"columns": [], "rows": []},
-                        "analysis": {"summary": "", "insights": [], "statistics": {}},
-                        "prediction": {
-                            "trend": "Insufficient Data",
-                            "projection": "No matching records were returned, so a reliable prediction is not available yet.",
-                            "heuristicEstimate": "No matching records were returned, so a reliable prediction is not available yet.",
-                            "shortTerm": "insufficient data",
-                            "futureTrends": [
-                                "No matching records were returned, so a reliable prediction is not available yet."
-                            ],
-                        },
-                        "conclusion": {"summary": "", "bullets": []},
-                    },
-                    "suggestedQuestions": [],
-                    "dotnetPayload": response_dotnet_payload if "response_dotnet_payload" in locals() else {},
-                    "metadata": {
-                        "sessionId": session_id,
-                        "confidence": round(float(query_plan.confidence), 2),
-                        "queryType": qtype_str,
-                        "operationCount": operation_count,
-                        "timings": {
-                            "plannerMs": round(planner_duration * 1000, 2),
-                            "intentMs": round(intent_duration * 1000, 2),
-                            "dotnetMs": round(dotnet_duration * 1000, 2),
-                            "combinerMs": round(combiner_duration * 1000, 2),
-                            "reportMs": round(report_duration * 1000, 2),
-                            "totalMs": round(total_duration * 1000, 2),
-                        },
-                        "executionTimeMs": round(total_duration * 1000, 2),
-                    },
-                }
-                return {
-                    "type": qtype_str,
-                    "response_payload": response_payload,
-                    "combined_message": combined_result.get("message", "No matching records found"),
-                    "execution_time_ms": round(total_duration * 1000)
-                }
+
 
             if (
                 qtype_str == "cross_filter"
@@ -1688,12 +1636,10 @@ def execute_admin_query(
                 })
             )
 
-        # ── Step 6b: Build answer & suggested questions (independent) ─────
-        answer = build_answer(qtype_str, combined_result, primary_intent)
-
+        # ── Step 6b: Build suggested questions (independent) ──────────────
         suggested = []
         try:
-            suggested = generate_suggested_questions(qtype_str, primary_intent, answer)
+            suggested = generate_suggested_questions(qtype_str, primary_intent, combined_result)
             # Validate SuggestedQuestionModel (non-fatal)
             if suggested:
                 for q in suggested:

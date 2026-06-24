@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from analysis_engine import _build_aggregate_text, generate_analysis
-from conclusion_engine import _build_conclusion_grounding_text, generate_conclusion
+from analysis_engine import generate_analysis
+from conclusion_engine import generate_conclusion
 from dotnet_adapter import normalize_dotnet_response
 from metrics import metrics_collector
 from result_combiner import intersect_results

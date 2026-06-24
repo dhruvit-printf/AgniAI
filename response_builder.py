@@ -22,7 +22,6 @@ def build_response(
         "status": True,
         "sessionId": session_id,
         "message": message or "",
-        "widget": formatted.get("type") or "TABLE",
         "formattedData": formatted,
         "suggestedQuestions": suggested_questions or [],
         "dotnetPayload": dotnet_payload or {},
