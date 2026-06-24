@@ -3240,7 +3240,17 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     if intent_result.get("medical_status"):
         payload["medicalStatus"] = intent_result["medical_status"]
 
-    if intent_result.get("group_by"):
+    # Only add groupBy for subcategories that support group-by aggregation.
+    # GradeDistribution, AverageScore, etc. use 'section' as a filter field,
+    # not as a groupBy dimension. Sending groupBy to these causes .NET 400.
+    _GROUPBY_UNSUPPORTED_SUBCATEGORIES = {
+        "GradeDistribution", "GradingSummary", "AverageScore",
+        "SectionSummary", "PassPercentage", "FailPercentage",
+        "BestAttempt", "AttemptWise", "Improvement", "Drop",
+        "OverallPerformance", "TopPerformers", "LowestPerformers",
+    }
+    subcategory = intent_result.get("subcategory") or ""
+    if intent_result.get("group_by") and subcategory not in _GROUPBY_UNSUPPORTED_SUBCATEGORIES:
         payload["groupBy"] = intent_result["group_by"]
 
     if intent_result.get("sort_by"):

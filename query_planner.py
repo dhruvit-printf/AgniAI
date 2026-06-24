@@ -151,6 +151,8 @@ _NO_SPLIT_PHRASES: List[str] = [
     "pass rate and fail rate",
     "improvement and drop",
     "improvement and decline",
+    "grade distribution",
+    "grading distribution",
     "issued and procured",
     "overdue and returned",
     "pending and completed verification",
@@ -536,6 +538,18 @@ def _is_distribution_query(
         "distribute",
         "distributed",
     }
+    # "grade distribution" / "grading distribution" are Performance subcategory
+    # queries, NOT group-by distribution queries. They must not be routed here.
+    _PERFORMANCE_DISTRIBUTION_PHRASES = (
+        "grade distribution",
+        "grading distribution",
+        "grade distribution summary",
+        "gradingsummary",
+        "grading summary",
+    )
+    if any(phrase in text_lower for phrase in _PERFORMANCE_DISTRIBUTION_PHRASES):
+        return False
+
     if any(kw in text_lower for kw in dist_kws):
         return True
     if group_by in ("platoon", "class", "batch", "category") and "by" in text_lower:
