@@ -1,0 +1,224 @@
+import unittest
+import json
+from response_builder import build_response
+from widget_engine import build_formatted_data, validate_payload
+
+
+class TestResponseLayerRefactor(unittest.TestCase):
+
+    def test_strict_contract_response_builder(self):
+        # Verify strict response builder contract (Issue 8)
+        resp = build_response(
+            message="Test Message",
+            formatted_data={"type": "TABLE", "title": "Test Title", "data": {"key": "val"}},
+            metadata={"queryType": "simple", "sessionId": "123"},
+            session_id="123",
+            suggested_questions=["question?"],
+            dotnet_payload={"dotnet_key": "dotnet_val"},
+            combined_result={"some": "result"}
+        )
+        
+        # Verify exactly six allowed keys at the root
+        allowed_keys = {"status", "message", "formattedData", "suggestedQuestions", "dotnetPayload", "metadata"}
+        self.assertEqual(set(resp.keys()), allowed_keys)
+        
+        # Verify subfields of formattedData (Issue 9)
+        fd = resp["formattedData"]
+        self.assertEqual(fd["type"], "TABLE")
+        self.assertEqual(fd["title"], "Test Title")
+        self.assertEqual(fd["data"], {"key": "val"})
+        self.assertEqual(fd["analysis"], {})
+        self.assertEqual(fd["prediction"], {})
+        self.assertEqual(fd["conclusion"], {})
+
+    def test_multi_independent_preserves_sections(self):
+        # Verify multi_independent tables preserve section boundaries (Issue 1)
+        combined = {
+            "sections": [
+                {
+                    "label": "Top Performers",
+                    "data": [{"name": "Amit", "score": 95}]
+                },
+                {
+                    "label": "Leave Takers",
+                    "data": [{"name": "Kapil", "days": 10}]
+                }
+            ]
+        }
+        
+        fd = build_formatted_data(
+            combined,
+            query_type="multi_independent",
+            intent={"category": "Performance", "subcategory": "Top"}
+        )
+        
+        # Check that sections is preserved at formattedData.data
+        data = fd["data"]
+        self.assertIn("sections", data)
+        self.assertEqual(len(data["sections"]), 2)
+        
+        sec1 = data["sections"][0]
+        self.assertEqual(sec1["label"], "Top Performers")
+        self.assertEqual(len(sec1["columns"]), 2)  # Name and Score
+        self.assertEqual(sec1["rows"][0]["Name"], "Amit")
+        
+        sec2 = data["sections"][1]
+        self.assertEqual(sec2["label"], "Leave Takers")
+        self.assertEqual(len(sec2["columns"]), 2)  # Name and Days
+        self.assertEqual(sec2["rows"][0]["Name"], "Kapil")
+
+    def test_comparison_preserves_left_right(self):
+        # Verify comparison tables preserve left/right sides without flattening (Issue 2)
+        combined = {
+            "left": {
+                "label": "Company A",
+                "data": [{"name": "A", "marks": 80}]
+            },
+            "right": {
+                "label": "Company B",
+                "data": [{"name": "B", "marks": 90}]
+            },
+            "comparison": {"diff": 10}
+        }
+        
+        fd = build_formatted_data(
+            combined,
+            query_type="comparison",
+            intent={"category": "Performance", "subcategory": "Compare"}
+        )
+        
+        data = fd["data"]
+        self.assertIn("left", data)
+        self.assertIn("right", data)
+        self.assertIn("comparison", data)
+        
+        self.assertEqual(data["left"]["label"], "Company A")
+        self.assertEqual(data["left"]["rows"][0]["Name"], "A")
+        self.assertEqual(data["right"]["label"], "Company B")
+        self.assertEqual(data["right"]["rows"][0]["Name"], "B")
+        self.assertEqual(data["comparison"], {"diff": 10})
+
+    def test_cross_filter_metadata_propagates(self):
+        # Verify cross filter metadata is preserved inside formattedData.data (Issue 3)
+        combined = {
+            "records": [{"name": "Amit"}],
+            "matchCount": 5,
+            "totalBeforeFilter": 10,
+            "filterDepth": 2,
+            "queryType": "cross_filter",
+            "degraded": True,
+            "failedFilters": ["filter1"]
+        }
+        
+        fd = build_formatted_data(
+            combined,
+            query_type="cross_filter",
+            intent={"category": "Performance", "subcategory": "Top"}
+        )
+        
+        data = fd["data"]
+        self.assertEqual(data["matchCount"], 5)
+        self.assertEqual(data["totalBeforeFilter"], 10)
+        self.assertEqual(data["filterDepth"], 2)
+        self.assertEqual(data["queryType"], "cross_filter")
+        self.assertEqual(data["degraded"], True)
+        self.assertEqual(data["failedFilters"], ["filter1"])
+
+    def test_row_serialization_preserves_nested(self):
+        # Verify nested structures are preserved as JSON strings (Issue 4)
+        records = [
+            {
+                "name": "Amit",
+                "attempts": [{"attempt": 1, "score": 90}],
+                "metrics": {"avg": 85}
+            }
+        ]
+        
+        from widget_engine import build_table_data
+        res = build_table_data(records)
+        rows = res["rows"]
+        self.assertEqual(rows[0]["name"], "Amit")
+        # should be JSON strings of the nested dict/list
+        self.assertEqual(json.loads(rows[0]["attempts"]), [{"attempt": 1, "score": 90}])
+        self.assertEqual(json.loads(rows[0]["metrics"]), {"avg": 85})
+
+    def test_deep_flatten_only_for_tables(self):
+        # Verify deep flattening only affects tables (Issue 5)
+        combined = [
+            {
+                "name": "Amit",
+                "nested_info": {"sport": "Cricket", "detail": {"level": "High"}}
+            }
+        ]
+        
+        # 1. TABLE widget -> deep flatten should happen
+        fd_table = build_formatted_data(
+            combined,
+            query_type="simple",
+            intent={"category": "Performance", "subcategory": "Top"},
+            visualization_intent={"requested_widget_type": "TABLE", "frontend_override": True}
+        )
+        # Verify that nested_info keys are flattened
+        self.assertIn("Nested_info_Sport", fd_table["data"]["rows"][0])
+        self.assertIn("Nested_info_Detail_Level", fd_table["data"]["rows"][0])
+        
+        # 2. BAR_CHART widget -> deep flatten should NOT happen
+        fd_bar = build_formatted_data(
+            combined,
+            query_type="simple",
+            intent={"category": "Performance", "subcategory": "Top"},
+            visualization_intent={"requested_widget_type": "CHART_BAR", "frontend_override": True}
+        )
+        # Check that original unflattened records are extracted
+        # Since it is a bar chart, it maps xKey and yKey, and rows should be returned
+        # and not have flattened keys
+        self.assertNotIn("Nested_info_Sport", fd_bar["data"]["rows"][0])
+
+    def test_preserve_dotnet_keys(self):
+        # Verify unknown keys pass through to data_payload (Issue 6)
+        combined = {
+            "records": [{"name": "Amit"}],
+            "bestAttempt": {"marks": 95},
+            "subItems": ["item1"],
+            "customDotnetField": "hello"
+        }
+        
+        fd = build_formatted_data(
+            combined,
+            query_type="simple",
+            intent={"category": "Performance", "subcategory": "Top"}
+        )
+        
+        data = fd["data"]
+        self.assertEqual(data["bestAttempt"], {"marks": 95})
+        self.assertEqual(data["subItems"], ["item1"])
+        self.assertEqual(data["customDotnetField"], "hello")
+
+    def test_table_columns_union_generation(self):
+        # Verify union of all keys across ALL rows is used (Issue 7)
+        combined = [
+            {"name": "A"},
+            {"name": "B", "attempts_section1_marks": 90}
+        ]
+        
+        fd = build_formatted_data(
+            combined,
+            query_type="simple",
+            intent={"category": "Performance", "subcategory": "Top"}
+        )
+        
+        columns = fd["data"]["columns"]
+        col_keys = [c["key"] for c in columns]
+        
+        self.assertIn("Name", col_keys)
+        self.assertIn("Attempts_section1_marks", col_keys)
+        
+        rows = fd["data"]["rows"]
+        self.assertEqual(rows[0]["Name"], "A")
+        self.assertIsNone(rows[0]["Attempts_section1_marks"])
+        self.assertEqual(rows[1]["Name"], "B")
+        self.assertEqual(rows[1]["Attempts_section1_marks"], 90)
+
+
+if __name__ == "__main__":
+    unittest.main()

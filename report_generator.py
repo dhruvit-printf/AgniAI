@@ -360,7 +360,7 @@ def get_fallback_report(
             summary = f"The search returned exactly {cnt} matching {category.lower()} records."
             obs = [f"Found {cnt} matching {category.lower()} records."]
             insights = ["The returned records match the selected criteria."]
-            conclusion = f"The search is complete and the {cnt} matching records are ready for review."
+            conclusion = f"The search is complete and the {cnt} matching {category.lower()} records are ready for review."
         else:
             message = f"I could not find any matching {category.lower()} records."
             summary = f"No matching records were found for the selected {category.lower()} criteria."

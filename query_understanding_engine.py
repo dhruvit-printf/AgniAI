@@ -35,6 +35,9 @@ _CROSS_FILTER_MARKERS = (
     "currently absent",
     "with medical",
     "with active medical",
+    "on leave",
+    "medical leave",
+    "on medical leave",
     "among",
     "within",
     "who",
@@ -507,12 +510,14 @@ def understand_query(query: str) -> Dict[str, Any]:
 
     sub_requests = _extract_sub_requests(text, category, operation, entities)
     if cross_filter_intent and len(sub_requests) == 1:
-        for marker in ("who plays", "who is on leave", "currently on leave", "currently absent", "with medical", "with active medical"):
+        for marker in ("who plays", "who is on leave", "currently on leave", "currently absent", "with medical", "with active medical", "on leave", "medical leave", "on medical leave"):
             if marker in text:
                 head, tail = text.split(marker, 1)
+                tail_clean = tail.strip(" ,")
+                tail_frag = f"{marker} {tail_clean}" if tail_clean else marker
                 sub_requests = [
                     {"fragment": head.strip(" ,"), "category": category, "operation": operation, "entities": entities},
-                    {"fragment": tail.strip(" ,"), "category": None, "operation": "lookup", "entities": entities},
+                    {"fragment": tail_frag, "category": None, "operation": "lookup", "entities": entities},
                 ]
                 break
 

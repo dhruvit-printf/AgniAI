@@ -77,7 +77,7 @@ class TestArchitecturalFixes(unittest.TestCase):
         )
         self.assertIn("formattedData", resp)
         self.assertIsInstance(resp["formattedData"], dict)
-        self.assertEqual(resp["sessionId"], "session-123")
+        self.assertEqual(resp["metadata"]["sessionId"], "session-123")
 
     def test_widgets_selection_step_12(self):
         # 1. Single record -> TABLE

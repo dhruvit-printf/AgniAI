@@ -43,7 +43,7 @@ class TestF10NoPaddingFiller(unittest.TestCase):
         report = report_generator.generate_report(
             combined, "cross_filter", {"category": "Performance"}, "query"
         )
-        self.assertNotIn("Additional details are saved in the system logs", report["introMessage"])
+        self.assertNotIn("Additional details are saved in the system logs", report["message"])
         self.assertNotIn(
             "Additional details are saved in the system logs",
             report["conclusion"]["summary"],
@@ -118,24 +118,23 @@ class TestF13PredictionLabels(unittest.TestCase):
 
     def test_response_builder_surfaces_projection_labels(self):
         payload = build_response(
-            query_type="simple",
-            intro_message="Intro",
-            combined_result={},
-            analysis={"summary": "Sum", "observations": [], "insights": []},
-            conclusion={"summary": "Conc"},
-            intent={"category": "Performance"},
-            raw_results=[],
-            confidence=0.9,
-            operation_count=1,
-            formatted_data="",
-            prediction={
-                "projection": "Projected stable performance.",
-                "heuristicEstimate": "Heuristic estimate remains stable.",
-                "futureTrends": ["Heuristic estimate remains stable."],
+            message="Intro",
+            formatted_data={
+                "type": "TABLE",
+                "title": "",
+                "data": {},
+                "prediction": {
+                    "projection": "Projected stable performance.",
+                    "heuristicEstimate": "Heuristic estimate remains stable.",
+                    "futureTrends": ["Heuristic estimate remains stable."],
+                },
             },
+            metadata={},
+            session_id="session-1",
         )
-        self.assertIn("Projected stable performance.", payload["prediction"])
-        self.assertIn("Heuristic estimate remains stable.", payload["prediction"])
+        prediction = payload["formattedData"]["prediction"]
+        self.assertEqual("Projected stable performance.", prediction["projection"])
+        self.assertEqual("Heuristic estimate remains stable.", prediction["heuristicEstimate"])
 
 
 class TestF14DeadBranchAndEntryPoint(unittest.TestCase):

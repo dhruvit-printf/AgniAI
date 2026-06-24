@@ -679,34 +679,15 @@ def make_readable_label(k: str) -> str:
 def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not records:
         return {"columns": [], "rows": []}
-
-    def _flatten_cell_value(key: str, value: Any) -> Any:
-        if value is None or isinstance(value, (str, int, float, bool)):
-            return value
-
-        if isinstance(value, list):
-            if not value:
-                return None
-            if all(isinstance(item, (str, int, float, bool)) or item is None for item in value):
-                return ", ".join(str(item) for item in value if item is not None)
-            return None
-
-        if isinstance(value, dict):
-            for candidate in ("label", "sectionName", "subItemName", "name", "title", "fullName"):
-                nested = value.get(candidate)
-                if nested not in (None, ""):
-                    return nested
-            return None
-
-        return str(value)
     
     keys_seen = []
     for r in records:
-        for k in r.keys():
-            if k not in keys_seen and k != "id":
-                keys_seen.append(k)
+        if isinstance(r, dict):
+            for k in r.keys():
+                if k not in keys_seen:
+                    keys_seen.append(k)
                 
-    key_priority = {"fullname": -10, "agniveerno": -9, "name": -8, "agniveerid": -7, "score": -6, "besttotal": -5}
+    key_priority = {"fullname": -10, "agniveerno": -9, "name": -8, "agniveerid": -7, "id": -6.5, "score": -6, "besttotal": -5}
     keys_seen.sort(key=lambda k: key_priority.get(k.lower(), 0))
     
     columns = []
@@ -721,7 +702,11 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     for r in records:
         row = {}
         for k in keys_seen:
-            row[k] = _flatten_cell_value(k, r.get(k))
+            val = r.get(k)
+            if isinstance(val, (dict, list)):
+                row[k] = json.dumps(val, ensure_ascii=False, default=str)
+            else:
+                row[k] = val
         rows.append(row)
 
     return {"columns": columns, "rows": rows}
@@ -762,7 +747,7 @@ def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
             ],
         }
         
-    records = _extract_records(combined_result)
+    records = _extract_records(combined_result, deep_flatten=False)
     records = _dedupe_records(records)
     if not records:
         return {"xKey": "label", "yKey": "value", "rows": []}
@@ -833,7 +818,7 @@ def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
     }
 
 def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
-    records = _extract_records(combined_result)
+    records = _extract_records(combined_result, deep_flatten=False)
     if not records:
         return {"xKey": "month", "series": [], "rows": []}
         
@@ -897,7 +882,7 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
     }
 
 def build_pie_chart_data(combined_result: Any) -> Dict[str, Any]:
-    records = _extract_records(combined_result)
+    records = _extract_records(combined_result, deep_flatten=False)
     if not records:
         return {"rows": []}
         
@@ -961,6 +946,17 @@ def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
     if inferred_type == "TABLE":
         if "sides" in data:
             return
+        if "sections" in data:
+            for sec in data["sections"]:
+                if isinstance(sec, dict):
+                    validate_payload("TABLE", sec)
+            return
+        if "left" in data and "right" in data:
+            if isinstance(data["left"], dict):
+                validate_payload("TABLE", data["left"])
+            if isinstance(data["right"], dict):
+                validate_payload("TABLE", data["right"])
+            return
         cols = {c["key"] for c in data.get("columns", [])}
         for row in data.get("rows", []):
             for col in cols:
@@ -1014,7 +1010,91 @@ def build_formatted_data(
     from normalized_models import _derive_title
     title = _derive_title(query_type, intent)
     
-    if inferred_type == "CARD":
+    # Check for multi_independent and comparison early to bypass extract/flatten
+    if query_type == "multi_independent" and isinstance(source_result, dict) and "sections" in source_result:
+        sections_list = []
+        for sec in source_result["sections"]:
+            if isinstance(sec, dict):
+                label = sec.get("label", "")
+                sec_data = sec.get("data", [])
+                if not isinstance(sec_data, list):
+                    sec_data = [sec_data] if sec_data else []
+                flat_sec_records = flatten_records(sec_data, deep_flatten=True)
+                sec_table = build_table_data(flat_sec_records)
+                sec_payload = {
+                    "label": label,
+                    "columns": sec_table.get("columns", []),
+                    "rows": sec_table.get("rows", [])
+                }
+                for k, v in sec.items():
+                    if k not in ("label", "data", "columns", "rows"):
+                        sec_payload[k] = v
+                sections_list.append(sec_payload)
+        data_payload = {"sections": sections_list}
+        
+    elif isinstance(source_result, dict) and "left" in source_result and "right" in source_result:
+        left_section = source_result["left"]
+        right_section = source_result["right"]
+        
+        # Format left
+        left_label = ""
+        left_flat_records = []
+        left_extra = {}
+        if isinstance(left_section, dict):
+            left_label = left_section.get("label", "")
+            left_data = left_section.get("data", [])
+            if not isinstance(left_data, list):
+                left_data = [left_data] if left_data else []
+            left_flat_records = flatten_records(left_data, deep_flatten=True)
+            for k, v in left_section.items():
+                if k not in ("label", "data", "columns", "rows"):
+                    left_extra[k] = v
+        else:
+            left_data = left_section if isinstance(left_section, list) else []
+            left_flat_records = flatten_records(left_data, deep_flatten=True)
+        
+        left_table = build_table_data(left_flat_records)
+        left_payload = {
+            "label": left_label,
+            "columns": left_table.get("columns", []),
+            "rows": left_table.get("rows", []),
+            **left_extra
+        }
+        
+        # Format right
+        right_label = ""
+        right_flat_records = []
+        right_extra = {}
+        if isinstance(right_section, dict):
+            right_label = right_section.get("label", "")
+            right_data = right_section.get("data", [])
+            if not isinstance(right_data, list):
+                right_data = [right_data] if right_data else []
+            right_flat_records = flatten_records(right_data, deep_flatten=True)
+            for k, v in right_section.items():
+                if k not in ("label", "data", "columns", "rows"):
+                    right_extra[k] = v
+        else:
+            right_data = right_section if isinstance(right_section, list) else []
+            right_flat_records = flatten_records(right_data, deep_flatten=True)
+            
+        right_table = build_table_data(right_flat_records)
+        right_payload = {
+            "label": right_label,
+            "columns": right_table.get("columns", []),
+            "rows": right_table.get("rows", []),
+            **right_extra
+        }
+        
+        comparison_payload = source_result.get("comparison", {})
+        
+        data_payload = {
+            "left": left_payload,
+            "right": right_payload,
+            "comparison": comparison_payload
+        }
+
+    elif inferred_type == "CARD":
         records = _extract_records(source_result, deep_flatten=False)
         data_payload = build_card_data(records, title)
     elif inferred_type in {"CHART_BAR", "BAR_CHART"}:
@@ -1025,22 +1105,31 @@ def build_formatted_data(
         data_payload = build_pie_chart_data(source_result)
     else:
         if isinstance(source_result, dict) and "sides" in source_result:
-            data_payload = {
-                "sides": [
-                    {
-                        "label": side.get("label"),
-                        "data": [deep_flatten_record(r) for r in side.get("data", []) if isinstance(r, dict)]
-                    }
-                    for side in source_result["sides"]
-                ]
-            }
+            sides_data = []
+            for side in source_result["sides"]:
+                s_data = side.get("data")
+                if isinstance(s_data, list):
+                    flattened_data = [r for r in s_data if isinstance(r, dict)]
+                else:
+                    flattened_data = s_data
+                side_payload = {
+                    "label": side.get("label"),
+                    "data": flattened_data
+                }
+                for k, v in side.items():
+                    if k not in ("label", "data"):
+                        side_payload[k] = v
+                sides_data.append(side_payload)
+            data_payload = {"sides": sides_data}
         else:
             table_records = _extract_records(source_result, deep_flatten=True)
             data_payload = build_table_data(table_records)
-            if isinstance(source_result, dict):
-                for key in ("degraded", "failedFilters", "matchCount"):
-                    if key in source_result:
-                        data_payload[key] = source_result[key]
+
+    # Preserve 100% of .NET data and unknown keys
+    if isinstance(source_result, dict) and isinstance(data_payload, dict):
+        for k, v in source_result.items():
+            if k not in data_payload:
+                data_payload[k] = v
 
     validate_payload(inferred_type, data_payload)
     

@@ -152,10 +152,20 @@ def generate_predictions(
     elif query_type in ("compare", "comparison"):
         left_label = left.get("label", "Side 1")
         right_label = right.get("label", "Side 2")
-        first_metric = next(iter(comp.values()), {}) if comp else {}
-        diff = _safe_float(first_metric.get("difference"))
+        if comp and ("difference" in comp or "higher" in comp):
+            first_metric = comp
+        else:
+            first_metric = next(iter(comp.values()), {}) if comp else {}
+        diff = None
+        higher_label = None
+        if isinstance(first_metric, dict):
+            diff = _safe_float(first_metric.get("difference"))
+            higher_label = first_metric.get("higher")
+        elif isinstance(first_metric, (int, float)):
+            diff = float(first_metric)
+            
         if diff and diff > 10:
-            short_term = "increasing" if first_metric.get("higher") == left_label else "decreasing"
+            short_term = "increasing" if higher_label == left_label else "decreasing"
         else:
             short_term = "stable"
 

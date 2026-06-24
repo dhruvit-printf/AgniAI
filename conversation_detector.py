@@ -213,6 +213,8 @@ def build_conversational_response(
             },
             "executionTimeMs": 0,
         },
+        "widget": "conversation",
+        "queryType": query_type,
     }
     return payload
 

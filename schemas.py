@@ -291,7 +291,6 @@ class FinalResponse(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     status: bool
-    sessionId: str
     message: str
     formattedData: Dict[str, Any] = Field(default_factory=dict)
     suggestedQuestions: List[str] = Field(default_factory=list)

@@ -79,13 +79,11 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]
-        self.assertEqual(response_payload["queryType"], "simple")
+        self.assertEqual(response_payload["metadata"]["queryType"], "simple")
         self.assertTrue(response_payload["status"])
 
-        # Verify widgets: TABLE should be generated since name/agniveerNo exist.
-        widgets = response_payload["widgets"]
-        widget_types = [w["type"] for w in widgets]
-        self.assertIn("TABLE", widget_types)
+        # Verify widget type: TABLE should be generated since Name/AgniveerNo exist.
+        self.assertEqual(response_payload["formattedData"]["type"], "TABLE")
 
         mock_call_dotnet.assert_called_once()
 
@@ -178,13 +176,13 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
-        self.assertEqual(response_payload["queryType"], "cross_filter")
+        self.assertEqual(response_payload["metadata"]["queryType"], "cross_filter")
 
         # Verify intersection result (only AMIT KUMAR matches all three sets)
-        records = response_payload["result"]["processedData"]["records"]
-        self.assertEqual(len(records), 1)
-        self.assertEqual(records[0]["fullName"], "AMIT KUMAR")
-        self.assertEqual(records[0]["agniveerNo"], "A01")
+        rows = response_payload["formattedData"]["data"]["rows"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["FullName"], "AMIT KUMAR")
+        self.assertEqual(rows[0]["AgniveerNo"], "A01")
 
         self.assertEqual(mock_call_dotnet.call_count, 3)
 
@@ -208,13 +206,12 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
-        self.assertEqual(response_payload["queryType"], "compare")
+        self.assertEqual(response_payload["metadata"]["queryType"], "compare")
 
         # Check comparison results
-        sides = response_payload["result"]["processedData"]["sides"]
-        self.assertEqual(len(sides), 2)
-        self.assertEqual(sides[0]["label"], "PPT")
-        self.assertEqual(sides[1]["label"], "BPET")
+        data = response_payload["formattedData"]["data"]
+        self.assertEqual(data["left"]["label"], "PPT")
+        self.assertEqual(data["right"]["label"], "BPET")
 
         self.assertEqual(mock_call_dotnet.call_count, 2)
 
@@ -262,10 +259,10 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
-        self.assertEqual(response_payload["queryType"], "multi_independent")
+        self.assertEqual(response_payload["metadata"]["queryType"], "multi_independent")
 
-        # Verify sections merged
-        sections = response_payload["result"]["processedData"]["sections"]
+        # Verify sections
+        sections = response_payload["formattedData"]["data"]["sections"]
         self.assertEqual(len(sections), 2)
         self.assertEqual(sections[0]["label"], "Attendance")
         self.assertEqual(sections[1]["label"], "Leave")
@@ -295,7 +292,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]
-        self.assertEqual(response_payload["queryType"], "simple")
+        self.assertEqual(response_payload["metadata"]["queryType"], "simple")
         self.assertTrue(response_payload["status"])
 
         self.assertEqual(mock_call_dotnet.call_count, 1)

@@ -71,18 +71,11 @@ class TestPredictions(unittest.TestCase):
             "confidence": "high",
         }
         resp = build_response(
-            query_type="simple",
-            intro_message="Intro",
-            combined_result={},
-            analysis=None,
-            conclusion=None,
-            intent=intent,
-            raw_results=[],
-            confidence=0.9,
-            operation_count=1,
-            formatted_data="formatted",
+            message="Intro",
+            formatted_data={"type": "TABLE", "data": {}},
+            metadata={},
+            session_id="session-1",
         )
-        # Should not crash and analysis block should be None (or omitted) as today
         self.assertIsNone(resp.get("analysis"))
 
     def test_comparison_prediction_direction(self):

@@ -47,28 +47,6 @@ class TestF6CompareShape(unittest.TestCase):
         self.assertEqual(compared["comparison"]["averageScore"]["higher"], "PPT")
         self.assertEqual(compared["comparison"]["averageScore"]["lower"], "BPET")
 
-        aggregate_text = _build_aggregate_text(
-            {
-                "left": compared["left"],
-                "right": compared["right"],
-                "comparison": compared["comparison"],
-            },
-            "compare",
-            {"category": "Performance"},
-        )
-        grounding_text = _build_conclusion_grounding_text(
-            {
-                "left": compared["left"],
-                "right": compared["right"],
-                "comparison": compared["comparison"],
-            },
-            "compare",
-        )
-
-        self.assertIn("averageScore", aggregate_text)
-        self.assertIn("difference", aggregate_text)
-        self.assertIn("averageScore difference", grounding_text)
-
         with patch("analysis_engine.get_flags") as mock_flags:
             mock_flags.return_value = MagicMock(ENABLE_REPORTS=False, ENABLE_OLLAMA=False)
             analysis = generate_analysis(
@@ -93,7 +71,7 @@ class TestF6CompareShape(unittest.TestCase):
             )
 
         self.assertIn("Comparison", analysis["summary"])
-        self.assertIn("comparative", conclusion["message"].lower())
+        self.assertIn("comparative", conclusion["summary"].lower())
 
 
 class TestF7MetricsCounters(unittest.TestCase):

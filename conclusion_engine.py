@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 from utils import get_score as _get_score
 from utils import safe_float as _safe_float
+from feature_flags import get_flags
+from grounding_utils import ground_and_sanitize as _ground_and_sanitize
 
 
 def _build_conclusion_grounding_text(answer: Dict[str, Any], query_type: str) -> str:

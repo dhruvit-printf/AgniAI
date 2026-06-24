@@ -41,7 +41,7 @@ class TestPartialFailure(unittest.TestCase):
 
         # Intersection matches only 102 (present in both PPT and Leave, since Skills was skipped)
         self.assertEqual(processed["matchCount"], 1)
-        self.assertEqual(processed["rows"][0]["agniveerNo"], "102")
+        self.assertEqual(processed["rows"][0].get("agniveerNo") or processed["rows"][0].get("AgniveerNo"), "102")
 
     @patch("admin_pipeline._call_dotnet")
     @patch("admin_pipeline.generate_report")

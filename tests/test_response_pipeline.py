@@ -133,7 +133,7 @@ class TestResponseBuilder(unittest.TestCase):
         )
 
         self.assertTrue(resp["status"])
-        self.assertEqual(resp["sessionId"], "session-123")
+        self.assertEqual(resp["metadata"]["sessionId"], "session-123")
         self.assertEqual(resp["message"], "Intro")
         self.assertEqual(resp["formattedData"]["type"], "TABLE")
         self.assertEqual(resp["dotnetPayload"], {"res": "val"})
@@ -336,7 +336,7 @@ class TestBuildCombinedMessage:
             metadata={},
             session_id="admin-default",
         )
-        assert resp["sessionId"] == "admin-default"
+        assert resp["metadata"]["sessionId"] == "admin-default"
 
     def test_session_id_included_when_not_default(self):
         from response_builder import build_response
@@ -346,7 +346,7 @@ class TestBuildCombinedMessage:
             metadata={},
             session_id="real-session-abc",
         )
-        assert resp["sessionId"] == "real-session-abc"
+        assert resp["metadata"]["sessionId"] == "real-session-abc"
 
 
 class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
@@ -391,7 +391,7 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
 
         # Verify that response_payload contains the record John Doe
         rows = response_payload["formattedData"]["data"]["rows"]
-        found_john = any(row.get("fullName") == "John Doe" for row in rows)
+        found_john = any(row.get("fullName") == "John Doe" or row.get("FullName") == "John Doe" for row in rows)
         self.assertTrue(found_john)
 
     @patch("report_generator._call_ollama")

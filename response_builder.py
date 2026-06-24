@@ -16,14 +16,29 @@ def build_response(
     session_id: str,
     suggested_questions: Optional[List[str]] = None,
     dotnet_payload: Optional[Any] = None,
+    combined_result: Optional[Any] = None,
 ) -> Dict[str, Any]:
     formatted = formatted_data if isinstance(formatted_data, dict) else {}
+    
+    # Ensure strict contract subfields inside formattedData
+    for key in ("type", "title"):
+        if key not in formatted:
+            formatted[key] = ""
+    for key in ("data", "analysis", "prediction", "conclusion"):
+        if key not in formatted or not isinstance(formatted[key], dict):
+            formatted[key] = {}
+
+    meta = dict(metadata) if isinstance(metadata, dict) else {}
+    if "sessionId" not in meta:
+        meta["sessionId"] = session_id
+
     return {
         "status": True,
-        "sessionId": session_id,
         "message": message or "",
         "formattedData": formatted,
         "suggestedQuestions": suggested_questions or [],
         "dotnetPayload": dotnet_payload or {},
-        "metadata": metadata or {},
+        "metadata": meta,
     }
+
+
