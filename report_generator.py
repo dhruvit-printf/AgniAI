@@ -11,10 +11,10 @@ from typing import Any, Dict, List, Optional
 
 from grounding_utils import extract_numbers_from_text as _extract_numbers_from_text
 from grounding_utils import ground_and_sanitize as _strip_ungrounded_numbers
-from response_builder import build_answer
 from analysis_engine import generate_analysis
 from prediction_engine import generate_predictions
 from conclusion_engine import generate_conclusion
+from normalized_models import build_answer
 from utils import extract_records as _extract_records
 from utils import get_score as _get_score
 

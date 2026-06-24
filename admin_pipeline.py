@@ -47,7 +47,9 @@ from feature_flags import get_flags
 from query_planner import QueryType, plan_query
 from query_understanding_engine import understand_query
 from report_generator import generate_report, get_fallback_report
-from response_builder import build_response, build_answer
+from metadata_builder import build_metadata
+from normalized_models import build_answer
+from response_builder import build_response
 from normalized_models import extract_records as _extract_records
 from result_combiner import combine_results
 from suggested_question_engine import generate_suggested_questions
@@ -1713,21 +1715,19 @@ def execute_admin_query(
         try:
             with span(SPAN_BUILD_RESPONSE, trace_id=trace_id):
                 response_assembly_start = time.time()
-                response_payload = build_response(
-                    query_type=qtype_str,
-                    intro_message=report.get("message", ""),
-                    combined_result=combined_result,
-                    analysis=report.get("analysis"),
-                    conclusion=report.get("conclusion"),
-                    intent=primary_intent,
-                    raw_results=raw_results,
-                    confidence=query_plan.confidence,
-                    operation_count=operation_count,
-                    formatted_data=formatted_data_payload,
+                response_metadata = build_metadata(
                     session_id=session_id,
+                    confidence=query_plan.confidence,
+                    query_type=qtype_str,
+                    operation_count=operation_count,
                     durations=durations_payload,
+                )
+                response_payload = build_response(
+                    message=report.get("message", ""),
+                    formatted_data=formatted_data_payload,
+                    metadata=response_metadata,
+                    session_id=session_id,
                     suggested_questions=suggested,
-                    prediction=report.get("prediction"),
                     dotnet_payload=response_dotnet_payload,
                 )
                 response_assembly_duration = time.time() - response_assembly_start
@@ -1754,38 +1754,20 @@ def execute_admin_query(
                 })
             )
             # Build minimal valid response preserving .NET data
-            response_payload = {
-                "status": True,
-                "sessionId": session_id,
-                "message": report.get("message", ""),
-                "widget": "table",
-                "formattedData": {
-                    "type": (formatted_data_payload or {}).get("type", "TABLE"),
-                    "title": (formatted_data_payload or {}).get("title", "Data Summary"),
-                    "data": (formatted_data_payload or {}).get("data", {"columns": [], "rows": []}),
-                    "analysis": report.get("analysis") or {"summary": "", "insights": [], "statistics": {}},
-                    "prediction": report.get("prediction"),
-                    "conclusion": report.get("conclusion") or {"summary": "", "bullets": []},
-                },
-                
-                "suggestedQuestions": suggested or [],
-                "dotnetPayload": response_dotnet_payload if "response_dotnet_payload" in locals() else {},
-                "metadata": {
-                    "sessionId": session_id,
-                    "confidence": round(float(query_plan.confidence), 2),
-                    "queryType": qtype_str,
-                    "operationCount": operation_count,
-                    "timings": {
-                        "plannerMs": round(planner_duration * 1000, 2),
-                        "intentMs": round(intent_duration * 1000, 2),
-                        "dotnetMs": round(dotnet_duration * 1000, 2),
-                        "combinerMs": round(combiner_duration * 1000, 2),
-                        "reportMs": round(report_duration * 1000, 2),
-                        "totalMs": round(total_duration * 1000, 2),
-                    },
-                    "executionTimeMs": round(total_duration * 1000, 2),
-                },
-            }
+            response_payload = build_response(
+                message=report.get("message", ""),
+                formatted_data=formatted_data_payload,
+                metadata=build_metadata(
+                    session_id=session_id,
+                    confidence=query_plan.confidence,
+                    query_type=qtype_str,
+                    operation_count=operation_count,
+                    durations=durations_payload,
+                ),
+                session_id=session_id,
+                suggested_questions=suggested or [],
+                dotnet_payload=response_dotnet_payload if "response_dotnet_payload" in locals() else {},
+            )
 
         execution_time_ms = round(total_duration * 1000)
         response_payload.setdefault("metadata", {})

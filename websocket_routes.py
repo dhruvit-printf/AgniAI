@@ -31,7 +31,7 @@ from typing import Any, Dict
 from flask_socketio import SocketIO
 
 from admin_pipeline import execute_admin_query
-from response_builder import public_response_view
+from response_sanitizer import public_response_view
 from websocket_manager import ws_manager
 
 logger = logging.getLogger(__name__)

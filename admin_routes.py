@@ -25,7 +25,7 @@ from admin_intent import (
 )
 from admin_pipeline import execute_admin_query
 from admin_entity_resolver import resolve_entities_from_query
-from response_builder import public_response_view
+from response_sanitizer import public_response_view
 
 logger = logging.getLogger(__name__)
 
