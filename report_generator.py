@@ -6,6 +6,7 @@ and conclusion engines, maintaining compatibility with tests and old references.
 """
 
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from grounding_utils import extract_numbers_from_text as _extract_numbers_from_text
@@ -25,18 +26,33 @@ def _log_stage(stage: str, duration_ms: float, **extra: Any) -> None:
     event.update({k: v for k, v in extra.items() if v is not None})
     logger.info(event)
 
+
 def _call_ollama(prompt: str, system_prompt: str = "", trace_id: Optional[str] = None) -> Optional[str]:
     """Placeholder to satisfy unit tests patching this function."""
     return None
 
+
 def _extract_records_from_combined(data: Any) -> List[Dict]:
     if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("data", "Data", "result", "Result", "records", "Records", "persons", "personnel"):
-            val = data.get(key)
-            if isinstance(val, list):
-                return val
+        return [r for r in data if isinstance(r, dict)]
+    if not isinstance(data, dict):
+        return []
+    for key in ("data", "Data", "result", "Result", "records", "Records", "persons", "personnel"):
+        val = data.get(key)
+        if isinstance(val, list) and val:
+            return [r for r in val if isinstance(r, dict)]
+    sections = data.get("sections") or []
+    if sections:
+        out = []
+        for sec in sections:
+            if isinstance(sec, dict):
+                out.extend([r for r in (sec.get("data") or []) if isinstance(r, dict)])
+        if out:
+            return out
+    left_data = (data.get("left") or {}).get("data") or []
+    right_data = (data.get("right") or {}).get("data") or []
+    if left_data or right_data:
+        return [r for r in (left_data + right_data) if isinstance(r, dict)]
     return []
 
 
@@ -58,6 +74,17 @@ def _has_negative_copy(text: Optional[str]) -> bool:
         return False
     lowered = text.lower()
     return any(marker in lowered for marker in _NEGATIVE_COPY_MARKERS)
+
+
+def _has_any_data(result: Any, qtype: str) -> bool:
+    if qtype in ("compare", "comparison"):
+        left_data = result.get("left", {}).get("data") or [] if isinstance(result, dict) else []
+        right_data = result.get("right", {}).get("data") or [] if isinstance(result, dict) else []
+        return bool(left_data or right_data)
+    if qtype == "multi_independent":
+        sections = result.get("sections") or [] if isinstance(result, dict) else []
+        return any(sec.get("data") for sec in sections if isinstance(sec, dict))
+    return bool(_extract_records_from_combined(result) or _extract_records(result))
 
 
 def _build_data_grounded_report(
@@ -85,7 +112,7 @@ def _build_data_grounded_report(
             if isinstance(combined_result, dict)
             else match_count
         )
-        intro = (
+        message = (
             f"The cross-filter query completed successfully and returned {match_count} matching records "
             f"out of {total_before} candidates."
         )
@@ -111,7 +138,7 @@ def _build_data_grounded_report(
                 if match_count > 0
                 else "Future projections are unavailable because no matches were returned."
             ),
-            "shortTerm": "stable" if match_count > 0 else "stable",
+            "shortTerm": "stable",
             "futureTrends": [
                 (
                     f"Cross-filter match counts should remain close to {match_count} when criteria and source data stay unchanged."
@@ -121,7 +148,7 @@ def _build_data_grounded_report(
             ],
         }
         return {
-            "message": intro,
+            "message": message,
             "analysis": {
                 "summary": analysis_summary,
                 "observations": observations,
@@ -144,8 +171,9 @@ def _build_data_grounded_report(
         comparison = combined_result.get("comparison") if isinstance(combined_result, dict) else {}
         diff = None
         if isinstance(comparison, dict):
-            diff = comparison.get("difference")
-        intro = f"I completed a side-by-side comparison between {labels[0]} and {labels[1]}."
+            first_metric = next(iter(comparison.values()), {})
+            diff = first_metric.get("difference")
+        message = f"I completed a side-by-side comparison between {labels[0]} and {labels[1]}."
         analysis_summary = (
             f"Comparison analysis reviewed {left_cnt} records on {labels[0]} and {right_cnt} records on {labels[1]}."
         )
@@ -163,7 +191,7 @@ def _build_data_grounded_report(
             f"Future comparison results should stay close to the returned {left_cnt} and {right_cnt} record counts unless the source data changes."
         )
         return {
-            "message": intro,
+            "message": message,
             "analysis": {
                 "summary": analysis_summary,
                 "observations": observations,
@@ -186,9 +214,7 @@ def _build_data_grounded_report(
         for section in sections:
             data = section.get("data") or []
             section_counts.append((section.get("label", "Section"), len(data)))
-        intro = (
-            f"I combined {len(section_counts)} independent sections into one report."
-        )
+        message = f"I combined {len(section_counts)} independent sections into one report."
         analysis_summary = (
             f"The multi-section report contains {len(section_counts)} independent sections with grounded record counts."
         )
@@ -196,7 +222,7 @@ def _build_data_grounded_report(
         insights = ["Each section is preserved independently to prevent data loss across modules."]
         conclusion = "The consolidated report is complete and reflects only the sections that were returned."
         return {
-            "message": intro,
+            "message": message,
             "analysis": {
                 "summary": analysis_summary,
                 "observations": observations,
@@ -213,10 +239,9 @@ def _build_data_grounded_report(
             "conclusion": {"summary": conclusion},
         }
 
-    # simple / trend / distribution
-    intro = f"The {category.lower()} query completed successfully and returned {cnt} matched records."
+    message = f"The {category.lower()} query completed successfully and returned {cnt} matched records."
     if cnt == 0:
-        intro = f"The {category.lower()} query completed successfully but returned no records."
+        message = f"The {category.lower()} query completed successfully but returned no records."
 
     analysis_summary = f"Matched {cnt} {category.lower()} records."
     if scores:
@@ -236,14 +261,12 @@ def _build_data_grounded_report(
         insights.append("The score distribution is based on the actual returned values.")
 
     if cnt > 0:
-        projection = (
-            f"Future {category.lower()} results should remain broadly stable unless the underlying records change."
-        )
+        projection = f"Future {category.lower()} results should remain broadly stable unless the underlying records change."
     else:
         projection = f"A reliable prediction is not available because no {category.lower()} records were returned."
 
     return {
-        "message": intro,
+        "message": message,
         "analysis": {
             "summary": analysis_summary,
             "observations": observations,
@@ -258,11 +281,10 @@ def _build_data_grounded_report(
             "futureTrends": [projection],
         },
         "conclusion": {
-            "summary": (
-                f"The {category.lower()} search returned {cnt} records and the result set is ready for review."
-            ),
+            "summary": f"The {category.lower()} search returned {cnt} records and the result set is ready for review.",
         },
     }
+
 
 _INTRO_TEMPLATES: Dict[Any, str] = {
     ("Performance", "TopPerformers"): "These assessment results highlight the strongest performers in the evaluation.",
@@ -271,6 +293,7 @@ _INTRO_TEMPLATES: Dict[Any, str] = {
     ("Medical", "ActiveCases"): "This summary captures current active cases undergoing medical attention.",
     ("Verification", "CompletedVerification"): "These records confirm files that have cleared the verification process.",
 }
+
 
 def get_fallback_report(
     combined_result: Any,
@@ -286,13 +309,13 @@ def get_fallback_report(
         match_count = combined_result.get("matchCount", cnt) if isinstance(combined_result, dict) else cnt
         total_before = combined_result.get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
         if match_count > 0:
-            intro = f"I found {match_count} records that match all of the selected conditions."
+            message = f"I found {match_count} records that match all of the selected conditions."
             summary = f"The cross-filter search identified exactly {match_count} records that satisfy every selected condition."
             obs = [f"{match_count} records were matched out of {total_before} before filtering."]
             insights = ["The overlap between the selected conditions identifies the records that fit every rule."]
             conclusion = f"The cross-filter search is complete and the {match_count} matching records are ready for review."
         else:
-            intro = "I checked the selected conditions, but no matching records were found."
+            message = "I checked the selected conditions, but no matching records were found."
             summary = "The cross-filter search did not find any records that satisfy every selected condition."
             obs = ["The search did not return any overlapping records."]
             insights = ["The selected conditions may be too narrow for the current set of records."]
@@ -303,13 +326,13 @@ def get_fallback_report(
         labels_str = " and ".join(labels) if labels else "selected categories"
         has_data = any(len(s.get("data", [])) > 0 for s in sides) if sides else (cnt > 0)
         if has_data:
-            intro = f"I completed a side-by-side comparison between {labels_str}."
+            message = f"I completed a side-by-side comparison between {labels_str}."
             summary = f"The comparison highlights the differences across {labels_str}."
             obs = [f"Compared {len(sides)} groups: {', '.join(labels)}."]
             insights = ["Looking at the groups side by side makes the main differences easy to spot."]
             conclusion = f"The comparison of {labels_str} is complete and ready for review."
         else:
-            intro = "I could not complete the comparison because no matching records were found for either side."
+            message = "I could not complete the comparison because no matching records were found for either side."
             summary = "The comparison could not be completed because the selected groups returned no records."
             obs = ["Both comparison groups returned no records."]
             insights = ["There is not enough data available yet to compare the selected groups."]
@@ -318,51 +341,39 @@ def get_fallback_report(
         sections = combined_result.get("sections") or [] if isinstance(combined_result, dict) else []
         has_data = any(len(s.get("data", [])) > 0 for s in sections)
         if has_data:
-            intro = f"I combined data from {len(sections)} independent sections into one report."
+            message = f"I combined data from {len(sections)} independent sections into one report."
             summary = f"The consolidated report brings together {len(sections)} separate sections."
             obs = [f"Merged {len(sections)} independent sections into one view."]
             insights = ["Keeping each section separate makes the report easier to review."]
             conclusion = f"The consolidated report is complete and includes all {len(sections)} sections."
         else:
-            intro = "I compiled the report, but none of the requested sections returned any records."
+            message = "I compiled the report, but none of the requested sections returned any records."
             summary = "The multi-section report is empty because no records were returned for the requested sections."
             obs = ["All requested sections returned no records."]
             insights = ["There is not enough data available in the requested sections to build a fuller report."]
             conclusion = "The consolidated report is empty because no matching records were found."
     else:
         if cnt > 0:
-            intro = f"I found {cnt} matching {category.lower()} records."
+            message = f"I found {cnt} matching {category.lower()} records."
             key = (category, subcategory)
             if key in _INTRO_TEMPLATES:
-                intro = _INTRO_TEMPLATES[key]
+                message = _INTRO_TEMPLATES[key]
             summary = f"The search returned exactly {cnt} matching {category.lower()} records."
             obs = [f"Found {cnt} matching {category.lower()} records."]
             insights = ["The returned records match the selected criteria."]
             conclusion = f"The search is complete and the {cnt} matching records are ready for review."
         else:
-            intro = f"I could not find any matching {category.lower()} records."
+            message = f"I could not find any matching {category.lower()} records."
             summary = f"No matching records were found for the selected {category.lower()} criteria."
             obs = [f"The search returned 0 records for the {category.lower()} category."]
             insights = ["The selected criteria may be too narrow for the available records."]
             conclusion = f"No matching {category.lower()} records were found. Try broadening the criteria and search again."
 
     return {
-        "message": intro,
+        "message": message,
         "analysis": {"summary": summary, "observations": obs, "insights": insights, "predictions": []},
         "conclusion": {"summary": conclusion},
     }
-
-
-def _has_any_data(result: Any, qtype: str) -> bool:
-    # Use a shape-aware record check that handles all query types.
-    if qtype in ("compare", "comparison"):
-        left_data = result.get("left", {}).get("data") or [] if isinstance(result, dict) else []
-        right_data = result.get("right", {}).get("data") or [] if isinstance(result, dict) else []
-        return bool(left_data or right_data)
-    if qtype == "multi_independent":
-        sections = result.get("sections") or [] if isinstance(result, dict) else []
-        return any(sec.get("data") for sec in sections if isinstance(sec, dict))
-    return bool(extract_records(result))
 
 
 def generate_report(
@@ -378,15 +389,10 @@ def generate_report(
     import json
     from utils import extract_records
 
-    # If there are no records, still return a readable fallback instead of blanks.
-     # Use a shape-aware record check that handles all query types:
-     # simple/cross_filter → top-level records list
-     # multi_independent  → sections[].data
-     # compare            → left.data + right.data
     if not _has_any_data(combined_result, query_type):
         fallback = get_fallback_report(combined_result, query_type, intent)
         return {
-            "message": fallback.get("message"),
+            "message": fallback.get("message", ""),
             "analysis": fallback.get("analysis"),
             "prediction": fallback.get("prediction"),
             "conclusion": fallback.get("conclusion"),
@@ -397,21 +403,19 @@ def generate_report(
             },
         }
 
-    # 1. Support legacy tests that patch and expect _call_ollama to return a JSON string
     mocked_val = _call_ollama("dummy prompt")
     if mocked_val:
         try:
             parsed = json.loads(mocked_val)
             if isinstance(parsed, dict):
-                intro = parsed.get("message") or ""
+                message = parsed.get("message") or ""
                 analysis_data = parsed.get("analysis") or {}
                 conclusion_val = parsed.get("conclusion") or ""
                 conclusion_text = conclusion_val
                 if isinstance(conclusion_val, dict):
                     conclusion_text = conclusion_val.get("summary") or conclusion_val.get("message") or ""
-
                 return {
-                    "message": intro,
+                    "message": message,
                     "analysis": {
                         "summary": analysis_data.get("summary") if isinstance(analysis_data, dict) else "",
                         "insights": analysis_data.get("insights") if isinstance(analysis_data, dict) else [],
@@ -424,21 +428,33 @@ def generate_report(
                     "durations": {
                         "analysisDurationMs": 0.0,
                         "predictionDurationMs": 0.0,
-                        "conclusionDurationMs": 0.0
-                    }
+                        "conclusionDurationMs": 0.0,
+                    },
                 }
         except Exception:
             pass
 
-    # 2. Production execution path calling the new engines
-    import time
-    answer = build_answer(query_type, combined_result, intent)
+    try:
+        answer = build_answer(query_type, combined_result, intent)
+    except Exception as exc:
+        logger.error("report_generator: build_answer failed: %s", exc, exc_info=True)
+        fallback = get_fallback_report(combined_result, query_type, intent)
+        return {
+            "message": fallback.get("message", ""),
+            "analysis": fallback.get("analysis"),
+            "prediction": fallback.get("prediction"),
+            "conclusion": fallback.get("conclusion"),
+            "durations": {
+                "analysisDurationMs": 0.0,
+                "predictionDurationMs": 0.0,
+                "conclusionDurationMs": 0.0,
+            },
+        }
 
-    # ── Analysis (independent — failure → analysis = None) ───────────
     analysis = None
     analysis_ms = 0.0
+    t0 = time.time()
     try:
-        t0 = time.time()
         analysis = generate_analysis(answer, query_type, intent, user_query, trace_id)
         analysis_ms = round((time.time() - t0) * 1000, 2)
         _log_stage("analysis_time", analysis_ms, query_type=query_type, trace_id=trace_id)
@@ -447,11 +463,10 @@ def generate_report(
         logger.error("report_generator: analysis stage failed: %s", exc, exc_info=True)
         _log_stage("analysis_time", analysis_ms, query_type=query_type, trace_id=trace_id, error=str(exc))
 
-    # ── Prediction (independent — failure → prediction = None) ───────
     prediction = None
     prediction_ms = 0.0
+    t0 = time.time()
     try:
-        t0 = time.time()
         prediction = generate_predictions(answer, query_type, intent)
         prediction_ms = round((time.time() - t0) * 1000, 2)
         _log_stage("prediction_time", prediction_ms, query_type=query_type, trace_id=trace_id)
@@ -460,11 +475,10 @@ def generate_report(
         logger.error("report_generator: prediction stage failed: %s", exc, exc_info=True)
         _log_stage("prediction_time", prediction_ms, query_type=query_type, trace_id=trace_id, error=str(exc))
 
-    # ── Conclusion (independent — failure → conclusion = None) ───────
     conclusion = None
     conclusion_ms = 0.0
+    t0 = time.time()
     try:
-        t0 = time.time()
         conclusion = generate_conclusion(answer, query_type, intent, trace_id)
         conclusion_ms = round((time.time() - t0) * 1000, 2)
         _log_stage("conclusion_time", conclusion_ms, query_type=query_type, trace_id=trace_id)
@@ -473,55 +487,48 @@ def generate_report(
         logger.error("report_generator: conclusion stage failed: %s", exc, exc_info=True)
         _log_stage("conclusion_time", conclusion_ms, query_type=query_type, trace_id=trace_id, error=str(exc))
 
-    category = intent.get("category") or "Agniveer"
-    intro = f"The review of {category.lower()} records is complete. Below are the key observations, insights, and visualizations."
-    if analysis and analysis.get("summary"):
-        intro = analysis["summary"]
+    try:
+        from message_engine import generate_message
+        message = generate_message(
+            user_query=user_query,
+            combined_result=combined_result,
+            query_type=query_type,
+            intent=intent,
+            trace_id=trace_id,
+        )
+    except Exception as exc:
+        logger.warning("report_generator: message_engine failed: %s", exc)
+        category = intent.get("category") or "Agniveer"
+        records = _extract_records_from_combined(combined_result)
+        message = (analysis or {}).get("summary") or \
+                  f"The {category.lower()} query returned {len(records)} records."
 
-    # Keep the intro honest; if the LLM output claims there is no data while
-    # records exist, replace it with a grounded summary.
-    intro_needs_fallback = False
-    analysis_summary_text = analysis.get("summary") if analysis else ""
-    if _has_negative_copy(intro) or _has_negative_copy(analysis_summary_text):
-        intro_needs_fallback = True
+    analysis_summary_text = (analysis or {}).get("summary", "")
+    conclusion_text = (conclusion or {}).get("summary") or (conclusion or {}).get("message") or ""
 
-    # Parse conclusion summary text
-    conclusion_needs_fallback = False
-    conclusion_text = ""
-    if conclusion:
-        conclusion_text = conclusion.get("summary") or conclusion.get("message") or ""
-    if _has_negative_copy(conclusion_text):
-        conclusion_needs_fallback = True
+    intro_needs_fallback = _has_negative_copy(message) or _has_negative_copy(analysis_summary_text)
+    conclusion_needs_fallback = _has_negative_copy(conclusion_text)
 
-    data_grounded_report = None
     if intro_needs_fallback or conclusion_needs_fallback:
-        fallback = get_fallback_report(combined_result, query_type, intent)
-        data_grounded_report = fallback
-        if _extract_records_from_combined(combined_result) or _extract_records(combined_result):
-            data_grounded_report = _build_data_grounded_report(combined_result, query_type, intent)
-
-    if intro_needs_fallback and data_grounded_report is not None:
-        # Old code combined both into one data_grounded_report check, causing analysis/prediction to be overwritten when only conclusion had negative-copy.
-        intro = data_grounded_report["message"]
-        analysis = data_grounded_report["analysis"]
-        prediction = data_grounded_report["prediction"]
-        if not intro:
-            intro = data_grounded_report["message"]
-
-    if conclusion_needs_fallback and data_grounded_report is not None:
-        conclusion_text = data_grounded_report["conclusion"]["summary"]
+        grounded = _build_data_grounded_report(combined_result, query_type, intent)
+        if intro_needs_fallback:
+            message = grounded.get("message", message)
+            analysis = grounded.get("analysis", analysis)
+            prediction = grounded.get("prediction", prediction)
+        if conclusion_needs_fallback:
+            conclusion_text = grounded.get("conclusion", {}).get("summary", conclusion_text)
 
     return {
-        "message": intro,
+        "message": message,
         "analysis": analysis,
         "prediction": prediction,
         "conclusion": {
             "summary": conclusion_text,
-            "bullets": conclusion.get("bullets") if conclusion else [conclusion_text] if conclusion_text else [],
+            "bullets": conclusion.get("bullets") if conclusion else ([conclusion_text] if conclusion_text else []),
         },
         "durations": {
             "analysisDurationMs": analysis_ms,
             "predictionDurationMs": prediction_ms,
-            "conclusionDurationMs": conclusion_ms
-        }
+            "conclusionDurationMs": conclusion_ms,
+        },
     }

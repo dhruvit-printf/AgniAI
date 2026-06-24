@@ -1451,7 +1451,7 @@ def execute_admin_query(
 
         # ── Step 5: Report Generator ──────────────────────────────────────────
         report = {
-            "introMessage": "I could only prepare a partial summary for this request.",
+            "message": "I could only prepare a partial summary for this request.",
             "analysis": None,
             "prediction": {
                 "trend": "Insufficient Data",
@@ -1715,7 +1715,7 @@ def execute_admin_query(
                 response_assembly_start = time.time()
                 response_payload = build_response(
                     query_type=qtype_str,
-                    intro_message=report.get("introMessage", ""),
+                    intro_message=report.get("message", ""),
                     combined_result=combined_result,
                     analysis=report.get("analysis"),
                     conclusion=report.get("conclusion"),
@@ -1757,7 +1757,7 @@ def execute_admin_query(
             response_payload = {
                 "status": True,
                 "sessionId": session_id,
-                "message": report.get("introMessage", ""),
+                "message": report.get("message", ""),
                 "widget": "table",
                 "formattedData": {
                     "type": (formatted_data_payload or {}).get("type", "TABLE"),
