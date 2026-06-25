@@ -49,7 +49,7 @@ if _ROOT not in sys.path:
 
 import admin_confidence as acf
 import admin_context as ac
-import query_planner as qp
+import intent_engine.query_planner as qp
 import result_combiner as rc
 
 QueryType = qp.QueryType

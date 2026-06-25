@@ -28,7 +28,7 @@ for mod in (
 sys.modules["dotenv"].load_dotenv = lambda *a, **kw: None  # type: ignore
 
 # ── Now we can import ────────────────────────────────────────────────────────
-from admin_intent import (
+from intent_engine.admin_intent import (
     _ITEM_LOOKUP,
     ISSUED_ITEMS,
     PROCURED_ITEMS,

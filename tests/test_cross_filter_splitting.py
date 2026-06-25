@@ -1,6 +1,6 @@
 import unittest
 
-from query_planner import QueryType, plan_query
+from intent_engine.query_planner import QueryType, plan_query
 
 
 class TestCrossFilterSplitting(unittest.TestCase):

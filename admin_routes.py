@@ -18,9 +18,8 @@ from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request
 
-from admin_intent import (
+from intent_engine.admin_intent import (
     classify_admin_intent,
-    format_admin_intent,
     format_admin_payload,
 )
 from admin_pipeline import execute_admin_query

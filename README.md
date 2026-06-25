@@ -165,7 +165,7 @@ It also includes:
 
 ### Admin Command Console
 
-A separate pipeline (`admin_pipeline.py`) for officers. A single question can resolve to one of several **query types** (`query_planner.py`):
+A separate pipeline (`admin_pipeline.py`) for officers. A single question can resolve to one of several **query types** (`intent_engine/query_planner.py`):
 
 | Query type | Example |
 |------------|---------|
@@ -335,11 +335,17 @@ AgniAI/
 ├── Admin Command Console
 │   ├── admin_pipeline.py      # Single source of truth for admin query execution
 │   ├── admin_routes.py        # HTTP transport for /api/admin/*
-│   ├── admin_intent.py        # Intent classifier (8 modules, fuzzy vocab, item lists)
+│   ├── intent_engine/         # Single intent engine package
+│   │   ├── admin_intent.py    # Intent coordinator
+│   │   ├── intent_classifier.py
+│   │   ├── intent_schema.py
+│   │   ├── entity_extractor.py
+│   │   ├── payload_builder.py
+│   │   ├── payload_validator.py
+│   │   └── query_planner.py
 │   ├── admin_entity_resolver.py # Company/platoon name → ID via .NET (cached)
 │   ├── admin_confidence.py    # Unified confidence scoring
 │   ├── admin_context.py       # Per-session follow-up context
-│   ├── query_planner.py       # simple / cross_filter / comparison / multi / analytics
 │   ├── result_combiner.py     # Intersection, comparison, merge, aggregation
 │   ├── report_generator.py    # Grounded LLM analysis + conclusion
 │   ├── response_builder.py    # Final payload assembly (no raw backend leakage)

@@ -31,12 +31,11 @@ import requests as _requests
 
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
-from admin_intent import (
-    admin_normalize_query,
+from intent_engine.admin_intent import (
     classify_admin_intent,
-    clean_query,
     format_admin_payload,
 )
+from query_normalizer import admin_normalize_query, clean_query
 from audit_logger import write_audit_log
 from audit_logger import reset_audit_context, set_audit_context
 from conversation_detector import build_conversational_response as build_conversation_payload
@@ -44,7 +43,7 @@ from conversation_detector import is_conversational_query
 from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
 from dotnet_executor import _call_dotnet
 from feature_flags import get_flags
-from query_planner import QueryType, plan_query
+from intent_engine.query_planner import QueryType, plan_query
 from query_understanding_engine import understand_query
 from report_generator import generate_report, get_fallback_report
 from metadata_builder import build_metadata
@@ -1893,3 +1892,4 @@ def execute_admin_query(
         request_id_var.reset(token_req)
         trace_id_var.reset(token_trace)
         session_id_var.reset(token_sess)
+

@@ -10,10 +10,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from admin_intent import _normalise, classify_admin_intent, format_admin_payload
+from .admin_intent import classify_admin_intent, format_admin_payload
 from query_understanding_engine import understand_query
 
 logger = logging.getLogger(__name__)
+
+
+def _normalise(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", (text or "").lower())).strip()
 
 
 class QueryType(Enum):

@@ -6,7 +6,7 @@ Unit tests for the admin chatbot intent classifier.
 
 import pytest
 
-from admin_intent import (
+from intent_engine.admin_intent import (
     classify_admin_intent,
     format_admin_intent,
     format_admin_payload,

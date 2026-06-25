@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from admin_pipeline import execute_admin_query
-from query_planner import plan_query
+from intent_engine.query_planner import plan_query
 from result_combiner import combine_results
 
 
