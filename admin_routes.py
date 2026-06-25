@@ -147,7 +147,7 @@ def admin_chat():
             {
                 "question": message,
                 "query_type": (payload.get("metadata") or {}).get("queryType"),
-                "intent_formed": payload.get("formattedData", {}).get("title"),
+                "intent_formed": (payload.get("formattedData") or [{}])[0].get("title"),
             }
         )
     )

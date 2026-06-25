@@ -142,7 +142,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
                 {
                     "question": message,
                     "query_type": (response_payload.get("metadata") or {}).get("queryType") or result.get("type"),
-                    "intent_formed": (response_payload.get("formattedData") or {}).get("title"),
+                    "intent_formed": (response_payload.get("formattedData") or [{}])[0].get("title"),
                 }
             )
         )
