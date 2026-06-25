@@ -65,15 +65,3 @@ def build_ai_command_request_dto(
     return payload
 
 
-def merge_frontend_overrides(
-    base_payload: Dict[str, Any],
-    frontend_intent: Dict[str, Any],
-) -> Dict[str, Any]:
-    if not frontend_intent:
-        return base_payload
-
-    merged = dict(base_payload)
-    for field in {"category", "operation", "responseType", "n"}:
-        if field in frontend_intent and frontend_intent[field] is not None:
-            merged[field] = frontend_intent[field]
-    return merged

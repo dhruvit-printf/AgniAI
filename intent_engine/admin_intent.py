@@ -22,6 +22,7 @@ from .intent_schema import (
 from .payload_builder import build_ai_command_request_dto
 from .payload_validator import validate_payload
 from query_normalizer import clean_query as _normalise
+from query_understanding_engine import understand_query
 
 ISSUED_ITEMS = tuple(ISSUED_EQUIPMENT_ITEMS)
 PROCURED_ITEMS = tuple(PROCURED_EQUIPMENT_ITEMS)
@@ -112,90 +113,93 @@ def _infer_operation(category: Optional[str], intent: Dict[str, Any], entities: 
     if entities.get("medical_status") == "Active":
         operation = "Active"
 
-    if category == "Performance":
-        if "pass percentage" in normalized or "pass rate" in normalized:
-            return "PassPercentage"
-        if "fail percentage" in normalized or "fail rate" in normalized:
-            return "FailPercentage"
-        if "grading summary" in normalized or "grade summary" in normalized:
-            return "GradingSummary"
-        if "grade distribution" in normalized or "grading distribution" in normalized:
-            return "Grading"
-        if any(token in normalized for token in ("compare", "comparison", " vs ", " versus ")):
-            return "Compare"
-        if any(token in normalized for token in ("top", "highest", "best")):
-            return "Top"
-        if any(token in normalized for token in ("bottom", "lowest", "worst")):
-            return "Bottom"
-        if any(token in normalized for token in ("improvement", "improve", "improved")):
-            return "Improvement"
-        if any(token in normalized for token in ("drop", "decline", "declined", "worse")):
-            return "Drop"
-        if entities.get("section") and not operation:
-            operation = "Summary"
+    # Keyword-based fallbacks only activate when the classifier returned no operation.
+    # They serve as a second-pass safety net; entity-driven overrides above always win.
+    if not operation:
+        if category == "Performance":
+            if "pass percentage" in normalized or "pass rate" in normalized:
+                return "PassPercentage"
+            if "fail percentage" in normalized or "fail rate" in normalized:
+                return "FailPercentage"
+            if "grading summary" in normalized or "grade summary" in normalized:
+                return "GradingSummary"
+            if "grade distribution" in normalized or "grading distribution" in normalized:
+                return "Grading"
+            if any(token in normalized for token in ("compare", "comparison", " vs ", " versus ")):
+                return "Compare"
+            if any(token in normalized for token in ("top", "highest", "best")):
+                return "Top"
+            if any(token in normalized for token in ("bottom", "lowest", "worst")):
+                return "Bottom"
+            if any(token in normalized for token in ("improvement", "improve", "improved")):
+                return "Improvement"
+            if any(token in normalized for token in ("drop", "decline", "declined", "worse")):
+                return "Drop"
+            if entities.get("section"):
+                operation = "Summary"
 
-    if category == "Leave":
-        if any(token in normalized for token in ("fewest", "least")):
-            return "Least"
-        if any(token in normalized for token in ("most", "maximum")):
-            return "Most"
-        if any(token in normalized for token in ("current", "today", "on leave", "absent today", "currently absent")):
-            return "Current"
-        if any(token in normalized for token in ("abscond", "missing", "awol")):
-            return "Absconded"
+        elif category == "Leave":
+            if any(token in normalized for token in ("fewest", "least")):
+                return "Least"
+            if any(token in normalized for token in ("most", "maximum")):
+                return "Most"
+            if any(token in normalized for token in ("current", "today", "on leave", "absent today", "currently absent")):
+                return "Current"
+            if any(token in normalized for token in ("abscond", "missing", "awol")):
+                return "Absconded"
 
-    if category == "Attendance":
-        month_match = re.search(
-            r"\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b",
-            query,
-            re.IGNORECASE,
-        )
-        if any(token in normalized for token in ("present", "on campus", "who is present")):
-            return "Present"
-        if any(token in normalized for token in ("weekly", "week")):
-            return "Weekly"
-        if any(token in normalized for token in ("yearly", "annual")):
-            return "Yearly"
-        if month_match or entities.get("date"):
-            return "Monthly"
-        if any(token in normalized for token in ("daily", "today", "day")):
-            return "Daily"
+        elif category == "Attendance":
+            month_match = re.search(
+                r"\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b",
+                query,
+                re.IGNORECASE,
+            )
+            if any(token in normalized for token in ("present", "on campus", "who is present")):
+                return "Present"
+            if any(token in normalized for token in ("weekly", "week")):
+                return "Weekly"
+            if any(token in normalized for token in ("yearly", "annual")):
+                return "Yearly"
+            if month_match or entities.get("date"):
+                return "Monthly"
+            if any(token in normalized for token in ("daily", "today", "day")):
+                return "Daily"
 
-    if category == "Distribution":
-        if any(token in normalized for token in ("top unit", "highest", "most")) and "unit" in normalized:
-            return "TopUnit"
-        if "latest" in normalized or "recent" in normalized:
-            return "Latest"
-        if "unassigned" in normalized:
-            return "Unassigned"
-        if "unit" in normalized:
-            return "ByUnit"
+        elif category == "Distribution":
+            if any(token in normalized for token in ("top unit", "highest", "most")) and "unit" in normalized:
+                return "TopUnit"
+            if "latest" in normalized or "recent" in normalized:
+                return "Latest"
+            if "unassigned" in normalized:
+                return "Unassigned"
+            if "unit" in normalized:
+                return "ByUnit"
 
-    if category == "Verification":
-        if "pending" in normalized:
-            return "Pending"
-        if "sent" in normalized:
-            return "Sent"
-        if "not responded" in normalized or "no response" in normalized:
-            return "NotResponded"
-        if "rejected" in normalized:
-            return "Rejected"
-        if "verified" in normalized or "completed" in normalized or "done" in normalized:
-            return "Verified"
+        elif category == "Verification":
+            if "pending" in normalized:
+                return "Pending"
+            if "sent" in normalized:
+                return "Sent"
+            if "not responded" in normalized or "no response" in normalized:
+                return "NotResponded"
+            if "rejected" in normalized:
+                return "Rejected"
+            if "verified" in normalized or "completed" in normalized or "done" in normalized:
+                return "Verified"
 
-    if category == "Equipment":
-        if "summary" in normalized or "stats" in normalized:
-            return "Stats"
-        if "overdue" in normalized:
-            return "Overdue"
-        if "poor condition" in normalized or "returned" in normalized:
-            return "Returned"
-        if "holding" in normalized:
-            return "Holding"
-        if "issued" in normalized:
-            return "Issued"
-        if "procured" in normalized:
-            return "Procured"
+        elif category == "Equipment":
+            if "summary" in normalized or "stats" in normalized:
+                return "Stats"
+            if "overdue" in normalized:
+                return "Overdue"
+            if "poor condition" in normalized or "returned" in normalized:
+                return "Returned"
+            if "holding" in normalized:
+                return "Holding"
+            if "issued" in normalized:
+                return "Issued"
+            if "procured" in normalized:
+                return "Procured"
 
     if category == "Equipment" and entities.get("equipmentName"):
         item_cat = _item_category(entities.get("equipmentName"))
@@ -349,8 +353,9 @@ def classify_admin_intent(
             "filters": {},
         }
 
-    intent_result = classify_intent(raw_query)
     entities = extract_entities(raw_query, resolved_entities)
+    semantic = understand_query(raw_query)
+    intent_result = classify_intent(raw_query, entities, semantic)
 
     category = _infer_category(raw_query, intent_result, entities)
     operation = _infer_operation(category, intent_result, entities, raw_query)

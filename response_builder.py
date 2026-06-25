@@ -16,7 +16,6 @@ def build_response(
     session_id: str,
     suggested_questions: Optional[List[str]] = None,
     dotnet_payload: Optional[Any] = None,
-    combined_result: Optional[Any] = None,
 ) -> Dict[str, Any]:
     formatted = formatted_data if isinstance(formatted_data, dict) else {}
     

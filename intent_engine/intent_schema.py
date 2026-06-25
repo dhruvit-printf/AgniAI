@@ -159,7 +159,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         "Top": (
             "top", "highest", "best", "top performer", "top performers",
             "highest performer", "best scorer", "top scorer", "topper", "toppers",
-            "who topped", "who scored highest", "leading performer",
+            "topped", "who topped", "who scored highest", "leading performer",
             "outstanding performer", "ace performer", "stellar performer",
             "high achiever",
         ),
@@ -226,7 +226,8 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         "Most": (
             "most", "highest", "maximum", "most leave taken",
             "who has the most leave", "who took maximum leave",
-            "most absent", "maximum absentee",
+            "most absent", "maximum absentee", "leave takers",
+            "top leave takers", "most leaves", "maximum leaves",
         ),
         "Least": (
         "least", "lowest", "minimum", "least leave taken",
@@ -328,6 +329,8 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         ),
         "TopUnit": (
             "top unit", "highest unit", "unit with most", "biggest unit",
+            "unit with the most agniveers", "received most agniveers",
+            "most agniveers", "unit received most", "largest unit",
         ),
     },
     "Roster": {
@@ -338,12 +341,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         "ByClass": (
             "by class", "class wise", "sikh class", "dogra class",
             "class wise roster",
-        ),
-    },
-    "Strength": {
-        "Summary": (
-            "strength", "breakdown", "strength breakdown", "headcount",
-            "headcount breakdown",
         ),
     },
     "Skills": {
@@ -376,6 +373,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
     "Strength": {
         "Summary": (
             "strength", "strength breakdown", "headcount", "headcount breakdown",
+            "strength summary",
         ),
     },
     "Schedule": {
@@ -650,6 +648,81 @@ CATEGORY_ENTITY_COMPATIBILITY: Dict[str, Set[str]] = {
 
 # Common entities allowed in ALL categories
 COMMON_ENTITY_TYPES: Set[str] = {"companyId", "platoonId", "batchId", "agniveerNo", "unitName", "n"}
+
+CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
+    "Performance": ("section", "grading", "attempt", "score", "marks"),
+    "Leave": ("leave", "absent", "abscond", "leaveType"),
+    "Medical": ("medical", "hospital", "bmi", "blood"),
+    "Attendance": ("attendance", "present", "campus", "date"),
+    "Verification": ("verification", "verified", "pending"),
+    "Equipment": ("equipment", "gear", "inventory", "overdue"),
+    "Distribution": ("distribution", "unit", "unassigned"),
+    "Roster": ("roster", "sport", "class", "who plays"),
+    "Skills": ("skills", "sport", "class"),
+    "Strength": ("strength", "headcount", "breakdown"),
+    "Overall": ("overall", "composite", "all criteria"),
+    "Schedule": ("schedule", "company", "agniveer", "date"),
+}
+
+# Named unit aliases that should normalize to canonical unit labels.
+UNIT_ALIASES: Dict[str, str] = {
+    "alpha": "Alpha Unit",
+    "bravo": "Bravo Unit",
+    "charlie": "Charlie Unit",
+    "delta": "Delta Unit",
+    "echo": "Echo Unit",
+    "foxtrot": "Foxtrot Unit",
+    "golf": "Golf Unit",
+    "hotel": "Hotel Unit",
+    "india": "India Unit",
+    "juliet": "Juliet Unit",
+    "kilo": "Kilo Unit",
+    "lima": "Lima Unit",
+    "mike": "Mike Unit",
+    "november": "November Unit",
+    "oscar": "Oscar Unit",
+    "papa": "Papa Unit",
+    "quebec": "Quebec Unit",
+    "romeo": "Romeo Unit",
+    "sierra": "Sierra Unit",
+    "tango": "Tango Unit",
+    "uniform": "Uniform Unit",
+    "victor": "Victor Unit",
+    "whiskey": "Whiskey Unit",
+    "xray": "Xray Unit",
+    "yankee": "Yankee Unit",
+    "zulu": "Zulu Unit",
+}
+
+# Relative date phrases returned by the extractor in canonical form.
+RELATIVE_DATE_PHRASES: Dict[str, str] = {
+    "today": "today",
+    "yesterday": "yesterday",
+    "tomorrow": "tomorrow",
+    "this week": "this week",
+    "last week": "last week",
+    "this month": "current month",
+    "current month": "current month",
+    "last month": "last month",
+    "this year": "this year",
+    "current year": "this year",
+}
+
+# Ranking cue words used to distinguish counts from IDs.
+RANKING_CONTEXT_PHRASES: Tuple[str, ...] = (
+    "top",
+    "bottom",
+    "highest",
+    "lowest",
+    "best",
+    "worst",
+    "rank",
+    "topped",
+    "scored highest",
+    "performed worst",
+    "most",
+    "least",
+)
 
 # =============================================================================
 # FUZZY VOCABULARY (MISSPELLINGS)

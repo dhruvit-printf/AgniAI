@@ -1086,8 +1086,7 @@ def execute_admin_query(
                 classified_intent = (
                     query_plan.operations[0].intent_result
                     if (
-                        query_plan.query_type == QueryType.ANALYTICS
-                        and query_plan.operations
+                        query_plan.operations
                         and query_plan.operations[0].intent_result.get("category")
                     )
                     else classify_admin_intent(message, resolved_entities=resolved_entities)
@@ -1679,7 +1678,6 @@ def execute_admin_query(
                     session_id=session_id,
                     suggested_questions=suggested,
                     dotnet_payload=response_dotnet_payload,
-                    combined_result=combined_result,
                 )
                 response_assembly_duration = time.time() - response_assembly_start
                 logger.info(
@@ -1720,7 +1718,6 @@ def execute_admin_query(
                 session_id=session_id,
                 suggested_questions=suggested or [],
                 dotnet_payload=response_dotnet_payload if "response_dotnet_payload" in locals() else {},
-                combined_result=combined_result if "combined_result" in locals() else None,
             )
 
         execution_time_ms = round(total_duration * 1000)

@@ -12,8 +12,6 @@ logger = logging.getLogger(__name__)
 
 from utils import get_score as _get_score
 from utils import safe_float as _safe_float
-from feature_flags import get_flags
-import requests
 from grounding_utils import ground_and_sanitize as _ground_and_sanitize
 
 
@@ -41,19 +39,6 @@ def generate_analysis(
     any internal error.
     """
     try:
-        try:
-            flags = get_flags()
-            if flags.ENABLE_OLLAMA:
-                try:
-                    from ollama_settings import get_ollama_timeout
-                    timeout_val = get_ollama_timeout()
-                    requests.post("http://localhost:11434/api/generate", json={}, timeout=timeout_val)
-                except requests.RequestException:
-                    from metrics import metrics_collector
-                    metrics_collector.inc_llm_failure()
-        except Exception:
-            pass
-
         from normalized_models import extract_records as _extract_records
         records = _extract_records(combined_result)
 

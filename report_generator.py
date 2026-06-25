@@ -26,11 +26,6 @@ def _log_stage(stage: str, duration_ms: float, **extra: Any) -> None:
     logger.info(event)
 
 
-def _call_ollama(prompt: str, system_prompt: str = "", trace_id: Optional[str] = None) -> Optional[str]:
-    """Placeholder to satisfy unit tests patching this function."""
-    return None
-
-
 def _extract_records_from_combined(data: Any) -> List[Dict]:
     if isinstance(data, list):
         return [r for r in data if isinstance(r, dict)]
@@ -383,7 +378,6 @@ def generate_report(
     """
     Generate the structured report elements by delegating to dedicated engines.
     """
-    import json
     from utils import extract_records
 
     if not _has_any_data(combined_result, query_type):
@@ -412,44 +406,6 @@ def generate_report(
                 "conclusionDurationMs": 0.0,
             },
         }
-
-    mocked_val = _call_ollama("dummy prompt")
-    if mocked_val:
-        try:
-            parsed = json.loads(mocked_val)
-            if isinstance(parsed, dict):
-                message = parsed.get("message") or ""
-                analysis_data = parsed.get("analysis") or {}
-                conclusion_val = parsed.get("conclusion") or ""
-                conclusion_text = conclusion_val
-                if isinstance(conclusion_val, dict):
-                    conclusion_text = conclusion_val.get("summary") or conclusion_val.get("message") or ""
-                return {
-                    "message": message,
-                    "analysis": {
-                        "summary": analysis_data.get("summary") if isinstance(analysis_data, dict) else "",
-                        "insights": analysis_data.get("insights") if isinstance(analysis_data, dict) else [],
-                        "statistics": analysis_data.get("statistics") if isinstance(analysis_data, dict) else {},
-                    },
-                    "prediction": {
-                        "trend": "Stable",
-                        "projection": "Performance is expected to remain stable.",
-                        "heuristicEstimate": "Performance is expected to remain stable.",
-                        "shortTerm": "stable",
-                        "futureTrends": [],
-                    },
-                    "conclusion": {
-                        "summary": conclusion_text,
-                        "bullets": [conclusion_text] if conclusion_text else [],
-                    },
-                    "durations": {
-                        "analysisDurationMs": 0.0,
-                        "predictionDurationMs": 0.0,
-                        "conclusionDurationMs": 0.0,
-                    },
-                }
-        except Exception:
-            pass
 
     analysis = None
     analysis_ms = 0.0

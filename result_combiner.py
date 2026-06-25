@@ -151,32 +151,6 @@ def aggregate_records(
 
 
 # =============================================================================
-# N-WAY INTERSECTION (CROSS_FILTER)
-# =============================================================================
-
-
-def intersect_results(
-    result_sets: List[Any],
-    primary_index: int = 0,
-) -> Dict[str, Any]:
-    """
-    Compute the N-way intersection of result sets by agniveerNo (with agniveerId fallback).
-    Delegates to cross_filter_datasets.
-    """
-    res = cross_filter_datasets(result_sets, primary_index)
-    if not res.get("status", True):
-        return {
-            "queryType": "cross_filter",
-            "filterDepth": len(result_sets),
-            "matchCount": 0,
-            "totalBeforeFilter": 0,
-            "records": [],
-        }
-    res["queryType"] = "cross_filter"
-    return res
-
-
-# =============================================================================
 # MERGE (MULTI_INDEPENDENT)
 # =============================================================================
 
@@ -209,16 +183,6 @@ def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
 # =============================================================================
 # COMPARISON
 # =============================================================================
-
-
-def compare_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
-    """
-    Compare two or more .NET results side by side.
-    Delegates to compare_datasets.
-    """
-    res = compare_datasets(labeled_results)
-    res["queryType"] = "comparison"
-    return res
 
 
 def _extract_chronological_key(record: Dict) -> Any:
