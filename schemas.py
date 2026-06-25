@@ -287,15 +287,29 @@ class FormattedData(BaseModel):
     metric: Optional[str] = None
 
 
+class WidgetItem(BaseModel):
+    """Single self-contained widget in a multi-widget response."""
+    model_config = ConfigDict(extra="allow")
+
+    id:    str
+    type:  str
+    title: str
+    data:  Dict[str, Any] = Field(default_factory=dict)
+
+
 class FinalResponse(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     status: bool
     message: str
-    formattedData: Dict[str, Any] = Field(default_factory=dict)
+    formattedData: List[Dict[str, Any]] = Field(default_factory=list)
+    # analysis/prediction/conclusion live inside each formattedData widget
     suggestedQuestions: List[str] = Field(default_factory=list)
     dotnetPayload: Any = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    overallConfidence: float = 0.0
+    partialFailure: bool = False
+    failedSections: List[Any] = Field(default_factory=list)
 
 
 # Alias used throughout admin_pipeline.py

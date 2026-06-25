@@ -793,13 +793,8 @@ def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
             "yKey": y_key,
             "rows": [
                 {
-                    f"{'label'}:value": row.get("label", "Section"),
-                    f"{y_key}:value": row.get(y_key, row.get("recordCount", 0)),
-                    **{
-                        k: v
-                        for k, v in row.items()
-                        if k not in {"label", "recordCount", y_key}
-                    },
+                    "label": row.get("label", "Section"),
+                    y_key: row.get(y_key, row.get("recordCount", 0)),
                 }
                 for row in rows
             ],
@@ -868,8 +863,8 @@ def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
         "yKey": y_key,
         "rows": [
             {
-                f"{x_key}:value": row.get(x_key),
-                f"{y_key}:value": row.get(y_key),
+                x_key: row.get(x_key),
+                y_key: row.get(y_key),
             }
             for row in rows
         ],
@@ -929,11 +924,8 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
         "series": series,
         "rows": [
             {
-                f"{x_key}:value": row.get(x_key),
-                **{
-                    f"series{idx}:value": row.get(sk, 0)
-                    for idx, sk in enumerate(series_keys)
-                },
+                x_key: row.get(x_key),
+                **{sk: row.get(sk, 0) for sk in series_keys},
             }
             for row in rows
         ],
@@ -1206,3 +1198,204 @@ def build_formatted_data(
         metric=(visualization_intent or {}).get("metric"),
     )
     return fd.model_dump()
+
+
+# =============================================================================
+# MULTI-WIDGET API  (new contract: formattedData is always a list)
+# =============================================================================
+
+def build_summary_card_from_analysis(
+    analysis: Optional[Dict[str, Any]],
+    query_type: str,
+    intent: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build CARD data from analysis.statistics for use as a summary widget."""
+    stats    = (analysis or {}).get("statistics") or {}
+    category = (intent or {}).get("category") or "Results"
+    cards: List[Dict[str, Any]] = []
+
+    def _card(title: str, value: Any) -> Dict[str, Any]:
+        return {"title": title, "subtitle": "", "value": str(value), "description": ""}
+
+    rc = stats.get("record_count")
+    if rc is not None:
+        cards.append(_card("Total Records", rc))
+
+    avg = stats.get("average_score")
+    if avg is not None:
+        cards.append(_card("Average Score", avg))
+
+    lc = stats.get("left_count")
+    rc2 = stats.get("right_count")
+    if lc is not None:
+        left_label  = stats.get("left_label")  or "Side 1"
+        right_label = stats.get("right_label") or "Side 2"
+        cards.append(_card(left_label,  lc))
+        if rc2 is not None:
+            cards.append(_card(right_label, rc2))
+
+    mc = stats.get("match_count")
+    if mc is not None and lc is None:
+        cards.append(_card("Matched Records", mc))
+
+    sc = stats.get("section_count")
+    if sc is not None:
+        cards.append(_card("Sections", sc))
+
+    if not cards:
+        cards.append(_card(category, "–"))
+
+    return {"cards": cards}
+
+
+def _build_comparison_bar_chart(combined_result: Any) -> Dict[str, Any]:
+    """Build a side-by-side bar chart from a comparison combined_result."""
+    if not isinstance(combined_result, dict):
+        return build_bar_chart_data(combined_result)
+    left  = combined_result.get("left")  or {}
+    right = combined_result.get("right") or {}
+    left_label  = (left.get("label")  if isinstance(left, dict) else None)  or "Side 1"
+    right_label = (right.get("label") if isinstance(right, dict) else None) or "Side 2"
+    left_count  = len(left.get("data")  or []) if isinstance(left, dict) else 0
+    right_count = len(right.get("data") or []) if isinstance(right, dict) else 0
+    return {
+        "xKey": "label",
+        "yKey": "count",
+        "rows": [
+            {"label": left_label,  "count": left_count},
+            {"label": right_label, "count": right_count},
+        ],
+    }
+
+
+def _build_widget_data(
+    spec: Any,   # WidgetSpec — typed loosely to avoid circular import
+    combined_result: Any,
+    query_type: str,
+    intent: Dict[str, Any],
+    analysis: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Dispatch to the appropriate builder for a single WidgetSpec."""
+    wt   = spec.widget_type
+    hint = spec.source_hint
+
+    # ── Summary CARD (from analysis.statistics) ──────────────────────────────
+    if hint == "summary":
+        return build_summary_card_from_analysis(analysis, query_type, intent)
+
+    # ── Primary CARD (from raw records) ─────────────────────────────────────
+    if wt == "CARD":
+        records = _extract_records(combined_result, deep_flatten=False)
+        return build_card_data(records, spec.title)
+
+    # ── TABLE — left/right/section/primary ──────────────────────────────────
+    if wt == "TABLE":
+        if hint == "left" and isinstance(combined_result, dict):
+            left = combined_result.get("left") or {}
+            raw  = left.get("data") if isinstance(left, dict) else []
+            flat = flatten_records(raw or [], deep_flatten=True)
+        elif hint == "right" and isinstance(combined_result, dict):
+            right = combined_result.get("right") or {}
+            raw   = right.get("data") if isinstance(right, dict) else []
+            flat  = flatten_records(raw or [], deep_flatten=True)
+        elif hint == "section" and isinstance(combined_result, dict):
+            flat = []
+            for sec in (combined_result.get("sections") or []):
+                if isinstance(sec, dict) and sec.get("label") == spec.section_label:
+                    flat = flatten_records(sec.get("data") or [], deep_flatten=True)
+                    break
+        else:
+            flat = _extract_records(combined_result, deep_flatten=True)
+        return build_table_data(flat)
+
+    # ── CHART_BAR ────────────────────────────────────────────────────────────
+    if wt == "CHART_BAR":
+        if query_type in ("compare", "comparison"):
+            return _build_comparison_bar_chart(combined_result)
+        return build_bar_chart_data(combined_result)
+
+    # ── CHART_LINE ───────────────────────────────────────────────────────────
+    if wt == "CHART_LINE":
+        return build_line_chart_data(combined_result)
+
+    # ── CHART_PIE ────────────────────────────────────────────────────────────
+    if wt == "CHART_PIE":
+        return build_pie_chart_data(combined_result)
+
+    # Fallback — unknown type becomes a TABLE
+    flat = _extract_records(combined_result, deep_flatten=True)
+    return build_table_data(flat)
+
+
+def build_widget_list(
+    combined_result: Any,
+    query_type: str,
+    intent: Dict[str, Any],
+    analysis: Optional[Dict[str, Any]] = None,
+    visualization_intent: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Entry point for multi-widget response assembly.
+
+    Returns an ordered list of widget dicts, each:
+        {"id": str, "type": str, "title": str, "data": dict}
+
+    Always returns at least one widget — never an empty list.
+    """
+    from widget_selector import WidgetSelector
+
+    # Determine the primary widget type (reuses existing priority logic)
+    primary_wt = infer_supported_type(
+        combined_result, query_type, intent, visualization_intent
+    )
+
+    # Extract frontend override (if user explicitly picked a different view)
+    frontend_override: Optional[str] = None
+    if isinstance(visualization_intent, dict):
+        if visualization_intent.get("frontend_override") or visualization_intent.get("requested_widget_type"):
+            raw = (
+                visualization_intent.get("requested_widget_type")
+                or visualization_intent.get("widget_type")
+            )
+            if raw:
+                frontend_override = _normalize_requested_widget_type(raw)
+
+    # Ask the selector for the ordered spec list
+    selector = WidgetSelector()
+    specs = selector.select(
+        query_type=query_type,
+        intent=intent,
+        combined_result=combined_result,
+        primary_widget_type=primary_wt,
+        analysis=analysis,
+        frontend_override_type=frontend_override,
+    )
+
+    widgets: List[Dict[str, Any]] = []
+    for spec in specs:
+        try:
+            data = _build_widget_data(spec, combined_result, query_type, intent, analysis)
+        except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).exception(
+                "build_widget_list: failed building widget %s", spec.widget_id
+            )
+            data = {}
+        widgets.append({
+            "id":    spec.widget_id,
+            "type":  spec.widget_type,
+            "title": spec.title,
+            "data":  data,
+        })
+
+    # Guard: never return an empty list — fall back to a plain TABLE
+    if not widgets:
+        flat = _extract_records(combined_result, deep_flatten=True)
+        widgets.append({
+            "id":    "fallback_table",
+            "type":  "TABLE",
+            "title": "Results",
+            "data":  build_table_data(flat),
+        })
+
+    return widgets

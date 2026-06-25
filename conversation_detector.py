@@ -187,14 +187,17 @@ def build_conversational_response(
     payload: Dict[str, Any] = {
         "status": True,
         "message": intro,
-        "formattedData": {
-            "type": "MESSAGE",
-            "title": "Conversation",
-            "data": {"text": intro},
-            "analysis": {"summary": "", "insights": [], "statistics": {}},
-            "prediction": {},
-            "conclusion": {"summary": "", "bullets": []},
-        },
+        "formattedData": [
+            {
+                "id": "conversation_message",
+                "type": "MESSAGE",
+                "title": "Conversation",
+                "data": {"text": intro},
+                "analysis": {"summary": "", "insights": [], "statistics": {}},
+                "prediction": {},
+                "conclusion": {"summary": "", "bullets": []},
+            }
+        ],
         "suggestedQuestions": [],
         "dotnetPayload": {},
         "metadata": {
@@ -212,6 +215,9 @@ def build_conversational_response(
             },
             "executionTimeMs": 0,
         },
+        "overallConfidence": 1.0,
+        "partialFailure": False,
+        "failedSections": [],
     }
     return payload
 

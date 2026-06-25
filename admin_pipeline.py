@@ -1555,7 +1555,7 @@ def execute_admin_query(
         formatted_data_payload = None
         try:
             widget_start = time.time()
-            from widget_engine import build_formatted_data
+            from widget_engine import build_widget_list
             import re as _re
 
             # ── Inline widget extraction from natural language ────────────────
@@ -1600,14 +1600,11 @@ def execute_admin_query(
                     **visualization_intent,
                     **frontend_visualization_intent,
                 }
-            formatted_data_payload = build_formatted_data(
-
+            formatted_data_payload = build_widget_list(
                 combined_result=combined_result,
                 query_type=qtype_str,
                 intent=primary_intent,
                 analysis=report.get("analysis"),
-                prediction=report.get("prediction"),
-                conclusion=report.get("conclusion"),
                 visualization_intent=visualization_intent,
             )
             widget_duration = time.time() - widget_start
@@ -1676,8 +1673,14 @@ def execute_admin_query(
                     formatted_data=formatted_data_payload,
                     metadata=response_metadata,
                     session_id=session_id,
+                    analysis=report.get("analysis"),
+                    prediction=report.get("prediction"),
+                    conclusion=report.get("conclusion"),
                     suggested_questions=suggested,
                     dotnet_payload=response_dotnet_payload,
+                    overall_confidence=query_plan.confidence,
+                    partial_failure=partial_failure,
+                    failed_sections=failed_sections,
                 )
                 response_assembly_duration = time.time() - response_assembly_start
                 logger.info(
@@ -1716,8 +1719,14 @@ def execute_admin_query(
                     durations=durations_payload,
                 ),
                 session_id=session_id,
+                analysis=report.get("analysis"),
+                prediction=report.get("prediction"),
+                conclusion=report.get("conclusion"),
                 suggested_questions=suggested or [],
                 dotnet_payload=response_dotnet_payload if "response_dotnet_payload" in locals() else {},
+                overall_confidence=query_plan.confidence,
+                partial_failure=partial_failure,
+                failed_sections=failed_sections,
             )
 
         execution_time_ms = round(total_duration * 1000)
