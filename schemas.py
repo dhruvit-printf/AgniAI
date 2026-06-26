@@ -308,7 +308,10 @@ class FinalResponse(BaseModel):
     prediction: str = ""
     conclusion: str = ""
     suggestedQuestions: List[str] = Field(default_factory=list)
-    dotnetPayload: Any = Field(default_factory=dict)  # internal only — stripped by public_response_view
+    # Exact .NET request payload that was executed.
+    # None  → no .NET query was made (conversational/greeting/unclear).
+    # dict  → the verbatim payload sent to the .NET API.
+    dotnetPayload: Any = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     overallConfidence: float = 0.0
     partialFailure: bool = False

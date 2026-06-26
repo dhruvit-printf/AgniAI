@@ -198,8 +198,13 @@ def build_conversational_response(
                 "conclusion": {"summary": "", "bullets": []},
             }
         ],
+        # Root-level narrative fields (required by universal response contract)
+        "analysis": "",
+        "prediction": "",
+        "conclusion": "",
         "suggestedQuestions": [],
-        "dotnetPayload": {},
+        # No .NET query was executed — explicitly None per contract
+        "dotnetPayload": None,
         "metadata": {
             "sessionId": session_id or "admin-default",
             "confidence": 1.0,

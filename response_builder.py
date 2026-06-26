@@ -3,10 +3,13 @@ response_builder.py
 ===================
 Final response assembly layer.
 
-formattedData  — always a list of widget dicts {type, title, data}.
-analysis       — root-level narrative string (not inside widgets).
-prediction     — root-level prediction string (not inside widgets).
-conclusion     — root-level conclusion string (not inside widgets).
+formattedData   — always a list of widget dicts {type, title, data}.
+analysis        — root-level narrative string (not inside widgets).
+prediction      — root-level prediction string (not inside widgets).
+conclusion      — root-level conclusion string (not inside widgets).
+dotnetPayload   — the exact .NET request payload that was executed, or
+                  None if no .NET query was made (conversational/greeting).
+                  MUST be preserved as-is; never regenerated or defaulted.
 """
 
 from __future__ import annotations
@@ -60,6 +63,12 @@ def build_response(
     if "sessionId" not in meta:
         meta["sessionId"] = session_id
 
+    # Preserve dotnetPayload exactly as passed:
+    #   - None   → no .NET query was executed (conversational / greeting)
+    #   - dict   → the exact payload sent to the .NET API
+    # Do NOT coerce None → {} or regenerate the payload from the response.
+    resolved_dotnet_payload = dotnet_payload  # preserved verbatim
+
     return {
         "status": True,
         "message": message or "",
@@ -69,8 +78,8 @@ def build_response(
         "prediction": _to_str(prediction),
         "conclusion": _to_str(conclusion),
         "suggestedQuestions": suggested_questions or [],
-        # kept internally for debugging / dotnetPayload forwarding
-        "dotnetPayload": dotnet_payload or {},
+        # Exact .NET request payload; None when no backend call was made
+        "dotnetPayload": resolved_dotnet_payload,
         "metadata": meta,
         "overallConfidence": round(float(overall_confidence or 0.0), 2),
         "partialFailure": bool(partial_failure),
