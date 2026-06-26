@@ -182,8 +182,8 @@ class TestReliability(unittest.TestCase):
 
         self.assertEqual(payload["type"], "query")
         response_payload = payload["response_payload"]
-        self.assertEqual(response_payload["formattedData"]["analysis"], {})
-        self.assertEqual(response_payload["formattedData"]["conclusion"], {})
+        self.assertEqual(response_payload["formattedData"][0]["analysis"], {})
+        self.assertEqual(response_payload["formattedData"][0]["conclusion"], {})
         self.assertEqual(response_payload["status"], True)
         self.assertIn(
             "partial", response_payload["message"].lower()

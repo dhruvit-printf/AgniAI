@@ -135,7 +135,7 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertTrue(resp["status"])
         self.assertEqual(resp["metadata"]["sessionId"], "session-123")
         self.assertEqual(resp["message"], "Intro")
-        self.assertEqual(resp["formattedData"]["type"], "TABLE")
+        self.assertEqual(resp["formattedData"][0]["type"], "TABLE")
         self.assertEqual(resp["dotnetPayload"], {"res": "val"})
         self.assertEqual(resp["suggestedQuestions"], ["Q1"])
         self.assertEqual(resp["metadata"]["operationCount"], 1)
@@ -228,20 +228,21 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("timings", metadata)
         self.assertIn("metrics", metadata)
         self.assertEqual(metadata["metrics"]["confidence"], 0.95)
-        self.assertIn("analysis", public["formattedData"])
-        self.assertIn("prediction", public["formattedData"])
-        self.assertIn("conclusion", public["formattedData"])
-        self.assertNotIn("answer", public["formattedData"])
-        self.assertNotIn("introMessage", public["formattedData"])
-        self.assertNotIn("message", public["formattedData"])
+        self.assertIsInstance(public["formattedData"], list)
+        self.assertTrue(len(public["formattedData"]) > 0)
+        first_widget = public["formattedData"][0]
+        self.assertIn("analysis", first_widget)
+        self.assertIn("prediction", first_widget)
+        self.assertIn("conclusion", first_widget)
+        self.assertNotIn("answer", first_widget)
+        self.assertNotIn("introMessage", first_widget)
+        self.assertNotIn("message", first_widget)
         self.assertEqual(metadata["sessionId"], "admin-default")
         self.assertEqual(public["message"], internal["message"])
 
-        if isinstance(public["formattedData"], dict) and "data" in public["formattedData"]:
-            data = public["formattedData"]["data"]
-            if isinstance(data, dict) and "rows" in data:
-                for row in data["rows"]:
-                    self.assertNotIn("dotnetPayload", row)
+        if isinstance(first_widget.get("data"), dict) and "rows" in first_widget["data"]:
+            for row in first_widget["data"]["rows"]:
+                self.assertNotIn("dotnetPayload", row)
 
 
 class TestBuildResponseSecurity:
@@ -389,7 +390,7 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         # Verify that response_payload contains the record John Doe
-        rows = response_payload["formattedData"]["data"]["rows"]
+        rows = response_payload["formattedData"][0]["data"]["rows"]
         found_john = any(row.get("fullName") == "John Doe" or row.get("FullName") == "John Doe" for row in rows)
         self.assertTrue(found_john)
 

@@ -86,8 +86,8 @@ class TestF1CacheScopeIsolation(unittest.TestCase):
                 trace_id="trace-2",
             )
 
-        first_records = first["response_payload"]["formattedData"]["data"]["rows"]
-        second_records = second["response_payload"]["formattedData"]["data"]["rows"]
+        first_records = first["response_payload"]["formattedData"][0]["data"]["rows"]
+        second_records = second["response_payload"]["formattedData"][0]["data"]["rows"]
 
         self.assertEqual(first_records[0]["fullName"], "COMPANY ONE")   # camelCase after normalisation
         self.assertEqual(second_records[0]["fullName"], "COMPANY TWO")   # camelCase after normalisation

@@ -1398,4 +1398,26 @@ def build_widget_list(
             "data":  build_table_data(flat),
         })
 
-    return widgets
+    # Validate: every widget must have non-None type, title, and data.
+    # Any widget missing these fields is a bug — replace it with a safe fallback
+    # rather than propagating nulls downstream.
+    import logging as _logging
+    _wlog = _logging.getLogger(__name__)
+    validated: List[Dict[str, Any]] = []
+    for w in widgets:
+        if not isinstance(w, dict) or not w.get("type") or w.get("title") is None or w.get("data") is None:
+            _wlog.error(
+                "build_widget_list: null-field widget detected and replaced with fallback — "
+                "widget=%r", w
+            )
+            flat = _extract_records(combined_result, deep_flatten=True)
+            validated.append({
+                "id":    w.get("id") or "fallback_table",
+                "type":  "TABLE",
+                "title": w.get("title") or "Results",
+                "data":  build_table_data(flat),
+            })
+        else:
+            validated.append(w)
+
+    return validated

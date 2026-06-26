@@ -356,7 +356,7 @@ def combine_results(
     primary_intent: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Perform the result combination phase.
+    Perform the result combination phase.fix 
     Delegates to appropriate intersection/comparison/merge/trend/distribution strategy based on qtype_str.
     """
     if qtype_str == "cross_filter":

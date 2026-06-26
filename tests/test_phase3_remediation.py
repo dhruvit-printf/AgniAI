@@ -132,7 +132,7 @@ class TestF13PredictionLabels(unittest.TestCase):
             metadata={},
             session_id="session-1",
         )
-        prediction = payload["formattedData"]["prediction"]
+        prediction = payload["formattedData"][0]["prediction"]
         self.assertEqual("Projected stable performance.", prediction["projection"])
         self.assertEqual("Heuristic estimate remains stable.", prediction["heuristicEstimate"])
 

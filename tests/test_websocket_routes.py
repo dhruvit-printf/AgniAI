@@ -14,7 +14,7 @@ class TestRunPipelineSuccessPath:
             "type": qtype,
             "response_payload": {
                 "message": "Test intro",
-                "formattedData": {"type": "TABLE", "title": "Test", "data": {}, "analysis": "", "prediction": "", "conclusion": ""},
+                "formattedData": [{"id": "w1", "type": "TABLE", "title": "Test", "data": {}, "analysis": {}, "prediction": {}, "conclusion": {}}],
                 "suggestedQuestions": ["Q1"],
                 "metadata": {},
                 "status": True,

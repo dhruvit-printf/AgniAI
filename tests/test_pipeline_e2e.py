@@ -83,7 +83,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         # Verify widget type: TABLE should be generated since Name/AgniveerNo exist.
-        self.assertEqual(response_payload["formattedData"]["type"], "TABLE")
+        self.assertEqual(response_payload["formattedData"][0]["type"], "TABLE")
 
         mock_call_dotnet.assert_called_once()
 
@@ -178,7 +178,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(response_payload["metadata"]["queryType"], "cross_filter")
 
         # Verify intersection result (only AMIT KUMAR matches all three sets)
-        rows = response_payload["formattedData"]["data"]["rows"]
+        rows = response_payload["formattedData"][0]["data"]["rows"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["fullName"], "AMIT KUMAR")    # camelCase after normalisation
         self.assertEqual(rows[0]["agniveerNo"], "A01")          # camelCase after normalisation
@@ -208,7 +208,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(response_payload["metadata"]["queryType"], "compare")
 
         # Check comparison results
-        data = response_payload["formattedData"]["data"]
+        data = response_payload["formattedData"][0]["data"]
         self.assertEqual(data["left"]["label"], "PPT")
         self.assertEqual(data["right"]["label"], "BPET")
 
@@ -261,7 +261,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(response_payload["metadata"]["queryType"], "multi_independent")
 
         # Verify sections
-        sections = response_payload["formattedData"]["data"]["sections"]
+        sections = response_payload["formattedData"][0]["data"]["sections"]
         self.assertEqual(len(sections), 2)
         self.assertEqual(sections[0]["label"], "Attendance")
         self.assertEqual(sections[1]["label"], "Leave")

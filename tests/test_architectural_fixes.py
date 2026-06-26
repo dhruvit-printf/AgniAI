@@ -76,7 +76,7 @@ class TestArchitecturalFixes(unittest.TestCase):
             dotnet_payload={},
         )
         self.assertIn("formattedData", resp)
-        self.assertIsInstance(resp["formattedData"], dict)
+        self.assertIsInstance(resp["formattedData"], list)
         self.assertEqual(resp["metadata"]["sessionId"], "session-123")
 
     def test_widgets_selection_step_12(self):

@@ -35,7 +35,7 @@ class TestPartialFailure(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         # Checked processed data has degraded == True and failedFilters
-        processed = response_payload["formattedData"]["data"]
+        processed = response_payload["formattedData"][0]["data"]
         self.assertTrue(processed.get("degraded"))
         self.assertEqual(processed.get("failedFilters"), ["Skills"])
 
@@ -63,7 +63,7 @@ class TestPartialFailure(unittest.TestCase):
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
 
-        sides = response_payload["formattedData"]["data"]["sides"]
+        sides = response_payload["formattedData"][0]["data"]["sides"]
         self.assertEqual(len(sides), 2)
         # Side 0 is PPT
         self.assertEqual(sides[0]["label"], "PPT")

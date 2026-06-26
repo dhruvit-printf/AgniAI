@@ -1600,6 +1600,23 @@ def execute_admin_query(
                     **visualization_intent,
                     **frontend_visualization_intent,
                 }
+
+            # ── Audit: log visualization intent ─────────────────────────────
+            logger.info(
+                json.dumps({
+                    "message": "Pipeline stage: visualization_intent",
+                    "stage": "visualization_intent",
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "presentation": visualization_intent.get("presentation"),
+                    "chart_type": visualization_intent.get("chart_type"),
+                    "comparison": visualization_intent.get("comparison"),
+                    "trend": visualization_intent.get("trend"),
+                    "record_count": visualization_intent.get("record_count"),
+                    "frontend_override": visualization_intent.get("frontend_override"),
+                })
+            )
+
             formatted_data_payload = build_widget_list(
                 combined_result=combined_result,
                 query_type=qtype_str,
@@ -1607,16 +1624,41 @@ def execute_admin_query(
                 analysis=report.get("analysis"),
                 visualization_intent=visualization_intent,
             )
+
+            # ── Audit: log full widget output ────────────────────────────────
             widget_duration = time.time() - widget_start
+            _record_count = len(_extract_records(combined_result)) if combined_result else 0
+            _widget_count = len(formatted_data_payload) if isinstance(formatted_data_payload, list) else 0
+            _widget_types = [w.get("type") for w in (formatted_data_payload or []) if isinstance(w, dict)]
+            _has_null_widget = any(
+                w.get("type") is None or w.get("title") is None or w.get("data") is None
+                for w in (formatted_data_payload or [])
+                if isinstance(w, dict)
+            )
+            if _has_null_widget:
+                logger.error(
+                    json.dumps({
+                        "message": "PIPELINE BUG: null-field widget detected before response_builder",
+                        "stage": "widget",
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "widgets": formatted_data_payload,
+                    })
+                )
             logger.info(
                 json.dumps({
-                    "message": "Widget stage finished",
+                    "message": "Pipeline stage: widget_engine",
                     "stage": "widget",
                     "duration_ms": round(widget_duration * 1000, 2),
                     "trace_id": trace_id,
                     "session_id": session_id,
                     "query_type": qtype_str,
-                    "output_shape": type(formatted_data_payload).__name__,
+                    "record_count": _record_count,
+                    "widget_count": _widget_count,
+                    "widget_types": _widget_types,
+                    "formatted_data_count": _widget_count,
+                    "has_null_widget": _has_null_widget,
+                    "output_is_list": isinstance(formatted_data_payload, list),
                 })
             )
         except Exception as widget_exc:
