@@ -220,10 +220,10 @@ from schemas import (
 # Widget type constants:
 #   TABLE        — tabular grid
 #   CARD         — stat cards
-#   CHART_BAR    — vertical bar chart
-#   CHART_LINE   — line / trend chart
+#   BAR_CHART    — vertical bar chart
+#   LINE_CHART   — line / trend chart
 #   AREA_CHART   — area chart (comparison)
-#   CHART_PIE    — pie chart
+#   PIE_CHART    — pie chart
 #   DONUT_CHART  — donut chart
 #   RADIAL_CHART — radial / gauge chart
 # ---------------------------------------------------------------------------
@@ -231,20 +231,20 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
     # ── Performance ──────────────────────────────────────────────────────────
     ("Performance", "Top"):             "TABLE",
     ("Performance", "Bottom"):          "TABLE",
-    ("Performance", "Improvement"):     "CHART_LINE",
-    ("Performance", "ImprovementTrend"):"CHART_LINE",
-    ("Performance", "Drop"):            "CHART_LINE",
-    ("Performance", "DropTrend"):       "CHART_LINE",
+    ("Performance", "Improvement"):     "LINE_CHART",
+    ("Performance", "ImprovementTrend"):"LINE_CHART",
+    ("Performance", "Drop"):            "LINE_CHART",
+    ("Performance", "DropTrend"):       "LINE_CHART",
     ("Performance", "Grading"):         "TABLE",
-    ("Performance", "GradingSummary"):  "CHART_BAR",
-    ("Performance", "Average"):         "CHART_PIE",
+    ("Performance", "GradingSummary"):  "BAR_CHART",
+    ("Performance", "Average"):         "PIE_CHART",
     ("Performance", "AttemptWise"):     "TABLE",
     ("Performance", "BestAttempt"):     "TABLE",
     ("Performance", "Compare"):         "AREA_CHART",
     ("Performance", "Comparison"):      "AREA_CHART",
     ("Performance", "Summary"):         "TABLE",
-    ("Performance", "PassPercentage"):  "CHART_PIE",
-    ("Performance", "FailPercentage"):  "CHART_PIE",
+    ("Performance", "PassPercentage"):  "PIE_CHART",
+    ("Performance", "FailPercentage"):  "PIE_CHART",
     ("Performance", "Overall"):         "TABLE",
     # ── Leave ─────────────────────────────────────────────────────────────────
     ("Leave", "Most"):                  "TABLE",
@@ -255,16 +255,16 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
     # ── Medical ──────────────────────────────────────────────────────────────
     ("Medical", "Active"):              "TABLE",
     ("Medical", "BMI"):                 "DONUT_CHART",
-    ("Medical", "BMIAnalysis"):         "DONUT_CHART",
+    ("Medical", "BMIAnalysis"):         "DONUT_CHART",   # already correct name
     ("Medical", "Disease"):             "TABLE",
     # ── Attendance ───────────────────────────────────────────────────────────
-    ("Attendance", "Monthly"):          "CHART_BAR",
-    ("Attendance", "MonthlyAttendance"):"CHART_BAR",
-    ("Attendance", "Weekly"):           "CHART_BAR",
-    ("Attendance", "WeeklyAttendance"): "CHART_BAR",
+    ("Attendance", "Monthly"):          "BAR_CHART",
+    ("Attendance", "MonthlyAttendance"):"BAR_CHART",
+    ("Attendance", "Weekly"):          "BAR_CHART",
+    ("Attendance", "WeeklyAttendance"): "BAR_CHART",
     ("Attendance", "Daily"):            "TABLE",
-    ("Attendance", "Present"):          "CHART_PIE",
-    ("Attendance", "PresentToday"):     "CHART_PIE",
+    ("Attendance", "Present"):          "PIE_CHART",
+    ("Attendance", "PresentToday"):     "PIE_CHART",
     ("Attendance", "Summary"):          "TABLE",
     ("Attendance", "AttendanceSummary"):"TABLE",
     # ── Strength ─────────────────────────────────────────────────────────────
@@ -324,11 +324,11 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
     ("Medical", "IndividualMedical"):   "TABLE",
     ("Medical", "BloodGroup"):          "TABLE",
     # ── Attendance extras ────────────────────────────────────────────────────
-    ("Attendance", "Yearly"):           "CHART_BAR",
-    ("Attendance", "YearlyAttendance"): "CHART_BAR",
+    ("Attendance", "Yearly"):           "BAR_CHART",
+    ("Attendance", "YearlyAttendance"): "BAR_CHART",
     # ── Performance subcategory-keyed (direct lookup without alias) ───────────
     ("Performance", "GradeDistribution"):  "TABLE",
-    ("Performance", "AverageScore"):       "CHART_PIE",
+    ("Performance", "AverageScore"):       "PIE_CHART",
     ("Performance", "SectionSummary"):     "TABLE",
     ("Performance", "OverallPerformance"): "TABLE",
 }
@@ -444,8 +444,8 @@ def _normalize_requested_widget_type(value: Any) -> Optional[str]:
 
     # Direct canonical match (frontend already sending internal constant)
     _CANONICAL = {
-        "TABLE", "CARD", "CHART_BAR", "CHART_LINE",
-        "AREA_CHART", "CHART_PIE", "DONUT_CHART", "RADIAL_CHART",
+        "TABLE", "CARD", "BAR_CHART", "LINE_CHART",
+        "AREA_CHART", "PIE_CHART", "DONUT_CHART", "RADIAL_CHART",
     }
     if text in _CANONICAL:
         return text
@@ -461,29 +461,29 @@ def _normalize_requested_widget_type(value: Any) -> Optional[str]:
         "cards":                        "CARD",
         "stats card":                   "CARD",
         # ── Bar Chart ─────────────────────────────────────────────────────────
-        "bar chart":                    "CHART_BAR",
-        "bar":                          "CHART_BAR",
-        "monthly bar chart":            "CHART_BAR",
-        "weekly bar chart":             "CHART_BAR",
-        "gradingsummary bar chart":     "CHART_BAR",
+        "bar chart":                    "BAR_CHART",
+        "bar":                          "BAR_CHART",
+        "monthly bar chart":            "BAR_CHART",
+        "weekly bar chart":             "BAR_CHART",
+        "gradingsummary bar chart":     "BAR_CHART",
         # ── Line / Trend Chart ────────────────────────────────────────────────
-        "line chart":                   "CHART_LINE",
-        "line":                         "CHART_LINE",
-        "trend chart":                  "CHART_LINE",
-        "trend":                        "CHART_LINE",
-        "improvement trend chart":      "CHART_LINE",
-        "drop trend chart":             "CHART_LINE",
+        "line chart":                   "LINE_CHART",
+        "line":                         "LINE_CHART",
+        "trend chart":                  "LINE_CHART",
+        "trend":                        "LINE_CHART",
+        "improvement trend chart":      "LINE_CHART",
+        "drop trend chart":             "LINE_CHART",
         # ── Area Chart ────────────────────────────────────────────────────────
         "area chart":                   "AREA_CHART",
         "area":                         "AREA_CHART",
         "compare area chart":           "AREA_CHART",
         # ── Pie Chart ─────────────────────────────────────────────────────────
-        "pie chart":                    "CHART_PIE",
-        "pie":                          "CHART_PIE",
-        "average pie chart":            "CHART_PIE",
-        "present pie chart":            "CHART_PIE",
-        "passpercentage pie chart":     "CHART_PIE",
-        "failpercentage pie chart":     "CHART_PIE",
+        "pie chart":                    "PIE_CHART",
+        "pie":                          "PIE_CHART",
+        "average pie chart":            "PIE_CHART",
+        "present pie chart":            "PIE_CHART",
+        "passpercentage pie chart":     "PIE_CHART",
+        "failpercentage pie chart":     "PIE_CHART",
         # ── Donut Chart ───────────────────────────────────────────────────────
         "donut chart":                  "DONUT_CHART",
         "donut":                        "DONUT_CHART",
@@ -520,15 +520,15 @@ def _map_to_supported_type(inferred: str) -> str:
         "TABLE":        "TABLE",
         "CARD":         "CARD",
         "METRIC_CARD":  "CARD",
-        "BAR_CHART":    "CHART_BAR",
-        "CHART_BAR":    "CHART_BAR",
-        "LINE_CHART":   "CHART_LINE",
-        "CHART_LINE":   "CHART_LINE",
-        "AREA_CHART":   "CHART_LINE",   # area renders as line in current frontend
-        "PIE_CHART":    "CHART_PIE",
-        "CHART_PIE":    "CHART_PIE",
-        "DONUT_CHART":  "CHART_PIE",
-        "RADIAL_CHART": "CHART_PIE",
+        "BAR_CHART":    "BAR_CHART",
+        "CHART_BAR":    "BAR_CHART",   # legacy alias
+        "LINE_CHART":   "LINE_CHART",
+        "CHART_LINE":   "LINE_CHART",  # legacy alias
+        "AREA_CHART":   "AREA_CHART",
+        "PIE_CHART":    "PIE_CHART",
+        "CHART_PIE":    "PIE_CHART",   # legacy alias
+        "DONUT_CHART":  "DONUT_CHART",
+        "RADIAL_CHART": "RADIAL_CHART",
         "CALENDAR_UI":  "TABLE",
     }
     return mapped.get(inferred, "TABLE")
@@ -559,9 +559,9 @@ def _default_widget_type_for_intent(
     if qtype in ("compare", "comparison"):
         return "AREA_CHART"
     if qtype == "trend":
-        return "CHART_LINE"
+        return "LINE_CHART"
     if qtype == "distribution":
-        return "CHART_PIE"
+        return "PIE_CHART"
     if qtype == "cross_filter":
         return "TABLE"
     return None
@@ -607,9 +607,11 @@ def infer_supported_type(
             return "TABLE"
         if presentation == "chart":
             if chart_type == "line":
-                return "CHART_LINE"
+                return "LINE_CHART"
             if chart_type == "pie":
-                return "CHART_PIE"
+                return "PIE_CHART"
+            if chart_type == "bar":
+                return "BAR_CHART"
             if chart_type == "area":
                 return "AREA_CHART"
             if chart_type == "donut":
@@ -638,25 +640,20 @@ def infer_supported_type(
 
 
 def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]:
+    """CARD schema: { cards: [{title, value}] }"""
     cards = []
     for r in records:
-        title_val = r.get("fullName") or r.get("name") or (f"Record ID: {r.get('id')}" if "id" in r else "Details")
-        subtitle_val = r.get("category") or r.get("leaveType") or r.get("sport") or r.get("class") or ""
-        value_val = r.get("bestTotal") or r.get("score") or r.get("marksObtained") or r.get("count") or r.get("status") or r.get("leaveStatus") or ""
-        desc_val = r.get("description") or r.get("message") or ""
-        cards.append({
-            "title": str(title_val),
-            "subtitle": str(subtitle_val),
-            "value": str(value_val),
-            "description": str(desc_val)
-        })
+        card_title = (
+            r.get("fullName") or r.get("name")
+            or (f"Record {r.get('id', '')}" if "id" in r else "Details")
+        )
+        card_value = (
+            r.get("bestTotal") or r.get("score") or r.get("marksObtained")
+            or r.get("count") or r.get("status") or r.get("leaveStatus") or ""
+        )
+        cards.append({"title": str(card_title), "value": str(card_value)})
     if not cards:
-        cards.append({
-            "title": title,
-            "subtitle": "",
-            "value": "",
-            "description": "No records found."
-        })
+        cards.append({"title": title, "value": "No records found."})
     return {"cards": cards}
 
 # ---------------------------------------------------------------------------
@@ -769,275 +766,194 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     return {"columns": columns, "rows": rows}
 
-def build_bar_chart_data(combined_result: Any) -> Dict[str, Any]:
-    if isinstance(combined_result, dict) and "sides" in combined_result:
-        sides = combined_result["sides"]
-        y_key = "recordCount"
-        if sides and "metrics" in sides[0]:
-            metric_keys = list(sides[0]["metrics"].keys())
-            if metric_keys:
-                y_key = metric_keys[0]
-        
-        rows = []
-        for s in sides:
-            row_item = {
-                "label": s.get("label", "Section"),
-                "recordCount": s.get("recordCount", 0),
-            }
-            if "metrics" in s:
-                row_item.update(s["metrics"])
-            rows.append(row_item)
-            
-        return {
-            "xKey": "label",
-            "yKey": y_key,
-            "rows": [
-                {
-                    "label": row.get("label", "Section"),
-                    y_key: row.get(y_key, row.get("recordCount", 0)),
-                }
-                for row in rows
-            ],
-        }
-        
+def _find_key(records: List[Dict], candidates: List[str]) -> Optional[str]:
+    """Return the first field key matching any candidate (case-insensitive)."""
+    for c in candidates:
+        for r in records[:1]:
+            for k in r.keys():
+                if k.lower() == c.lower():
+                    return k
+    return None
+
+
+def _find_numeric_key(records: List[Dict], exclude: List[str]) -> Optional[str]:
+    for r in records[:1]:
+        for k, v in r.items():
+            if isinstance(v, (int, float)) and k.lower() not in {e.lower() for e in exclude}:
+                return k
+    return None
+
+
+def build_bar_chart_data(combined_result: Any, series_label: str = "") -> Dict[str, Any]:
+    """
+    BAR_CHART schema:
+    {
+        "xAxis": "Label",
+        "yAxis": "Score",
+        "series": [{ "label": "...", "data": [{"x": ..., "y": ...}] }]
+    }
+    """
     records = _extract_records(combined_result, deep_flatten=False)
     records = _dedupe_records(records)
     if not records:
-        return {"xKey": "label", "yKey": "value", "rows": []}
-        
-    y_key = None
-    numeric_candidates = ["count", "score", "value", "percentage", "besttotal", "marksobtained", "rate", "average"]
-    for k in numeric_candidates:
-        for r in records[:1]:
-            for rk in r.keys():
-                if rk.lower() == k:
-                    y_key = rk
-                    break
-            if y_key:
-                break
-        if y_key:
-            break
-            
-    if not y_key:
-        for r in records[:1]:
-            for rk, rv in r.items():
-                if isinstance(rv, (int, float)) and rk != "id":
-                    y_key = rk
-                    break
-    if not y_key:
-        y_key = "value"
-        
-    x_key = None
-    x_candidates = ["month", "date", "year", "sport", "grade", "leavetype", "fullname", "name", "label"]
-    for k in x_candidates:
-        for r in records[:1]:
-            for rk in r.keys():
-                if rk.lower() == k:
-                    x_key = rk
-                    break
-            if x_key:
-                break
-        if x_key:
-            break
-            
+        return {"xAxis": "", "yAxis": "", "series": [{"label": series_label or "Value", "data": []}]}
+
+    x_key = _find_key(records, [
+        "fullName", "name", "month", "date", "year",
+        "sport", "grade", "leaveType", "label", "category", "sectionName",
+    ])
     if not x_key:
         for r in records[:1]:
-            for rk, rv in r.items():
-                if rk != y_key and rk != "id" and isinstance(rv, str):
-                    x_key = rk
+            for k, v in r.items():
+                if isinstance(v, str) and k.lower() not in ("id",):
+                    x_key = k
                     break
-    if not x_key:
-        x_key = "label"
-        
-    rows = []
-    for r in records:
-        row_item = dict(r)
-        if x_key not in row_item:
-            row_item[x_key] = r.get("fullName") or r.get("name") or "Record"
-        if y_key not in row_item:
-            row_item[y_key] = 1
-        rows.append(row_item)
-        
+    x_key = x_key or "label"
+
+    y_key = _find_key(records, [
+        "bestTotal", "totalMarks", "score", "marksObtained",
+        "count", "value", "percentage", "averageScore",
+    ]) or _find_numeric_key(records, ["id"]) or "value"
+
+    data = [{"x": r.get(x_key) or r.get("fullName") or "Category",
+             "y": r.get(y_key) or 0}
+            for r in records]
+
     return {
-        "xKey": x_key,
-        "yKey": y_key,
-        "rows": [
-            {
-                x_key: row.get(x_key),
-                y_key: row.get(y_key),
-            }
-            for row in rows
-        ],
+        "xAxis": make_readable_label(x_key),
+        "yAxis": make_readable_label(y_key),
+        "series": [{"label": series_label or make_readable_label(y_key), "data": data}],
     }
+
 
 def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
+    """
+    LINE_CHART / AREA_CHART schema:
+    {
+        "xAxis": "Month",
+        "yAxis": "Score",
+        "series": [{ "label": "...", "data": [{"x": ..., "y": ...}] }]
+    }
+    """
     records = _extract_records(combined_result, deep_flatten=False)
     if not records:
-        return {"xKey": "month", "series": [], "rows": []}
-        
-    x_key = None
-    time_candidates = ["date", "month", "year", "attemptno", "attempt", "time", "day"]
-    for k in time_candidates:
-        for r in records[:1]:
-            for rk in r.keys():
-                if rk.lower() == k:
-                    x_key = rk
-                    break
-            if x_key:
-                break
-        if x_key:
-            break
-            
-    if not x_key:
-        x_key = "month"
-        
-    series_keys = []
-    for r in records[:1]:
-        for rk, rv in r.items():
-            if isinstance(rv, (int, float)) and rk != "id" and rk.lower() not in time_candidates:
-                series_keys.append(rk)
-                
-    if not series_keys:
-        series_keys = ["value"]
-        
+        return {"xAxis": "Time", "yAxis": "Value",
+                "series": [{"label": "Value", "data": []}]}
+
+    time_keys = ["date", "month", "year", "attemptNo", "attempt", "time", "day"]
+    x_key = _find_key(records, time_keys) or "date"
+
+    numeric_keys = [
+        k for r in records[:1]
+        for k, v in r.items()
+        if isinstance(v, (int, float)) and k.lower() not in {t.lower() for t in time_keys + ["id"]}
+    ]
+    if not numeric_keys:
+        numeric_keys = ["value"]
+
+    import re as _re
     series = []
-    for sk in series_keys:
-        import re
-        series_label = re.sub(r"([A-Z])", r" \1", sk).strip().title()
+    for sk in numeric_keys:
         series.append({
-            "key": sk,
-            "label": series_label
+            "label": make_readable_label(sk),
+            "data": [{"x": r.get(x_key, ""), "y": r.get(sk, 0)} for r in records],
         })
-        
-    rows = []
-    for r in records:
-        row_item = dict(r)
-        if x_key not in row_item:
-            row_item[x_key] = "N/A"
-        for sk in series_keys:
-            if sk not in row_item:
-                row_item[sk] = 0
-        rows.append(row_item)
-        
+
     return {
-        "xKey": x_key,
+        "xAxis": make_readable_label(x_key),
+        "yAxis": make_readable_label(numeric_keys[0]),
         "series": series,
-        "rows": [
-            {
-                x_key: row.get(x_key),
-                **{sk: row.get(sk, 0) for sk in series_keys},
-            }
-            for row in rows
-        ],
     }
 
-def build_pie_chart_data(combined_result: Any) -> Dict[str, Any]:
+
+def build_pie_chart_data(combined_result: Any, series_label: str = "Distribution") -> Dict[str, Any]:
+    """
+    PIE_CHART / DONUT_CHART schema:
+    {
+        "series": [{ "label": "...", "data": [{"label": ..., "value": ...}] }]
+    }
+    """
     records = _extract_records(combined_result, deep_flatten=False)
     if not records:
-        return {"rows": []}
-        
-    label_key = None
-    label_candidates = ["label", "sport", "grade", "leavetype", "bloodgroup", "disease", "status", "category"]
-    for k in label_candidates:
-        for r in records[:1]:
-            for rk in r.keys():
-                if rk.lower() == k:
-                    label_key = rk
-                    break
-            if label_key:
-                break
-        if label_key:
-            break
-            
+        return {"series": [{"label": series_label, "data": []}]}
+
+    label_key = _find_key(records, [
+        "label", "sport", "grade", "leaveType", "bloodGroup",
+        "disease", "status", "category", "name",
+    ])
     if not label_key:
         for r in records[:1]:
-            for rk, rv in r.items():
-                if isinstance(rv, str) and rk != "id":
-                    label_key = rk
+            for k, v in r.items():
+                if isinstance(v, str) and k.lower() not in ("id",):
+                    label_key = k
                     break
-    if not label_key:
-        label_key = "label"
-        
-    value_key = None
-    value_candidates = ["value", "count", "score", "percentage", "besttotal", "marksobtained", "rate"]
-    for k in value_candidates:
-        for r in records[:1]:
-            for rk in r.keys():
-                if rk.lower() == k:
-                    value_key = rk
-                    break
-            if value_key:
-                break
-        if value_key:
-            break
-            
-    if not value_key:
-        for r in records[:1]:
-            for rk, rv in r.items():
-                if isinstance(rv, (int, float)) and rk != "id":
-                    value_key = rk
-                    break
-    if not value_key:
-        value_key = "value"
-        
-    rows = []
-    for r in records:
-        label_val = r.get(label_key) or r.get("fullName") or r.get("name") or "Category"
-        raw_val = r.get(value_key)
-        value_val = raw_val if raw_val is not None else 1
-        rows.append({
-            "label": str(label_val),
-            "value": value_val
-        })
-        
-    return {"rows": rows}
+    label_key = label_key or "label"
+
+    value_key = _find_key(records, [
+        "value", "count", "score", "percentage", "bestTotal", "marksObtained",
+    ]) or _find_numeric_key(records, ["id"]) or "value"
+
+    data = [{"label": str(r.get(label_key) or r.get("fullName") or "Category"),
+             "value": r.get(value_key) if r.get(value_key) is not None else 1}
+            for r in records]
+
+    return {"series": [{"label": series_label, "data": data}]}
+
+
+def build_radial_chart_data(combined_result: Any) -> Dict[str, Any]:
+    """
+    RADIAL_CHART schema: { "value": float, "maximum": float, "label": str }
+    """
+    records = _extract_records(combined_result, deep_flatten=False)
+    if not records:
+        return {"value": 0, "maximum": 100, "label": ""}
+
+    # Prefer explicit percentage/rate field
+    pct_key = _find_key(records, ["percentage", "rate", "readiness", "completion", "strength"])
+    if pct_key:
+        val = records[0].get(pct_key)
+        if isinstance(val, (int, float)):
+            return {"value": round(float(val), 1), "maximum": 100,
+                    "label": make_readable_label(pct_key)}
+
+    # Compute from present/total pair
+    present_key = _find_key(records, ["present", "presentCount"])
+    total_key   = _find_key(records, ["total", "totalCount", "strength"])
+    if present_key and total_key:
+        p = records[0].get(present_key, 0)
+        t = records[0].get(total_key, 0)
+        if isinstance(p, (int, float)) and isinstance(t, (int, float)) and t > 0:
+            return {"value": round(float(p) / float(t) * 100, 1),
+                    "maximum": 100, "label": "Attendance"}
+
+    return {"value": len(records), "maximum": max(len(records), 100), "label": "Records"}
 
 def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
     if inferred_type == "TABLE":
-        if "sides" in data:
-            return
-        if "sections" in data:
-            for sec in data["sections"]:
-                if isinstance(sec, dict):
-                    validate_payload("TABLE", sec)
+        if "sides" in data or "sections" in data:
             return
         if "left" in data and "right" in data:
-            if isinstance(data["left"], dict):
-                validate_payload("TABLE", data["left"])
-            if isinstance(data["right"], dict):
-                validate_payload("TABLE", data["right"])
             return
         cols = {c["key"] for c in data.get("columns", [])}
         for row in data.get("rows", []):
             for col in cols:
                 if col not in row:
                     row[col] = None
-    elif inferred_type in {"CHART_BAR", "BAR_CHART"}:
-        x = data.get("xKey")
-        y = data.get("yKey")
-        rows = data.get("rows", [])
-        if rows:
-            if x not in rows[0]:
-                rows[0][x] = "Category"
-            if y not in rows[0]:
-                rows[0][y] = 0
-    elif inferred_type in {"CHART_LINE", "LINE_CHART", "AREA_CHART"}:
-        x = data.get("xKey")
-        series = data.get("series", [])
-        rows = data.get("rows", [])
-        for row in rows:
-            if x not in row:
-                row[x] = "N/A"
-            for s in series:
-                if s["key"] not in row:
-                    row[s["key"]] = 0
-    elif inferred_type in {"CHART_PIE", "PIE_CHART", "DONUT_CHART", "RADIAL_CHART"}:
-        rows = data.get("rows", [])
-        for row in rows:
-            if "label" not in row:
-                row["label"] = "Category"
-            if "value" not in row:
-                row["value"] = 0
+    elif inferred_type in {"BAR_CHART", "LINE_CHART", "AREA_CHART",
+                           "CHART_BAR", "CHART_LINE"}:  # legacy aliases
+        for s in data.get("series", []):
+            for pt in s.get("data", []):
+                pt.setdefault("x", "")
+                pt.setdefault("y", 0)
+    elif inferred_type in {"PIE_CHART", "DONUT_CHART", "CHART_PIE"}:  # legacy alias
+        for s in data.get("series", []):
+            for pt in s.get("data", []):
+                pt.setdefault("label", "Category")
+                pt.setdefault("value", 0)
+    elif inferred_type == "RADIAL_CHART":
+        data.setdefault("value", 0)
+        data.setdefault("maximum", 100)
+        data.setdefault("label", "")
 
 def build_formatted_data(
     combined_result: Any,
@@ -1215,7 +1131,7 @@ def build_summary_card_from_analysis(
     cards: List[Dict[str, Any]] = []
 
     def _card(title: str, value: Any) -> Dict[str, Any]:
-        return {"title": title, "subtitle": "", "value": str(value), "description": ""}
+        return {"title": title, "value": str(value)}
 
     rc = stats.get("record_count")
     if rc is not None:
@@ -1249,7 +1165,7 @@ def build_summary_card_from_analysis(
 
 
 def _build_comparison_bar_chart(combined_result: Any) -> Dict[str, Any]:
-    """Build a side-by-side bar chart from a comparison combined_result."""
+    """Side-by-side BAR_CHART for comparison queries — new series schema."""
     if not isinstance(combined_result, dict):
         return build_bar_chart_data(combined_result)
     left  = combined_result.get("left")  or {}
@@ -1259,11 +1175,16 @@ def _build_comparison_bar_chart(combined_result: Any) -> Dict[str, Any]:
     left_count  = len(left.get("data")  or []) if isinstance(left, dict) else 0
     right_count = len(right.get("data") or []) if isinstance(right, dict) else 0
     return {
-        "xKey": "label",
-        "yKey": "count",
-        "rows": [
-            {"label": left_label,  "count": left_count},
-            {"label": right_label, "count": right_count},
+        "xAxis": "Group",
+        "yAxis": "Count",
+        "series": [
+            {
+                "label": "Record Count",
+                "data": [
+                    {"x": left_label,  "y": left_count},
+                    {"x": right_label, "y": right_count},
+                ],
+            }
         ],
     }
 
@@ -1308,19 +1229,23 @@ def _build_widget_data(
             flat = _extract_records(combined_result, deep_flatten=True)
         return build_table_data(flat)
 
-    # ── CHART_BAR ────────────────────────────────────────────────────────────
-    if wt == "CHART_BAR":
+    # ── BAR_CHART ────────────────────────────────────────────────────────────
+    if wt in ("BAR_CHART", "CHART_BAR"):
         if query_type in ("compare", "comparison"):
             return _build_comparison_bar_chart(combined_result)
         return build_bar_chart_data(combined_result)
 
-    # ── CHART_LINE ───────────────────────────────────────────────────────────
-    if wt == "CHART_LINE":
+    # ── LINE_CHART / AREA_CHART ───────────────────────────────────────────────
+    if wt in ("LINE_CHART", "AREA_CHART", "CHART_LINE"):
         return build_line_chart_data(combined_result)
 
-    # ── CHART_PIE ────────────────────────────────────────────────────────────
-    if wt == "CHART_PIE":
+    # ── PIE_CHART / DONUT_CHART ───────────────────────────────────────────────
+    if wt in ("PIE_CHART", "DONUT_CHART", "CHART_PIE"):
         return build_pie_chart_data(combined_result)
+
+    # ── RADIAL_CHART ─────────────────────────────────────────────────────────
+    if wt == "RADIAL_CHART":
+        return build_radial_chart_data(combined_result)
 
     # Fallback — unknown type becomes a TABLE
     flat = _extract_records(combined_result, deep_flatten=True)

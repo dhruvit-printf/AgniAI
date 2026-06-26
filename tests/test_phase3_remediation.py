@@ -117,24 +117,23 @@ class TestF13PredictionLabels(unittest.TestCase):
         self.assertNotIn("forecast", result)
 
     def test_response_builder_surfaces_projection_labels(self):
+        # prediction is now a root-level string extracted from the engine dict
         payload = build_response(
             message="Intro",
-            formatted_data={
-                "type": "TABLE",
-                "title": "",
-                "data": {},
-                "prediction": {
-                    "projection": "Projected stable performance.",
-                    "heuristicEstimate": "Heuristic estimate remains stable.",
-                    "futureTrends": ["Heuristic estimate remains stable."],
-                },
-            },
+            formatted_data={"type": "TABLE", "title": "", "data": {}},
             metadata={},
             session_id="session-1",
+            prediction={
+                "projection": "Projected stable performance.",
+                "heuristicEstimate": "Heuristic estimate remains stable.",
+                "futureTrends": ["Heuristic estimate remains stable."],
+            },
         )
-        prediction = payload["formattedData"][0]["prediction"]
-        self.assertEqual("Projected stable performance.", prediction["projection"])
-        self.assertEqual("Heuristic estimate remains stable.", prediction["heuristicEstimate"])
+        # prediction is now a flat string at root, NOT inside formattedData[0]
+        prediction = payload["prediction"]
+        self.assertIsInstance(prediction, str)
+        self.assertIn("Projected stable performance.", prediction)
+        self.assertNotIn("prediction", payload["formattedData"][0])
 
 
 class TestF14DeadBranchAndEntryPoint(unittest.TestCase):

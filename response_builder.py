@@ -3,9 +3,10 @@ response_builder.py
 ===================
 Final response assembly layer.
 
-formattedData is ALWAYS a list of widget dicts.
-analysis, prediction, conclusion are injected into every widget in the list
-so each widget is fully self-contained.
+formattedData  — always a list of widget dicts {type, title, data}.
+analysis       — root-level narrative string (not inside widgets).
+prediction     — root-level prediction string (not inside widgets).
+conclusion     — root-level conclusion string (not inside widgets).
 """
 
 from __future__ import annotations
@@ -13,14 +14,34 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 
+def _to_str(value: Any) -> str:
+    """Convert an engine dict or plain string to a single readable string."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        # analysis engine  → {"summary": "...", "observations": [...], ...}
+        # prediction engine → {"projection": "...", "heuristicEstimate": "...", ...}
+        # conclusion engine → {"summary": "...", "bullets": [...]}
+        text = (
+            value.get("summary")
+            or value.get("projection")
+            or value.get("heuristicEstimate")
+            or ""
+        )
+        return str(text).strip()
+    return str(value).strip()
+
+
 def build_response(
     message: str,
     formatted_data: Any,
     metadata: Optional[Dict[str, Any]],
     session_id: str,
-    analysis: Optional[Dict[str, Any]] = None,
-    prediction: Optional[Dict[str, Any]] = None,
-    conclusion: Optional[Dict[str, Any]] = None,
+    analysis: Optional[Any] = None,
+    prediction: Optional[Any] = None,
+    conclusion: Optional[Any] = None,
     suggested_questions: Optional[List[str]] = None,
     dotnet_payload: Optional[Any] = None,
     overall_confidence: float = 0.0,
@@ -35,19 +56,6 @@ def build_response(
     else:
         fd = []
 
-    # Inject analysis/prediction/conclusion into every widget so each is
-    # self-contained and renderable without additional context.
-    extras: Dict[str, Any] = {}
-    if analysis:
-        extras["analysis"] = analysis
-    if prediction:
-        extras["prediction"] = prediction
-    if conclusion:
-        extras["conclusion"] = conclusion
-
-    if extras:
-        fd = [{**widget, **extras} if isinstance(widget, dict) else widget for widget in fd]
-
     meta = dict(metadata) if isinstance(metadata, dict) else {}
     if "sessionId" not in meta:
         meta["sessionId"] = session_id
@@ -56,7 +64,12 @@ def build_response(
         "status": True,
         "message": message or "",
         "formattedData": fd,
+        # Root-level narrative — plain strings, never inside individual widgets
+        "analysis":   _to_str(analysis),
+        "prediction": _to_str(prediction),
+        "conclusion": _to_str(conclusion),
         "suggestedQuestions": suggested_questions or [],
+        # kept internally for debugging / dotnetPayload forwarding
         "dotnetPayload": dotnet_payload or {},
         "metadata": meta,
         "overallConfidence": round(float(overall_confidence or 0.0), 2),

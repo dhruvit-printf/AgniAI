@@ -7,7 +7,7 @@ from widget_engine import build_formatted_data, validate_payload
 class TestResponseLayerRefactor(unittest.TestCase):
 
     def test_strict_contract_response_builder(self):
-        # Verify strict response builder contract (Issue 8)
+        # Verify response builder contract — analysis/prediction/conclusion at root
         resp = build_response(
             message="Test Message",
             formatted_data={"type": "TABLE", "title": "Test Title", "data": {"key": "val"}},
@@ -15,21 +15,29 @@ class TestResponseLayerRefactor(unittest.TestCase):
             session_id="123",
             suggested_questions=["question?"],
             dotnet_payload={"dotnet_key": "dotnet_val"},
-            combined_result={"some": "result"}
+            analysis={"summary": "Some analysis"},
+            prediction={"projection": "Up"},
+            conclusion={"summary": "Done"},
         )
-        
-        # Verify exactly six allowed keys at the root
-        allowed_keys = {"status", "message", "formattedData", "suggestedQuestions", "dotnetPayload", "metadata"}
-        self.assertEqual(set(resp.keys()), allowed_keys)
-        
-        # Verify subfields of formattedData (Issue 9)
-        fd = resp["formattedData"]
-        self.assertEqual(fd["type"], "TABLE")
+
+        # Root-level narrative strings
+        self.assertIsInstance(resp["analysis"],   str)
+        self.assertIsInstance(resp["prediction"], str)
+        self.assertIsInstance(resp["conclusion"], str)
+        self.assertEqual(resp["analysis"],   "Some analysis")
+        self.assertEqual(resp["prediction"], "Up")
+        self.assertEqual(resp["conclusion"], "Done")
+
+        # formattedData is always a list
+        self.assertIsInstance(resp["formattedData"], list)
+        fd = resp["formattedData"][0]
+        self.assertEqual(fd["type"],  "TABLE")
         self.assertEqual(fd["title"], "Test Title")
-        self.assertEqual(fd["data"], {"key": "val"})
-        self.assertEqual(fd["analysis"], {})
-        self.assertEqual(fd["prediction"], {})
-        self.assertEqual(fd["conclusion"], {})
+        self.assertEqual(fd["data"],  {"key": "val"})
+        # analysis/prediction/conclusion must NOT be inside the widget
+        self.assertNotIn("analysis",   fd)
+        self.assertNotIn("prediction", fd)
+        self.assertNotIn("conclusion", fd)
 
     def test_multi_independent_preserves_sections(self):
         # Verify multi_independent tables preserve section boundaries (Issue 1)
@@ -162,17 +170,18 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertIn("nested_info_Sport", fd_table["data"]["rows"][0])
         self.assertIn("nested_info_Detail_Level", fd_table["data"]["rows"][0])
         
-        # 2. BAR_CHART widget -> deep flatten should NOT happen
+        # 2. BAR_CHART widget -> deep flatten should NOT happen; new schema uses series
         fd_bar = build_formatted_data(
             combined,
             query_type="simple",
             intent={"category": "Performance", "subcategory": "Top"},
-            visualization_intent={"requested_widget_type": "CHART_BAR", "frontend_override": True}
+            visualization_intent={"requested_widget_type": "BAR_CHART", "frontend_override": True}
         )
-        # Check that original unflattened records are extracted
-        # Since it is a bar chart, it maps xKey and yKey, and rows should be returned
-        # and not have flattened keys
-        self.assertNotIn("Nested_info_Sport", fd_bar["data"]["rows"][0])
+        # New BAR_CHART schema has series, not rows
+        self.assertIn("series", fd_bar["data"])
+        # Flattened nested keys should NOT appear as x values in the series data
+        x_values = [pt.get("x", "") for pt in fd_bar["data"]["series"][0]["data"]]
+        self.assertFalse(any("nested_info_Sport" in str(x) for x in x_values))
 
     def test_preserve_dotnet_keys(self):
         # Verify unknown keys pass through to data_payload (Issue 6)

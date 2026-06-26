@@ -2,7 +2,7 @@ import unittest
 
 from intent_engine.query_planner import QueryType, plan_query
 from response_builder import build_response
-from result_combiner import compare_results, process_distribution, process_trend
+from result_combiner import compare_datasets as compare_results, process_distribution, process_trend
 from widget_engine import build_formatted_data
 
 
@@ -108,21 +108,21 @@ class TestArchitecturalFixes(unittest.TestCase):
         )
         self.assertEqual(fd_compare["type"], "AREA_CHART")
 
-        # 4. Trend -> CHART_LINE
+        # 4. Trend -> LINE_CHART
         fd_trend = build_formatted_data(
             {"sections": [{"label": "Result", "data": [{"date": "2026-06-20"}]}]},
             query_type="trend",
             intent={},
         )
-        self.assertEqual(fd_trend["type"], "CHART_LINE")
+        self.assertEqual(fd_trend["type"], "LINE_CHART")
 
-        # 5. Distribution -> CHART_PIE
+        # 5. Distribution -> PIE_CHART
         fd_dist = build_formatted_data(
             {"sections": [{"label": "Result", "data": [{"sport": "Cricket"}]}]},
             query_type="distribution",
             intent={},
         )
-        self.assertEqual(fd_dist["type"], "CHART_PIE")
+        self.assertEqual(fd_dist["type"], "PIE_CHART")
 
 
 if __name__ == "__main__":

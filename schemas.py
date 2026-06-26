@@ -303,9 +303,12 @@ class FinalResponse(BaseModel):
     status: bool
     message: str
     formattedData: List[Dict[str, Any]] = Field(default_factory=list)
-    # analysis/prediction/conclusion live inside each formattedData widget
+    # Root-level narrative — plain strings, never injected into individual widgets
+    analysis:   str = ""
+    prediction: str = ""
+    conclusion: str = ""
     suggestedQuestions: List[str] = Field(default_factory=list)
-    dotnetPayload: Any = Field(default_factory=dict)
+    dotnetPayload: Any = Field(default_factory=dict)  # internal only — stripped by public_response_view
     metadata: Dict[str, Any] = Field(default_factory=dict)
     overallConfidence: float = 0.0
     partialFailure: bool = False

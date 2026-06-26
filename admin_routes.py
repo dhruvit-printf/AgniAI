@@ -127,20 +127,18 @@ def admin_chat():
         return jsonify({
             "status": False,
             "message": error_msg,
-            "formattedData": [
-                {
-                    "id": "error_widget",
-                    "type": "MESSAGE",
-                    "title": "Error",
-                    "data": {"text": error_msg},
-                    "analysis": {},
-                    "prediction": {},
-                    "conclusion": {},
-                }
-            ],
+            "formattedData": [],
+            "analysis": "",
+            "prediction": "",
+            "conclusion": "",
             "suggestedQuestions": [],
-            "dotnetPayload": {},
-            "metadata": {"traceId": trace_id, "queryType": "error"},
+            "metadata": {
+                "sessionId": session_id,
+                "confidence": 0.0,
+                "queryType": "error",
+                "operationCount": 0,
+                "executionTimeMs": 0.0,
+            },
         }), 200
 
     # ── Successful query / greeting / conversational ────────────────────────

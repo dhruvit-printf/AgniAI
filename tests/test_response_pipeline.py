@@ -187,9 +187,6 @@ class TestResponseBuilder(unittest.TestCase):
                 "type": "TABLE",
                 "title": "Top Performers",
                 "data": {"columns": [], "rows": []},
-                "analysis": {"summary": "Sum"},
-                "prediction": {"trend": "Stable"},
-                "conclusion": {"summary": "Conc"},
             },
             metadata={
                 "sessionId": "admin-default",
@@ -198,20 +195,26 @@ class TestResponseBuilder(unittest.TestCase):
                 "operationCount": 1,
             },
             session_id="admin-default",
+            analysis={"summary": "Sum"},
+            prediction={"projection": "Stable"},
+            conclusion={"summary": "Conc"},
             suggested_questions=[],
             dotnet_payload={},
         )
 
         public = public_response_view(internal)
 
+        # New contract keys — no dotnetPayload, analysis/prediction/conclusion at root
         self.assertEqual(
             set(public.keys()),
             {
                 "status",
                 "message",
                 "formattedData",
+                "analysis",
+                "prediction",
+                "conclusion",
                 "suggestedQuestions",
-                "dotnetPayload",
                 "metadata",
             },
         )
@@ -219,25 +222,34 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("intent", public)
         self.assertNotIn("answer", public)
         self.assertNotIn("sessionId", public)
+        self.assertNotIn("dotnetPayload", public)
         self.assertEqual(public["message"], "Intro")
 
-        # Verify metadata filtering
+        # Root-level narrative strings
+        self.assertIsInstance(public["analysis"],   str)
+        self.assertIsInstance(public["prediction"], str)
+        self.assertIsInstance(public["conclusion"], str)
+
+        # Flat metadata — no nested "metrics" object
         metadata = public["metadata"]
         self.assertNotIn("requestId", metadata)
         self.assertNotIn("traceId", metadata)
         self.assertNotIn("timings", metadata)
-        self.assertIn("metrics", metadata)
-        self.assertEqual(metadata["metrics"]["confidence"], 0.95)
+        self.assertNotIn("metrics", metadata)
+        self.assertEqual(metadata["confidence"], 0.95)
+        self.assertEqual(metadata["sessionId"], "admin-default")
+
+        # formattedData widgets only have type/title/data
         self.assertIsInstance(public["formattedData"], list)
         self.assertTrue(len(public["formattedData"]) > 0)
         first_widget = public["formattedData"][0]
-        self.assertIn("analysis", first_widget)
-        self.assertIn("prediction", first_widget)
-        self.assertIn("conclusion", first_widget)
-        self.assertNotIn("answer", first_widget)
+        self.assertNotIn("id",         first_widget)
+        self.assertNotIn("analysis",   first_widget)
+        self.assertNotIn("prediction", first_widget)
+        self.assertNotIn("conclusion", first_widget)
+        self.assertNotIn("answer",       first_widget)
         self.assertNotIn("introMessage", first_widget)
-        self.assertNotIn("message", first_widget)
-        self.assertEqual(metadata["sessionId"], "admin-default")
+        self.assertNotIn("message",      first_widget)
         self.assertEqual(public["message"], internal["message"])
 
         if isinstance(first_widget.get("data"), dict) and "rows" in first_widget["data"]:

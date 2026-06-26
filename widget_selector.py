@@ -33,12 +33,12 @@ def _title(category: str, operation: str = "") -> str:
 def _canonical(wt: str) -> str:
     """Normalise alias widget types to canonical constants."""
     _ALIASES: Dict[str, str] = {
-        "BAR_CHART":   "CHART_BAR",
-        "LINE_CHART":  "CHART_LINE",
-        "PIE_CHART":   "CHART_PIE",
-        "AREA_CHART":  "CHART_LINE",   # area → line in current renderer
-        "DONUT_CHART": "CHART_PIE",    # donut → pie
-        "RADIAL_CHART":"CHART_PIE",    # radial → pie
+        "CHART_BAR":    "BAR_CHART",   # legacy alias
+        "CHART_LINE":   "LINE_CHART",  # legacy alias
+        "CHART_PIE":    "PIE_CHART",   # legacy alias
+        "AREA_CHART":   "AREA_CHART",
+        "DONUT_CHART":  "DONUT_CHART",
+        "RADIAL_CHART": "RADIAL_CHART",
     }
     return _ALIASES.get((wt or "").upper(), (wt or "TABLE").upper())
 
@@ -48,7 +48,7 @@ def _canonical(wt: str) -> str:
 @dataclass
 class WidgetSpec:
     """Blueprint for one widget.  No data — only build instructions."""
-    widget_type:    str   # "TABLE" | "CARD" | "CHART_BAR" | "CHART_LINE" | "CHART_PIE"
+    widget_type:    str   # "TABLE" | "CARD" | "BAR_CHART" | "LINE_CHART" | "AREA_CHART" | "PIE_CHART" | "DONUT_CHART" | "RADIAL_CHART"
     widget_id:      str   # Deterministic, unique within this response
     title:          str   # Human-readable title rendered on the widget
     source_hint:    str = "primary"   # "primary"|"summary"|"left"|"right"|"section"
@@ -140,7 +140,8 @@ class WidgetSelector:
             specs.append(WidgetSpec("CARD", f"{cat_slug}_summary", f"{category} Summary", "summary"))
 
         pwt = _canonical(primary_wt)
-        if pwt in ("CHART_BAR", "CHART_LINE", "CHART_PIE"):
+        if pwt in ("BAR_CHART", "LINE_CHART", "AREA_CHART", "PIE_CHART", "DONUT_CHART",
+                   "RADIAL_CHART", "CHART_BAR", "CHART_LINE", "CHART_PIE"):
             suffix = pwt.lower().replace("chart_", "")
             cid = f"{cat_slug}_{op_slug}_{suffix}" if op_slug else f"{cat_slug}_{suffix}"
             specs.append(WidgetSpec(pwt, cid, title, "primary"))
@@ -164,7 +165,7 @@ class WidgetSelector:
                 right_label = right.get("label") or "Side 2"
         return [
             WidgetSpec("CARD",      "comparison_summary",           "Comparison Summary",   "summary"),
-            WidgetSpec("CHART_BAR", "comparison_bar",               "Comparison Overview",  "primary"),
+            WidgetSpec("BAR_CHART", "comparison_bar",                "Comparison Overview",  "primary"),
             WidgetSpec("TABLE",     f"{_slug(left_label)}_table",   left_label,             "left"),
             WidgetSpec("TABLE",     f"{_slug(right_label)}_table",  right_label,            "right"),
         ]
@@ -198,7 +199,7 @@ class WidgetSelector:
     ) -> List[WidgetSpec]:
         return [
             WidgetSpec("CARD",       f"{cat_slug}_summary",  f"{category} Summary",          "summary"),
-            WidgetSpec("CHART_LINE", f"{cat_slug}_trend",    _title(category, operation),    "primary"),
+            WidgetSpec("LINE_CHART", f"{cat_slug}_trend",     _title(category, operation),    "primary"),
             WidgetSpec("TABLE",      f"{cat_slug}_records",  f"{category} Records",          "primary"),
         ]
 
@@ -207,6 +208,6 @@ class WidgetSelector:
     ) -> List[WidgetSpec]:
         return [
             WidgetSpec("CARD",      f"{cat_slug}_summary",       f"{category} Summary",          "summary"),
-            WidgetSpec("CHART_PIE", f"{cat_slug}_distribution",  _title(category, operation),    "primary"),
+            WidgetSpec("PIE_CHART", f"{cat_slug}_distribution",   _title(category, operation),    "primary"),
             WidgetSpec("TABLE",     f"{cat_slug}_records",       f"{category} Records",          "primary"),
         ]
