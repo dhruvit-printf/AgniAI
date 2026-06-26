@@ -386,3 +386,8 @@ def combine_results(
     else:
         logger.info("result_combiner: simple passthrough")
         return raw_results[0] if raw_results else {}
+
+
+# Backward-compatibility aliases (old names used by some tests)
+intersect_results = cross_filter_datasets
+compare_results   = compare_datasets

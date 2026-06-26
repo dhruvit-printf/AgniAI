@@ -402,17 +402,30 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         # Verify that response_payload contains the record John Doe
-        rows = response_payload["formattedData"][0]["data"]["rows"]
+        # formattedData is multi-widget; find the TABLE widget
+        table_widget = next(
+            (w for w in response_payload["formattedData"] if w["type"] == "TABLE"), None
+        )
+        self.assertIsNotNone(table_widget, "TABLE widget not found")
+        rows = table_widget["data"]["rows"]
         found_john = any(row.get("fullName") == "John Doe" or row.get("FullName") == "John Doe" for row in rows)
         self.assertTrue(found_john)
 
-    @patch("report_generator._call_ollama")
-    def test_generate_report_is_honest_without_padding_filler(self, mock_call_ollama):
-        # 1. Test when LLM returns short intro/conclusion.
-        mock_call_ollama.return_value = (
-            '{"message": "Short intro.", "analysis": {"summary": "A summary", '
-            '"observations": [], "insights": [], "predictions": []}, "conclusion": "Short conclusion."}'
-        )
+    @patch("report_generator.generate_analysis")
+    @patch("report_generator.generate_predictions")
+    @patch("report_generator.generate_conclusion")
+    def test_generate_report_is_honest_without_padding_filler(
+        self, mock_conclusion, mock_predictions, mock_analysis
+    ):
+        mock_analysis.return_value = {
+            "summary": "A summary", "observations": [], "insights": [], "predictions": []
+        }
+        mock_predictions.return_value = {
+            "trend": "Stable", "projection": "Stable projection",
+            "heuristicEstimate": "Est", "shortTerm": "stable", "futureTrends": []
+        }
+        mock_conclusion.return_value = {"summary": "Short conclusion.", "bullets": []}
+
         combined = {
             "queryType": "cross_filter",
             "records": [{"agniveerNo": "1"}, {"agniveerNo": "2"}],
@@ -420,24 +433,19 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         intent = {"category": "Performance"}
         report = generate_report(combined, "cross_filter", intent, "query")
 
-        self.assertNotIn(
-            "Additional details are saved in the system logs",
-            report["message"],
-        )
+        self.assertNotIn("Additional details are saved in the system logs", report["message"])
         self.assertNotIn(
             "Additional details are saved in the system logs",
             report["conclusion"]["summary"],
         )
-        self.assertEqual(report["message"], "Short intro.")
         self.assertEqual(report["conclusion"]["summary"], "Short conclusion.")
 
-        # 2. Test when LLM fails (fallback path)
-        mock_call_ollama.return_value = None
+        # 2. Test when all sub-engines fail (fallback path)
+        mock_analysis.side_effect = Exception("Ollama down")
+        mock_predictions.side_effect = Exception("Ollama down")
+        mock_conclusion.side_effect = Exception("Ollama down")
         report_fallback = generate_report(combined, "cross_filter", intent, "query")
-        self.assertNotIn(
-            "Additional details are saved in the system logs",
-            report_fallback["message"],
-        )
+        self.assertNotIn("Additional details are saved in the system logs", report_fallback["message"])
         self.assertNotIn(
             "Additional details are saved in the system logs",
             report_fallback["conclusion"]["summary"],

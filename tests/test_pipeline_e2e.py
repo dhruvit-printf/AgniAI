@@ -178,7 +178,12 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(response_payload["metadata"]["queryType"], "cross_filter")
 
         # Verify intersection result (only AMIT KUMAR matches all three sets)
-        rows = response_payload["formattedData"][0]["data"]["rows"]
+        # formattedData is multi-widget; find the TABLE widget for row inspection
+        table_widget = next(
+            (w for w in response_payload["formattedData"] if w["type"] == "TABLE"), None
+        )
+        self.assertIsNotNone(table_widget, "TABLE widget not found in formattedData")
+        rows = table_widget["data"]["rows"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["fullName"], "AMIT KUMAR")    # camelCase after normalisation
         self.assertEqual(rows[0]["agniveerNo"], "A01")          # camelCase after normalisation
