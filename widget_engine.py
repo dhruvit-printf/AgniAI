@@ -182,20 +182,6 @@ def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _extract_records(combined_result: Any, deep_flatten: bool = False) -> List[Dict[str, Any]]:
-    if isinstance(combined_result, dict):
-        if "sections" in combined_result and isinstance(combined_result["sections"], list):
-            records = []
-            for sec in combined_result["sections"]:
-                if isinstance(sec, dict) and "data" in sec:
-                    data_val = sec["data"]
-                    if isinstance(data_val, list):
-                        records.extend([r for r in data_val if isinstance(r, dict)])
-            if records:
-                return flatten_records(records, deep_flatten=deep_flatten)
-        if "records" in combined_result and isinstance(combined_result["records"], list):
-            return flatten_records([r for r in combined_result["records"] if isinstance(r, dict)], deep_flatten=deep_flatten)
-    elif isinstance(combined_result, list):
-        return flatten_records([r for r in combined_result if isinstance(r, dict)], deep_flatten=deep_flatten)
     return flatten_records(_orig_extract_records(combined_result), deep_flatten=deep_flatten)
 
 from schemas import (
@@ -575,18 +561,17 @@ def infer_supported_type(
 ) -> str:
     """
     Resolve the widget type using priority order:
-      1. visualization_intent["requested_widget_type"]  — frontend override
-      2. visualization_intent presentation/chart_type hints (non-override path)
-      3. WIDGET_MAP[(category, operation)]
-      4. query_type heuristic
-      5. Record-count heuristic (1 record → CARD)
-      6. TABLE
+      1. Explicit frontend override in visualization_intent
+      2. WIDGET_MAP[(category, operation/subcategory)]
+      3. Soft presentation/chart_type hints
+      4. query_type heuristics (compare/trend/distribution)
+      5. Record count heuristics (1 record -> CARD unless responseType is Detail)
+      6. Fallback TABLE
     """
     qtype = (query_type or "").strip().lower()
 
+    # ── Priority 1: Explicit frontend override ──
     if isinstance(visualization_intent, dict):
-        # ── Priority 1: explicit frontend override ───────────────────────────
-        # Honour this when user chose a different widget type or requested it.
         if visualization_intent.get("frontend_override") or visualization_intent.get("requested_widget_type") or visualization_intent.get("widget_type"):
             raw_requested = (
                 visualization_intent.get("requested_widget_type")
@@ -596,8 +581,19 @@ def infer_supported_type(
             if normalized:
                 return normalized
 
-        # ── Priority 2: presentation/chart_type hints (non-override) ────────
-        # These are soft hints — they lose to WIDGET_MAP if a map entry exists.
+    # ── Priority 3: WIDGET_MAP ──
+    category   = (intent.get("category")   or "").strip()
+    subcategory = (intent.get("subcategory") or "").strip()
+    operation   = (intent.get("operation")   or "").strip()
+
+    default_widget = _default_widget_type_for_intent(category, subcategory, query_type)
+    if not default_widget and operation:
+        default_widget = _default_widget_type_for_intent(category, operation, query_type)
+    if default_widget:
+        return default_widget
+
+    # ── Priority 2: Presentation/chart_type hints (non-override soft hints) ──
+    if isinstance(visualization_intent, dict):
         presentation = (visualization_intent.get("presentation") or "").strip().lower()
         chart_type   = (visualization_intent.get("chart_type")   or "").strip().lower()
 
@@ -618,24 +614,24 @@ def infer_supported_type(
                 return "DONUT_CHART"
             if chart_type == "radial":
                 return "RADIAL_CHART"
-            # generic "chart" hint without chart_type — fall through to map
 
-    # ── Priority 3: WIDGET_MAP ───────────────────────────────────────────────
-    # Use subcategory first because `operation` holds query mechanics
-    # ("ranking", "filter") which have no map entries, while subcategory
-    # holds the semantic command name ("TopPerformers", "BMIAnalysis", etc.).
-    category   = (intent.get("category")   or "").strip()
-    subcategory = (intent.get("subcategory") or "").strip()
-    operation   = (intent.get("operation")   or "").strip()
+    # ── Priority 4: query_type heuristic ──
+    if qtype in ("compare", "comparison"):
+        return "AREA_CHART"
+    if qtype == "trend":
+        return "LINE_CHART"
+    if qtype == "distribution":
+        return "PIE_CHART"
+    if qtype == "cross_filter":
+        return "TABLE"
 
-    # Try subcategory first, then fall back to operation
-    default_widget = _default_widget_type_for_intent(category, subcategory, query_type)
-    if not default_widget and operation:
-        default_widget = _default_widget_type_for_intent(category, operation, query_type)
-    if default_widget:
-        return default_widget
+    # ── Priority 5: Record-count heuristic ──
+    records = _extract_records(combined_result, deep_flatten=False)
+    has_sections = isinstance(combined_result, dict) and "sections" in combined_result
+    if len(records) == 1 and intent.get("responseType") != "Detail" and not has_sections:
+        return "CARD"
 
-    # ── Priority 4 / 5: record count / fallback ────────────────────────────
+    # ── Priority 6: Fallback ──
     return "TABLE"
 
 
@@ -1097,6 +1093,31 @@ def build_formatted_data(
             if k not in data_payload:
                 data_payload[k] = v
 
+    # Fallback to TABLE if invalid chart fields are detected (FIX 30)
+    is_invalid_chart = False
+    if inferred_type in ("BAR_CHART", "LINE_CHART", "AREA_CHART", "PIE_CHART", "DONUT_CHART"):
+        if "left" in data_payload and "right" in data_payload:
+            pass
+        elif "sections" in data_payload:
+            pass
+        else:
+            series = data_payload.get("series")
+            if not series or not isinstance(series, list):
+                is_invalid_chart = True
+            else:
+                for s in series:
+                    if not isinstance(s, dict) or not s.get("data"):
+                        is_invalid_chart = True
+                        break
+    elif inferred_type == "RADIAL_CHART":
+        if data_payload.get("value") is None:
+            is_invalid_chart = True
+
+    if is_invalid_chart:
+        inferred_type = "TABLE"
+        table_records = _extract_records(source_result, deep_flatten=True)
+        data_payload = build_table_data(table_records)
+
     validate_payload(inferred_type, data_payload)
     
     fd = FormattedData(
@@ -1305,7 +1326,7 @@ def build_widget_list(
                 for k, v in combined_result.items():
                     if k not in ("records", "data", "sections", "columns", "rows") and k not in data:
                         data[k] = v
-                if "rows" not in data:
+                if spec.widget_type == "TABLE" and "rows" not in data:
                     flat = _extract_records(combined_result, deep_flatten=True)
                     table_data = build_table_data(flat)
                     data["rows"] = table_data.get("rows") or []

@@ -115,85 +115,6 @@ def _extract_number(text: str) -> Optional[int]:
     return int(match.group(1)) if match else None
 
 
-def _extract_dates(text: str) -> Optional[str]:
-    # First check relative date phrases
-    for phrase, canonical in RELATIVE_DATE_PHRASES.items():
-        if phrase in text.lower():
-            return canonical
-
-    patterns = (
-        r"\b(\d{4}-\d{2}-\d{2})\b",
-        r"\b(\d{2}/\d{2}/\d{4})\b",
-        r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})\b",
-        r"\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4})\b",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(1)
-    return None
-
-
-def _extract_entities(text: str) -> Dict[str, Any]:
-    entities: Dict[str, Any] = {}
-    section = _extract_section(text)
-    if section:
-        entities["section"] = section
-
-    grading = _extract_grading(text)
-    if grading:
-        entities["grading"] = grading
-
-    bmi_category = _extract_bmi_category(text)
-    if bmi_category:
-        entities["bmi_category"] = bmi_category
-
-    blood_group = _extract_blood_group(text)
-    if blood_group:
-        entities["blood_group"] = blood_group
-
-    date = _extract_dates(text)
-    if date:
-        entities["date"] = date
-
-    number = _extract_number(text)
-    if number is not None:
-        entities["number"] = number
-
-    if re.search(r"\bplatoon\s+(\d+)\b", text):
-        entities["platoon_id"] = int(re.search(r"\bplatoon\s+(\d+)\b", text).group(1))  # type: ignore[union-attr]
-    if re.search(r"\bcompany\s+(\d+)\b", text):
-        entities["company_id"] = int(re.search(r"\bcompany\s+(\d+)\b", text).group(1))  # type: ignore[union-attr]
-    if re.search(r"\bbatch\s+(\d+)\b", text):
-        entities["batch_id"] = int(re.search(r"\bbatch\s+(\d+)\b", text).group(1))  # type: ignore[union-attr]
-
-    if re.search(r"\bcurrent(?:ly)?\s+on\s+leave\b", text) or re.search(r"\bon\s+leave\b", text):
-        entities["leave_type"] = "Current"
-    if re.search(r"\babsent\b", text) and not re.search(r"\babsconded\b", text):
-        # "absent" alone means currently absent (Current leave status).
-        # "absconded" is a separate operation — do not set leave_type=Current for it.
-        entities["leave_type"] = entities.get("leave_type") or "Current"
-    if re.search(r"\babsconded\b", text):
-        # "absconded" is explicitly an AbscondedPerson operation, not a Current leave.
-        entities["leave_type"] = "Absconded"
-
-    sport_match = re.search(r"\b(cricket|football|kabaddi|running|shooting|boxing|hockey)\b", text)
-    if sport_match:
-        entities["sport"] = sport_match.group(1).title()
-
-    class_match = re.search(r"\bclass\s+([a-z0-9]+)\b", text, re.IGNORECASE)
-    if class_match:
-        entities["class"] = class_match.group(1).title()
-
-    unit_match = re.search(r"\b([a-z][a-z0-9]*)\s+unit\b", text, re.IGNORECASE)
-    if unit_match:
-        entities["unit_name"] = f"{unit_match.group(1).title()} Unit"
-
-    if re.search(r"\b(?:bpet|ppt|firing|drill)\b", text):
-        entities["section"] = entities.get("section") or _extract_section(text)
-
-    return entities
-
 
 def _has_phrase(text: str, phrase: str) -> bool:
     return phrase in text
@@ -429,7 +350,8 @@ def understand_query(query: str) -> Dict[str, Any]:
         )
         return result.to_dict()
 
-    entities = _extract_entities(text)
+    from intent_engine.entity_extractor import extract_entities
+    entities = extract_entities(text, semantic={})
     section = entities.get("section")
     category = _infer_category(text, entities)
     operation = _infer_operation(text, entities)
@@ -445,7 +367,8 @@ def understand_query(query: str) -> Dict[str, Any]:
         if len(clause_parts) >= 2:
             clause_categories = []
             for part in clause_parts:
-                clause_entities = _extract_entities(part)
+                from intent_engine.entity_extractor import extract_entities
+                clause_entities = extract_entities(part, semantic={})
                 clause_categories.append(_infer_category(part, clause_entities))
             if len({cat for cat in clause_categories if cat}) >= 2:
                 multi_intent = True

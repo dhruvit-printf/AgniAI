@@ -236,7 +236,15 @@ def _call_dotnet(
 
             # Success
             if resp.status_code < 400:
-                response_body = resp.json()
+                text_content = (resp.text or "").strip()
+                if not text_content or text_content == "null":
+                    response_body = {
+                        "success": True,
+                        "data": [],
+                        "message": "No data returned.",
+                    }
+                else:
+                    response_body = resp.json()
                 records = _extract_records(response_body)
                 logger.info(
                     {

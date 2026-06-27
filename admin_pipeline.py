@@ -34,6 +34,7 @@ from admin_entity_resolver import resolve_entities_from_query
 from intent_engine.admin_intent import (
     classify_admin_intent,
     format_admin_payload,
+    PayloadValidationError,
 )
 from query_normalizer import admin_normalize_query, clean_query
 from audit_logger import write_audit_log
@@ -92,12 +93,25 @@ _session_context = AdminSessionContext()
 # =============================================================================
 
 
-def ensure_agniveer_no_in_data(data: Any) -> None:
-    """Ensure top-level records in data contain agniveerNo if agniveerId is present.
-    
-    Only mutates records directly in the data array or at top level of a dict,
-    not recursively into nested structures.
+def ensure_agniveer_no_in_data(
+    data: Any,
+    max_depth: int = 10,
+    visited: Optional[set] = None,
+) -> None:
+    """Ensure all nested records in data contain agniveerNo if agniveerId is present.
+
+    Prevents infinite recursion on circular structures using a visited set and a max_depth limit.
     """
+    if max_depth <= 0:
+        return
+    if visited is None:
+        visited = set()
+
+    data_id = id(data)
+    if data_id in visited:
+        return
+    visited.add(data_id)
+
     if isinstance(data, list):
         for item in data:
             if isinstance(item, dict):
@@ -108,27 +122,19 @@ def ensure_agniveer_no_in_data(data: Any) -> None:
                         break
                 if "agniveerNo" not in item and id_val is not None:
                     item["agniveerNo"] = str(id_val)
+            ensure_agniveer_no_in_data(item, max_depth - 1, visited)
+
     elif isinstance(data, dict):
-        if "data" in data and isinstance(data["data"], list):
-            for item in data["data"]:
-                if isinstance(item, dict):
-                    id_val = None
-                    for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-                        if key in item and item[key] is not None:
-                            id_val = item[key]
-                            break
-                    if "agniveerNo" not in item and id_val is not None:
-                        item["agniveerNo"] = str(id_val)
-        elif "records" in data and isinstance(data["records"], list):
-            for item in data["records"]:
-                if isinstance(item, dict):
-                    id_val = None
-                    for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-                        if key in item and item[key] is not None:
-                            id_val = item[key]
-                            break
-                    if "agniveerNo" not in item and id_val is not None:
-                        item["agniveerNo"] = str(id_val)
+        id_val = None
+        for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+            if key in data and data[key] is not None:
+                id_val = data[key]
+                break
+        if "agniveerNo" not in data and id_val is not None:
+            data["agniveerNo"] = str(id_val)
+
+        for value in data.values():
+            ensure_agniveer_no_in_data(value, max_depth - 1, visited)
 
 
 def map_query_type(qt: QueryType) -> str:
@@ -624,9 +630,7 @@ def _build_conversational_response(
         time_greeting = "Good Evening"
 
     try:
-        import requests as _req
-
-        from config import DEFAULT_MODEL, OLLAMA_URL
+        from config import DEFAULT_MODEL, OLLAMA_URL, ollama_session
 
         prompt = (
             f"You are AgniAI Command Console — an intelligent admin assistant that helps "
@@ -643,7 +647,7 @@ def _build_conversational_response(
             "stream": False,
             "options": {"temperature": 0.7, "num_predict": 80, "num_ctx": 512},
         }
-        resp = _req.post(OLLAMA_URL, json=payload, timeout=(3, 10))
+        resp = ollama_session.post(OLLAMA_URL, json=payload, timeout=(3, 10))
         resp.raise_for_status()
         llm_reply = (
             resp.json().get("message", {}).get("content", "").strip().strip("\"'")
@@ -1029,7 +1033,20 @@ def execute_admin_query(
                             ]
                             results = [f.result() for f in futures]
                     except BaseException as exc:
+                        import traceback as _tb
                         total_duration = time.time() - start_time
+                        logger.error(
+                            json.dumps(
+                                {
+                                    "message": "Backend thread execution failed",
+                                    "trace_id": trace_id,
+                                    "session_id": session_id,
+                                    "query_type": qtype_str,
+                                    "exception": str(exc),
+                                    "traceback": _tb.format_exc(),
+                                }
+                            )
+                        )
                         metrics_collector.inc_errors(qtype_str)
                         metrics_collector.record_duration(
                             "pipeline_duration", round(total_duration * 1000, 2)
@@ -1044,6 +1061,7 @@ def execute_admin_query(
                         )
                         return {
                             "type": "error",
+                            "error_type": "thread_exception",
                             "error_message": "Backend thread execution failed.",
                         }
 
@@ -1077,7 +1095,7 @@ def execute_admin_query(
                         )
                         return {
                             "type": "error",
-                            "error_message": "Backend service unavailable.",
+                            "error_message": "Failed to process request.",
                         }
 
                     # CROSS_FILTER primary failure check
@@ -1166,6 +1184,7 @@ def execute_admin_query(
                         frontend_intent,
                         *(op.intent_result for op in query_plan.operations),
                     )
+                    primary_intent["operations"] = [op.intent_result for op in query_plan.operations]
                     primary_intent["filters"] = _merge_intents(
                         frontend_intent.get("filters", {}),
                         *(op.intent_result.get("filters", {}) for op in query_plan.operations),
@@ -1424,7 +1443,8 @@ def execute_admin_query(
 
                         return {
                             "type": "error",
-                            "error_message": "Backend service unavailable.",
+                            "error_type": "dotnet_error",
+                            "error_message": "Failed to process request.",
                         }
 
                     ensure_agniveer_no_in_data(dotnet_data)
@@ -1533,24 +1553,30 @@ def execute_admin_query(
                 ):
                     report = get_fallback_report(combined_result, qtype_str, primary_intent)
                     records = _extract_records(combined_result)
+                    pred_cat = str(primary_intent.get('category') or 'Agniveer').strip()
+                    if pred_cat.lower() in ("unclear", "unknown", "none"):
+                        pred_cat = "Agniveer"
+                    else:
+                        pred_cat = pred_cat[0].upper() + pred_cat[1:]
+
                     report["prediction"] = {
                         "trend": "Stable" if records else "Insufficient Data",
                         "projection": (
-                            f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
+                            f"Future {pred_cat} results should remain broadly stable unless the underlying records change."
                             if records
-                            else f"Future projection is unavailable because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
+                            else f"Future projection is unavailable because no {pred_cat} records were returned."
                         ),
                         "heuristicEstimate": (
-                            f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
+                            f"Future {pred_cat} results should remain broadly stable unless the underlying records change."
                             if records
-                            else f"Future projection is unavailable because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
+                            else f"Future projection is unavailable because no {pred_cat} records were returned."
                         ),
                         "shortTerm": "stable",
                         "futureTrends": [
                             (
-                                f"Future {str(primary_intent.get('category') or 'agniveer').lower()} results should remain broadly stable unless the underlying records change."
+                                f"Future {pred_cat} results should remain broadly stable unless the underlying records change."
                                 if records
-                                else f"No stable trend can be estimated because no {str(primary_intent.get('category') or 'agniveer').lower()} records were returned."
+                                else f"No stable trend can be estimated because no {pred_cat} records were returned."
                             )
                         ],
                     }
@@ -1824,7 +1850,7 @@ def execute_admin_query(
                 prediction=report.get("prediction"),
                 conclusion=report.get("conclusion"),
                 suggested_questions=suggested or [],
-                dotnet_payload=response_dotnet_payload if "response_dotnet_payload" in locals() else {},
+                dotnet_payload=response_dotnet_payload if "response_dotnet_payload" in locals() else [],
                 overall_confidence=query_plan.confidence,
                 partial_failure=partial_failure,
                 failed_sections=failed_sections,
@@ -1950,6 +1976,22 @@ def execute_admin_query(
             "execution_time_ms": execution_time_ms,
         }
 
+    except PayloadValidationError as exc:
+        total_duration = time.time() - start_time
+        error_intent = {"type": "error"}
+        set_audit_context(question=user_query, intent=error_intent)
+        metrics_collector.inc_requests("error")
+        metrics_collector.inc_errors("error")
+        metrics_collector.record_duration(
+            "pipeline_duration", round(total_duration * 1000, 2)
+        )
+        write_audit_log(question=user_query, intent=error_intent)
+        return {
+            "type": "error",
+            "error_type": "payload_validation",
+            "error_message": "; ".join(exc.errors),
+        }
+
     except Exception as exc:
         import traceback as _tb
         total_duration = time.time() - start_time
@@ -1993,6 +2035,7 @@ def execute_admin_query(
 
         return {
             "type": "error",
+            "error_type": "internal_error",
             "error_message": "Internal server error. Please try again or contact support.",
         }
     finally:

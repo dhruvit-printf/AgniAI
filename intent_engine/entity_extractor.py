@@ -436,77 +436,95 @@ def _extract_medical_status(query: str) -> Optional[str]:
     return None
 
 
+CANONICAL_ENTITY_KEYS = frozenset({
+    "batchId", "platoonId", "companyId", "agniveerNo", "section", "subSection",
+    "attemptNo", "fromAttempt", "toAttempt", "leaveType", "grading", "bmiCategory",
+    "bloodGroup", "equipmentName", "sport", "class", "unitName", "n", "date",
+    "fromDate", "toDate", "medicalStatus"
+})
+
+def assert_canonical_entity_keys(entities: Dict[str, Any]) -> None:
+    for key in entities.keys():
+        if key not in CANONICAL_ENTITY_KEYS:
+            raise KeyError(f"Non-canonical entity key found: '{key}'")
+
 def extract_entities(
     query: str,
     resolved_entities: Optional[Dict[str, Any]] = None,
+    semantic: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     raw_query = str(query or "").strip()
     resolved_entities = resolved_entities or {}
-    semantic = understand_query(raw_query)
+    if semantic is None:
+        from query_understanding_engine import understand_query
+        semantic = understand_query(raw_query)
 
     result: Dict[str, Any] = {
-        "batch_id": None,
-        "platoon_id": None,
-        "company_id": None,
-        "agniveer_no": None,
+        "batchId": None,
+        "platoonId": None,
+        "companyId": None,
+        "agniveerNo": None,
         "section": None,
-        "sub_section": None,
-        "attempt_no": None,
-        "from_attempt": None,
-        "to_attempt": None,
-        "leave_type": None,
+        "subSection": None,
+        "attemptNo": None,
+        "fromAttempt": None,
+        "toAttempt": None,
+        "leaveType": None,
         "grading": None,
-        "bmi_category": None,
-        "blood_group": None,
-        "equipment_name": None,
+        "bmiCategory": None,
+        "bloodGroup": None,
+        "equipmentName": None,
         "sport": None,
         "class": None,
-        "unit_name": None,
+        "unitName": None,
         "n": None,
         "date": None,
-        "from_date": None,
-        "to_date": None,
-        "medical_status": None,
+        "fromDate": None,
+        "toDate": None,
+        "medicalStatus": None,
     }
 
     result["n"] = _extract_number(raw_query)
     result["section"] = _extract_section(raw_query)
     if result["section"]:
-        result["sub_section"] = _extract_subsection(raw_query, result["section"])
+        result["subSection"] = _extract_subsection(raw_query, result["section"])
     result["grading"] = _extract_grading(raw_query)
-    result["leave_type"] = _extract_leave_type(raw_query)
-    result["bmi_category"] = _extract_bmi_category(raw_query)
-    result["blood_group"] = _extract_blood_group(raw_query)
+    result["leaveType"] = _extract_leave_type(raw_query)
+    result["bmiCategory"] = _extract_bmi_category(raw_query)
+    result["bloodGroup"] = _extract_blood_group(raw_query)
     result["sport"] = _extract_sport(raw_query)
     result["class"] = _extract_class(raw_query)
-    result["equipment_name"] = _extract_equipment_item(raw_query)
-    result["unit_name"] = _extract_unit_name(raw_query)
-    result["attempt_no"] = _extract_attempt_no(raw_query)
-    result["from_attempt"] = _extract_from_attempt(raw_query)
-    result["to_attempt"] = _extract_to_attempt(raw_query)
+    result["equipmentName"] = _extract_equipment_item(raw_query)
+    result["unitName"] = _extract_unit_name(raw_query)
+    result["attemptNo"] = _extract_attempt_no(raw_query)
+    result["fromAttempt"] = _extract_from_attempt(raw_query)
+    result["toAttempt"] = _extract_to_attempt(raw_query)
     result["date"] = _extract_date_patterns(raw_query)
-    result["from_date"], result["to_date"] = _extract_date_range(raw_query)
-    result["medical_status"] = _extract_medical_status(raw_query)
+    result["fromDate"], result["toDate"] = _extract_date_range(raw_query)
+    result["medicalStatus"] = _extract_medical_status(raw_query)
 
-    result["company_id"] = (
+    result["companyId"] = (
         resolved_entities.get("company_id")
         or resolved_entities.get("companyId")
         or semantic.get("company_id")
+        or semantic.get("companyId")
         or _extract_company_id(raw_query)
     )
-    result["platoon_id"] = (
+    result["platoonId"] = (
         resolved_entities.get("platoon_id")
         or resolved_entities.get("platoonId")
         or semantic.get("platoon_id")
+        or semantic.get("platoonId")
         or _extract_platoon_id(raw_query)
     )
-    result["batch_id"] = (
+    result["batchId"] = (
         resolved_entities.get("batch_id")
         or resolved_entities.get("batchId")
         or semantic.get("batch_id")
+        or semantic.get("batchId")
         or _extract_batch_id(raw_query)
     )
-    result["agniveer_no"] = (
+    result["agniveerNo"] = (
         resolved_entities.get("agniveer_no")
         or resolved_entities.get("agniveerNo")
         or _extract_agniveer_no(raw_query)

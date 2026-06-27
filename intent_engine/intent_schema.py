@@ -296,20 +296,20 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "equipment summary", "equipment inventory",
         ),
         "Issued": (
-            "issued items", "items issued", "kit issued", "what was issued",
+            "issued", "issue", "issued items", "items issued", "kit issued", "what was issued",
         ),
         "Procured": (
-            "procured items", "items procured", "self purchased",
+            "procured", "procure", "procured items", "items procured", "self purchased", "purchased",
         ),
         "Overdue": (
             "overdue", "late", "not returned", "equipment not returned",
             "pending equipment return",
         ),
         "Returned": (
-            "poor condition", "damaged", "bad condition", "broken",
+            "returned", "return", "poor condition", "damaged", "bad condition", "broken",
         ),
         "Holding": (
-            "holding", "who is holding", "equipment holding",
+            "holding", "holds", "who is holding", "equipment holding",
         ),
         "AgniveerWise": (
             "agniveer wise", "by agniveer", "equipment by agniveer",
@@ -636,22 +636,22 @@ VERIFICATION_STATUSES: Dict[str, str] = {
 
 # Which entity types are ALLOWED for each category
 CATEGORY_ENTITY_COMPATIBILITY: Dict[str, Set[str]] = {
-    "Performance": {"section", "subSection", "grading", "attemptNo", "fromAttempt", "toAttempt"},
-    "Leave": {"leaveType"},
-    "Medical": {"bmiCategory", "bloodGroup"},
-    "Attendance": {"date", "fromDate", "toDate"},
-    "Verification": set(),
-    "Equipment": {"equipmentName"},
-    "Distribution": set(),
-    "Skills": {"sport", "class"},
-    "Roster": {"sport", "class"},
-    "Strength": set(),
-    "Overall": set(),
-    "Schedule": {"date"},
+    "Performance": {"section", "subSection", "grading", "attemptNo", "fromAttempt", "toAttempt", "sport", "class"},
+    "Leave": {"leaveType", "sport", "class"},
+    "Medical": {"bmiCategory", "bloodGroup", "medicalStatus", "sport", "class"},
+    "Attendance": {"date", "fromDate", "toDate", "sport", "class"},
+    "Verification": {"sport", "class"},
+    "Equipment": {"equipmentName", "sport", "class"},
+    "Distribution": {"sport", "class"},
+    "Skills": {"sport", "class", "section", "subSection"},
+    "Roster": {"sport", "class", "section", "subSection"},
+    "Strength": {"sport", "class"},
+    "Overall": {"sport", "class"},
+    "Schedule": {"date", "sport", "class"},
 }
 
 # Common entities allowed in ALL categories
-COMMON_ENTITY_TYPES: Set[str] = {"companyId", "platoonId", "batchId", "agniveerNo", "unitName", "n"}
+COMMON_ENTITY_TYPES: Set[str] = {"companyId", "platoonId", "batchId", "agniveerNo", "unitName", "n", "date", "fromDate", "toDate"}
 
 CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
     "Performance": ("section", "grading", "attempt", "score", "marks"),
@@ -727,6 +727,19 @@ RANKING_CONTEXT_PHRASES: Tuple[str, ...] = (
     "most",
     "least",
 )
+
+NEGATIVE_REPORT_PHRASES: List[str] = [
+    "no matching data",
+    "empty dataset",
+    "no records available",
+    "zero active",
+    "no future trend projection",
+    "insufficient data",
+    "could not be completed",
+    "returned zero",
+    "returned 0 records",
+]
+
 
 # =============================================================================
 # FUZZY VOCABULARY (MISSPELLINGS)
@@ -1114,8 +1127,8 @@ def get_allowed_entities_for_category(category: str) -> Set[str]:
     return allowed
 
 
-def is_section_exceptional(section: str) -> bool:
-    """Check if a section is marked as exceptional."""
-    if section in SECTION:
-        return SECTION[section].get("isExceptional", False)
-    return False
+# def is_section_exceptional(section: str) -> bool:
+#     """Check if a section is marked as exceptional."""
+#     if section in SECTION:
+#         return SECTION[section].get("isExceptional", False)
+#     return False

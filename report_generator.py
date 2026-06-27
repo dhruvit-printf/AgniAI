@@ -16,6 +16,7 @@ from prediction_engine import generate_predictions
 from conclusion_engine import generate_conclusion
 from utils import extract_records as _extract_records
 from utils import get_score as _get_score
+from utils import has_any_data as _has_any_data
 
 logger = logging.getLogger(__name__)
 
@@ -26,59 +27,14 @@ def _log_stage(stage: str, duration_ms: float, **extra: Any) -> None:
     logger.info(event)
 
 
-def _extract_records_from_combined(data: Any) -> List[Dict]:
-    if isinstance(data, list):
-        return [r for r in data if isinstance(r, dict)]
-    if not isinstance(data, dict):
-        return []
-    for key in ("data", "Data", "result", "Result", "records", "Records", "persons", "personnel"):
-        val = data.get(key)
-        if isinstance(val, list) and val:
-            return [r for r in val if isinstance(r, dict)]
-    sections = data.get("sections") or []
-    if sections:
-        out = []
-        for sec in sections:
-            if isinstance(sec, dict):
-                out.extend([r for r in (sec.get("data") or []) if isinstance(r, dict)])
-        if out:
-            return out
-    left_data = (data.get("left") or {}).get("data") or []
-    right_data = (data.get("right") or {}).get("data") or []
-    if left_data or right_data:
-        return [r for r in (left_data + right_data) if isinstance(r, dict)]
-    return []
-
-
-_NEGATIVE_COPY_MARKERS = (
-    "no matching data",
-    "empty dataset",
-    "no records available",
-    "zero active",
-    "no future trend projection",
-    "insufficient data",
-    "could not be completed",
-    "returned zero",
-    "returned 0 records",
-)
+from intent_engine.intent_schema import NEGATIVE_REPORT_PHRASES
 
 
 def _has_negative_copy(text: Optional[str]) -> bool:
     if not text:
         return False
     lowered = text.lower()
-    return any(marker in lowered for marker in _NEGATIVE_COPY_MARKERS)
-
-
-def _has_any_data(result: Any, qtype: str) -> bool:
-    if qtype in ("compare", "comparison"):
-        left_data = result.get("left", {}).get("data") or [] if isinstance(result, dict) else []
-        right_data = result.get("right", {}).get("data") or [] if isinstance(result, dict) else []
-        return bool(left_data or right_data)
-    if qtype == "multi_independent":
-        sections = result.get("sections") or [] if isinstance(result, dict) else []
-        return any(sec.get("data") for sec in sections if isinstance(sec, dict))
-    return bool(_extract_records_from_combined(result) or _extract_records(result))
+    return any(marker in lowered for marker in NEGATIVE_REPORT_PHRASES)
 
 
 def _build_data_grounded_report(
@@ -86,9 +42,7 @@ def _build_data_grounded_report(
     query_type: str,
     intent: Dict[str, Any],
 ) -> Dict[str, Any]:
-    records = _extract_records_from_combined(combined_result)
-    if not records:
-        records = _extract_records(combined_result)
+    records = _extract_records(combined_result)
 
     category = intent.get("category") or "Agniveer"
     cnt = len(records)
@@ -254,10 +208,16 @@ def _build_data_grounded_report(
     if scores:
         insights.append("The score distribution is based on the actual returned values.")
 
-    if cnt > 0:
-        projection = f"Future {category.lower()} results should remain broadly stable unless the underlying records change."
+    pred_cat = category.strip() if category else "Agniveer"
+    if pred_cat.lower() in ("unclear", "unknown", "none"):
+        pred_cat = "Agniveer"
     else:
-        projection = f"A reliable prediction is not available because no {category.lower()} records were returned."
+        pred_cat = pred_cat[0].upper() + pred_cat[1:]
+
+    if cnt > 0:
+        projection = f"Future {pred_cat} results should remain broadly stable unless the underlying records change."
+    else:
+        projection = f"A reliable prediction is not available because no {pred_cat} records were returned."
 
     return {
         "message": message,
@@ -296,7 +256,7 @@ def get_fallback_report(
 ) -> Dict[str, Any]:
     category = intent.get("category") or "Agniveer"
     subcategory = intent.get("subcategory") or ""
-    records = _extract_records_from_combined(combined_result)
+    records = _extract_records(combined_result)
     cnt = len(records)
 
     if query_type == "cross_filter":
@@ -368,6 +328,8 @@ def get_fallback_report(
         "analysis": {"summary": summary, "observations": obs, "insights": insights, "predictions": []},
         "conclusion": {"summary": conclusion},
     }
+
+
 def generate_report(
     combined_result: Any,
     query_type: str,
@@ -378,9 +340,9 @@ def generate_report(
     """
     Generate the structured report elements by delegating to dedicated engines.
     """
-    from utils import extract_records
+    records = _extract_records(combined_result)
 
-    if not _has_any_data(combined_result, query_type):
+    if not _has_any_data(records):
         fallback = get_fallback_report(combined_result, query_type, intent)
         return {
             "message": "No matching records found.",
@@ -455,7 +417,6 @@ def generate_report(
     except Exception as exc:
         logger.warning("report_generator: message_engine failed: %s", exc)
         category = intent.get("category") or "Agniveer"
-        records = extract_records(combined_result)
         message = (analysis or {}).get("summary") or \
                   f"The {category.lower()} query returned {len(records)} records."
 

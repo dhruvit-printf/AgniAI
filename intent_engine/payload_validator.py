@@ -20,6 +20,12 @@ class ValidationError(Exception):
     pass
 
 
+class PayloadValidationError(Exception):
+    def __init__(self, errors: list[str]):
+        self.errors = errors
+        super().__init__(f"Payload validation failed: {errors}")
+
+
 def _get_non_null_entities(entities: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in entities.items() if v is not None}
 
@@ -43,23 +49,22 @@ def validate_payload(
     category: Optional[str],
     operation: Optional[str],
     entities: Dict[str, Any],
-) -> Dict[str, Any]:
+) -> Tuple[bool, List[str]]:
     errors: List[str] = []
     warnings: List[str] = []
 
     if not category:
-        warnings.append("No category detected")
-        return {"valid": False, "errors": errors, "warnings": warnings}
+        return True, []
 
     if not is_valid_category(category):
         errors.append(f"Category '{category}' is not in official list")
-        return {"valid": False, "errors": errors, "warnings": warnings}
+        return False, errors
 
     if not _validate_operation_for_category(category, operation):
         errors.append(f"Operation '{operation}' is not valid for category '{category}'")
 
     errors.extend(_validate_entities_for_category(category, entities))
-    return {"valid": len(errors) == 0, "errors": errors, "warnings": warnings}
+    return len(errors) == 0, errors
 
 
 def validate_payload_strict(
@@ -67,6 +72,6 @@ def validate_payload_strict(
     operation: Optional[str],
     entities: Dict[str, Any],
 ) -> None:
-    result = validate_payload(category, operation, entities)
-    if not result["valid"]:
-        raise ValidationError("; ".join(result["errors"]))
+    is_valid, errors = validate_payload(category, operation, entities)
+    if not is_valid:
+        raise PayloadValidationError(errors)

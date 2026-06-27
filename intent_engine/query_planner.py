@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .admin_intent import classify_admin_intent, format_admin_payload
 from query_understanding_engine import understand_query
+from utils import build_filters_from_entities
 
 logger = logging.getLogger(__name__)
 
@@ -612,42 +613,6 @@ def _extract_filtered_comparison_fragments(
     return None
 
 
-def _extract_filters_dict(intent: Dict[str, Any]) -> Dict[str, Any]:
-    filters = {}
-    mapping = {
-        "sport": "sport",
-        "class": "class",
-        "section": "section",
-        "sub_section": "subSection",
-        "attempt_no": "attemptNo",
-        "from_attempt": "fromAttempt",
-        "to_attempt": "toAttempt",
-        "leave_type": "leaveType",
-        "company_id": "companyId",
-        "platoon_id": "platoonId",
-        "batch_id": "batchId",
-        "date": "date",
-        "from_date": "fromDate",
-        "to_date": "toDate",
-        "agniveer_no": "agniveerNo",
-        "bmi_category": "bmiCategory",
-        "medical_status": "medicalStatus",
-        "number": "n",
-        "blood_group": "bloodGroup",
-        "item_name": "equipmentName",
-        "unit_name": "unitName",
-    }
-    for key, filter_name in mapping.items():
-        val = intent.get(key)
-        if val is not None:
-            filters[filter_name] = val
-
-    if intent.get("leave_type") == "Current":
-        filters["leaveStatus"] = "Current"
-
-    return filters
-
-
 def _build_sub_operation(
     fragment: str,
     group_by: Optional[str] = None,
@@ -664,10 +629,11 @@ def _build_sub_operation(
     )
 
 
-def plan_query(query: str) -> QueryPlan:
+def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPlan:
     raw_query = (query or "").strip()
     q = _normalise(raw_query)
-    semantic = understand_query(raw_query)
+    if semantic is None:
+        semantic = understand_query(raw_query)
 
     if not q:
         return QueryPlan(QueryType.SIMPLE, [], 0.0, raw_query, "Empty query")
@@ -704,7 +670,7 @@ def plan_query(query: str) -> QueryPlan:
         if len(valid_ops) >= 2:
             combined_filters = {}
             for op in valid_ops:
-                combined_filters.update(_extract_filters_dict(op.intent_result))
+                combined_filters.update(build_filters_from_entities(op.intent_result.get("filters", {})))
             return QueryPlan(
                 QueryType.COMPARE,
                 valid_ops,
@@ -721,7 +687,7 @@ def plan_query(query: str) -> QueryPlan:
             combined_filters = {}
             categories = {op.intent_result["category"] for op in valid_ops if op.intent_result.get("category")}
             for op in valid_ops:
-                combined_filters.update(_extract_filters_dict(op.intent_result))
+                combined_filters.update(build_filters_from_entities(op.intent_result.get("filters", {})))
             return QueryPlan(
                 QueryType.MULTI_INDEPENDENT,
                 valid_ops,
@@ -745,7 +711,7 @@ def plan_query(query: str) -> QueryPlan:
                     op.dotnet_payload = format_admin_payload(op.intent_result)
             combined_filters = {}
             for op in valid_ops:
-                combined_filters.update(_extract_filters_dict(op.intent_result))
+                combined_filters.update(build_filters_from_entities(op.intent_result.get("filters", {})))
             return QueryPlan(
                 QueryType.CROSS_FILTER,
                 valid_ops,
@@ -757,7 +723,7 @@ def plan_query(query: str) -> QueryPlan:
 
     if qtype == "trend":
         op = _build_sub_operation(q)
-        filters = _extract_filters_dict(op.intent_result)
+        filters = build_filters_from_entities(op.intent_result.get("filters", {}))
         return QueryPlan(
             QueryType.TREND,
             [op],
@@ -769,7 +735,7 @@ def plan_query(query: str) -> QueryPlan:
 
     if qtype == "distribution":
         op = _build_sub_operation(q)
-        filters = _extract_filters_dict(op.intent_result)
+        filters = build_filters_from_entities(op.intent_result.get("filters", {}))
         return QueryPlan(
             QueryType.DISTRIBUTION,
             [op],
@@ -780,7 +746,7 @@ def plan_query(query: str) -> QueryPlan:
         )
 
     op = _build_sub_operation(q)
-    filters = _extract_filters_dict(op.intent_result)
+    filters = build_filters_from_entities(op.intent_result.get("filters", {}))
     confidence = max(0.3, float(semantic.get("confidence") or 0.0))
     if semantic.get("operation") == "ranking" or semantic.get("query_type") == "ranking":
         return QueryPlan(

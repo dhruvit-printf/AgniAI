@@ -34,12 +34,14 @@ RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-
 USE_RERANKER = os.getenv("USE_RERANKER", "0") not in {"0", "false", "False"}
 
 # ── Ollama ─────────────────────────────────────────────────────────────────
+import requests as _requests
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/chat"
 OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", f"{OLLAMA_BASE_URL}/api/tags")
 
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b-instruct-q4_K_M")
 MODEL_MAX_CONTEXT_TOKENS = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+ollama_session = _requests.Session()
 
 FALLBACK_MODELS = [
     m.strip()

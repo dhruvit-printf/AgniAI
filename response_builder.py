@@ -65,9 +65,8 @@ def build_response(
 
     # Preserve dotnetPayload exactly as passed:
     #   - None   → no .NET query was executed (conversational / greeting)
-    #   - dict   → the exact payload sent to the .NET API
-    # Do NOT coerce None → {} or regenerate the payload from the response.
-    resolved_dotnet_payload = dotnet_payload  # preserved verbatim
+    #   - dict/list → the exact payload sent to the .NET API
+    resolved_dotnet_payload = dotnet_payload
 
     return {
         "status": True,
@@ -83,5 +82,5 @@ def build_response(
         "metadata": meta,
         "overallConfidence": round(float(overall_confidence or 0.0), 2),
         "partialFailure": bool(partial_failure),
-        "failedSections": failed_sections or [],
+        "failedSections": failed_sections if isinstance(failed_sections, list) else [],
     }

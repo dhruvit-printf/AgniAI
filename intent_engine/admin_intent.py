@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from .entity_extractor import extract_entities
+from .entity_extractor import extract_entities, assert_canonical_entity_keys
 from .intent_classifier import classify_intent
 from .intent_schema import (
     CATEGORY_OPERATION_TO_SUBCATEGORY,
@@ -24,7 +24,7 @@ from .intent_schema import (
     SUBCATEGORY_TO_OPERATION,
 )
 from .payload_builder import build_ai_command_request_dto
-from .payload_validator import validate_payload
+from .payload_validator import validate_payload, PayloadValidationError
 from query_normalizer import clean_query as _normalise
 from query_understanding_engine import understand_query
 
@@ -35,10 +35,10 @@ def _item_category(item_name: Optional[str]) -> Optional[str]:
     """Return 'IssuedItems' or 'ProcuredItems' for a known equipment item name."""
     if not item_name:
         return None
-    lowered = item_name.lower()
-    if any(item.lower() == lowered for item in ISSUED_EQUIPMENT_ITEMS):
+    assert isinstance(item_name, str) and item_name == item_name.strip()
+    if item_name in ISSUED_EQUIPMENT_ITEMS:
         return "IssuedItems"
-    if any(item.lower() == lowered for item in PROCURED_EQUIPMENT_ITEMS):
+    if item_name in PROCURED_EQUIPMENT_ITEMS:
         return "ProcuredItems"
     return None
 
@@ -92,11 +92,13 @@ def classify_admin_intent(
             "bmi_category": None, "blood_group": None,
             "type": None, "medical_status": None,
             "responseType": "Summary", "raw_query": raw_query,
-            "confidence": "low", "query_type": "simple", "filters": {},
+            "confidence": "low", "confidence_score": 0.0, "query_type": "simple", "filters": {},
         }
 
     # ── Stage 1: Extract entities ────────────────────────────────────────────
     entities = extract_entities(raw_query, resolved_entities)
+    # FIX 4: Assert canonical entity keys (camelCase)
+    assert_canonical_entity_keys(entities)
 
     # ── Stage 2: Semantic understanding ─────────────────────────────────────
     semantic = understand_query(raw_query)
@@ -114,15 +116,21 @@ def classify_admin_intent(
     # explicitly-contextual operation keyword is present (overdue, poor condition,
     # holding, stats, etc.), the item's list membership (IssuedItems / ProcuredItems)
     # is authoritative. Otherwise, preserve classifier inference.
-    if category == "Equipment" and entities.get("equipment_name"):
-        item_cat = _item_category(entities.get("equipment_name"))
+    if category == "Equipment" and entities.get("equipmentName"):
+        item_cat = _item_category(entities.get("equipmentName"))
         if item_cat:
-            _EXPLICIT_EQUIP_OP_KEYWORDS = frozenset({
-                "overdue", "poor condition", "returned", "holding",
-                "stats", "summary", "agniveer wise",
-            })
             _nq = _normalise(raw_query)
-            if any(kw in _nq for kw in _EXPLICIT_EQUIP_OP_KEYWORDS):
+            if "issued" in _nq or "issue" in _nq:
+                subcategory = "IssuedItems"
+                operation = "Issued"
+            elif "procured" in _nq or "procure" in _nq:
+                subcategory = "ProcuredItems"
+                operation = "Procured"
+            elif any(kw in _nq for kw in {"overdue", "poor condition", "returned", "holding", "stats", "summary", "agniveer wise"}):
+                # An explicit operational keyword is present. Keep the classifier/table lookup.
+                pass
+            else:
+                # Fallback: no explicit keywords, use item category.
                 subcategory = item_cat
                 operation = SUBCATEGORY_TO_OPERATION.get(subcategory, operation)
 
@@ -143,13 +151,8 @@ def classify_admin_intent(
         legacy_type = "Tabular"
 
     # ── Stage 6: Confidence — derived from classifier output ─────────────────
-    confidence = "low"
-    if category and subcategory:
-        confidence = "high"
-    elif category:
-        confidence = "medium"
-    if subcategory in {"TopPerformers", "LowestPerformers"} and entities.get("n") is None:
-        confidence = "medium"
+    confidence_score = intent_result.get("confidence_score", 0.0)
+    confidence = intent_result.get("confidence", "low")
 
     # ── Stage 7: Assemble result ─────────────────────────────────────────────
     result: Dict[str, Any] = {
@@ -158,33 +161,34 @@ def classify_admin_intent(
         "operation": operation,
         "number": entities.get("n"),
         "section": entities.get("section"),
-        "sub_section": entities.get("sub_section"),
+        "sub_section": entities.get("subSection"),
         "metric": None,
         "sort_by": None,
         "group_by": None,
         "grading": entities.get("grading"),
-        "leave_type": entities.get("leave_type"),
+        "leave_type": entities.get("leaveType"),
         "sport": entities.get("sport"),
         "class": entities.get("class"),
-        "unit_name": entities.get("unit_name"),
-        "attempt_no": entities.get("attempt_no"),
-        "from_attempt": entities.get("from_attempt"),
-        "to_attempt": entities.get("to_attempt"),
+        "unit_name": entities.get("unitName"),
+        "attempt_no": entities.get("attemptNo"),
+        "from_attempt": entities.get("fromAttempt"),
+        "to_attempt": entities.get("toAttempt"),
         "date": entities.get("date"),
-        "item_name": entities.get("equipment_name"),
-        "item_category": _item_category(entities.get("equipment_name")),
-        "company_id": entities.get("company_id"),
-        "platoon_id": entities.get("platoon_id"),
-        "batch_id": entities.get("batch_id"),
-        "from_date": entities.get("from_date"),
-        "to_date": entities.get("to_date"),
-        "agniveer_no": entities.get("agniveer_no"),
-        "bmi_category": entities.get("bmi_category"),
-        "blood_group": entities.get("blood_group"),
+        "item_name": entities.get("equipmentName"),
+        "item_category": _item_category(entities.get("equipmentName")),
+        "company_id": entities.get("companyId"),
+        "platoon_id": entities.get("platoonId"),
+        "batch_id": entities.get("batchId"),
+        "from_date": entities.get("fromDate"),
+        "to_date": entities.get("toDate"),
+        "agniveer_no": entities.get("agniveerNo"),
+        "bmi_category": entities.get("bmiCategory"),
+        "blood_group": entities.get("bloodGroup"),
         "type": legacy_type,
-        "medical_status": entities.get("medical_status"),
+        "medical_status": entities.get("medicalStatus"),
         "responseType": intent_result.get("responseType", "Summary"),
         "raw_query": raw_query,
+        "confidence_score": confidence_score,
         "confidence": confidence,
         "query_type": "simple",
     }
@@ -252,9 +256,9 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
         "medicalStatus": intent_result.get("medical_status"),
     }
 
-    validation_result = validate_payload(category, operation, entities)
-    if not validation_result["valid"]:
-        logger.warning("Payload validation failed for %s/%s: %s", category, operation, validation_result["errors"])
+    is_valid, errors = validate_payload(category, operation, entities)
+    if not is_valid:
+        raise PayloadValidationError(errors)
 
     payload = build_ai_command_request_dto(category, operation, response_type, entities)
     if category == "Leave" and intent_result.get("leave_type") is not None:

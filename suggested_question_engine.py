@@ -15,7 +15,7 @@ def generate_suggested_questions(
     Return 3-5 relevant next-step questions from the canonical suggested question list.
     """
     category = (intent.get("category") or "").strip()
-    if not category or category.lower() in ("greeting", "unknown", "none"):
+    if not category or category.lower() in ("greeting", "unknown", "none", "unclear"):
         return []
 
     subcategory = (intent.get("subcategory") or "").strip()

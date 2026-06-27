@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+from utils import extract_records as _extract_records
+
 # ---------------------------------------------------------------------------
 # Score field candidates (same as utils.get_score)
 # ---------------------------------------------------------------------------
@@ -35,34 +37,6 @@ def _safe_float(val: Any) -> Optional[float]:
         return float(val)
     except (TypeError, ValueError):
         return None
-
-
-def _extract_flat_records(data: Any) -> List[Dict[str, Any]]:
-    """Pull records from any combined_result shape."""
-    if isinstance(data, list):
-        return [r for r in data if isinstance(r, dict)]
-    if not isinstance(data, dict):
-        return []
-    # Simple / cross_filter
-    for key in ("data", "Data", "records", "Records"):
-        val = data.get(key)
-        if isinstance(val, list) and val:
-            return [r for r in val if isinstance(r, dict)]
-    # Multi_independent
-    sections = data.get("sections") or []
-    if sections:
-        out = []
-        for sec in sections:
-            if isinstance(sec, dict):
-                out.extend([r for r in (sec.get("data") or []) if isinstance(r, dict)])
-        if out:
-            return out
-    # Compare
-    left = (data.get("left") or {}).get("data") or []
-    right = (data.get("right") or {}).get("data") or []
-    if left or right:
-        return [r for r in (left + right) if isinstance(r, dict)]
-    return []
 
 
 def _get_score(record: Dict[str, Any]) -> Optional[float]:
@@ -120,7 +94,7 @@ def _build_data_summary(
         return summary
 
     if query_type == "cross_filter":
-        records = _extract_flat_records(combined_result)
+        records = _extract_records(combined_result)
         match_count = (combined_result or {}).get("matchCount", len(records)) if isinstance(combined_result, dict) else len(records)
         total_before = (combined_result or {}).get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
         names = [r.get("fullName") or r.get("name") for r in records[:5] if isinstance(r, dict)]
@@ -147,7 +121,7 @@ def _build_data_summary(
         }
 
     # simple / trend / distribution
-    records = _extract_flat_records(combined_result)
+    records = _extract_records(combined_result)
     scores = [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
 
     summary: Dict[str, Any] = {
@@ -301,8 +275,7 @@ def generate_message(
 
     # ── Try Ollama ──────────────────────────────────────────────────────────
     try:
-        import requests as _req
-        from config import DEFAULT_MODEL, OLLAMA_URL
+        from config import DEFAULT_MODEL, OLLAMA_URL, ollama_session
 
         prompt = _build_llm_prompt(user_query, data_summary, query_type, intent)
         payload = {
@@ -315,7 +288,7 @@ def generate_message(
                 "num_ctx": 1024,
             },
         }
-        resp = _req.post(OLLAMA_URL, json=payload, timeout=(5, 20))
+        resp = ollama_session.post(OLLAMA_URL, json=payload, timeout=(5, 20))
         resp.raise_for_status()
         llm_text = resp.json().get("message", {}).get("content", "").strip().strip("\"'")
 

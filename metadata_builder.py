@@ -33,6 +33,14 @@ def build_metadata(
     total_ms = _pick("totalMs", "totalDurationMs", "executionTimeMs", "total_duration")
     execution_ms = _pick("executionTimeMs", "totalMs", "totalDurationMs", "total_duration")
 
+    analysis_ms = _pick("analysisDurationMs")
+    prediction_ms = _pick("predictionDurationMs")
+    conclusion_ms = _pick("conclusionDurationMs")
+    entity_resolution_ms = _pick("entityResolutionMs", "entity_resolution_ms")
+    planning_ms = _pick("planningMs", "planning_ms")
+    widget_ms = _pick("widgetMs", "widget_duration", "widget_ms")
+    response_assembly_ms = _pick("responseAssemblyMs", "response_assembly_duration", "response_assembly_ms")
+
     return {
         "sessionId": session_id,
         "confidence": round(float(confidence), 2),
@@ -47,6 +55,19 @@ def build_metadata(
             "totalMs": round(total_ms, 2),
         },
         "executionTimeMs": round(execution_ms or total_ms, 2),
+        "plannerDurationMs": round(planner_ms, 2),
+        "intentDurationMs": round(intent_ms, 2),
+        "dotnetDurationMs": round(dotnet_ms, 2),
+        "combineDurationMs": round(combiner_ms, 2),
+        "totalDurationMs": round(total_ms, 2),
+        "analysisDurationMs": round(analysis_ms, 2),
+        "predictionDurationMs": round(prediction_ms, 2),
+        "conclusionDurationMs": round(conclusion_ms, 2),
+        "entityResolutionMs": round(entity_resolution_ms, 2),
+        "planningMs": round(planning_ms, 2),
+        "widgetMs": round(widget_ms, 2),
+        "responseAssemblyMs": round(response_assembly_ms, 2),
+        # Legacy snake_case for backward-compat
         "planner_duration": round(planner_ms, 2),
         "intent_duration": round(intent_ms, 2),
         "dotnet_duration": round(dotnet_ms, 2),
