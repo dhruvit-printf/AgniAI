@@ -93,22 +93,42 @@ _session_context = AdminSessionContext()
 
 
 def ensure_agniveer_no_in_data(data: Any) -> None:
-    """Recursively ensure that all records inside data contain agniveerNo if agniveerId is present."""
+    """Ensure top-level records in data contain agniveerNo if agniveerId is present.
+    
+    Only mutates records directly in the data array or at top level of a dict,
+    not recursively into nested structures.
+    """
     if isinstance(data, list):
         for item in data:
-            ensure_agniveer_no_in_data(item)
+            if isinstance(item, dict):
+                id_val = None
+                for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+                    if key in item and item[key] is not None:
+                        id_val = item[key]
+                        break
+                if "agniveerNo" not in item and id_val is not None:
+                    item["agniveerNo"] = str(id_val)
     elif isinstance(data, dict):
-        id_val = None
-        for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-            if key in data and data[key] is not None:
-                id_val = data[key]
-                break
-        if "agniveerNo" not in data and id_val is not None:
-            data["agniveerNo"] = str(id_val)
-
-        for v in data.values():
-            if isinstance(v, (dict, list)):
-                ensure_agniveer_no_in_data(v)
+        if "data" in data and isinstance(data["data"], list):
+            for item in data["data"]:
+                if isinstance(item, dict):
+                    id_val = None
+                    for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+                        if key in item and item[key] is not None:
+                            id_val = item[key]
+                            break
+                    if "agniveerNo" not in item and id_val is not None:
+                        item["agniveerNo"] = str(id_val)
+        elif "records" in data and isinstance(data["records"], list):
+            for item in data["records"]:
+                if isinstance(item, dict):
+                    id_val = None
+                    for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
+                        if key in item and item[key] is not None:
+                            id_val = item[key]
+                            break
+                    if "agniveerNo" not in item and id_val is not None:
+                        item["agniveerNo"] = str(id_val)
 
 
 def map_query_type(qt: QueryType) -> str:
@@ -421,11 +441,12 @@ def _log_combination_summary(
     )
 
 
-def _validate_model_payload(model_cls, payload: Any, context: str) -> None:
-    """Validate payload against schema.  Log drift but NEVER raise — schema
-    mismatch must not crash the pipeline."""
+def _validate_model_payload(model_cls, payload: Any, context: str) -> bool:
+    """Validate payload against schema. Returns True if valid, False if invalid.
+    Logs drift but does NOT raise — schema mismatch must not crash the pipeline."""
     try:
         model_cls.model_validate(payload)
+        return True
     except Exception as exc:
         logger.warning(
             json.dumps(
@@ -437,6 +458,7 @@ def _validate_model_payload(model_cls, payload: Any, context: str) -> None:
                 }
             )
         )
+        return False
 
 
 def _log_stage_duration(stage: str, duration_ms: float, **extra: Any) -> None:
@@ -541,12 +563,9 @@ def _is_admin_conversational(message: str) -> bool:
 # =============================================================================
 
 
-def _build_greeting_response(body: Dict, session_id: str) -> Tuple[Dict, str]:
-    """Build a time-aware greeting response."""
-    import datetime as _dt
-    import random
-
-    admin_name = (
+def _get_admin_name(body: Dict) -> str:
+    """Extract admin name from request body using multiple field aliases."""
+    return (
         body.get("fullName")
         or body.get("adminName")
         or body.get("userName")
@@ -555,6 +574,14 @@ def _build_greeting_response(body: Dict, session_id: str) -> Tuple[Dict, str]:
         or body.get("name")
         or "Officer"
     ).strip()
+
+
+def _build_greeting_response(body: Dict, session_id: str) -> Tuple[Dict, str]:
+    """Build a time-aware greeting response."""
+    import datetime as _dt
+    import random
+
+    admin_name = _get_admin_name(body)
 
     hour = _dt.datetime.now().hour
     if 5 <= hour < 12:
@@ -586,15 +613,7 @@ def _build_conversational_response(
     import datetime as _dt
     import random
 
-    admin_name = (
-        body.get("fullName")
-        or body.get("adminName")
-        or body.get("userName")
-        or body.get("commanderName")
-        or body.get("commander_name")
-        or body.get("name")
-        or "Officer"
-    ).strip()
+    admin_name = _get_admin_name(body)
 
     hour = _dt.datetime.now().hour
     if 5 <= hour < 12:
@@ -624,7 +643,7 @@ def _build_conversational_response(
             "stream": False,
             "options": {"temperature": 0.7, "num_predict": 80, "num_ctx": 512},
         }
-        resp = _req.post(OLLAMA_URL, json=payload, timeout=(8, 30))
+        resp = _req.post(OLLAMA_URL, json=payload, timeout=(3, 10))
         resp.raise_for_status()
         llm_reply = (
             resp.json().get("message", {}).get("content", "").strip().strip("\"'")
@@ -804,7 +823,7 @@ def execute_admin_query(
         if not message:
             return {
                 "type": "error",
-                "error_message": "Failed to process request.",
+                "error_message": "Empty query provided.",
             }
 
         # ── Step 1: Resolve Named Entities ───────────────────────────────────
@@ -1002,12 +1021,31 @@ def execute_admin_query(
                         except Exception as exc:
                             return idx, op, None, str(exc)
 
-                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                        futures = [
-                            executor.submit(run_op, i, op)
-                            for i, op in enumerate(query_plan.operations)
-                        ]
-                        results = [f.result() for f in futures]
+                    try:
+                        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                            futures = [
+                                executor.submit(run_op, i, op)
+                                for i, op in enumerate(query_plan.operations)
+                            ]
+                            results = [f.result() for f in futures]
+                    except BaseException as exc:
+                        total_duration = time.time() - start_time
+                        metrics_collector.inc_errors(qtype_str)
+                        metrics_collector.record_duration(
+                            "pipeline_duration", round(total_duration * 1000, 2)
+                        )
+                        write_audit_log(
+                            trace_id=trace_id,
+                            session_id=session_id,
+                            query_type=qtype_str,
+                            query_duration=round(total_duration * 1000, 2),
+                            success=False,
+                            error_type="thread_exception",
+                        )
+                        return {
+                            "type": "error",
+                            "error_message": "Backend thread execution failed.",
+                        }
 
                     dotnet_duration = time.time() - dotnet_start
                     logger.info(
@@ -1039,7 +1077,7 @@ def execute_admin_query(
                         )
                         return {
                             "type": "error",
-                            "error_message": "Failed to process request.",
+                            "error_message": "Backend service unavailable.",
                         }
 
                     # CROSS_FILTER primary failure check
@@ -1063,7 +1101,7 @@ def execute_admin_query(
                             )
                             return {
                                 "type": "error",
-                                "error_message": "Failed to process request.",
+                                "error_message": "Primary query operation failed.",
                             }
 
                     # Build raw_results and labeled_results preserving the order
@@ -1126,7 +1164,11 @@ def execute_admin_query(
 
                     primary_intent = _merge_intents(
                         frontend_intent,
-                        query_plan.operations[0].intent_result,
+                        *(op.intent_result for op in query_plan.operations),
+                    )
+                    primary_intent["filters"] = _merge_intents(
+                        frontend_intent.get("filters", {}),
+                        *(op.intent_result.get("filters", {}) for op in query_plan.operations),
                     )
                     dotnet_duration = time.time() - dotnet_start
 
@@ -1171,7 +1213,7 @@ def execute_admin_query(
 
                 # Low-confidence or unrecognised query
                 if primary_intent.get("category") is None or float(
-                    semantic_understanding.get("confidence") or 0.0
+                    query_plan.confidence
                 ) < float(os.getenv("INTENT_CONFIDENCE_THRESHOLD", "0.35")):
                     intent_duration = time.time() - intent_start
                     unrecognised_msg = (
@@ -1219,13 +1261,15 @@ def execute_admin_query(
                     )
                     response_payload["metadata"].setdefault("metrics", {})
                     response_payload["metadata"]["metrics"]["confidence"] = round(
-                        float(semantic_understanding.get("confidence") or 0.0), 2
+                        float(query_plan.confidence), 2
                     )
                     response_payload["intent"] = {
-                        "category": "unclear",
+                        "category": primary_intent.get("category") or "unclear",
                         "confidence": round(
-                            float(semantic_understanding.get("confidence") or 0.0), 2
+                            float(query_plan.confidence), 2
                         ),
+                        "operation": primary_intent.get("operation"),
+                        "query_type": "unrecognised",
                     }
 
                     logger.info(
@@ -1312,7 +1356,7 @@ def execute_admin_query(
                     if query_plan.analytics_hint:
                         dotnet_payload["analyticsHint"] = query_plan.analytics_hint
 
-                response_dotnet_payload = dict(dotnet_payload)
+                response_dotnet_payload = [dict(dotnet_payload)]
 
                 intent_duration = time.time() - intent_start
 
@@ -1380,7 +1424,7 @@ def execute_admin_query(
 
                         return {
                             "type": "error",
-                            "error_message": "Failed to process request.",
+                            "error_message": "Backend service unavailable.",
                         }
 
                     ensure_agniveer_no_in_data(dotnet_data)
@@ -1579,17 +1623,6 @@ def execute_admin_query(
             "conclusionDurationMs": round(conclusion_ms),
             "totalDurationMs": round(total_duration * 1000),
             "executionTimeMs": round(total_duration * 1000),
-            # Snake case for backward compatibility
-            "entity_resolution_ms": round(entity_resolution_duration * 1000, 2),
-            "planning_ms": round(planning_duration * 1000, 2),
-            "planner_duration": round(planner_duration * 1000, 2),
-            "intent_duration": round(intent_duration * 1000, 2),
-            "dotnet_duration": round(dotnet_duration * 1000, 2),
-            "combiner_duration": round(combiner_duration * 1000, 2),
-            "widget_duration": round(widget_duration * 1000, 2),
-            "response_assembly_duration": round(response_assembly_duration * 1000, 2),
-            "report_duration": round(report_duration * 1000, 2),
-            "total_duration": round(total_duration * 1000, 2),
         }
 
         # For backward compatibility
@@ -1611,41 +1644,6 @@ def execute_admin_query(
         try:
             widget_start = time.time()
             from widget_engine import build_widget_list
-            import re as _re
-
-            # ── Inline widget extraction from natural language ────────────────
-            # Catches phrases like:
-            #   "top 10 in bar chart"
-            #   "show attendance as pie chart"
-            #   "give me bmi as donut chart"
-            #   "display in tabular"
-            # Only fires when the frontend hasn't already sent an explicit override.
-            _INLINE_WIDGET_PATTERNS = [
-                # "as/in/show/display/using/with <widget>" — most specific first
-                r'\b(?:as|in|show(?:ing)?|display(?:ing)?|using|with)\s+'
-                r'(bar chart|line chart|pie chart|donut chart|area chart|'
-                r'radial chart|compare area chart|improvement trend chart|'
-                r'drop trend chart|tabular|table|card|cards)\b',
-                # bare widget name anywhere in the query
-                r'\b(bar chart|line chart|pie chart|donut chart|area chart|'
-                r'radial chart|compare area chart|improvement trend chart|'
-                r'drop trend chart|tabular|table)\b',
-            ]
-
-            inline_widget: Optional[str] = None
-            if not frontend_visualization_intent.get("frontend_override"):
-                msg_lower = message.lower()
-                for _pattern in _INLINE_WIDGET_PATTERNS:
-                    _m = _re.search(_pattern, msg_lower)
-                    if _m:
-                        inline_widget = _m.group(1)
-                        break
-
-            # Merge inline widget into visualization intent as an override
-            if inline_widget:
-                frontend_visualization_intent = dict(frontend_visualization_intent)
-                frontend_visualization_intent["requested_widget_type"] = inline_widget
-                frontend_visualization_intent["frontend_override"] = True
 
             visualization_intent = build_visualization_intent(
                 message, primary_intent, combined_result
@@ -1700,6 +1698,12 @@ def execute_admin_query(
                         "widgets": formatted_data_payload,
                     })
                 )
+                if isinstance(formatted_data_payload, list):
+                    formatted_data_payload = [
+                        w if isinstance(w, dict) and w.get("type") and w.get("title") and w.get("data") is not None
+                        else {"type": "null", "title": "No Data Available", "data": []}
+                        for w in formatted_data_payload
+                    ]
             logger.info(
                 json.dumps({
                     "message": "Pipeline stage: widget_engine",
@@ -1989,7 +1993,7 @@ def execute_admin_query(
 
         return {
             "type": "error",
-            "error_message": "Failed to process request.",
+            "error_message": "Internal server error. Please try again or contact support.",
         }
     finally:
         request_id_var.reset(token_req)

@@ -11,6 +11,7 @@ ONLY in intent_classifier.py and are never re-derived here.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
 
 from .entity_extractor import extract_entities
@@ -26,6 +27,8 @@ from .payload_builder import build_ai_command_request_dto
 from .payload_validator import validate_payload
 from query_normalizer import clean_query as _normalise
 from query_understanding_engine import understand_query
+
+logger = logging.getLogger(__name__)
 
 
 def _item_category(item_name: Optional[str]) -> Optional[str]:
@@ -107,19 +110,19 @@ def classify_admin_intent(
     # ── Stage 4: Subcategory — pure table lookup, no inference ───────────────
     subcategory: Optional[str] = _subcategory_from_table(category, operation)
 
-    # Equipment item-list override: when the user names a specific item and no
+    # Equipment item-list override: when the user names a specific item and an
     # explicitly-contextual operation keyword is present (overdue, poor condition,
     # holding, stats, etc.), the item's list membership (IssuedItems / ProcuredItems)
-    # is authoritative over the classifier's entity-bonus tie-breaker.
-    if category == "Equipment" and entities.get("equipmentName"):
-        item_cat = _item_category(entities.get("equipmentName"))
+    # is authoritative. Otherwise, preserve classifier inference.
+    if category == "Equipment" and entities.get("equipment_name"):
+        item_cat = _item_category(entities.get("equipment_name"))
         if item_cat:
             _EXPLICIT_EQUIP_OP_KEYWORDS = frozenset({
                 "overdue", "poor condition", "returned", "holding",
                 "stats", "summary", "agniveer wise",
             })
             _nq = _normalise(raw_query)
-            if not any(kw in _nq for kw in _EXPLICIT_EQUIP_OP_KEYWORDS):
+            if any(kw in _nq for kw in _EXPLICIT_EQUIP_OP_KEYWORDS):
                 subcategory = item_cat
                 operation = SUBCATEGORY_TO_OPERATION.get(subcategory, operation)
 
@@ -155,29 +158,29 @@ def classify_admin_intent(
         "operation": operation,
         "number": entities.get("n"),
         "section": entities.get("section"),
-        "sub_section": entities.get("subSection"),
+        "sub_section": entities.get("sub_section"),
         "metric": None,
         "sort_by": None,
         "group_by": None,
         "grading": entities.get("grading"),
-        "leave_type": entities.get("leaveType"),
+        "leave_type": entities.get("leave_type"),
         "sport": entities.get("sport"),
         "class": entities.get("class"),
-        "unit_name": entities.get("unitName"),
-        "attempt_no": entities.get("attemptNo"),
-        "from_attempt": entities.get("fromAttempt"),
-        "to_attempt": entities.get("toAttempt"),
+        "unit_name": entities.get("unit_name"),
+        "attempt_no": entities.get("attempt_no"),
+        "from_attempt": entities.get("from_attempt"),
+        "to_attempt": entities.get("to_attempt"),
         "date": entities.get("date"),
-        "item_name": entities.get("equipmentName"),
-        "item_category": _item_category(entities.get("equipmentName")),
-        "company_id": entities.get("companyId"),
-        "platoon_id": entities.get("platoonId"),
-        "batch_id": entities.get("batchId"),
-        "from_date": entities.get("fromDate"),
-        "to_date": entities.get("toDate"),
-        "agniveer_no": entities.get("agniveerNo"),
-        "bmi_category": entities.get("bmiCategory"),
-        "blood_group": entities.get("bloodGroup"),
+        "item_name": entities.get("equipment_name"),
+        "item_category": _item_category(entities.get("equipment_name")),
+        "company_id": entities.get("company_id"),
+        "platoon_id": entities.get("platoon_id"),
+        "batch_id": entities.get("batch_id"),
+        "from_date": entities.get("from_date"),
+        "to_date": entities.get("to_date"),
+        "agniveer_no": entities.get("agniveer_no"),
+        "bmi_category": entities.get("bmi_category"),
+        "blood_group": entities.get("blood_group"),
         "type": legacy_type,
         "medical_status": entities.get("medical_status"),
         "responseType": intent_result.get("responseType", "Summary"),
@@ -251,11 +254,7 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
 
     validation_result = validate_payload(category, operation, entities)
     if not validation_result["valid"]:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        for error in validation_result["errors"]:
-            logger.warning("Payload validation warning: %s", error)
+        logger.warning("Payload validation failed for %s/%s: %s", category, operation, validation_result["errors"])
 
     payload = build_ai_command_request_dto(category, operation, response_type, entities)
     if category == "Leave" and intent_result.get("leave_type") is not None:

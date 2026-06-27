@@ -445,70 +445,70 @@ def extract_entities(
     semantic = understand_query(raw_query)
 
     result: Dict[str, Any] = {
-        "batchId": None,
-        "platoonId": None,
-        "companyId": None,
-        "agniveerNo": None,
+        "batch_id": None,
+        "platoon_id": None,
+        "company_id": None,
+        "agniveer_no": None,
         "section": None,
-        "subSection": None,
-        "attemptNo": None,
-        "fromAttempt": None,
-        "toAttempt": None,
-        "leaveType": None,
+        "sub_section": None,
+        "attempt_no": None,
+        "from_attempt": None,
+        "to_attempt": None,
+        "leave_type": None,
         "grading": None,
-        "bmiCategory": None,
-        "bloodGroup": None,
-        "equipmentName": None,
+        "bmi_category": None,
+        "blood_group": None,
+        "equipment_name": None,
         "sport": None,
         "class": None,
-        "unitName": None,
+        "unit_name": None,
         "n": None,
         "date": None,
-        "fromDate": None,
-        "toDate": None,
+        "from_date": None,
+        "to_date": None,
         "medical_status": None,
     }
 
     result["n"] = _extract_number(raw_query)
     result["section"] = _extract_section(raw_query)
     if result["section"]:
-        result["subSection"] = _extract_subsection(raw_query, result["section"])
+        result["sub_section"] = _extract_subsection(raw_query, result["section"])
     result["grading"] = _extract_grading(raw_query)
-    result["leaveType"] = _extract_leave_type(raw_query)
-    result["bmiCategory"] = _extract_bmi_category(raw_query)
-    result["bloodGroup"] = _extract_blood_group(raw_query)
+    result["leave_type"] = _extract_leave_type(raw_query)
+    result["bmi_category"] = _extract_bmi_category(raw_query)
+    result["blood_group"] = _extract_blood_group(raw_query)
     result["sport"] = _extract_sport(raw_query)
     result["class"] = _extract_class(raw_query)
-    result["equipmentName"] = _extract_equipment_item(raw_query)
-    result["unitName"] = _extract_unit_name(raw_query)
-    result["attemptNo"] = _extract_attempt_no(raw_query)
-    result["fromAttempt"] = _extract_from_attempt(raw_query)
-    result["toAttempt"] = _extract_to_attempt(raw_query)
+    result["equipment_name"] = _extract_equipment_item(raw_query)
+    result["unit_name"] = _extract_unit_name(raw_query)
+    result["attempt_no"] = _extract_attempt_no(raw_query)
+    result["from_attempt"] = _extract_from_attempt(raw_query)
+    result["to_attempt"] = _extract_to_attempt(raw_query)
     result["date"] = _extract_date_patterns(raw_query)
-    result["fromDate"], result["toDate"] = _extract_date_range(raw_query)
+    result["from_date"], result["to_date"] = _extract_date_range(raw_query)
     result["medical_status"] = _extract_medical_status(raw_query)
 
-    result["companyId"] = (
-        resolved_entities.get("companyId")
-        or resolved_entities.get("company_id")
+    result["company_id"] = (
+        resolved_entities.get("company_id")
+        or resolved_entities.get("companyId")
         or semantic.get("company_id")
         or _extract_company_id(raw_query)
     )
-    result["platoonId"] = (
-        resolved_entities.get("platoonId")
-        or resolved_entities.get("platoon_id")
+    result["platoon_id"] = (
+        resolved_entities.get("platoon_id")
+        or resolved_entities.get("platoonId")
         or semantic.get("platoon_id")
         or _extract_platoon_id(raw_query)
     )
-    result["batchId"] = (
-        resolved_entities.get("batchId")
-        or resolved_entities.get("batch_id")
+    result["batch_id"] = (
+        resolved_entities.get("batch_id")
+        or resolved_entities.get("batchId")
         or semantic.get("batch_id")
         or _extract_batch_id(raw_query)
     )
-    result["agniveerNo"] = (
-        resolved_entities.get("agniveerNo")
-        or resolved_entities.get("agniveer_no")
+    result["agniveer_no"] = (
+        resolved_entities.get("agniveer_no")
+        or resolved_entities.get("agniveerNo")
         or _extract_agniveer_no(raw_query)
     )
 

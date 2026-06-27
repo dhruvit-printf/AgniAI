@@ -116,6 +116,11 @@ def _extract_number(text: str) -> Optional[int]:
 
 
 def _extract_dates(text: str) -> Optional[str]:
+    # First check relative date phrases
+    for phrase, canonical in RELATIVE_DATE_PHRASES.items():
+        if phrase in text.lower():
+            return canonical
+
     patterns = (
         r"\b(\d{4}-\d{2}-\d{2})\b",
         r"\b(\d{2}/\d{2}/\d{4})\b",
@@ -393,7 +398,7 @@ def _extract_sub_requests(
         return [
             {"fragment": p, "category": category, "operation": operation, "entities": entities}
             if idx == 0 else
-            {"fragment": p, "category": None, "operation": "lookup", "entities": entities}
+            {"fragment": p, "category": _infer_category(p, {}), "operation": _infer_operation(p, {}), "entities": entities}
             for idx, p in enumerate(final_parts)
         ]
     if any(marker in text for marker in _MULTI_INDEPENDENT_MARKERS) or " and " in text:
@@ -402,7 +407,7 @@ def _extract_sub_requests(
             parts = [part.strip(" ,") for part in text.split(" and ") if part.strip(" ,")]
         if len(parts) >= 2:
             return [
-                {"fragment": part, "category": None, "operation": "lookup", "entities": entities}
+                {"fragment": part, "category": _infer_category(part, {}), "operation": _infer_operation(part, {}), "entities": entities}
                 for part in parts
             ]
     return [{"fragment": text, "category": category, "operation": operation, "entities": entities}]
