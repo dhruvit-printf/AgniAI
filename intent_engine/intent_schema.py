@@ -62,7 +62,7 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
         "Summary",
     ]),
     "Verification": frozenset([
-        "Pending", "Sent", "NotResponded", "Verified", "Rejected",
+        "Pending", "Sent", "NotResponded", "Verified", "Completed", "Rejected",
     ]),
     "Equipment": frozenset([
         "Stats", "Issued", "Procured", "Overdue", "Returned", "Holding",
@@ -331,6 +331,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "top unit", "highest unit", "unit with most", "biggest unit",
             "unit with the most agniveers", "received most agniveers",
             "most agniveers", "unit received most", "largest unit",
+            "highest distribution", "most distribution",
         ),
     },
     "Roster": {
@@ -363,8 +364,11 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         "NotResponded": (
             "not responded", "no response", "awaiting response",
         ),
+        "Completed": (
+            "completed", "done", "verification completed", "all clear",
+        ),
         "Verified": (
-            "verified", "completed", "done", "verification completed",
+            "verified", "all verified",
         ),
         "Rejected": (
             "rejected", "not approved", "verification failed",
@@ -872,6 +876,7 @@ INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Verification", "Pending"): "Tabular",
     ("Verification", "Sent"): "Tabular",
     ("Verification", "NotResponded"): "Tabular",
+    ("Verification", "Completed"): "Tabular",
     ("Verification", "Verified"): "Tabular",
     ("Verification", "Rejected"): "Tabular",
     ("Equipment", "Stats"): "Card",
@@ -1039,6 +1044,7 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Verification", "Pending"): "PendingVerification",
     ("Verification", "Sent"): "SentVerification",
     ("Verification", "NotResponded"): "NotRespondedVerification",
+    ("Verification", "Completed"): "CompletedVerification",
     ("Verification", "Verified"): "VerifiedVerification",
     ("Verification", "Rejected"): "RejectedVerification",
     ("Equipment", "Stats"): "EquipmentSummary",

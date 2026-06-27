@@ -262,6 +262,8 @@ def classify_intent(
                 category = "Roster"
         elif _entity_present(entities, "class") and _phrase_score(query_text, "skills"):
             category = "Skills"
+        elif _entity_present(entities, "unitName") and _phrase_score(query_text, "attendance"):
+            category = "Attendance"
 
     operation, operation_score = _choose_operation(query_text, category, semantic, entities)
 
@@ -275,6 +277,45 @@ def classify_intent(
         operation = operation or "BMI"
     if category == "Attendance" and _phrase_score(query_text, "present today"):
         operation = operation or "Present"
+
+    # Entity-driven operation overrides — entity presence is authoritative for mappings
+    # that pure keyword scoring cannot reliably infer (e.g. "show BPET attempt 2" has
+    # an attemptNo entity but no "attempt wise" keyword).
+    if entities:
+        if category == "Performance":
+            if _entity_present(entities, "attemptNo", "fromAttempt", "toAttempt") and operation not in ("AttemptWise", "BestAttempt"):
+                operation = "AttemptWise"
+            if not operation and _entity_present(entities, "grading"):
+                operation = "Grading"
+        if category == "Medical":
+            if _entity_present(entities, "bmiCategory"):
+                operation = "BMI"
+            if not operation and _entity_present(entities, "bloodGroup"):
+                operation = "BloodGroup"
+            if not operation and _entity_present(entities, "medical_status"):
+                operation = "Active"
+        if category == "Leave" and entities.get("leaveType") == "Current":
+            operation = "Current"
+        if category == "Attendance" and operation not in ("Weekly", "Daily", "Yearly"):
+            date_val = str(entities.get("date") or "")
+            if re.search(
+                r"\b(January|February|March|April|May|June|July|August|September|October|"
+                r"November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b",
+                date_val,
+                re.IGNORECASE,
+            ):
+                operation = "Monthly"
+        if category in ("Roster", "Skills"):
+            if not operation and _entity_present(entities, "sport"):
+                operation = "BySport"
+            if not operation and _entity_present(entities, "class"):
+                operation = "ByClass"
+        if category == "Strength" and not operation:
+            operation = "Summary"
+        if category == "Overall" and not operation:
+            operation = "OverallPerformance"
+        if category == "Distribution" and not operation and _entity_present(entities, "unitName"):
+            operation = "ByUnit"
 
     response_type = _detect_response_type(query_text)
 

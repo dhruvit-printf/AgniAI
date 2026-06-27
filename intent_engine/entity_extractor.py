@@ -89,6 +89,7 @@ _NON_EQUIPMENT_DOMAIN_HINTS = (
 )
 _STOPWORDS = {
     "a",
+    "all",
     "an",
     "and",
     "are",
@@ -103,6 +104,7 @@ _STOPWORDS = {
     "in",
     "is",
     "it",
+    "list",
     "of",
     "on",
     "or",

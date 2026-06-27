@@ -1300,6 +1300,16 @@ def build_widget_list(
     for spec in specs:
         try:
             data = _build_widget_data(spec, combined_result, query_type, intent, analysis)
+            # Backward-compatibility: copy top-level metadata keys to widget data
+            if isinstance(combined_result, dict):
+                for k, v in combined_result.items():
+                    if k not in ("records", "data", "sections", "columns", "rows") and k not in data:
+                        data[k] = v
+                if "rows" not in data:
+                    flat = _extract_records(combined_result, deep_flatten=True)
+                    table_data = build_table_data(flat)
+                    data["rows"] = table_data.get("rows") or []
+                    data["columns"] = table_data.get("columns") or []
         except Exception:
             import logging as _logging
             _logging.getLogger(__name__).exception(

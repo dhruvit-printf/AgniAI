@@ -337,47 +337,63 @@ def resolve_entities_from_query(
     if batch_mention and result["batchId"] is None:
         result["batchId"] = resolve_batch_id(batch_mention, trace_id=trace_id, session_id=session_id)
 
+    # ── Helper for whole-word / phrase matching with boundary checks ──
+    from query_normalizer import clean_query
+
+    def _is_mention_in_query(query_text: str, candidate_name: str) -> bool:
+        if not candidate_name:
+            return False
+        # Ignore pure digits in fallback lookup to avoid matching counts/dates/attempts
+        cand_clean = clean_query(candidate_name).lower().strip()
+        if not cand_clean or cand_clean.isdigit() or len(cand_clean) < 2:
+            return False
+        q_clean = clean_query(query_text).lower()
+        pos = q_clean.find(cand_clean)
+        while pos != -1:
+            before_ok = (pos == 0 or not q_clean[pos - 1].isalnum())
+            after_ok = (pos + len(cand_clean) == len(q_clean) or not q_clean[pos + len(cand_clean)].isalnum())
+            if before_ok and after_ok:
+                return True
+            pos = q_clean.find(cand_clean, pos + 1)
+        return False
+
     if result["companyId"] is None:
         companies = _fetch_companies(trace_id=trace_id, session_id=session_id)
-        query_norm = _normalise_name(query)
         best_match_len = 0
         for co in companies:
             stored = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
             if not stored:
                 continue
-            stored_norm = _normalise_name(stored)
             stored_core = re.sub(r"(?:company|coy|unit)", "", stored.lower()).strip()
-            stored_core_norm = _normalise_name(stored_core)
-            for candidate_norm in filter(None, [stored_norm, stored_core_norm]):
-                if len(candidate_norm) >= 2 and candidate_norm in query_norm:
-                    if len(candidate_norm) > best_match_len:
+            for candidate in (stored, stored_core):
+                if _is_mention_in_query(query, candidate):
+                    candidate_len = len(clean_query(candidate).strip())
+                    if candidate_len > best_match_len:
                         cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
                         if cid is not None:
                             result["companyId"] = int(cid)
                             result["companyName"] = stored
-                            best_match_len = len(candidate_norm)
+                            best_match_len = candidate_len
 
     if result["platoonId"] is None:
         platoons = _fetch_platoons(trace_id=trace_id, session_id=session_id)
-        query_norm = _normalise_name(query)
         best_match_len = 0
         for pl in platoons:
             stored = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
             if not stored:
                 continue
-            stored_norm = _normalise_name(stored)
             stored_core = re.sub(r"(?:platoon|pl)", "", stored.lower()).strip()
-            stored_core_norm = _normalise_name(stored_core)
-            for candidate_norm in filter(None, [stored_norm, stored_core_norm]):
-                if len(candidate_norm) >= 2 and candidate_norm in query_norm:
-                    if len(candidate_norm) > best_match_len:
+            for candidate in (stored, stored_core):
+                if _is_mention_in_query(query, candidate):
+                    candidate_len = len(clean_query(candidate).strip())
+                    if candidate_len > best_match_len:
                         pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
                         cid = _get_field(pl, "companyId", "CompanyId")
                         if pid is not None:
                             if result["companyId"] is None or cid == result["companyId"]:
                                 result["platoonId"] = int(pid)
                                 result["platoonName"] = stored
-                                best_match_len = len(candidate_norm)
+                                best_match_len = candidate_len
 
     if result["companyId"] is not None:
         companies = _fetch_companies(trace_id=trace_id, session_id=session_id)

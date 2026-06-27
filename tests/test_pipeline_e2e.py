@@ -212,10 +212,18 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertTrue(response_payload["status"])
         self.assertEqual(response_payload["metadata"]["queryType"], "compare")
 
-        # Check comparison results
-        data = response_payload["formattedData"][0]["data"]
-        self.assertEqual(data["left"]["label"], "PPT")
-        self.assertEqual(data["right"]["label"], "BPET")
+        # Check comparison results — verify the correct widgets are built (summary, chart, and tables)
+        widgets = response_payload["formattedData"]
+        self.assertTrue(any(w["type"] == "CARD" and w["id"] == "comparison_summary" for w in widgets))
+        self.assertTrue(any(w["type"] == "BAR_CHART" and w["id"] == "comparison_bar" for w in widgets))
+
+        ppt_table = next((w for w in widgets if w["title"] == "PPT"), None)
+        self.assertIsNotNone(ppt_table)
+        self.assertEqual(ppt_table["type"], "TABLE")
+
+        bpet_table = next((w for w in widgets if w["title"] == "BPET"), None)
+        self.assertIsNotNone(bpet_table)
+        self.assertEqual(bpet_table["type"], "TABLE")
 
         self.assertEqual(mock_call_dotnet.call_count, 2)
 
@@ -265,11 +273,13 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertTrue(response_payload["status"])
         self.assertEqual(response_payload["metadata"]["queryType"], "multi_independent")
 
-        # Verify sections
-        sections = response_payload["formattedData"][0]["data"]["sections"]
-        self.assertEqual(len(sections), 2)
-        self.assertEqual(sections[0]["label"], "Attendance")
-        self.assertEqual(sections[1]["label"], "Leave")
+        # Verify sections (TABLE widgets for Attendance and Leave)
+        widgets = response_payload["formattedData"]
+        self.assertEqual(len(widgets), 2)
+        self.assertEqual(widgets[0]["type"], "TABLE")
+        self.assertEqual(widgets[0]["title"], "Attendance")
+        self.assertEqual(widgets[1]["type"], "TABLE")
+        self.assertEqual(widgets[1]["title"], "Leave")
 
         self.assertEqual(mock_call_dotnet.call_count, 2)
 

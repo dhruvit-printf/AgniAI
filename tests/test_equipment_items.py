@@ -29,13 +29,14 @@ sys.modules["dotenv"].load_dotenv = lambda *a, **kw: None  # type: ignore
 
 # ── Now we can import ────────────────────────────────────────────────────────
 from intent_engine.admin_intent import (
-    _ITEM_LOOKUP,
-    ISSUED_ITEMS,
-    PROCURED_ITEMS,
-    _extract_item_query,
+    _item_category,
     classify_admin_intent,
     format_admin_payload,
 )
+from intent_engine.intent_schema import ISSUED_EQUIPMENT_ITEMS, PROCURED_EQUIPMENT_ITEMS
+
+ISSUED_ITEMS = tuple(ISSUED_EQUIPMENT_ITEMS)
+PROCURED_ITEMS = tuple(PROCURED_EQUIPMENT_ITEMS)
 
 # =============================================================================
 # Master-list sanity checks
@@ -52,59 +53,14 @@ def test_procured_items_count():
     ), f"Expected 53 procured items, got {len(PROCURED_ITEMS)}"
 
 
-def test_lookup_table_has_both_lists():
-    # Every item should appear in the lookup exactly once
+def test_item_category_covers_all_issued():
     for item in ISSUED_ITEMS:
-        key = item.lower()
-        assert key in _ITEM_LOOKUP, f"Missing from lookup: {item}"
-        assert _ITEM_LOOKUP[key][1] == "IssuedItems"
+        assert _item_category(item) == "IssuedItems", f"Expected IssuedItems for: {item}"
 
+
+def test_item_category_covers_all_procured():
     for item in PROCURED_ITEMS:
-        key = item.lower()
-        assert key in _ITEM_LOOKUP, f"Missing from lookup: {item}"
-        assert _ITEM_LOOKUP[key][1] == "ProcuredItems"
-
-
-# =============================================================================
-# _extract_item_query — direct unit tests
-# =============================================================================
-
-
-def test_extract_exact_issued_item():
-    name, cat = _extract_item_query("mug steel")
-    assert cat == "IssuedItems"
-    assert name == "Mug Steel"
-
-
-def test_extract_exact_procured_item():
-    name, cat = _extract_item_query("rifle sling")
-    assert cat == "ProcuredItems"
-    assert name == "Rifle Sling"
-
-
-def test_extract_partial_issued_item():
-    name, cat = _extract_item_query("what is the status of the combat t shirt")
-    assert cat == "IssuedItems"
-    assert name == "Combat T Shirt"
-
-
-def test_extract_partial_procured_item():
-    name, cat = _extract_item_query("do we have a barret cap in stock")
-    assert cat == "ProcuredItems"
-    assert name == "Barret Cap"
-
-
-def test_extract_no_match():
-    name, cat = _extract_item_query("what is the weather today")
-    assert name is None
-    assert cat is None
-
-
-def test_extract_longer_key_wins():
-    # "vest cotton white s4" should win over bare "vest"
-    name, cat = _extract_item_query("vest cotton white s4 availability")
-    assert name == "Vest Cotton White S4"
-    assert cat == "IssuedItems"
+        assert _item_category(item) == "ProcuredItems", f"Expected ProcuredItems for: {item}"
 
 
 # =============================================================================

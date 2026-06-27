@@ -140,6 +140,31 @@ def _sanitize_error(err_msg: Any) -> str:
     return err_str
 
 
+# ID fields that must never be sent as null / empty / zero (Rule 9)
+_ID_FIELDS: frozenset = frozenset({"companyId", "platoonId", "batchId", "agniveerNo"})
+
+
+def _strip_empty_id_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Final payload sanitiser — called immediately before every _call_dotnet() invocation.
+
+    Removes any ID field whose value is None, empty string, or 0.
+    This is the last line of defence against phantom IDs reaching the backend.
+
+    Rules enforced:
+      Rule 5  — payload must contain only meaningful filters.
+      Rule 9  — validate and strip unresolved fields before calling .NET.
+    """
+    cleaned: Dict[str, Any] = {}
+    for k, v in payload.items():
+        if k in _ID_FIELDS:
+            # Only include if it's a genuine, non-empty, non-zero value
+            if v is None or v == "" or v == 0:
+                continue
+        cleaned[k] = v
+    return cleaned
+
+
 def _get_session_id(data: Dict) -> str:
     """Extract session ID from request body or headers."""
     session_id = (data.get("session_id") or data.get("sessionId") or "").strip()
@@ -314,12 +339,18 @@ def _merge_intents(*sources: Dict[str, Any]) -> Dict[str, Any]:
         for key, value in source.items():
             if value in (None, "", [], {}):
                 continue
+            # Rule 7: Do not merge empty/zero/null ID fields
+            if key in _ID_FIELDS and (value == "" or value == 0):
+                continue
             if key == "filters" and isinstance(value, dict):
                 existing = merged.get("filters")
                 if not isinstance(existing, dict):
                     existing = {}
                 for fk, fv in value.items():
                     if fv not in (None, "", [], {}):
+                        # Rule 7: Do not merge empty/zero/null ID fields inside filters
+                        if fk in _ID_FIELDS and (fv == "" or fv == 0):
+                            continue
                         existing.setdefault(fk, fv)
                 merged["filters"] = existing
                 continue
@@ -783,11 +814,29 @@ def execute_admin_query(
             planner_start = time.time()
             _notify("planner")
             entity_resolution_start = time.time()
+
+            existing_co = id_filters.get("companyId")
+            existing_pl = id_filters.get("platoonId")
+            existing_ba = id_filters.get("batchId")
+
+            # Load conversation carryover context if not provided by frontend (Rule 8)
+            with _session_context._lock:
+                prev_history = _session_context._history.get(session_id)
+                if prev_history:
+                    prev_intent = prev_history.get("intent") or {}
+                    if existing_co is None:
+                        existing_co = prev_intent.get("company_id") or prev_intent.get("companyId")
+                    if existing_pl is None:
+                        existing_pl = prev_intent.get("platoon_id") or prev_intent.get("platoonId")
+                    if existing_ba is None:
+                        existing_ba = prev_intent.get("batch_id") or prev_intent.get("batchId")
+                    resolved_agniveer_no = prev_intent.get("agniveer_no") or prev_intent.get("agniveerNo")
+
             resolved_entities = resolve_entities_from_query(
                 message,
-                existing_company_id=id_filters.get("companyId"),
-                existing_platoon_id=id_filters.get("platoonId"),
-                existing_batch_id=id_filters.get("batchId"),
+                existing_company_id=existing_co,
+                existing_platoon_id=existing_pl,
+                existing_batch_id=existing_ba,
                 trace_id=trace_id,
                 session_id=session_id,
             )
@@ -811,7 +860,7 @@ def execute_admin_query(
                 id_filters["batchId"] = int(resolved_batch)
             # agniveerNo is a string filter — stored separately
 
-            resolved_agniveer_no = resolved_entities.get("agniveerNo")
+            resolved_agniveer_no = resolved_entities.get("agniveerNo") or resolved_agniveer_no
 
             planning_start = time.time()
             message = admin_normalize_query(message)
@@ -903,6 +952,9 @@ def execute_admin_query(
                             payload["agniveerNo"] = resolved_agniveer_no
                         if full_name:
                             payload["fullName"] = full_name
+
+                        # ── Rule 9: strip empty/zero/null ID fields before sending ──
+                        payload = _strip_empty_id_fields(payload)
 
                         # Validate DotNetPayloadModel
                         _validate_model_payload(
@@ -1241,6 +1293,9 @@ def execute_admin_query(
                 # Wire in agniveerNo from entity resolution if not already set by intent
                 if resolved_agniveer_no and not dotnet_payload.get("agniveerNo"):
                     dotnet_payload["agniveerNo"] = resolved_agniveer_no
+
+                # ── Rule 9: strip empty/zero/null ID fields before sending ──
+                dotnet_payload = _strip_empty_id_fields(dotnet_payload)
 
                 # Validate DotNetPayloadModel
                 _validate_model_payload(

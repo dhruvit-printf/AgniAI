@@ -733,7 +733,11 @@ def plan_query(query: str) -> QueryPlan:
 
     if qtype == "cross_filter":
         ops = _ops_from_semantic_fragments(q)
-        valid_ops = [op for op in ops if op.intent_result.get("category")]
+        # Schedule is a standalone category (timetable/agenda), never a filter condition
+        valid_ops = [
+            op for op in ops
+            if op.intent_result.get("category") and op.intent_result.get("category") != "Schedule"
+        ]
         if len(valid_ops) >= 2:
             for op in valid_ops:
                 if op.intent_result.get("category") == "Roster" and op.intent_result.get("sport"):

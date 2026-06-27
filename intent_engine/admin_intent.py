@@ -2,13 +2,16 @@
 admin_intent.py
 ===============
 
-Backwards-compatible coordinator for the intent engine.
+Coordinator for the intent engine.
+
+Responsibility: orchestrate the pipeline stages and assemble the final intent
+dict.  Business intent decisions (category, operation, responseType) are made
+ONLY in intent_classifier.py and are never re-derived here.
 """
 
 from __future__ import annotations
 
-import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from .entity_extractor import extract_entities
 from .intent_classifier import classify_intent
@@ -24,15 +27,9 @@ from .payload_validator import validate_payload
 from query_normalizer import clean_query as _normalise
 from query_understanding_engine import understand_query
 
-ISSUED_ITEMS = tuple(ISSUED_EQUIPMENT_ITEMS)
-PROCURED_ITEMS = tuple(PROCURED_EQUIPMENT_ITEMS)
-_ITEM_LOOKUP: Dict[str, Tuple[str, str]] = {
-    item.lower(): (item, "IssuedItems") for item in ISSUED_ITEMS
-}
-_ITEM_LOOKUP.update({item.lower(): (item, "ProcuredItems") for item in PROCURED_ITEMS})
-
 
 def _item_category(item_name: Optional[str]) -> Optional[str]:
+    """Return 'IssuedItems' or 'ProcuredItems' for a known equipment item name."""
     if not item_name:
         return None
     lowered = item_name.lower()
@@ -43,263 +40,15 @@ def _item_category(item_name: Optional[str]) -> Optional[str]:
     return None
 
 
-def _extract_item_query(query: str) -> Tuple[Optional[str], Optional[str]]:
-    normalized = _normalise(query)
-    for key, (item, category) in _ITEM_LOOKUP.items():
-        if key in normalized:
-            return item, category
-    return None, None
-
-
-def _infer_category(query: str, intent: Dict[str, Any], entities: Dict[str, Any]) -> Optional[str]:
-    normalized = _normalise(query)
-    if re.search(r"make mistakes|verify important information", normalized):
-        return None
-    if entities.get("equipmentName") or any(
-        token in normalized
-        for token in (
-            "issued items",
-            "procured items",
-            "equipment summary",
-            "equipment returned",
-            "poor condition",
-            "holding equipment",
-            "overdue equipment",
-        )
-    ):
-        return "Equipment"
-    if entities.get("section"):
-        return "Performance"
-    if entities.get("bmiCategory") or entities.get("bloodGroup"):
-        return "Medical"
-    if entities.get("leaveType"):
-        return "Leave"
-    if entities.get("medical_status"):
-        return "Medical"
-    if entities.get("sport") or entities.get("class"):
-        if "roster" in normalized:
-            return "Roster"
-        if "attendance" in normalized:
-            return "Attendance"
-        if "distribution" in normalized:
-            return "Distribution"
-        return "Skills"
-    if "attendance" in normalized:
-        return "Attendance"
-    if "distribution" in normalized and "unit" in normalized:
-        return "Distribution"
-    if "schedule" in normalized:
-        return "Schedule"
-    if "strength" in normalized:
-        return "Strength"
-    if "overall" in normalized:
-        return "Overall"
-    return intent.get("category")
-
-
-def _infer_operation(category: Optional[str], intent: Dict[str, Any], entities: Dict[str, Any], query: str) -> Optional[str]:
-    normalized = _normalise(query)
-    operation = intent.get("operation")
-    if entities.get("grading"):
-        operation = operation or "Grading"
-    if entities.get("bmiCategory"):
-        operation = "BMI"
-    if entities.get("bloodGroup"):
-        operation = "BloodGroup"
-    if entities.get("attemptNo") is not None or entities.get("fromAttempt") is not None or entities.get("toAttempt") is not None:
-        operation = "AttemptWise"
-    if entities.get("leaveType") == "Current":
-        operation = "Current"
-    if entities.get("medical_status") == "Active":
-        operation = "Active"
-
-    # Keyword-based fallbacks only activate when the classifier returned no operation.
-    # They serve as a second-pass safety net; entity-driven overrides above always win.
-    if not operation:
-        if category == "Performance":
-            if "pass percentage" in normalized or "pass rate" in normalized:
-                return "PassPercentage"
-            if "fail percentage" in normalized or "fail rate" in normalized:
-                return "FailPercentage"
-            if "grading summary" in normalized or "grade summary" in normalized:
-                return "GradingSummary"
-            if "grade distribution" in normalized or "grading distribution" in normalized:
-                return "Grading"
-            if any(token in normalized for token in ("compare", "comparison", " vs ", " versus ")):
-                return "Compare"
-            if any(token in normalized for token in ("top", "highest", "best")):
-                return "Top"
-            if any(token in normalized for token in ("bottom", "lowest", "worst")):
-                return "Bottom"
-            if any(token in normalized for token in ("improvement", "improve", "improved")):
-                return "Improvement"
-            if any(token in normalized for token in ("drop", "decline", "declined", "worse")):
-                return "Drop"
-            if entities.get("section"):
-                operation = "Summary"
-
-        elif category == "Leave":
-            if any(token in normalized for token in ("fewest", "least")):
-                return "Least"
-            if any(token in normalized for token in ("most", "maximum")):
-                return "Most"
-            if any(token in normalized for token in ("current", "today", "on leave", "absent today", "currently absent")):
-                return "Current"
-            if any(token in normalized for token in ("abscond", "missing", "awol")):
-                return "Absconded"
-
-        elif category == "Attendance":
-            month_match = re.search(
-                r"\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b",
-                query,
-                re.IGNORECASE,
-            )
-            if any(token in normalized for token in ("present", "on campus", "who is present")):
-                return "Present"
-            if any(token in normalized for token in ("weekly", "week")):
-                return "Weekly"
-            if any(token in normalized for token in ("yearly", "annual")):
-                return "Yearly"
-            if month_match or entities.get("date"):
-                return "Monthly"
-            if any(token in normalized for token in ("daily", "today", "day")):
-                return "Daily"
-
-        elif category == "Distribution":
-            if any(token in normalized for token in ("top unit", "highest", "most")) and "unit" in normalized:
-                return "TopUnit"
-            if "latest" in normalized or "recent" in normalized:
-                return "Latest"
-            if "unassigned" in normalized:
-                return "Unassigned"
-            if "unit" in normalized:
-                return "ByUnit"
-
-        elif category == "Verification":
-            if "pending" in normalized:
-                return "Pending"
-            if "sent" in normalized:
-                return "Sent"
-            if "not responded" in normalized or "no response" in normalized:
-                return "NotResponded"
-            if "rejected" in normalized:
-                return "Rejected"
-            if "verified" in normalized or "completed" in normalized or "done" in normalized:
-                return "Verified"
-
-        elif category == "Equipment":
-            if "summary" in normalized or "stats" in normalized:
-                return "Stats"
-            if "overdue" in normalized:
-                return "Overdue"
-            if "poor condition" in normalized or "returned" in normalized:
-                return "Returned"
-            if "holding" in normalized:
-                return "Holding"
-            if "issued" in normalized:
-                return "Issued"
-            if "procured" in normalized:
-                return "Procured"
-
-    if category == "Equipment" and entities.get("equipmentName"):
-        item_cat = _item_category(entities.get("equipmentName"))
-        if item_cat == "IssuedItems" and any(token in normalized for token in ("issued", "holding", "overdue", "poor condition", "returned")):
-            return SUBCATEGORY_TO_OPERATION.get("IssuedItems", "Issued")
-        if item_cat == "ProcuredItems" and any(token in normalized for token in ("procured", "self purchased")):
-            return SUBCATEGORY_TO_OPERATION.get("ProcuredItems", "Procured")
-    if category == "Roster" and entities.get("sport"):
-        return "BySport"
-    if category == "Roster" and entities.get("class"):
-        return "ByClass"
-    if category == "Strength":
-        return "Summary"
-    if category == "Overall":
-        return "OverallPerformance"
-    return operation
-
-
-def _infer_legacy_subcategory(
-    category: Optional[str],
-    operation: Optional[str],
-    query: str,
-    entities: Dict[str, Any],
-) -> Optional[str]:
-    normalized = _normalise(query)
-    if category == "Verification":
-        if "completed" in normalized:
-            return "CompletedVerification"
-        if "sent" in normalized:
-            return "SentVerification"
-        if "not responded" in normalized or "no response" in normalized:
-            return "NotRespondedVerification"
-        if "rejected" in normalized:
-            return "RejectedVerification"
-        if "pending" in normalized:
-            return "PendingVerification"
-        if "verified" in normalized:
-            return "VerifiedVerification"
-
-    if category == "Performance":
-        if "pass percentage" in normalized or "pass rate" in normalized:
-            return "PassPercentage"
-        if "fail percentage" in normalized or "fail rate" in normalized:
-            return "FailPercentage"
-        if "grading summary" in normalized or "grade summary" in normalized:
-            return "GradingSummary"
-        if "grade distribution" in normalized or "grading distribution" in normalized:
-            return "GradeDistribution"
-        if any(token in normalized for token in ("compare", "comparison", " vs ", " versus ")):
-            return "Comparison"
-
-    if category and operation and (category, operation) in CATEGORY_OPERATION_TO_SUBCATEGORY:
-        return CATEGORY_OPERATION_TO_SUBCATEGORY[(category, operation)]
-
-    if category == "Equipment" and entities.get("equipmentName"):
-        item_category = _item_category(entities["equipmentName"])
-        if item_category and not any(token in normalized for token in ("poor condition", "returned", "overdue", "holding", "issued", "procured")):
-            return item_category
-        if "poor condition" in normalized or "returned" in normalized:
-            return "PoorConditionEquipment"
-        if "overdue" in normalized:
-            return "OverdueEquipment"
-        if "holding" in normalized:
-            return "HoldingEquipment"
-    if category == "Performance" and entities.get("section") and not operation:
-        return "SectionSummary"
-    if category == "Medical" and entities.get("medical_status") == "Active":
-        return "ActiveCases"
-    if category == "Attendance":
-        if any(token in normalized for token in ("present", "on campus", "who is present")):
-            return "PresentToday"
-        if any(token in normalized for token in ("weekly", "week")):
-            return "WeeklyAttendance"
-        if any(token in normalized for token in ("yearly", "annual")):
-            return "YearlyAttendance"
-        if re.search(
-            r"\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b",
-            query,
-            re.IGNORECASE,
-        ):
-            return "MonthlyAttendance"
-        if entities.get("date") and not operation:
-            return "DailyAttendance"
-    if category == "Distribution":
-        if any(token in normalized for token in ("top unit", "highest", "most")) and "unit" in normalized:
-            return "TopUnit"
-        if "unassigned" in normalized:
-            return "UnassignedItems"
-        if "latest" in normalized or "recent" in normalized:
-            return "LatestDistribution"
-        if "unit" in normalized:
-            return "DistributionByUnit"
-    if category == "Strength":
-        return "StrengthBreakdown"
-    if category == "Overall":
-        return "OverallPerformance"
+def _subcategory_from_table(category: Optional[str], operation: Optional[str]) -> Optional[str]:
+    """Pure lookup — no inference.  Derives subcategory from the official table."""
+    if category and operation:
+        return CATEGORY_OPERATION_TO_SUBCATEGORY.get((category, operation))
     return None
 
 
 def _legacy_type(category: Optional[str], operation: Optional[str], subcategory: Optional[str]) -> Optional[str]:
+    """Pure lookup — no inference.  Returns the deprecated visualization hint."""
     if not category or not subcategory:
         return None
     op_key = operation or SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory)
@@ -310,103 +59,87 @@ def classify_admin_intent(
     query: str,
     resolved_entities: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    """
+    Coordinator — assembles the final intent dict.
+
+    Decision ownership:
+      - Category, Operation, ResponseType → intent_classifier.py (classify_intent)
+      - Entities                          → entity_extractor.py  (extract_entities)
+      - Semantic understanding            → query_understanding_engine.py (understand_query)
+      - Subcategory                       → CATEGORY_OPERATION_TO_SUBCATEGORY table (pure lookup)
+
+    No re-inference is performed here.  Each field is set exactly once.
+    """
     raw_query = str(query or "").strip()
     resolved_entities = resolved_entities or {}
 
+    # Guard: LLM disclaimer text — not a real query
     lowered_query = raw_query.lower()
     if "may make mistakes" in lowered_query and "verify important information" in lowered_query:
         return {
-            "category": None,
-            "subcategory": None,
-            "operation": None,
-            "number": None,
-            "section": None,
-            "sub_section": None,
-            "metric": None,
-            "sort_by": None,
-            "group_by": None,
-            "grading": None,
-            "leave_type": None,
-            "sport": None,
-            "class": None,
-            "unit_name": None,
-            "attempt_no": None,
-            "from_attempt": None,
-            "to_attempt": None,
-            "date": None,
-            "item_name": None,
-            "item_category": None,
-            "company_id": None,
-            "platoon_id": None,
-            "batch_id": None,
-            "from_date": None,
-            "to_date": None,
-            "agniveer_no": None,
-            "bmi_category": None,
-            "blood_group": None,
-            "type": None,
-            "medical_status": None,
-            "responseType": "Summary",
-            "raw_query": raw_query,
-            "confidence": "low",
-            "query_type": "simple",
-            "filters": {},
+            "category": None, "subcategory": None, "operation": None,
+            "number": None, "section": None, "sub_section": None,
+            "metric": None, "sort_by": None, "group_by": None,
+            "grading": None, "leave_type": None, "sport": None,
+            "class": None, "unit_name": None, "attempt_no": None,
+            "from_attempt": None, "to_attempt": None, "date": None,
+            "item_name": None, "item_category": None,
+            "company_id": None, "platoon_id": None, "batch_id": None,
+            "from_date": None, "to_date": None, "agniveer_no": None,
+            "bmi_category": None, "blood_group": None,
+            "type": None, "medical_status": None,
+            "responseType": "Summary", "raw_query": raw_query,
+            "confidence": "low", "query_type": "simple", "filters": {},
         }
 
+    # ── Stage 1: Extract entities ────────────────────────────────────────────
     entities = extract_entities(raw_query, resolved_entities)
+
+    # ── Stage 2: Semantic understanding ─────────────────────────────────────
     semantic = understand_query(raw_query)
+
+    # ── Stage 3: Classify intent (single source of truth for category/op) ───
     intent_result = classify_intent(raw_query, entities, semantic)
 
-    category = _infer_category(raw_query, intent_result, entities)
-    operation = _infer_operation(category, intent_result, entities, raw_query)
-    subcategory = _infer_legacy_subcategory(category, operation, raw_query, entities)
+    category: Optional[str] = intent_result.get("category")
+    operation: Optional[str] = intent_result.get("operation")
 
-    if category == "Performance" and entities.get("section") in {"BPET", "PPT", "Firing", "Drill"} and not subcategory:
-        subcategory = "SectionSummary"
+    # ── Stage 4: Subcategory — pure table lookup, no inference ───────────────
+    subcategory: Optional[str] = _subcategory_from_table(category, operation)
 
+    # Equipment item-list override: when the user names a specific item and no
+    # explicitly-contextual operation keyword is present (overdue, poor condition,
+    # holding, stats, etc.), the item's list membership (IssuedItems / ProcuredItems)
+    # is authoritative over the classifier's entity-bonus tie-breaker.
+    if category == "Equipment" and entities.get("equipmentName"):
+        item_cat = _item_category(entities.get("equipmentName"))
+        if item_cat:
+            _EXPLICIT_EQUIP_OP_KEYWORDS = frozenset({
+                "overdue", "poor condition", "returned", "holding",
+                "stats", "summary", "agniveer wise",
+            })
+            _nq = _normalise(raw_query)
+            if not any(kw in _nq for kw in _EXPLICIT_EQUIP_OP_KEYWORDS):
+                subcategory = item_cat
+                operation = SUBCATEGORY_TO_OPERATION.get(subcategory, operation)
+
+    # Backfill: recover category/operation from subcategory when the classifier
+    # had insufficient keyword evidence (extremely terse queries).
     if not category and subcategory:
-        category = next((cat for (cat, op), sub in CATEGORY_OPERATION_TO_SUBCATEGORY.items() if sub == subcategory), None)
-
+        category = next(
+            (cat for (cat, _op), sub in CATEGORY_OPERATION_TO_SUBCATEGORY.items() if sub == subcategory),
+            None,
+        )
     if not operation and subcategory:
         operation = SUBCATEGORY_TO_OPERATION.get(subcategory)
 
-    if category == "Equipment" and entities.get("equipmentName") and not subcategory:
-        subcategory = _item_category(entities["equipmentName"])
-
+    # ── Stage 5: Legacy visualization hint — pure lookup ────────────────────
+    legacy_type: Optional[str] = _legacy_type(category, operation, subcategory)
     normalized_query = _normalise(raw_query)
-
-    if category == "Attendance" and "annual" in normalized_query:
-        subcategory = "YearlyAttendance"
-        operation = "Yearly"
-    if category == "Attendance" and re.search(
-        r"\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b",
-        raw_query,
-        re.IGNORECASE,
-    ):
-        subcategory = "MonthlyAttendance"
-        operation = "Monthly"
-    if category == "Attendance" and any(token in normalized_query for token in ("present", "on campus", "who is present")):
-        subcategory = "PresentToday"
-        operation = "Present"
-    if category == "Attendance" and any(token in normalized_query for token in ("weekly", "week")):
-        subcategory = "WeeklyAttendance"
-        operation = "Weekly"
-    if category == "Attendance" and any(token in normalized_query for token in ("daily", "today", "day")) and subcategory is None:
-        subcategory = "DailyAttendance"
-        operation = "Daily"
-
-    if category == "Strength" and not subcategory:
-        subcategory = "StrengthBreakdown"
-        operation = "Summary"
-
-    if category == "Overall" and not subcategory:
-        subcategory = "OverallPerformance"
-        operation = "OverallPerformance"
-
-    legacy_type = _legacy_type(category, operation, subcategory)
     if "tabular" in normalized_query or "table" in normalized_query:
         legacy_type = "Tabular"
 
+    # ── Stage 6: Confidence — derived from classifier output ─────────────────
     confidence = "low"
     if category and subcategory:
         confidence = "high"
@@ -415,6 +148,7 @@ def classify_admin_intent(
     if subcategory in {"TopPerformers", "LowestPerformers"} and entities.get("n") is None:
         confidence = "medium"
 
+    # ── Stage 7: Assemble result ─────────────────────────────────────────────
     result: Dict[str, Any] = {
         "category": category,
         "subcategory": subcategory,
@@ -452,30 +186,9 @@ def classify_admin_intent(
         "query_type": "simple",
     }
 
-    if result["category"] == "Leave" and result["leave_type"] == "Current":
-        result["operation"] = "Current"
-
-    if result["category"] == "Medical" and result["bmi_category"]:
-        result["operation"] = "BMI"
-        result["subcategory"] = result["subcategory"] or "BMIAnalysis"
-
-    if result["category"] == "Medical" and result["blood_group"]:
-        result["operation"] = "BloodGroup"
-        result["subcategory"] = result["subcategory"] or "BloodGroup"
-
-    if result["category"] == "Verification" and not result["subcategory"] and result["operation"]:
-        result["subcategory"] = CATEGORY_OPERATION_TO_SUBCATEGORY.get(("Verification", result["operation"]))
-
+    # Equipment subcategory → operation consistency (IssuedItems ↔ Issued)
     if result["category"] == "Equipment" and result["subcategory"] in {"IssuedItems", "ProcuredItems"}:
         result["operation"] = SUBCATEGORY_TO_OPERATION.get(result["subcategory"], result["operation"])
-
-    if result["category"] == "Distribution" and not result["subcategory"]:
-        if "unit" in _normalise(raw_query):
-            result["subcategory"] = "DistributionByUnit"
-        elif "unassigned" in _normalise(raw_query):
-            result["subcategory"] = "UnassignedItems"
-        elif "latest" in _normalise(raw_query):
-            result["subcategory"] = "LatestDistribution"
 
     result["filters"] = {
         key: value
