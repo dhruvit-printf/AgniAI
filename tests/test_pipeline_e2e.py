@@ -217,7 +217,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(widgets[0]["type"], "COMPARE_CARD")
         self.assertEqual(widgets[1]["type"], "COMPARE_TABLE")
         widget = widgets[1]
-        self.assertIn("comparisonMetrics", response_payload)
+        self.assertIn("comparisonMetrics", response_payload["metadata"])
         self.assertIn("left", widget["data"])
         self.assertIn("right", widget["data"])
 

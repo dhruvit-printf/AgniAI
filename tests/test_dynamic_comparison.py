@@ -112,5 +112,5 @@ def test_response_builder_format():
     assert response["status"] is True
     assert isinstance(response["formattedData"], list)
     assert response["formattedData"][0]["type"] == "COMPARE_CARD"
-    assert "comparisonMetrics" in response
+    assert "comparisonMetrics" in response["metadata"]
     assert response["dotnetPayload"] == dotnet_payload

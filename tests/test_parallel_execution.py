@@ -13,7 +13,7 @@ class TestParallelExecution(unittest.TestCase):
         self, mock_generate_report, mock_call_dotnet
     ):
         # We simulate slow first call and fast second call to verify order preservation.
-        def side_effect(payload, trace_id=None):
+        def side_effect(payload, *args, **kwargs):
             # If it's PPT, we sleep a bit
             if payload.get("section") == "PPT":
                 time.sleep(0.3)
