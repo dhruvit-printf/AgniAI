@@ -213,11 +213,13 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(response_payload["metadata"]["queryType"], "COMPARISON")
 
         # Check comparison results — verify correct COMPARE widget is built
-        widget = response_payload["formattedData"]
-        self.assertEqual(widget["type"], "COMPARE_TABLE")
+        widgets = response_payload["formattedData"]
+        self.assertEqual(widgets[0]["type"], "COMPARE_CARD")
+        self.assertEqual(widgets[1]["type"], "COMPARE_TABLE")
+        widget = widgets[1]
         self.assertIn("comparisonMetrics", response_payload)
-        self.assertIn("headers", widget["data"])
-        self.assertIn("sides", widget["data"])
+        self.assertIn("left", widget["data"])
+        self.assertIn("right", widget["data"])
 
         self.assertEqual(mock_call_dotnet.call_count, 2)
 

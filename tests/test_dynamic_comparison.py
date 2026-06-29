@@ -39,21 +39,21 @@ def test_dynamic_visualization_selection():
         {"data": [{"date": "2026-01-01", "score": 80}]},
         {"data": [{"date": "2026-01-02", "score": 85}]}
     ]
-    assert select_visualization_type(sides_line) == "COMPARE_CHART_LINE"
+    assert select_visualization_type(sides_line) == "COMPARE_LINE_CHART"
 
     # Pie chart shape (contain leave/medical category)
     sides_pie = [
         {"data": [{"leaveType": "Sick", "count": 2}]},
         {"data": [{"leaveType": "Sick", "count": 3}]}
     ]
-    assert select_visualization_type(sides_pie) == "COMPARE_CHART_PIE"
+    assert select_visualization_type(sides_pie) == "COMPARE_PIE_CHART"
 
     # Bar chart shape (contain platoon/company)
     sides_bar = [
         {"data": [{"platoon": "Platoon 1", "score": 75}]},
         {"data": [{"platoon": "Platoon 2", "score": 80}]}
     ]
-    assert select_visualization_type(sides_bar) == "COMPARE_CHART_BAR"
+    assert select_visualization_type(sides_bar) == "COMPARE_BAR_CHART"
 
     # Card shape (1 record, 2 keys)
     sides_card = [
@@ -110,7 +110,7 @@ def test_response_builder_format():
     )
     
     assert response["status"] is True
-    assert isinstance(response["formattedData"], dict)
-    assert response["formattedData"]["type"] == "COMPARE_CARD"
+    assert isinstance(response["formattedData"], list)
+    assert response["formattedData"][0]["type"] == "COMPARE_CARD"
     assert "comparisonMetrics" in response
     assert response["dotnetPayload"] == dotnet_payload

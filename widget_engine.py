@@ -16,10 +16,13 @@ Widget selection priority:
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import ValidationError
 
 from normalized_models import extract_records as _orig_extract_records
+
+logger = logging.getLogger(__name__)
 
 def capitalize_segment(s: str) -> str:
     if not s:
@@ -1563,7 +1566,13 @@ def build_widget_list(
     if query_type in ("compare", "comparison") and isinstance(combined_result, dict) and "sides" in combined_result:
         from normalized_models import _derive_title
         base_title = _derive_title(query_type, intent) or ""
-        return build_comparison_widgets(combined_result, base_title)
+        widgets = build_comparison_widgets(combined_result, base_title)
+        for w in widgets:
+            if isinstance(w, dict) and isinstance(w.get("data"), dict):
+                for key in ("degraded", "failedFilters", "matchCount"):
+                    if key in combined_result:
+                        w["data"][key] = combined_result[key]
+        return widgets
 
     from widget_selector import WidgetSelector
 
@@ -1603,6 +1612,10 @@ def build_widget_list(
                 table_data = build_table_data(flat)
                 data["rows"] = table_data.get("rows") or []
                 data["columns"] = table_data.get("columns") or []
+            if isinstance(combined_result, dict) and isinstance(data, dict):
+                for key in ("degraded", "failedFilters", "matchCount"):
+                    if key in combined_result:
+                        data[key] = combined_result[key]
         except Exception:
             import logging as _logging
             _logging.getLogger(__name__).exception(

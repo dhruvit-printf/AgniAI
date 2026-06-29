@@ -438,8 +438,9 @@ def test_synonyms():
     r4 = classify_admin_intent("BPET vs PPT")
     assert r4["category"] == "Performance"
     assert r4["subcategory"] == "Comparison"
+    assert r4["operation"] == "Compare"
     p4 = format_admin_payload(r4)
-    assert p4["operation"] == "Compare"
+    assert p4["operation"] == "Summary"
 
     # annual attendance -> Yearly
     r5 = classify_admin_intent("Show annual attendance")

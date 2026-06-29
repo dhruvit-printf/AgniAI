@@ -35,15 +35,18 @@ class TestParallelExecution(unittest.TestCase):
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
 
-        sides = response_payload["formattedData"]["data"]["sides"]
-        self.assertEqual(len(sides), 2)
+        widgets = response_payload["formattedData"]
+        self.assertEqual(widgets[0]["type"], "COMPARE_CARD")
+        self.assertEqual(widgets[1]["type"], "COMPARE_TABLE")
 
-        # PPT must be first side, BEPT must be second side
-        self.assertEqual(sides[0]["label"], "PPT")
-        self.assertEqual(sides[0]["data"], [{"agniveerNo": "PPT-1"}])
+        # In the new widget structure, COMPARE_TABLE data has left and right sides
+        table_data = widgets[1]["data"]
+        left = table_data["left"]
+        right = table_data["right"]
 
-        self.assertEqual(sides[1]["label"], "BPET")  # Normalised BEPT -> BPET
-        self.assertEqual(sides[1]["data"], [{"agniveerNo": "BEPT-1"}])
+        # PPT must be left side, BEPT (normalised to BPET) must be right side
+        self.assertEqual(left["rows"][0]["agniveerNo"], "PPT-1")
+        self.assertEqual(right["rows"][0]["agniveerNo"], "BEPT-1")
         self.assertEqual(mock_call_dotnet.call_count, 2)
 
 

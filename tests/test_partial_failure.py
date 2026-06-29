@@ -35,7 +35,7 @@ class TestPartialFailure(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         # Checked processed data has degraded == True and failedFilters
-        processed = response_payload["formattedData"][0]["data"]
+        processed = response_payload["formattedData"][1]["data"]
         self.assertTrue(processed.get("degraded"))
         self.assertEqual(processed.get("failedFilters"), ["Skills"])
     
@@ -65,14 +65,21 @@ class TestPartialFailure(unittest.TestCase):
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
 
-        sides = response_payload["formattedData"]["data"]["sides"]
-        self.assertEqual(len(sides), 2)
-        # Side 0 is PPT
-        self.assertEqual(sides[0]["label"], "PPT")
-        self.assertNotIn("unavailable", sides[0])
-        # Side 1 is BEPT (failed)
-        self.assertEqual(sides[1]["label"], "BPET")  # BPET due to normalization
-        self.assertTrue(sides[1].get("unavailable") or sides[1].get("data", {}).get("unavailable"))
+        widgets = response_payload["formattedData"]
+        self.assertEqual(widgets[0]["type"], "COMPARE_CARD")
+        self.assertEqual(widgets[1]["type"], "COMPARE_TABLE")
+
+        # PPT (left side) succeeds and has 1 row
+        left_table = widgets[1]["data"]["left"]
+        self.assertEqual(len(left_table["rows"]), 1)
+
+        # BEPT (right side) failed and has 0 rows
+        right_table = widgets[1]["data"]["right"]
+        self.assertEqual(len(right_table["rows"]), 0)
+
+        # Failed sections metadata is populated
+        self.assertEqual(response_payload["failedSections"], ["BPET"])
+        self.assertTrue(response_payload["partialFailure"])
 
     @patch("admin_pipeline._call_dotnet")
     def test_all_intents_fail(self, mock_call_dotnet):
