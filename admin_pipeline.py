@@ -31,6 +31,7 @@ import requests as _requests
 
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
+from context_engine import context_engine
 from intent_engine.admin_intent import (
     classify_admin_intent,
     format_admin_payload,
@@ -737,6 +738,39 @@ def execute_admin_query(
     token_trace = trace_id_var.set(trace_id)
     token_sess = session_id_var.set(session_id)
     set_audit_context(question=user_query or "", intent={"type": "Unknown"})
+
+    # ── Context Resolution ────────────────────────────────────────────────────
+    # Resolve follow-up queries against the last 10 interactions for this session.
+    # Returns either the original query ("fresh") or a fully reconstructed one.
+    _original_user_query = user_query
+    _ctx_resolution = context_engine.resolve(session_id, user_query or "")
+    if _ctx_resolution.needs_clarification:
+        _clarification_msg = _ctx_resolution.clarification_question or "Could you clarify your question?"
+        _clarification_payload = build_conversation_payload(
+            _clarification_msg,
+            session_id=session_id,
+            query_type="clarification",
+        )
+        return {
+            "type": "clarification",
+            "response_payload": _clarification_payload,
+            "combined_message": _clarification_msg,
+            "execution_time_ms": 0,
+        }
+    if _ctx_resolution.context_source != "fresh":
+        logger.info(
+            json.dumps({
+                "message": "Context engine resolved follow-up",
+                "original": _original_user_query,
+                "resolved": _ctx_resolution.resolved_query,
+                "source": _ctx_resolution.context_source,
+                "session_id": session_id,
+            })
+        )
+        user_query = _ctx_resolution.resolved_query
+
+    # Initialise entity dict so it's always bound when add_interaction() fires
+    resolved_entities: Dict[str, Any] = {}
 
     # ── Check Cache ──
     from cache_manager import cache_manager
@@ -1672,6 +1706,28 @@ def execute_admin_query(
 
         # ── Update session context ────────────────────────────────────────────
         _session_context.update(session_id, message, primary_intent, combined_result)
+
+        # ── Store interaction in context engine (for follow-up resolution) ────
+        try:
+            _intent_filters = {**(primary_intent.get("filters") or {}), **_get_id_filters(body)}
+            _payload_summary = (
+                f"{primary_intent.get('operation', 'lookup')} "
+                f"{primary_intent.get('category') or primary_intent.get('section') or ''}".strip()
+            )
+            context_engine.add_interaction(
+                session_id,
+                user_message=_original_user_query,
+                resolved_query=message,
+                intent=primary_intent,
+                entities=resolved_entities if isinstance(resolved_entities, dict) else {},
+                filters=_intent_filters,
+                category=primary_intent.get("category"),
+                section=primary_intent.get("section"),
+                operation=primary_intent.get("operation", "lookup"),
+                payload_summary=_payload_summary,
+            )
+        except Exception as _ctx_exc:
+            logger.debug("context_engine.add_interaction failed: %s", _ctx_exc)
 
         total_duration = time.time() - start_time
 
