@@ -1291,10 +1291,16 @@ def _build_compare_table(combined_result: Dict[str, Any]) -> Dict[str, Any]:
             for k in headers:
                 aligned_row[k] = r.get(k)
             aligned_rows.append(aligned_row)
-        aligned_sides.append({
+        
+        side_payload = {
             "label": side["label"],
+            "data": aligned_rows,
             "rows": aligned_rows
-        })
+        }
+        for k, v in side.items():
+            if k not in ("label", "data", "rows"):
+                side_payload[k] = v
+        aligned_sides.append(side_payload)
         
     return {
         "headers": headers,

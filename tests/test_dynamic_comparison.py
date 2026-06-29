@@ -11,14 +11,14 @@ from response_builder import build_response
 
 def test_semantic_comparison_detection():
     # 2-way comparison
-    plan = plan_query("compare PPT vs BPET results for Alpha", session_id="test")
+    plan = plan_query("compare PPT vs BPET results for Alpha")
     assert plan.query_type == QueryType.COMPARISON
     assert len(plan.comparison_execution_plan) == 2
     assert plan.comparison_execution_plan[0]["label"] == "PPT"
     assert plan.comparison_execution_plan[1]["label"] == "BPET"
 
     # N-way comparison
-    plan = plan_query("compare PPT vs BPET vs Medical results for Alpha", session_id="test")
+    plan = plan_query("compare PPT vs BPET vs Medical results for Alpha")
     assert plan.query_type == QueryType.COMPARISON
     assert len(plan.comparison_execution_plan) == 3
     assert plan.comparison_execution_plan[0]["label"] == "PPT"

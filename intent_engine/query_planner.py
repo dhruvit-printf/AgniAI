@@ -692,6 +692,8 @@ def _normalize_n_parts(parts: List[str]) -> List[Tuple[str, str]]:
         p = part.strip()
         for kw in ("compare", "comparison", "difference", "versus", "vs"):
             p = re.sub(r"\b" + re.escape(kw) + r"\b", "", p, flags=re.IGNORECASE).strip()
+        p = re.sub(r"\b(results|stats|data|records|performance|score|marks)\b.*$", "", p, flags=re.IGNORECASE).strip()
+        p = re.sub(r"\bfor\s+\w+(?:\s+\d+)?$", "", p, flags=re.IGNORECASE).strip()
         cleaned_parts.append(p)
     
     # Check if there is a shared trailing category/keyword in the last part
