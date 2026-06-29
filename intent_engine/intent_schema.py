@@ -1439,7 +1439,7 @@ SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "YearlyAttendance": "Yearly",
     "AttendanceSummary": "Summary",
     "PendingVerification": "Pending",
-    "CompletedVerification": "Verified",
+    "CompletedVerification": "Completed",
     "NotRespondedVerification": "NotResponded",
     "VerifiedVerification": "Verified",
     "RejectedVerification": "Rejected",
@@ -1565,7 +1565,7 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Distribution", "TopUnit"): "TopUnit",
     ("Roster", "BySport"): "BySport",
     ("Roster", "ByClass"): "ByClass",
-    ("Strength", "Summary"): "StrengthBreakdown",
+
     ("Skills", "BySport"): "BySport",
     ("Skills", "ByClass"): "ByClass",
     ("Overall", "OverallPerformance"): "OverallPerformance",

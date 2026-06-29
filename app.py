@@ -26,7 +26,7 @@ from werkzeug.utils import secure_filename
 try:
     from flask_limiter import Limiter
     from flask_limiter.util import get_remote_address
-except Exception:  # pragma: no cover
+except Exception:  
     Limiter = None
     get_remote_address = None
 

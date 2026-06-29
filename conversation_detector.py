@@ -156,10 +156,6 @@ def is_conversational_query(text: str) -> bool:
         return True
     if _contains_disclaimer_phrase(cleaned):
         return True
-    if any(phrase in cleaned for phrase in _ADMIN_PHRASES):
-        return False
-    if _contains_admin_signal(cleaned):
-        return False
     return False
 
 

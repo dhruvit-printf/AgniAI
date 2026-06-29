@@ -96,86 +96,7 @@ _COMPARISON_KEYWORDS: List[str] = [
     "contrast",
 ]
 
-_CROSS_FILTER_KEYWORDS: List[str] = [
-    "who plays",
-    "who play",
-    "that play",
-    "that plays",
-    "which play",
-    "which plays",
-    "having sport",
-    "with sport",
-    "on leave",
-    "currently on leave",
-    "who is on leave",
-    "currently absent",
-    "with medical",
-    "with active medical",
-    "with medical case",
-    "active medical",
-    "in hospital",
-    "under treatment",
-    "attending today",
-    "present today",
-    "on campus today",
-    "who are in",
-    "who is in",
-    "among",
-    "within",
-]
 
-_CROSS_FILTER_CONNECTORS: List[str] = [
-    "who",
-    "that",
-    "which",
-    "having",
-    "among",
-    "within",
-    "currently",
-    "with",
-]
-
-_MULTI_INDEPENDENT_CONNECTORS: List[str] = [
-    "along with",
-    "as well as",
-    "together with",
-    "additionally show",
-    "also show",
-    "and also",
-]
-
-_NO_SPLIT_PHRASES: List[str] = [
-    "approved and pending leave",
-    "approved and pending",
-    "annual and medical leave",
-    "annual and sick leave",
-    "medical and sick leave",
-    "top and bottom",
-    "top and worst",
-    "best and worst",
-    "highest and lowest",
-    "pass and fail",
-    "pass percentage and fail percentage",
-    "pass rate and fail rate",
-    "improvement and drop",
-    "improvement and decline",
-    "grade distribution",
-    "grading distribution",
-    "issued and procured",
-    "overdue and returned",
-    "pending and completed verification",
-    "pending and completed",
-]
-
-_GROUP_BY_MAP: Dict[str, str] = {
-    "section": "section",
-    "unit": "unit",
-    "class": "class",
-    "sport": "sport",
-    "sports": "sport",
-    "platoon": "platoon",
-    "batch": "batch",
-}
 
 _CATEGORY_SIGNALS: Dict[str, List[str]] = {
     "Performance": [
@@ -312,15 +233,7 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
     ],
 }
 
-_SPORT_NAMES = {
-    "cricket",
-    "football",
-    "hockey",
-    "basketball",
-    "volleyball",
-    "kabaddi",
-    "running",
-}
+
 
 
 def _detect_categories(text_lower: str) -> List[str]:
@@ -350,273 +263,7 @@ def _detect_categories(text_lower: str) -> List[str]:
     return sorted(scores.keys(), key=lambda c: scores[c], reverse=True)
 
 
-def _has_cross_category_signal(text_lower: str, categories: List[str]) -> bool:
-    if len(categories) < 2:
-        return False
-    for phrase in _CROSS_FILTER_KEYWORDS:
-        if phrase in text_lower:
-            return True
-    for connector in _CROSS_FILTER_CONNECTORS:
-        if re.search(r"\b" + re.escape(connector) + r"\b", text_lower):
-            return True
-    return False
 
-
-def _detect_comparison(
-    text_lower: str, categories: List[str]
-) -> Optional[Tuple[str, str]]:
-    if not any(kw in text_lower for kw in _COMPARISON_KEYWORDS):
-        return None
-    fragments = _extract_comparison_fragments(text_lower, categories)
-    if fragments and len(fragments) >= 2:
-        return ("comparison", "comparison")
-    sections_found = [
-        s for s in {"bpet", "bept", "ppt", "firing", "drill"} if s in text_lower
-    ]
-    if len(sections_found) >= 2:
-        return ("Performance", "Performance")
-    if len(categories) >= 2:
-        return (categories[0], categories[1])
-    return None
-
-
-def _detect_multi_independent(
-    text_lower: str, categories: List[str]
-) -> Optional[List[str]]:
-    for connector in _MULTI_INDEPENDENT_CONNECTORS:
-        if connector in text_lower:
-            parts = text_lower.split(connector, 1)
-            if len(parts) == 2 and parts[0].strip() and parts[1].strip():
-                left_cats = _detect_categories(parts[0])
-                right_cats = _detect_categories(parts[1])
-                if left_cats and right_cats:
-                    return [parts[0].strip(), parts[1].strip()]
-
-    if " and " in text_lower and len(categories) >= 2:
-        for m in re.finditer(r"\band\b", text_lower):
-            left = text_lower[: m.start()].strip()
-            right = text_lower[m.end() :].strip()
-            if left and right:
-                # The old code was wrong because it did not check for 'suffer', 'suffered', or 'suffering' prefixes, leading to premature query splitting on cross-filter medical condition connectors.
-                if re.match(
-                    r"^(?:is|are|has|have|had|having|was|were|play|plays|who|which|that|with|on|in|under|currently|suffer|suffered|suffering)\b",
-                    right,
-                ):
-                    continue
-                lc = _detect_categories(left)
-                rc = _detect_categories(right)
-                if lc and rc and lc[0] != rc[0]:
-                    return [left, right]
-    return None
-
-
-def _is_no_split_phrase(text_lower: str) -> bool:
-    return any(phrase in text_lower for phrase in _NO_SPLIT_PHRASES)
-
-
-def _extract_group_by(text_lower: str) -> Optional[str]:
-    patterns = [
-        r"\bby\s+(\w+)\b",
-        r"\bper\s+(\w+)\b",
-        r"\bgroup(?:ed)?\s+by\s+(\w+)\b",
-        r"\b(\w+)[- ]wise\b",
-    ]
-    for pattern in patterns:
-        m = re.search(pattern, text_lower)
-        if m:
-            candidate = m.group(1).lower()
-            if candidate in _GROUP_BY_MAP:
-                return _GROUP_BY_MAP[candidate]
-    return None
-
-
-def _enrich_right(right_fragment: str) -> str:
-    for sport in _SPORT_NAMES:
-        if sport in right_fragment:
-            return f"sport {right_fragment}"
-    return right_fragment
-
-
-def _extract_cross_filter_fragments(
-    text_lower: str, categories: List[str]
-) -> Optional[List[str]]:
-    nested_patterns = [
-        r"\band is\b",
-        r"\band currently\b",
-        r"\band also\b",
-        r"\band are\b",
-        r"\band suffered\b",
-        r"\band suffering\b",
-        r"\band had\b",
-        r"\band has\b",
-        r"\band with\b",
-        r"\band who\b",
-        r"\band plays?\b",
-        r"\band on\b",
-    ]
-
-    primary_split: Optional[Tuple[str, str, str]] = None
-
-    # 1. Keywords first
-    for kw in _CROSS_FILTER_KEYWORDS:
-        if kw in text_lower:
-            idx = text_lower.index(kw)
-            left = text_lower[:idx].strip()
-            right = text_lower[idx:].strip()
-            if left and right:
-                primary_split = (left, right, kw)
-                break
-
-    # 2. Connectors second (leftmost preferred)
-    if primary_split is None:
-        best_match = None
-        for connector in _CROSS_FILTER_CONNECTORS:
-            m = re.search(r"\b" + re.escape(connector) + r"\b", text_lower)
-            if m:
-                if best_match is None or m.start() < best_match.start():
-                    left = text_lower[: m.start()].strip()
-                    right = text_lower[m.start() :].strip()
-                    if left and right:
-                        lc = _detect_categories(left)
-                        rc = _detect_categories(_enrich_right(right))
-                        if lc and rc and lc[0] != rc[0]:
-                            best_match = m
-        if best_match is not None:
-            primary_split = (
-                text_lower[: best_match.start()].strip(),
-                text_lower[best_match.start() :].strip(),
-                best_match.group(0),
-            )
-
-    # 3. Fallback to nested patterns for primary split if still None (leftmost preferred)
-    if primary_split is None:
-        best_match = None
-        for pat in nested_patterns:
-            m = re.search(pat, text_lower)
-            if m:
-                if best_match is None or m.start() < best_match.start():
-                    left = text_lower[: m.start()].strip()
-                    right = text_lower[m.end() :].strip()
-                    if left and right:
-                        lc = _detect_categories(left)
-                        rc = _detect_categories(_enrich_right(right))
-                        if lc and rc and lc[0] != rc[0]:
-                            best_match = m
-        if best_match is not None:
-            primary_split = (
-                text_lower[: best_match.start()].strip(),
-                text_lower[best_match.end() :].strip(),
-                best_match.group(0),
-            )
-
-    if primary_split is None:
-        return None
-
-    left, right, matched_conn = primary_split
-    fragments: List[str] = [left]
-
-    # Iterative/recursive splits on remainder (right part)
-    remainder = right
-    while True:
-        first_match = None
-        for pat in nested_patterns:
-            m = re.search(pat, remainder)
-            if m:
-                if first_match is None or m.start() < first_match.start():
-                    first_match = m
-        if first_match:
-            sub_left = remainder[: first_match.start()].strip()
-            sub_right = remainder[first_match.end() :].strip()
-            if sub_left:
-                fragments.append(_enrich_right(sub_left))
-            remainder = sub_right
-        else:
-            if remainder:
-                fragments.append(_enrich_right(remainder))
-            break
-
-    return fragments
-
-
-def _extract_comparison_fragments(
-    text_lower: str, categories: List[str]
-) -> Optional[List[str]]:
-    category_tokens = {cat.lower() for cat in _CATEGORY_SIGNALS.keys()}
-
-    def _normalize_shared_category(left: str, right: str) -> Tuple[str, str]:
-        tail_match = re.search(
-            r"\b("
-            + "|".join(re.escape(tok) for tok in sorted(category_tokens))
-            + r")\b\s*$",
-            right,
-        )
-        if tail_match:
-            shared_category = tail_match.group(1)
-            right_core = right[: tail_match.start()].strip()
-            left_core = left.strip()
-            return (
-                f"{left_core} {shared_category}".strip(),
-                f"{right_core} {shared_category}".strip(),
-            )
-        return left, right
-
-    for sep in [" vs ", " versus "]:
-        if sep in text_lower:
-            parts = text_lower.split(sep, 1)
-            if len(parts) == 2 and parts[0].strip() and parts[1].strip():
-                left, right = parts[0].strip(), parts[1].strip()
-                for kw in ["compare", "comparison"]:
-                    left = re.sub(r"^" + kw + r"\s+", "", left).strip()
-                return list(_normalize_shared_category(left, right))
-
-    m = re.search(r"\bcompare\s+(.+?)\s+and\s+(.+)", text_lower)
-    if m:
-        return list(_normalize_shared_category(m.group(1).strip(), m.group(2).strip()))
-
-    m = re.search(r"(.+?)\s+compared\s+(?:to|with)\s+(.+)", text_lower)
-    if m:
-        return list(_normalize_shared_category(m.group(1).strip(), m.group(2).strip()))
-
-    m = re.search(
-        r"(?:difference between|difference\s+between)\s+(.+?)\s+and\s+(.+)", text_lower
-    )
-    if m:
-        return list(_normalize_shared_category(m.group(1).strip(), m.group(2).strip()))
-
-    return None
-
-
-def _extract_filtered_comparison_fragments(
-    text_lower: str,
-) -> Optional[List[str]]:
-    filter_m = re.search(r"\b(?:among|for|with|within|by)\s+(.+)$", text_lower)
-    if filter_m is None:
-        return None
-
-    filter_text = filter_m.group(1).strip()
-    filter_text = re.sub(
-        r"\b(?:players?|person|agniveers?|trainees?)\b", "", filter_text
-    ).strip()
-    if not filter_text:
-        return None
-
-    body = text_lower[: filter_m.start()].strip()
-
-    comparison_frags = _extract_comparison_fragments(body, [])
-    if comparison_frags and len(comparison_frags) == 2:
-        return [
-            f"{comparison_frags[0]} {filter_text}".strip(),
-            f"{comparison_frags[1]} {filter_text}".strip(),
-        ]
-
-    m = re.search(r"\bcompare\s+(.+?)\s+and\s+(.+)", body)
-    if m:
-        return [
-            f"{m.group(1).strip()} {filter_text}".strip(),
-            f"{m.group(2).strip()} {filter_text}".strip(),
-        ]
-
-    return None
 
 
 def _build_sub_operation(
@@ -657,8 +304,6 @@ def _is_semantic_comparison(
         "lower",
         "faster",
         "slower",
-        "more",
-        "less",
         "compare",
         "comparison",
         "difference",
@@ -668,6 +313,9 @@ def _is_semantic_comparison(
     if any(
         re.search(r"\b" + re.escape(comp) + r"\b", text_lower) for comp in comparatives
     ):
+        return True
+
+    if re.search(r"\b(more|less)\s+than\b", text_lower):
         return True
 
     # Multiple sections

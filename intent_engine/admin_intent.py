@@ -36,8 +36,9 @@ def _item_category(item_name: Optional[str]) -> Optional[str]:
     """Return 'IssuedItems' or 'ProcuredItems' for a known equipment item name."""
     if not item_name:
         return None
-    if not isinstance(item_name, str) or item_name != item_name.strip():
-        raise ValueError(f"item_name must be a stripped string, got: {item_name!r}")
+    if not isinstance(item_name, str):
+        return None
+    item_name = item_name.strip()
     if item_name in ISSUED_EQUIPMENT_ITEMS:
         return "IssuedItems"
     if item_name in PROCURED_EQUIPMENT_ITEMS:
@@ -205,19 +206,7 @@ def classify_admin_intent(
                 subcategory = item_cat
                 operation = SUBCATEGORY_TO_OPERATION.get(subcategory, operation)
 
-    # Backfill: recover category/operation from subcategory when the classifier
-    # had insufficient keyword evidence (extremely terse queries).
-    if not category and subcategory:
-        category = next(
-            (
-                cat
-                for (cat, _op), sub in CATEGORY_OPERATION_TO_SUBCATEGORY.items()
-                if sub == subcategory
-            ),
-            None,
-        )
-    if not operation and subcategory:
-        operation = SUBCATEGORY_TO_OPERATION.get(subcategory)
+
 
     # ── Stage 5: Legacy visualization hint — pure lookup ────────────────────
     legacy_type: Optional[str] = _legacy_type(category, operation, subcategory)
