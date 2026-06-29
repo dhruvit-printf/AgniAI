@@ -223,7 +223,9 @@ def _compute_relevance(msg: str, record: InteractionRecord) -> float:
     Higher = more relevant.
     """
     norm = _normalize(msg)
-    tokens = _tokenize(msg)
+    query_terms = _tokenize(msg)
+    if not query_terms:
+        return 0.0
     score = 0.0
 
     # Category match
@@ -231,7 +233,7 @@ def _compute_relevance(msg: str, record: InteractionRecord) -> float:
         cat_norm = record.category.lower()
         # Check if any token relates to the category
         cat_tokens = _tokenize(record.category)
-        if any(t in tokens for t in cat_tokens):
+        if any(t in query_terms for t in cat_tokens):
             score += 0.4
         # More specific: does message mention the category directly
         if cat_norm in norm:
@@ -251,12 +253,12 @@ def _compute_relevance(msg: str, record: InteractionRecord) -> float:
     # Operation match
     if record.operation and record.operation != "lookup":
         op_tokens = _tokenize(record.operation)
-        if any(t in tokens for t in op_tokens):
+        if any(t in query_terms for t in op_tokens):
             score += 0.1
 
     # Token overlap with previous resolved query
     prev_tokens = _tokenize(record.resolved_query)
-    overlap = _jaccard(tokens, prev_tokens)
+    overlap = _jaccard(query_terms, prev_tokens)
     score += overlap * 0.3
 
     # Recency boost (more recent = slightly preferred when scores are tied)

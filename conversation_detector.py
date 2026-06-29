@@ -89,6 +89,7 @@ _ADMIN_CONTEXT_WORDS = {
     "company",
     "batch",
     "section",
+    "subsection",
     "firing",
     "bpet",
     "ppt",
@@ -97,29 +98,17 @@ _ADMIN_CONTEXT_WORDS = {
     "absent",
     "agniveer",
     "agniveers",
-    "section",
-    "subsection",
-    "platoon",
-    "company",
-    "batch",
     "unit",
     "class",
     "sport",
     "sports",
     "cricket",
     "football",
-    "medical",
-    "performance",
     "equipment",
     "verification",
-    "distribution",
-    "attendance",
     "strength",
     "grading",
     "bmi",
-    "blood",
-    "compare",
-    "comparison",
     "fever",
     "malaria",
     "injury",
@@ -171,9 +160,6 @@ def is_conversational_query(text: str) -> bool:
         return False
     if _contains_admin_signal(cleaned):
         return False
-    tokens = re.findall(r"[a-z0-9']+", cleaned)
-    if len(tokens) <= 3:
-        return True
     return False
 
 

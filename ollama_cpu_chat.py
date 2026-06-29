@@ -91,6 +91,7 @@ MAX_HISTORY_MESSAGES = int(os.getenv("OLLAMA_MAX_HISTORY_MESSAGES", "6"))
 MODEL_LIST_CACHE_TTL = float(os.getenv("OLLAMA_MODEL_LIST_CACHE_TTL", "30"))
 _MODEL_LIST_CACHE: tuple[float, List[str]] | None = None
 _ACTIVE_MODEL_REF = [MODEL_NAME]
+_ACTIVE_MODEL_LOCK = threading.Lock()
 
 
 # =============================================================================
@@ -148,8 +149,10 @@ def _start_keepalive_heartbeat(
         while True:
             time.sleep(interval_seconds)
             try:
+                with _ACTIVE_MODEL_LOCK:
+                    _current_model = active_model_ref[0]
                 payload = {
-                    "model": active_model_ref[0],
+                    "model": _current_model,
                     "messages": [{"role": "user", "content": "."}],
                     "stream": False,
                     "options": {
@@ -593,7 +596,8 @@ def main() -> int:
             continue
         if low.startswith("/model "):
             model = user.split(maxsplit=1)[1].strip()
-            _ACTIVE_MODEL_REF[0] = model
+            with _ACTIVE_MODEL_LOCK:
+                _ACTIVE_MODEL_REF[0] = model
             print(f"Model: {model}")
             continue
         if low.startswith("/"):

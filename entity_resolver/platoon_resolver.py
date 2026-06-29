@@ -82,7 +82,7 @@ def resolve_platoon(
     if token:
         for record in records:
             platoon_no = _get(record, "platoonNo", "PlatoonNo", "no", "No")
-            if str(platoon_no) == token:
+            if platoon_no is not None and str(platoon_no) == token:
                 record_company_id = _get(record, "companyId", "CompanyId")
                 if company_id is None or record_company_id in (None, company_id, str(company_id)):
                     return {

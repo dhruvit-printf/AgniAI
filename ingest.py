@@ -160,13 +160,13 @@ def chunk_text_semantic(
 
         return chunks
     except ValueError as exc:
-        logger.warning("Semantic chunking failed with ValueError: %s", exc)
+        logger.error("Semantic chunking failed with ValueError: %s", exc)
         raise
     except OSError as exc:
-        logger.warning("Semantic chunking failed with OSError: %s", exc)
+        logger.error("Semantic chunking failed with OSError: %s", exc)
         raise
     except _FITZ_EMPTY_FILE_ERROR as exc:
-        logger.warning("Semantic chunking failed with EmptyFileError: %s", exc)
+        logger.error("Semantic chunking failed with EmptyFileError: %s", exc)
         raise
 
 
@@ -327,6 +327,8 @@ def _extract_doc_text(file_path: str) -> str:
     Raises ValueError if no method succeeds or no text is extracted.
     """
     path = Path(file_path).expanduser().resolve()
+    if not path.is_relative_to(INGEST_ALLOWED_ROOT):
+        raise ValueError(f"Path '{path}' is not within the allowed ingest root directory.")
 
     # ── Option 1: LibreOffice ──────────────────────────────────────────────
     soffice = shutil.which("soffice") or shutil.which("libreoffice")

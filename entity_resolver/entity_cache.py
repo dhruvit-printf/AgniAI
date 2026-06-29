@@ -49,7 +49,7 @@ def _extract_list(payload: Any) -> List[Dict[str, Any]]:
 @dataclass
 class _CacheEntry:
     fetched_at: float = 0.0
-    data: List[Dict[str, Any]] = None  # type: ignore[assignment]
+    data: Optional[List[Dict[str, Any]]] = None
     refreshing: bool = False
 
 
@@ -98,9 +98,13 @@ class EntityCache:
         try:
             data = self._fetch(url, trace_id=trace_id)
         except Exception as exc:
-            logger.warning("Entity cache fetch failed for %s: %s", key, exc)
             with self._lock:
-                return list(self._entries[key].data or [])
+                entry = self._entries[key]
+                logger.warning(
+                    "Entity cache fetch failed for %s: %s (stale_age=%.0fs)",
+                    key, exc, time.time() - entry.fetched_at
+                )
+                return list(entry.data or [])
 
         with self._lock:
             entry = self._entries[key]

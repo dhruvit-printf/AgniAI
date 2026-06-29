@@ -492,7 +492,6 @@ def _extract_cross_filter_fragments(
     # 3. Fallback to nested patterns for primary split if still None (leftmost preferred)
     if primary_split is None:
         best_match = None
-        best_pat = None
         for pat in nested_patterns:
             m = re.search(pat, text_lower)
             if m:
@@ -504,7 +503,6 @@ def _extract_cross_filter_fragments(
                         rc = _detect_categories(_enrich_right(right))
                         if lc and rc and lc[0] != rc[0]:
                             best_match = m
-                            best_pat = pat
         if best_match is not None:
             primary_split = (
                 text_lower[: best_match.start()].strip(),
@@ -522,13 +520,11 @@ def _extract_cross_filter_fragments(
     remainder = right
     while True:
         first_match = None
-        matched_pat = None
         for pat in nested_patterns:
             m = re.search(pat, remainder)
             if m:
                 if first_match is None or m.start() < first_match.start():
                     first_match = m
-                    matched_pat = pat
         if first_match:
             sub_left = remainder[: first_match.start()].strip()
             sub_right = remainder[first_match.end() :].strip()

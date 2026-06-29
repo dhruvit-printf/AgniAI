@@ -6,11 +6,15 @@ admin_context.py
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
+from collections import OrderedDict
 from typing import Any, Dict, Optional, Set
 
 logger = logging.getLogger(__name__)
+
+_MAX_SESSIONS = int(os.getenv("ADMIN_SESSION_CACHE_SIZE", "1000"))
 
 
 def _extract_ids_from_result(data: Any) -> Set[int]:
@@ -69,8 +73,10 @@ def _extract_ids_from_result(data: Any) -> Set[int]:
 
 
 class AdminSessionContext:
+    """Stores the single most recent interaction per session_id."""
+
     def __init__(self) -> None:
-        self._history: Dict[str, Dict[str, Any]] = {}
+        self._history: OrderedDict[str, Dict[str, Any]] = OrderedDict()
         self._lock = threading.Lock()
 
     def is_followup_query(self, session_id: str, query_text: str) -> bool:
@@ -112,6 +118,11 @@ class AdminSessionContext:
                 "intent": intent_dict,
                 "ids": ids,
             }
+            self._history.move_to_end(session_id)
+            while len(self._history) > _MAX_SESSIONS:
+                evicted = next(iter(self._history))
+                del self._history[evicted]
+                logger.debug("AdminSessionContext: evicted session %s (cap=%d)", evicted, _MAX_SESSIONS)
         logger.debug("Updated session %s history: %d ids stored", session_id, len(ids))
 
     def get_previous_ids(self, session_id: str) -> Optional[Set[int]]:

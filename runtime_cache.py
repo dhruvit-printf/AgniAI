@@ -42,6 +42,9 @@ class TTLCache(Generic[T]):
             self._data[key] = (time.time(), value)
             self._data.move_to_end(key)
             self._write_count += 1
+            # Enforce maxsize immediately so we never exceed it by more than 1
+            while len(self._data) > self.maxsize:
+                self._data.popitem(last=False)
             if self._write_count % 64 == 0:
                 self._purge_locked()
 

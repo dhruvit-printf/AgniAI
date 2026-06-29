@@ -83,7 +83,7 @@ def admin_chat():
     trace_id = uuid.uuid4().hex
     start_time = time.time()
 
-    body = request.get_json(force=True, silent=True) or {}
+    body = request.get_json(silent=True) or {}
     message = (body.get("message") or "").strip()
 
     # Extract session ID for context (flat default if none found)
@@ -221,7 +221,7 @@ def check_database_health() -> str:
         from rag import index_stats, is_ready
 
         stats = index_stats()
-        if stats and stats.get("vectors", 0) > 0 and is_ready():
+        if stats is not None and is_ready():
             return "healthy"
         return "unhealthy"
     except Exception:
@@ -260,7 +260,7 @@ def admin_classify():
     Classify admin intent debug endpoint.
     Runs the classifier without calling the .NET backend.
     """
-    body = request.get_json(force=True, silent=True) or {}
+    body = request.get_json(silent=True) or {}
     message = (body.get("message") or "").strip()
     resolved_entities = resolve_entities_from_query(message)
     intent = classify_admin_intent(message, resolved_entities=resolved_entities)

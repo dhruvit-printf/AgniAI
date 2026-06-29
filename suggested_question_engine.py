@@ -29,12 +29,12 @@ def generate_suggested_questions(
     if not section_name:
         section_name = intent.get("section") or intent.get("sub_section") or "this section"
 
-    sport_name = intent.get("sport") or "Cricket"
+    sport_name = intent.get("sport") or "the sport"
 
     # ── Override: Fallback to query type templates for complex modes ──
     if qtype_normalized == "compare" or qtype_normalized == "comparison":
-        left_label = (combined_result or {}).get("left", {}).get("label") or "Side A" if isinstance(combined_result, dict) else "Side A"
-        right_label = (combined_result or {}).get("right", {}).get("label") or "Side B" if isinstance(combined_result, dict) else "Side B"
+        left_label = ((combined_result or {}).get("left", {}).get("label") or "Side A") if isinstance(combined_result, dict) else "Side A"
+        right_label = ((combined_result or {}).get("right", {}).get("label") or "Side B") if isinstance(combined_result, dict) else "Side B"
         return [
             "Compare Drill and Firing performance.",
             "Compare BEPT and PPT scores.",

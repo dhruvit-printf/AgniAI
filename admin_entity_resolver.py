@@ -177,14 +177,12 @@ def extract_batch_mention(text: str) -> Optional[str]:
 
 def _fetch_companies(
     trace_id: Optional[str] = None,
-    session_id: Optional[str] = None,
 ) -> List[Dict]:
     return _cache_fetch_companies(trace_id=trace_id)
 
 
 def _fetch_platoons(
     trace_id: Optional[str] = None,
-    session_id: Optional[str] = None,
 ) -> List[Dict]:
     return _cache_fetch_platoons(trace_id=trace_id)
 
@@ -245,7 +243,7 @@ def resolve_company_id(
     trace_id: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> Optional[int]:
-    companies = _fetch_companies(trace_id=trace_id, session_id=session_id)
+    companies = _fetch_companies(trace_id=trace_id)
     for co in companies:
         stored = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
         if stored and _name_matches(stored, company_name):
@@ -261,7 +259,7 @@ def resolve_platoon_id(
     trace_id: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> Optional[int]:
-    platoons = _fetch_platoons(trace_id=trace_id, session_id=session_id)
+    platoons = _fetch_platoons(trace_id=trace_id)
     candidates = []
     for pl in platoons:
         stored = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
@@ -358,7 +356,7 @@ def resolve_entities_from_query(
         return False
 
     if result["companyId"] is None:
-        companies = _fetch_companies(trace_id=trace_id, session_id=session_id)
+        companies = _fetch_companies(trace_id=trace_id)
         best_match_len = 0
         for co in companies:
             stored = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
@@ -376,7 +374,7 @@ def resolve_entities_from_query(
                             best_match_len = candidate_len
 
     if result["platoonId"] is None:
-        platoons = _fetch_platoons(trace_id=trace_id, session_id=session_id)
+        platoons = _fetch_platoons(trace_id=trace_id)
         best_match_len = 0
         for pl in platoons:
             stored = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
@@ -396,7 +394,7 @@ def resolve_entities_from_query(
                                 best_match_len = candidate_len
 
     if result["companyId"] is not None:
-        companies = _fetch_companies(trace_id=trace_id, session_id=session_id)
+        companies = _fetch_companies(trace_id=trace_id)
         for co in companies:
             cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
             if cid is not None and int(cid) == result["companyId"]:
@@ -404,7 +402,7 @@ def resolve_entities_from_query(
                 break
 
     if result["platoonId"] is not None:
-        platoons = _fetch_platoons(trace_id=trace_id, session_id=session_id)
+        platoons = _fetch_platoons(trace_id=trace_id)
         for pl in platoons:
             pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
             if pid is not None and int(pid) == result["platoonId"]:

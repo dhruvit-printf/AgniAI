@@ -14,6 +14,11 @@ from typing import Dict, Iterable
 
 from intent_engine.intent_schema import FUZZY_VOCAB
 
+_FUZZY_PATTERNS = [
+    (re.compile(rf"(?<!\w){re.escape(misspelling)}(?!\w)", re.IGNORECASE), canonical)
+    for misspelling, canonical in sorted(FUZZY_VOCAB.items(), key=lambda item: len(item[0]), reverse=True)
+]
+
 _INVISIBLE_CHARS = ("\u200b", "\ufeff", "\u200e", "\u200f")
 _BANNER_PATTERNS = (
     r"(?i)\b(?:agni\s*ai|agniai)\b.*?\bmay make mistakes\b(?:\.\s*|\s*)?",
@@ -35,14 +40,8 @@ def _collapse_spaces(text: str) -> str:
 def _apply_fuzzy_vocab(text: str) -> str:
     if not text:
         return text
-
     corrected = text
-    for misspelling, canonical in sorted(FUZZY_VOCAB.items(), key=lambda item: len(item[0]), reverse=True):
-        if " " in misspelling:
-            pattern = re.compile(rf"(?<!\w){re.escape(misspelling)}(?!\w)", re.IGNORECASE)
-            corrected = pattern.sub(canonical, corrected)
-            continue
-        pattern = re.compile(rf"(?<!\w){re.escape(misspelling)}(?!\w)", re.IGNORECASE)
+    for pattern, canonical in _FUZZY_PATTERNS:
         corrected = pattern.sub(canonical, corrected)
     return corrected
 

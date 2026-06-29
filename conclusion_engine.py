@@ -106,7 +106,7 @@ def generate_conclusion(
             if left_scores and right_scores:
                 l_avg = round(sum(left_scores) / len(left_scores), 2)
                 r_avg = round(sum(right_scores) / len(right_scores), 2)
-                bullets.append(f"Side 1 average: {l_avg}, Side 2 average: {r_avg}.")
+                bullets.append(f"{left_label} average: {l_avg}, {right_label} average: {r_avg}.")
 
         elif query_type == "cross_filter":
             cnt = len(records)
@@ -139,7 +139,7 @@ def generate_conclusion(
         return {"summary": summary, "bullets": bullets}
 
     except Exception as exc:
-        logger.warning("conclusion_engine.generate_conclusion failed: %s", exc, exc_info=True)
+        logger.error("conclusion_engine.generate_conclusion failed: %s", exc, exc_info=True)
         category = intent.get("category") or "Agniveer"
         fallback = f"The review of {category.lower()} records is complete."
         return {"summary": fallback, "bullets": [fallback]}

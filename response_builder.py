@@ -73,7 +73,7 @@ def build_response(
             "prediction":         _to_str(prediction),
             "conclusion":         _to_str(conclusion),
             "suggestedQuestions": suggested_questions or [],
-            "dotnetPayload":      dotnet_payload or [],
+            "dotnetPayload":      dotnet_payload,
             "metadata":           meta,
             "overallConfidence":  round(float(overall_confidence or 0.0), 2),
             "partialFailure":     bool(partial_failure),

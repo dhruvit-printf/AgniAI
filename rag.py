@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import hashlib
 import json
 import logging
@@ -84,6 +85,7 @@ _SALARY_SOURCE_CONFLICT_NOTE = (
 
 # Shared requests session — exported so app.py / main.py can import it
 _session = requests.Session()
+atexit.register(_session.close)
 
 _MODEL: Optional[SentenceTransformer] = None
 _RERANKER = None
@@ -2480,7 +2482,7 @@ def deterministic_salary_answer(query: str, context: str) -> Optional[str]:
     deduction = row["agniveer_corpus"]
     goi = row["goi_corpus"]
 
-    ordinal = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th"}[year]
+    ordinal = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th"}.get(year, f"{year}th")
     mismatch_note = ""
     expected = package - deduction
     if expected != in_hand:

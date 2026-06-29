@@ -1123,8 +1123,3 @@ def get_allowed_entities_for_category(category: str) -> Set[str]:
     return allowed
 
 
-# def is_section_exceptional(section: str) -> bool:
-#     """Check if a section is marked as exceptional."""
-#     if section in SECTION:
-#         return SECTION[section].get("isExceptional", False)
-#     return False

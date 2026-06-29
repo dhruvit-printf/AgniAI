@@ -208,13 +208,12 @@ def process_trend(raw_results: List[Any], intent: Dict[str, Any]) -> Dict[str, A
     for res in raw_results:
         records.extend(_extract_records(res))
 
-    granularity = "daily"
-    for k in ("date", "Date"):
-        if any(k in r for r in records):
-            granularity = "daily"
-    for k in ("month", "Month"):
-        if any(k in r for r in records):
-            granularity = "monthly"
+    if any(k in r for r in records for k in ("date", "Date")):
+        granularity = "daily"
+    elif any(k in r for r in records for k in ("month", "Month")):
+        granularity = "monthly"
+    else:
+        granularity = "daily"
 
     points: Dict[Any, List[float]] = {}
     for r in records:

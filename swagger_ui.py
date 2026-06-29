@@ -25,9 +25,10 @@ _SPEC_PATH = Path(__file__).parent / "static" / "swagger.json"
 
 
 def _load_spec() -> dict:
-    spec = json.loads(
-        _SPEC_PATH.read_text(encoding="utf-8")
-    )
+    try:
+        spec = json.loads(_SPEC_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"openapi": "3.0.0", "info": {"title": "AgniAI", "version": "1.0.0"}, "paths": {}}
     host_url = request.host_url.rstrip("/")
     spec["servers"] = [
         {

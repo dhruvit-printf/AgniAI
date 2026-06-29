@@ -478,6 +478,71 @@ def _log_stage_duration(stage: str, duration_ms: float, **extra: Any) -> None:
 # CONVERSATIONAL DETECTION
 # =============================================================================
 
+_ADMIN_SIGNAL_WORDS = {
+    "performance",
+    "leave",
+    "attendance",
+    "medical",
+    "equipment",
+    "verification",
+    "distribution",
+    "skills",
+    "top",
+    "bottom",
+    "score",
+    "marks",
+    "grading",
+    "bpet",
+    "ppt",
+    "firing",
+    "drill",
+    "performer",
+    "performers",
+    "overdue",
+    "absconded",
+    "bmi",
+    "disease",
+    "present",
+    "strength",
+    "issued",
+    "procured",
+    "pending",
+    "completed",
+    "sport",
+    "blood",
+    "unit",
+    "overall",
+    "average",
+    "pass",
+    "fail",
+    "improvement",
+    "drop",
+    "attempt",
+    "comparison",
+    "compare",
+    "summary",
+    "ranking",
+    "verified",
+    "verify",
+    "verification",
+    "approved",
+    "cleared",
+    "rejected",
+    "responded",
+    "agniveer",
+    "agniveers",
+}
+
+_ADMIN_SIGNAL_PHRASES = (
+    "verified agniveers",
+    "completed verification",
+    "pending verification",
+    "not responded",
+    "approved",
+    "cleared",
+    "rejected",
+)
+
 
 def _is_admin_conversational(message: str) -> bool:
     """Check if the message is a greeting or small talk (not a data query)."""
@@ -494,69 +559,6 @@ def _is_admin_conversational(message: str) -> bool:
 
     tokens = cleaned.split()
     if len(tokens) <= 3:
-        _ADMIN_SIGNAL_WORDS = {
-            "performance",
-            "leave",
-            "attendance",
-            "medical",
-            "equipment",
-            "verification",
-            "distribution",
-            "skills",
-            "top",
-            "bottom",
-            "score",
-            "marks",
-            "grading",
-            "bpet",
-            "ppt",
-            "firing",
-            "drill",
-            "performer",
-            "performers",
-            "overdue",
-            "absconded",
-            "bmi",
-            "disease",
-            "present",
-            "strength",
-            "issued",
-            "procured",
-            "pending",
-            "completed",
-            "sport",
-            "blood",
-            "unit",
-            "overall",
-            "average",
-            "pass",
-            "fail",
-            "improvement",
-            "drop",
-            "attempt",
-            "comparison",
-            "compare",
-            "summary",
-            "ranking",
-            "verified",
-            "verify",
-            "verification",
-            "approved",
-            "cleared",
-            "rejected",
-            "responded",
-            "agniveer",
-            "agniveers",
-        }
-        _ADMIN_SIGNAL_PHRASES = (
-            "verified agniveers",
-            "completed verification",
-            "pending verification",
-            "not responded",
-            "approved",
-            "cleared",
-            "rejected",
-        )
         if not any(t in _ADMIN_SIGNAL_WORDS for t in tokens) and not any(
             phrase in cleaned for phrase in _ADMIN_SIGNAL_PHRASES
         ):
@@ -728,9 +730,14 @@ def execute_admin_query(
     audit_success = True
     audit_error_type: Optional[str] = None
 
+    # ── Pipeline state — declared up-front so all branches can reference them ─
+    comparison_context = None
+    comparison_datasets_info: List[Any] = []
+    failed_filters: List[Any] = []
+    widget_start: float = 0.0
+    response_dotnet_payload: Any = []
+
     request_id = uuid.uuid4().hex
-    if not trace_id:
-        trace_id = uuid.uuid4().hex
     if session_id is None:
         session_id = _get_session_id(body)
 
@@ -818,8 +825,6 @@ def execute_admin_query(
         message = clean_query(user_query or "").strip()
         frontend_intent = _extract_frontend_intent(body)
         frontend_visualization_intent = _extract_frontend_visualization_intent(body)
-        if session_id is None:
-            session_id = _get_session_id(body)
         id_filters = _get_id_filters(body)
         full_name = _get_full_name(body)
         semantic_understanding = understand_query(message)
@@ -1561,7 +1566,7 @@ def execute_admin_query(
             _notify("combiner")
             combined_result = combine_results(
                 raw_results, labeled_results, qtype_str, primary_intent,
-                comparison_context=locals().get("comparison_context", None)
+                comparison_context=comparison_context
             )
             _log_combination_summary(
                 question=user_query,
@@ -1581,7 +1586,7 @@ def execute_admin_query(
 
             if (
                 qtype_str == "cross_filter"
-                and "failed_filters" in locals()
+                and bool(failed_filters)
                 and failed_filters
             ):
                 combined_result["degraded"] = True
@@ -1851,7 +1856,7 @@ def execute_admin_query(
             )
         except Exception as widget_exc:
             import traceback as _tb
-            widget_duration = time.time() - widget_start if 'widget_start' in locals() else 0.0
+            widget_duration = time.time() - widget_start if widget_start else 0.0
             logger.error(
                 json.dumps({
                     "message": "Widget stage failed",
@@ -1898,7 +1903,7 @@ def execute_admin_query(
                     operation_count=operation_count,
                     durations=durations_payload,
                 )
-                if query_plan.query_type in (QueryType.COMPARE, QueryType.COMPARISON) and "comparison_datasets_info" in locals():
+                if query_plan.query_type in (QueryType.COMPARE, QueryType.COMPARISON) and bool(comparison_datasets_info):
                     response_metadata["queryType"] = "COMPARISON"
                     response_metadata["comparisonType"] = ""
                     response_metadata["visualization"] = (
@@ -1908,14 +1913,14 @@ def execute_admin_query(
                     )
                     response_metadata["datasets"] = [
                         {"id": d["id"], "label": d["label"]}
-                        for d in locals().get("comparison_datasets_info", [])
+                        for d in comparison_datasets_info
                     ]
                     if isinstance(combined_result, dict) and "comparisonMetrics" in combined_result:
                         response_metadata["comparisonMetrics"] = combined_result["comparisonMetrics"]
-                        
+
                     response_dotnet_payload = [
                         d["dotnetPayload"]
-                        for d in locals().get("comparison_datasets_info", [])
+                        for d in comparison_datasets_info
                     ]
 
                 response_payload = build_response(
@@ -1973,7 +1978,7 @@ def execute_admin_query(
                 prediction=report.get("prediction"),
                 conclusion=report.get("conclusion"),
                 suggested_questions=suggested or [],
-                dotnet_payload=response_dotnet_payload if "response_dotnet_payload" in locals() else [],
+                dotnet_payload=response_dotnet_payload,
                 overall_confidence=query_plan.confidence,
                 partial_failure=partial_failure,
                 failed_sections=failed_sections,

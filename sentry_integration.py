@@ -137,7 +137,7 @@ def before_send(event: Dict, hint: Dict) -> Optional[Dict]:
         return event
     except Exception as exc:
         logger.warning("Sentry before_send sanitization failed: %s", exc)
-        return event  # Send unsanitized rather than swallow the error
+        return None
 
 
 def init_sentry() -> bool:

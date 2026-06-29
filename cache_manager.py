@@ -79,7 +79,10 @@ class CacheManager:
                 cached = self._redis_client.get(query_hash)
                 if cached:
                     logger.info("Cache HIT (Redis) for hash %s", query_hash)
-                    return json.loads(cached)
+                    value = json.loads(cached)
+                    with self._lock:
+                        self._memory_cache[query_hash] = (value, time.time() + self.default_ttl)
+                    return value
             except Exception as e:
                 logger.warning("Redis GET failed: %s", e)
 

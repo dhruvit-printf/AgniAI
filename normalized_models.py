@@ -96,9 +96,9 @@ def normalize_prediction(
             "futureTrends": ["A reliable prediction is not available yet."],
         }
 
-    projection = prediction.get("projection") or prediction.get("forecast") or (
-        prediction.get("futureTrends")[0] if prediction.get("futureTrends") else ""
-    )
+    future_trends = prediction.get("futureTrends") or []
+    trend_text = future_trends[0] if future_trends else ""
+    projection = prediction.get("projection") or prediction.get("forecast") or trend_text
     if not projection:
         projection = "A reliable prediction is not available yet."
 

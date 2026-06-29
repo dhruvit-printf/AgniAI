@@ -7,7 +7,7 @@ Single responsibility: validate entity-category compatibility.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .intent_schema import (
     get_allowed_entities_for_category,

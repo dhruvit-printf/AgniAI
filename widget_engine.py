@@ -730,6 +730,13 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
                     keys_seen.append(k)
 
     # Filter out internal metadata columns before building anything else.
+    _excluded = [k for k in keys_seen if _should_exclude_column(k)]
+    if _excluded:
+        logger.debug(
+            "build_table_data: excluded %d internal columns: %s",
+            len(_excluded),
+            _excluded,
+        )
     keys_seen = [k for k in keys_seen if not _should_exclude_column(k)]
 
     # Sort with priority fields first.
@@ -1601,7 +1608,7 @@ def build_widget_list(
             _logging.getLogger(__name__).exception(
                 "build_widget_list: failed building widget %s", spec.widget_id
             )
-            data = {}
+            data = {"_error": True}
         widgets.append({
             "id":    spec.widget_id,
             "type":  spec.widget_type,

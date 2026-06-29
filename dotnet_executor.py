@@ -189,16 +189,11 @@ def _call_dotnet(
 
     logger.info(
         {
+            "message": "Initiating .NET API call",
             "trace_id": effective_trace_id,
             "session_id": effective_session_id,
             "query_type": query_type or "unknown",
-            "payload": payload,
-        }
-    )
-    logger.info(
-        {
-            "message": "Initiating .NET API call",
-            "trace_id": effective_trace_id,
+            "payload_keys": list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__,
             "api_url": DOTNET_EXECUTE_URL,
         }
     )

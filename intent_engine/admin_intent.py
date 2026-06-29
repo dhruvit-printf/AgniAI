@@ -35,7 +35,8 @@ def _item_category(item_name: Optional[str]) -> Optional[str]:
     """Return 'IssuedItems' or 'ProcuredItems' for a known equipment item name."""
     if not item_name:
         return None
-    assert isinstance(item_name, str) and item_name == item_name.strip()
+    if not isinstance(item_name, str) or item_name != item_name.strip():
+        raise ValueError(f"item_name must be a stripped string, got: {item_name!r}")
     if item_name in ISSUED_EQUIPMENT_ITEMS:
         return "IssuedItems"
     if item_name in PROCURED_EQUIPMENT_ITEMS:
@@ -56,6 +57,25 @@ def _legacy_type(category: Optional[str], operation: Optional[str], subcategory:
         return None
     op_key = operation or SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory)
     return INTENT_TYPE_DEFAULTS.get((category, op_key))
+
+
+def _build_base_intent(raw_query: str, resolved_entities: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the full intent dict with all fields set to None / safe defaults."""
+    return {
+        "category": None, "subcategory": None, "operation": None,
+        "number": None, "section": None, "sub_section": None,
+        "metric": None, "sort_by": None, "group_by": None,
+        "grading": None, "leave_type": None, "sport": None,
+        "class": None, "unit_name": None, "attempt_no": None,
+        "from_attempt": None, "to_attempt": None, "date": None,
+        "item_name": None, "item_category": None,
+        "company_id": None, "platoon_id": None, "batch_id": None,
+        "from_date": None, "to_date": None, "agniveer_no": None,
+        "bmi_category": None, "blood_group": None,
+        "type": None, "medical_status": None,
+        "responseType": "Summary", "raw_query": raw_query,
+        "confidence": "low", "confidence_score": 0.0, "query_type": "simple", "filters": {},
+    }
 
 
 def classify_admin_intent(
@@ -79,21 +99,26 @@ def classify_admin_intent(
     # Guard: LLM disclaimer text — not a real query
     lowered_query = raw_query.lower()
     if "may make mistakes" in lowered_query and "verify important information" in lowered_query:
-        return {
-            "category": None, "subcategory": None, "operation": None,
-            "number": None, "section": None, "sub_section": None,
-            "metric": None, "sort_by": None, "group_by": None,
-            "grading": None, "leave_type": None, "sport": None,
-            "class": None, "unit_name": None, "attempt_no": None,
-            "from_attempt": None, "to_attempt": None, "date": None,
-            "item_name": None, "item_category": None,
-            "company_id": None, "platoon_id": None, "batch_id": None,
-            "from_date": None, "to_date": None, "agniveer_no": None,
-            "bmi_category": None, "blood_group": None,
-            "type": None, "medical_status": None,
-            "responseType": "Summary", "raw_query": raw_query,
-            "confidence": "low", "confidence_score": 0.0, "query_type": "simple", "filters": {},
-        }
+        return _build_base_intent(raw_query, resolved_entities)
+
+    # ── Comparison short-circuit ─────────────────────────────────────────────
+    # "BPET vs PPT", "BPET versus PPT scores", "compare BPET and PPT"
+    _VS_PATTERNS = (" vs ", " versus ")
+    if any(pat in lowered_query for pat in _VS_PATTERNS):
+        entities = extract_entities(raw_query, resolved_entities)
+        semantic = understand_query(raw_query)
+        intent_result = classify_intent(raw_query, entities, semantic)
+        category = intent_result.get("category") or "Performance"
+        base: Dict[str, Any] = _build_base_intent(raw_query, resolved_entities)
+        base.update({
+            "category": category,
+            "subcategory": "Comparison",
+            "operation": "Compare",
+            "query_type": "comparison",
+            "confidence": intent_result.get("confidence", "medium"),
+            "confidence_score": intent_result.get("confidence_score", 0.7),
+        })
+        return base
 
     # ── Stage 1: Extract entities ────────────────────────────────────────────
     entities = extract_entities(raw_query, resolved_entities)

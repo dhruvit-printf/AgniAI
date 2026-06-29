@@ -319,12 +319,18 @@ def _validate_no_invented_numbers(text: str, data_summary: Dict[str, Any]) -> Op
     """
     import json
 
-    # Collect all numbers present in data_summary
-    data_str = json.dumps(data_summary, default=str)
-    data_numbers = set(re.findall(r'\b\d+(?:\.\d+)?\b', data_str))
+    def _canon(s: str) -> str:
+        try:
+            return str(float(s))
+        except ValueError:
+            return s
 
-    # Find numbers in LLM response
-    llm_numbers = set(re.findall(r'\b\d+(?:\.\d+)?\b', text))
+    # Collect all numbers present in data_summary — canonicalized to float repr
+    data_str = json.dumps(data_summary, default=str)
+    data_numbers = {_canon(n) for n in re.findall(r'\b\d+(?:\.\d+)?\b', data_str)}
+
+    # Find numbers in LLM response — canonicalized to float repr
+    llm_numbers = {_canon(n) for n in re.findall(r'\b\d+(?:\.\d+)?\b', text)}
 
     # Allow small integers (1-10) and years as they're likely contextual
     invented = {

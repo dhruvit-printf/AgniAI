@@ -15,9 +15,12 @@ def _read_float(name: str, default: float) -> float:
     if raw is None or not raw.strip():
         return default
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         return default
+    if value <= 0:
+        raise ValueError(f"Timeout must be positive, got: {value}")
+    return value
 
 
 def get_ollama_timeout() -> Tuple[float, float]:

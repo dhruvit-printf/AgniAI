@@ -34,7 +34,7 @@ def resolve_company(
     )
     record = match.get("record") or {}
     return {
-        "CompanyId": match.get("value"),
+        "CompanyId": _get(record, "companyId", "CompanyId", "id", "Id"),
         "name": _get(record, "companyName", "CompanyName", "name", "Name"),
         "confidence": match.get("confidence", 0.0),
         "match_type": match.get("match_type", ""),

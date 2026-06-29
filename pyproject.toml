@@ -1,3 +1,11 @@
+[project]
+name = "agniai"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic-settings>=2.0.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"

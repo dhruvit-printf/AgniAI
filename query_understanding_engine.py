@@ -101,7 +101,7 @@ def _extract_bmi_category(text: str) -> Optional[str]:
 
 
 def _extract_blood_group(text: str) -> Optional[str]:
-    match = re.search(r"\b(?:blood\s*group|bg)\s*([abo]{1,2}[+-])\b", text, re.IGNORECASE)
+    match = re.search(r"\b(?:blood\s*group|bg)\s*((?:AB|A|B|O)[+-])\b", text, re.IGNORECASE)
     if match:
         return match.group(1).upper()
     for token in ("ab+", "ab-", "a+", "a-", "b+", "b-", "o+", "o-"):
@@ -345,7 +345,7 @@ def understand_query(query: str) -> Dict[str, Any]:
             user_goal="conversational",
             operation="conversation",
             query_type="conversational",
-            confidence=0.99 if text else 1.0,
+            confidence=0.0 if not text else 0.99,
             conversational=True,
         )
         return result.to_dict()

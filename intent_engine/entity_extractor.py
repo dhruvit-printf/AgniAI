@@ -29,6 +29,8 @@ from .intent_schema import (
 )
 from query_understanding_engine import understand_query
 
+_BLOOD_GROUPS_SORTED = sorted(BLOOD_GROUPS, key=len, reverse=True)
+
 _MONTH_PATTERN = (
     r"\b(January|February|March|April|May|June|July|August|September|October|"
     r"November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b"
@@ -218,7 +220,7 @@ def _extract_bmi_category(query: str) -> Optional[str]:
 def _extract_blood_group(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     # Sort longest-first so "AB+" is checked before "B+" or "A+" to prevent substring false matches.
-    for blood_group in sorted(BLOOD_GROUPS, key=len, reverse=True):
+    for blood_group in _BLOOD_GROUPS_SORTED:
         variants = (
             blood_group.lower(),
             blood_group.replace("+", " positive").lower(),
@@ -333,7 +335,7 @@ def _extract_date_patterns(query: str) -> Optional[str]:
 
 
 def _extract_date_range(query: str) -> Tuple[Optional[str], Optional[str]]:
-    query_lower = query.lower()
+    query_lower = _normalise(query)
     match = re.search(
         r"\bfrom\s+(.+?)\s+(?:to|until)\s+(.+?)(?:$|[,.?])",
         query_lower,
@@ -456,7 +458,6 @@ def extract_entities(
     raw_query = str(query or "").strip()
     resolved_entities = resolved_entities or {}
     if semantic is None:
-        from query_understanding_engine import understand_query
         semantic = understand_query(raw_query)
 
     result: Dict[str, Any] = {

@@ -109,8 +109,6 @@ def build_visualization_intent(
         return result
 
     if query_type in {"compare", "comparison"} or "compare" in text or " vs " in text or "versus" in text:
-        presentation = None
-        chart_type = None
         comparison = True
     elif query_type == "trend" or any(token in text for token in ("trend", "timeline", "over months", "over time", "growth")):
         presentation = "chart"

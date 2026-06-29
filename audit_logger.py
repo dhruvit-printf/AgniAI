@@ -146,6 +146,6 @@ def purge_old_audit_logs() -> int:
             if os.path.getmtime(path) < cutoff:
                 os.remove(path)
                 deleted += 1
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).warning("Failed to delete audit log %s: %s", path, exc)
     return deleted

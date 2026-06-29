@@ -172,7 +172,7 @@ def generate_analysis(
         return _analysis_payload(summary, insights, stats)
 
     except Exception as exc:
-        logger.warning("analysis_engine.generate_analysis failed: %s", exc, exc_info=True)
+        logger.error("analysis_engine.generate_analysis failed: %s", exc, exc_info=True)
         category = intent.get("category") or "Agniveer"
         return _analysis_payload(
             f"Analysis of {category.lower()} records completed with limited metrics.",

@@ -81,6 +81,8 @@ def select_visualization_type(sides: List[Dict[str, Any]]) -> str:
         return "COMPARE_CARD"
         
     sample_records = all_records[0]
+    if not sample_records:
+        return "COMPARE_CARD"
     sample = sample_records[0]
     sample_keys = {k.lower() for k in sample.keys()}
     

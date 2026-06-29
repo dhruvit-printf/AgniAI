@@ -122,6 +122,8 @@ def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dic
              "filterDepth": len(result_sets)
          }
 
+    logger.debug("cross_filter: common_ids=%d after filtering", len(common_ids))
+
     return {
         "status": True,
         "records": filtered,
