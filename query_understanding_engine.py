@@ -580,8 +580,6 @@ def understand_query(query: str) -> Dict[str, Any]:
         if len(clause_parts) >= 2:
             clause_categories = []
             for part in clause_parts:
-                from intent_engine.entity_extractor import extract_entities
-
                 clause_entities = extract_entities(part, semantic={})
                 clause_categories.append(_infer_category(part, clause_entities))
             if len({cat for cat in clause_categories if cat}) >= 2:

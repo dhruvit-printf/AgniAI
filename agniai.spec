@@ -26,7 +26,6 @@ meta_datas = (
     + copy_metadata("Flask")
     + copy_metadata("flask-cors")
     + copy_metadata("Flask-Limiter")
-    + copy_metadata("flask-swagger-ui")
     + copy_metadata("fsspec")
     + copy_metadata("huggingface_hub")
     + copy_metadata("idna")
