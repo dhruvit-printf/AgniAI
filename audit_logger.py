@@ -36,10 +36,10 @@ import json
 import logging
 import os
 import threading
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, Optional
-from contextvars import ContextVar
 
 # ── Config ─────────────────────────────────────────────────────────────────
 AUDIT_LOG_FILE = os.getenv("AUDIT_LOG_FILE", "audit.log")

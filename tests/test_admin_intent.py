@@ -6,12 +6,12 @@ Unit tests for the admin chatbot intent classifier.
 
 import pytest
 
+from conversation_detector import is_conversational_query
 from intent_engine.admin_intent import (
     classify_admin_intent,
     format_admin_intent,
     format_admin_payload,
 )
-from conversation_detector import is_conversational_query
 
 # =============================================================================
 # PERFORMANCE

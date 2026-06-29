@@ -6,13 +6,14 @@ Unit tests for audit_logger.py — structured audit trail system.
 
 import json
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from audit_logger import (
-    set_audit_context,
-    reset_audit_context,
-    write_audit_log,
     purge_old_audit_logs,
+    reset_audit_context,
+    set_audit_context,
+    write_audit_log,
 )
 
 

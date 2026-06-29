@@ -11,7 +11,7 @@ request path without an external model.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from conversation_detector import is_conversational_query, normalize_text

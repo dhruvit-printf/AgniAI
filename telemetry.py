@@ -31,8 +31,8 @@ import logging
 import os
 import time
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Generator, Optional
 from contextvars import ContextVar
+from typing import Any, Callable, Dict, Generator, Optional
 
 logger = logging.getLogger(__name__)
 

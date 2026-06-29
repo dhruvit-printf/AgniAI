@@ -9,11 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
+from compare_engine import compare_datasets
+from cross_filter_engine import cross_filter_datasets
 from utils import extract_records as _normalize_records
 from utils import get_score as _utils_get_score
 from utils import safe_float as _utils_safe_float
-from cross_filter_engine import cross_filter_datasets
-from compare_engine import compare_datasets
 
 logger = logging.getLogger(__name__)
 

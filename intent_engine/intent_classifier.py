@@ -7,8 +7,8 @@ Single responsibility: determine Category, Operation, and ResponseType.
 
 from __future__ import annotations
 
-import re
 import logging
+import re
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 from query_normalizer import clean_query

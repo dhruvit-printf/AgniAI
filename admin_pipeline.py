@@ -31,31 +31,43 @@ import requests as _requests
 
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
+from audit_logger import reset_audit_context, set_audit_context, write_audit_log
+from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
 from context_engine import context_engine
-from intent_engine.admin_intent import (
-    classify_admin_intent,
-    format_admin_payload,
-    PayloadValidationError,
-)
-from query_normalizer import admin_normalize_query, clean_query
-from audit_logger import write_audit_log
-from audit_logger import reset_audit_context, set_audit_context
 from conversation_detector import (
     build_conversational_response as build_conversation_payload,
 )
-from conversation_detector import is_conversational_query
-from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
+from conversation_detector import (
+    is_conversational_query,
+)
 from dotnet_executor import _call_dotnet
 from feature_flags import get_flags
+from intent_engine.admin_intent import (
+    PayloadValidationError,
+    classify_admin_intent,
+    format_admin_payload,
+)
 from intent_engine.query_planner import QueryType, plan_query
+from metadata_builder import build_metadata
+from normalized_models import extract_records as _extract_records
+from query_normalizer import admin_normalize_query, clean_query
 from query_understanding_engine import understand_query
 from report_generator import generate_report, get_fallback_report
-from metadata_builder import build_metadata
 from response_builder import build_response
-from normalized_models import extract_records as _extract_records
 from result_combiner import combine_results
+from schemas import (
+    AnalysisModel,
+    CombinedResponseModel,
+    ConclusionModel,
+    DotNetPayloadModel,
+    DotNetResponseModel,
+    FinalResponseModel,
+    IntentModel,
+    MetadataModel,
+    PredictionModel,
+    SuggestedQuestionModel,
+)
 from suggested_question_engine import generate_suggested_questions
-from visualization_intent import build_visualization_intent
 from telemetry import (
     SPAN_BUILD_RESPONSE,
     SPAN_CALL_DOTNET,
@@ -63,24 +75,13 @@ from telemetry import (
     SPAN_COMBINE_RESULTS,
     SPAN_GENERATE_REPORT,
     SPAN_PLAN_QUERY,
-    span,
     request_id_var,
-    trace_id_var,
     session_id_var,
+    span,
     trace_context,
+    trace_id_var,
 )
-from schemas import (
-    IntentModel,
-    DotNetPayloadModel,
-    DotNetResponseModel,
-    CombinedResponseModel,
-    AnalysisModel,
-    PredictionModel,
-    ConclusionModel,
-    SuggestedQuestionModel,
-    MetadataModel,
-    FinalResponseModel,
-)
+from visualization_intent import build_visualization_intent
 
 logger = logging.getLogger(__name__)
 

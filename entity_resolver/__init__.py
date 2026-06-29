@@ -17,12 +17,12 @@ from .entity_cache import (
     refresh_all_entities,
 )
 from .entity_matcher import match_entity, normalize_text
+from .entity_models import AgniveerEntity, CompanyEntity, EntityMatch, PlatoonEntity
 from .entity_refresh_service import (
     EntityRefreshService,
     refresh_entities_now,
     start_entity_refresh_service,
 )
-from .entity_models import AgniveerEntity, CompanyEntity, EntityMatch, PlatoonEntity
 from .platoon_resolver import resolve_platoon
 
 

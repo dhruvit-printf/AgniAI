@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from utils import extract_records as _extract_records
 from utils import extract_record_id as _extract_record_id
+from utils import extract_records as _extract_records
 from utils import normalize_confidence as _normalize_confidence
 
 

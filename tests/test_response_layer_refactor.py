@@ -1,8 +1,9 @@
-import unittest
 import json
+import unittest
+
 from response_builder import build_response
-from widget_engine import build_formatted_data, validate_payload
 from schemas import FinalResponseModel
+from widget_engine import build_formatted_data, validate_payload
 
 
 class TestResponseLayerRefactor(unittest.TestCase):

@@ -11,16 +11,16 @@ import unittest
 from unittest.mock import MagicMock
 
 from context_engine import (
+    ContextResolution,
     ConversationContextEngine,
     InteractionRecord,
-    ContextResolution,
-    _normalize,
-    _tokenize,
-    _jaccard,
     _compute_follow_up_score,
     _compute_relevance,
     _detect_follow_up_kind,
+    _jaccard,
+    _normalize,
     _reconstruct_query,
+    _tokenize,
 )
 
 

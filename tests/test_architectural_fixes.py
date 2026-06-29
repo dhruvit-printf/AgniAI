@@ -2,8 +2,8 @@ import unittest
 
 from intent_engine.query_planner import QueryType, plan_query
 from response_builder import build_response
+from result_combiner import compare_datasets as compare_results
 from result_combiner import (
-    compare_datasets as compare_results,
     process_distribution,
     process_trend,
 )

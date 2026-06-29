@@ -14,7 +14,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from .entity_extractor import extract_entities, assert_canonical_entity_keys
+from query_normalizer import clean_query as _normalise
+from query_understanding_engine import understand_query
+
+from .entity_extractor import assert_canonical_entity_keys, extract_entities
 from .intent_classifier import classify_intent
 from .intent_schema import (
     CATEGORY_OPERATION_TO_SUBCATEGORY,
@@ -24,9 +27,7 @@ from .intent_schema import (
     SUBCATEGORY_TO_OPERATION,
 )
 from .payload_builder import build_ai_command_request_dto
-from .payload_validator import validate_payload, PayloadValidationError
-from query_normalizer import clean_query as _normalise
-from query_understanding_engine import understand_query
+from .payload_validator import PayloadValidationError, validate_payload
 
 logger = logging.getLogger(__name__)
 

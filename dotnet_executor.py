@@ -17,8 +17,8 @@ from typing import Any, Dict, Optional, Tuple
 import requests
 
 from metrics import metrics_collector
-from telemetry import request_id_var, session_id_var, trace_id_var
 from settings import get_dotnet_config
+from telemetry import request_id_var, session_id_var, trace_id_var
 from utils import extract_records as _extract_records
 
 logger = logging.getLogger(__name__)

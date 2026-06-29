@@ -18,15 +18,15 @@ from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request
 
+from admin_entity_resolver import resolve_entities_from_query
+from admin_pipeline import execute_admin_query
 from intent_engine.admin_intent import (
     classify_admin_intent,
     format_admin_intent,
     format_admin_payload,
 )
-from admin_pipeline import execute_admin_query
-from admin_entity_resolver import resolve_entities_from_query
-from response_sanitizer import public_response_view
 from response_helpers import extract_primary_widget_title
+from response_sanitizer import public_response_view
 
 logger = logging.getLogger(__name__)
 

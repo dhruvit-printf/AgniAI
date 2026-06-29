@@ -11,6 +11,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from query_normalizer import clean_query
+from query_understanding_engine import understand_query
 
 from .intent_schema import (
     BLOOD_GROUPS,
@@ -27,7 +28,6 @@ from .intent_schema import (
     SUBSECTIONS_BY_SECTION,
     UNIT_ALIASES,
 )
-from query_understanding_engine import understand_query
 
 _BLOOD_GROUPS_SORTED = sorted(BLOOD_GROUPS, key=len, reverse=True)
 

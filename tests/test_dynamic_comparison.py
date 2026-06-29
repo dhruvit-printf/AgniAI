@@ -3,10 +3,11 @@ Tests for the dynamic comparison visualization engine.
 """
 
 import pytest
-from intent_engine.query_planner import plan_query, QueryType
-from visualization_intent import build_visualization_intent
+
 from compare_engine import compare_datasets, select_visualization_type
+from intent_engine.query_planner import QueryType, plan_query
 from response_builder import build_response
+from visualization_intent import build_visualization_intent
 
 
 def test_semantic_comparison_detection():

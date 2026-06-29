@@ -6,7 +6,7 @@ Compare engine for comparing N-way datasets side-by-side.
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from utils import extract_records as _normalize_records
 from utils import get_score as _get_score

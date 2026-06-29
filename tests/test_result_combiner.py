@@ -1,8 +1,8 @@
 import unittest
 
+from result_combiner import compare_datasets as compare_results
+from result_combiner import cross_filter_datasets as intersect_results
 from result_combiner import (
-    compare_datasets as compare_results,
-    cross_filter_datasets as intersect_results,
     merge_results,
     process_trend,
 )

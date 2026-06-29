@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
+
 from pydantic import ValidationError
 
 from normalized_models import extract_records as _orig_extract_records
@@ -209,16 +210,16 @@ def _extract_records(
 
 
 from schemas import (
-    CardItem,
+    BarChartData,
     CardData,
+    CardItem,
+    FormattedData,
+    LineChartData,
+    PieChartData,
+    PieChartItem,
+    SeriesItem,
     TableColumn,
     TableData,
-    BarChartData,
-    SeriesItem,
-    LineChartData,
-    PieChartItem,
-    PieChartData,
-    FormattedData,
 )
 
 # ---------------------------------------------------------------------------

@@ -580,9 +580,9 @@ def _validate_url(url: str) -> None:
     if os.getenv("ALLOW_INTERNAL_INGEST_URLS") == "1":
         return
 
-    from urllib.parse import urlparse
-    import socket
     import ipaddress
+    import socket
+    from urllib.parse import urlparse
 
     parsed = urlparse(url)
     hostname = parsed.hostname
