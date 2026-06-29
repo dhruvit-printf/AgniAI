@@ -26,19 +26,11 @@ def resolve_dotnet_verify_ssl(log: Optional[logging.Logger] = None) -> bool:
       - DOTNET_SKIP_SSL_VERIFY=1 => False and warn
       - DOTNET_VERIFY_SSL can still be used as an explicit compatibility override
     """
-    skip_raw = os.getenv("DOTNET_SKIP_SSL_VERIFY")
     verify_raw = os.getenv("DOTNET_VERIFY_SSL")
-
-    if skip_raw is not None:
-        verify_ssl = not _is_truthy(skip_raw)
-        if not verify_ssl:
-            (log or logger).warning(
-                "DOTNET TLS verification disabled via DOTNET_SKIP_SSL_VERIFY; "
-                "this should only be used in local development."
-            )
-        return verify_ssl
 
     if verify_raw is not None:
         return _is_truthy(verify_raw)
+
+    return True
 
     return True

@@ -37,9 +37,9 @@ from typing import Any, Callable, Dict, Generator, Optional
 logger = logging.getLogger(__name__)
 
 # ── ContextVars for Request Tracing ────────────────────────────────────────
-request_id_var: ContextVar[str] = ContextVar("request_id", default="N/A")
-trace_id_var: ContextVar[str] = ContextVar("trace_id", default="N/A")
-session_id_var: ContextVar[str] = ContextVar("session_id", default="N/A")
+request_id_var: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
+trace_id_var: ContextVar[Optional[str]] = ContextVar("trace_id", default=None)
+session_id_var: ContextVar[Optional[str]] = ContextVar("session_id", default=None)
 
 
 @contextmanager
@@ -76,12 +76,12 @@ def _get_tracer():
     if not _OTEL_ENABLED:
         return None
     try:
-        from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+        from opentelemetry import trace  # type: ignore
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # type: ignore
             OTLPSpanExporter,
         )
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.sdk.trace import TracerProvider  # type: ignore
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor  # type: ignore
 
         provider = TracerProvider()
         exporter = OTLPSpanExporter(
@@ -138,7 +138,7 @@ def span(
         return
 
     try:
-        from opentelemetry import trace as otel_trace
+        from opentelemetry import trace as otel_trace  # type: ignore
 
         with tracer.start_as_current_span(name) as s:
             if trace_id:

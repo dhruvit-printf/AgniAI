@@ -163,9 +163,9 @@ def _call_dotnet(
       - Exponential backoff retries (1s, 2s, 4s) for 429, 502, 503, 504 and connection errors/timeouts.
       - Strict timeout=(5, 30) for every request.
     """
-    effective_trace_id = trace_id or trace_id_var.get("N/A")
-    effective_request_id = request_id or request_id_var.get("N/A")
-    effective_session_id = session_id or session_id_var.get("N/A")
+    effective_trace_id = trace_id or trace_id_var.get() or "N/A"
+    effective_request_id = request_id or request_id_var.get() or "N/A"
+    effective_session_id = session_id or session_id_var.get() or "N/A"
 
     if not _cb.allow_request():
         logger.warning(

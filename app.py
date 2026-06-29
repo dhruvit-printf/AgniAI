@@ -128,7 +128,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # ── CORS ───────────────────────────────────────────────────────────────────
 CORS(
     app,
-    origins="*",
+    origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS else "*",
     allow_headers=[
         "Content-Type",
         "X-Api-Key",
@@ -599,6 +599,8 @@ def _start_stream_worker(target) -> None:
 
 
 @app.route("/api/health")
+@_limit_route(RATE_LIMIT_DEFAULT)
+@_require_secret
 def health():
     stats_data = index_stats()
     ollama_ok = True
@@ -631,6 +633,8 @@ def health():
 
 
 @app.route("/api/ready")
+@_limit_route(RATE_LIMIT_DEFAULT)
+@_require_secret
 def ready():
     if not is_ready():
         return jsonify({"success": False, "status": "warming_up"}), 503
@@ -1311,6 +1315,8 @@ def upload_file():
 
 
 @app.route("/api/sources")
+@_limit_route(RATE_LIMIT_DEFAULT)
+@_require_secret
 def sources():
     return jsonify(ok_sources(list_sources()))
 

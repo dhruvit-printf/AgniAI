@@ -223,9 +223,9 @@ def assemble_response_metadata(
     from telemetry import request_id_var, session_id_var, trace_id_var
 
     metadata: Dict[str, Any] = {
-        "requestId": request_id_var.get("N/A"),
-        "traceId": trace_id_var.get("N/A"),
-        "sessionId": session_id_var.get("N/A"),
+        "requestId": request_id_var.get() or "N/A",
+        "traceId": trace_id_var.get() or "N/A",
+        "sessionId": session_id_var.get() or "N/A",
         "executionTimeMs": 0,
         "intentDurationMs": 0,
         "dotnetDurationMs": 0,

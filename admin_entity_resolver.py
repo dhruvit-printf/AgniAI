@@ -83,9 +83,27 @@ def _clean_candidate(s: str) -> str:
     return " ".join(words)
 
 
+_COMPANY_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_PLATOON_PATTERNS = [
+    re.compile(r"\bplatoon\s+no\.?\s*(\w[\w-]*)\b"),
+    re.compile(r"\bplatoon\s+(\w[\w-]*)\b"),
+    re.compile(r"\bpl[-\s](\w+)\b"),
+    re.compile(r"\bpl(\d+)\b"),
+    re.compile(r"\b(\d+)\s+platoon\b"),
+]
+_AGNIVEER_NUM_RE = re.compile(r"\bag[-\s]?(\d{3,8})\b", re.IGNORECASE)
+_AGNIVEER_ALPHANUM_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
+_AGNIVEER_WORD_RE = re.compile(r"\bagniveer\s+(?:no\.?|number|#)?\s*(\w{3,10})\b", re.IGNORECASE)
+_BATCH_PATTERNS = [
+    re.compile(r"\bbatch\s+no\.?\s*(\w[\w-]*)\b"),
+    re.compile(r"\bbatch\s+(\w[\w-]*)\b"),
+    re.compile(r"\bbt[-\s]?(\w+)\b"),
+]
+
+
 def extract_company_mention(text: str) -> Optional[str]:
     q = text.lower().strip()
-    tokens = re.findall(r"[a-z0-9]+", q)
+    tokens = _COMPANY_TOKEN_RE.findall(q)
     if not tokens:
         return None
 
@@ -131,15 +149,8 @@ def extract_platoon_mention(text: str) -> Optional[str]:
         "ten": "10",
     }
 
-    patterns = [
-        r"\bplatoon\s+no\.?\s*(\w[\w-]*)\b",
-        r"\bplatoon\s+(\w[\w-]*)\b",
-        r"\bpl[-\s](\w+)\b",
-        r"\bpl(\d+)\b",
-        r"\b(\d+)\s+platoon\b",
-    ]
-    for pattern in patterns:
-        m = re.search(pattern, q)
+    for pattern in _PLATOON_PATTERNS:
+        m = pattern.search(q)
         if m:
             val = m.group(1).strip().rstrip(".,")
             return _WORD_TO_NUM.get(val, val)
@@ -148,19 +159,17 @@ def extract_platoon_mention(text: str) -> Optional[str]:
 
 
 def extract_agniveer_mention(text: str) -> Optional[str]:
-    m = re.search(r"\bag[-\s]?(\d{3,8})\b", text, re.IGNORECASE)
+    m = _AGNIVEER_NUM_RE.search(text)
     if m:
         return f"AG{m.group(1)}"
 
-    m = re.search(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b", text)
+    m = _AGNIVEER_ALPHANUM_RE.search(text)
     if m:
         candidate = m.group(1)
         if not re.match(r"^[a-z]+$", candidate, re.IGNORECASE):
             return candidate.upper()
 
-    m = re.search(
-        r"\bagniveer\s+(?:no\.?|number|#)?\s*(\w{3,10})\b", text, re.IGNORECASE
-    )
+    m = _AGNIVEER_WORD_RE.search(text)
     if m:
         return m.group(1).upper()
 
@@ -169,13 +178,8 @@ def extract_agniveer_mention(text: str) -> Optional[str]:
 
 def extract_batch_mention(text: str) -> Optional[str]:
     q = text.lower().strip()
-    patterns = [
-        r"\bbatch\s+no\.?\s*(\w[\w-]*)\b",
-        r"\bbatch\s+(\w[\w-]*)\b",
-        r"\bbt[-\s]?(\w+)\b",
-    ]
-    for pattern in patterns:
-        m = re.search(pattern, q)
+    for pattern in _BATCH_PATTERNS:
+        m = pattern.search(q)
         if m:
             return m.group(1).strip().rstrip(".,")
     return None

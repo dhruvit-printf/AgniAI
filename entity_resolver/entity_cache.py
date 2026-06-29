@@ -104,11 +104,13 @@ class EntityCache:
             if not force_refresh and self._is_fresh(key):
                 return list(entry.data or [])
 
-        try:
-            data = self._fetch(url, trace_id=trace_id)
-        except Exception as exc:
-            with self._lock:
-                entry = self._entries[key]
+            try:
+                data = self._fetch(url, trace_id=trace_id)
+                entry.fetched_at = time.time()
+                entry.data = list(data)
+                entry.refreshing = False
+                return list(entry.data)
+            except Exception as exc:
                 logger.warning(
                     "Entity cache fetch failed for %s: %s (stale_age=%.0fs)",
                     key,
@@ -116,13 +118,6 @@ class EntityCache:
                     time.time() - entry.fetched_at,
                 )
                 return list(entry.data or [])
-
-        with self._lock:
-            entry = self._entries[key]
-            entry.fetched_at = time.time()
-            entry.data = list(data)
-            entry.refreshing = False
-            return list(entry.data)
 
     def get_agniveers(
         self, *, force_refresh: bool = False, trace_id: Optional[str] = None

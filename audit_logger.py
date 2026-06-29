@@ -72,11 +72,12 @@ def _get_audit_logger() -> logging.Logger:
 
 def write_audit_log(
     *,
-    trace_id: str,
-    query_type: str,
-    question: str,
-    dotnet_payload: Any,
-    visualization_type: str,
+    trace_id: str = "",
+    query_type: str = "simple",
+    question: str = "",
+    dotnet_payload: Any = None,
+    visualization_type: str = "",
+    **kwargs: Any,
 ) -> None:
     """
     Write one audit log entry.
@@ -142,3 +143,11 @@ def purge_old_audit_logs() -> int:
             logging.getLogger(__name__).warning("Failed to delete audit log %s: %s", path, exc)
 
     return deleted
+
+
+def set_audit_context(**kwargs: Any) -> None:
+    pass
+
+
+def reset_audit_context() -> None:
+    pass

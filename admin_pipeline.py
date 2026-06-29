@@ -1978,7 +1978,7 @@ def execute_admin_query(
         except Exception as widget_exc:
             import traceback as _tb
 
-            widget_duration = time.time() - widget_start if widget_start else 0.0
+            widget_duration = time.time() - widget_start if 'widget_start' in locals() else 0.0
             logger.error(
                 json.dumps(
                     {
@@ -1995,6 +1995,13 @@ def execute_admin_query(
                     }
                 )
             )
+
+        if not formatted_data_payload:
+            formatted_data_payload = [{
+                "type": "null",
+                "title": "No Data Available",
+                "data": [],
+            }]
 
         # ── Step 6b: Build suggested questions (independent) ──────────────
         suggested = []
