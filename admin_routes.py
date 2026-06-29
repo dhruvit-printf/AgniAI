@@ -128,22 +128,27 @@ def admin_chat():
             )
         )
         error_msg = result.get("error_message", "Failed to process request.")
-        return jsonify({
-            "status": False,
-            "message": error_msg,
-            "formattedData": [],
-            "analysis": "",
-            "prediction": "",
-            "conclusion": "",
-            "suggestedQuestions": [],
-            "metadata": {
-                "sessionId": session_id,
-                "confidence": 0.0,
-                "queryType": "error",
-                "operationCount": 0,
-                "executionTimeMs": 0.0,
-            },
-        }), 200
+        return (
+            jsonify(
+                {
+                    "status": False,
+                    "message": error_msg,
+                    "formattedData": [],
+                    "analysis": "",
+                    "prediction": "",
+                    "conclusion": "",
+                    "suggestedQuestions": [],
+                    "metadata": {
+                        "sessionId": session_id,
+                        "confidence": 0.0,
+                        "queryType": "error",
+                        "operationCount": 0,
+                        "executionTimeMs": 0.0,
+                    },
+                }
+            ),
+            200,
+        )
 
     # ── Successful query / greeting / conversational ────────────────────────
     payload = result.get("response_payload") or {}
@@ -155,7 +160,9 @@ def admin_chat():
             {
                 "question": message,
                 "query_type": (payload.get("metadata") or {}).get("queryType"),
-                "intent_formed": extract_primary_widget_title(payload.get("formattedData")),
+                "intent_formed": extract_primary_widget_title(
+                    payload.get("formattedData")
+                ),
             }
         )
     )

@@ -30,7 +30,9 @@ def _build_conclusion_grounding_text(answer: Dict[str, Any], query_type: str) ->
             lines.append(f"{right.get('label')} count is {len(right.get('data', []))}.")
         for k, v in comp.items():
             if isinstance(v, dict):
-                lines.append(f"{k} difference is {v.get('difference')} and percentage is {v.get('percentage')}.")
+                lines.append(
+                    f"{k} difference is {v.get('difference')} and percentage is {v.get('percentage')}."
+                )
     else:
         records = sections[0].get("data") if sections else []
         lines.append(f"Count: {len(records)}")
@@ -46,11 +48,12 @@ def _build_conclusion_grounding_text(answer: Dict[str, Any], query_type: str) ->
 
     return "\n".join(lines)
 
+
 def generate_conclusion(
     combined_result: Any,
     query_type: str,
     intent: Dict[str, Any],
-    trace_id: Optional[str] = None
+    trace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Generate a short conclusion with at most three bullet points.
@@ -58,6 +61,7 @@ def generate_conclusion(
     """
     try:
         from normalized_models import extract_records as _extract_records
+
         records = _extract_records(combined_result)
 
         if isinstance(combined_result, dict):
@@ -99,26 +103,58 @@ def generate_conclusion(
             right_label = right.get("label", "Side 2")
             left_cnt = len(left.get("data", []))
             right_cnt = len(right.get("data", []))
-            summary = f"Comparative review of {left_label} and {right_label} is complete."
-            bullets.append(f"Comparison evaluated {left_cnt} records on {left_label} and {right_cnt} records on {right_label}.")
-            left_scores = [s for s in (_get_score(r) for r in (left.get("data") or []) if isinstance(r, dict)) if s is not None]
-            right_scores = [s for s in (_get_score(r) for r in (right.get("data") or []) if isinstance(r, dict)) if s is not None]
+            summary = (
+                f"Comparative review of {left_label} and {right_label} is complete."
+            )
+            bullets.append(
+                f"Comparison evaluated {left_cnt} records on {left_label} and {right_cnt} records on {right_label}."
+            )
+            left_scores = [
+                s
+                for s in (
+                    _get_score(r)
+                    for r in (left.get("data") or [])
+                    if isinstance(r, dict)
+                )
+                if s is not None
+            ]
+            right_scores = [
+                s
+                for s in (
+                    _get_score(r)
+                    for r in (right.get("data") or [])
+                    if isinstance(r, dict)
+                )
+                if s is not None
+            ]
             if left_scores and right_scores:
                 l_avg = round(sum(left_scores) / len(left_scores), 2)
                 r_avg = round(sum(right_scores) / len(right_scores), 2)
-                bullets.append(f"{left_label} average: {l_avg}, {right_label} average: {r_avg}.")
+                bullets.append(
+                    f"{left_label} average: {l_avg}, {right_label} average: {r_avg}."
+                )
 
         elif query_type == "cross_filter":
             cnt = len(records)
             summary = "Cross-filter analysis successfully completed."
-            bullets.append(f"Found {cnt} records satisfying all combined filter conditions.")
-            scores = [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
+            bullets.append(
+                f"Found {cnt} records satisfying all combined filter conditions."
+            )
+            scores = [
+                s
+                for s in (_get_score(r) for r in records if isinstance(r, dict))
+                if s is not None
+            ]
             if scores:
-                bullets.append(f"Average score across the matched subset: {round(sum(scores) / len(scores), 2)}.")
+                bullets.append(
+                    f"Average score across the matched subset: {round(sum(scores) / len(scores), 2)}."
+                )
 
         elif query_type == "multi_independent":
             summary = f"Consolidation of multi-section dataset is complete."
-            bullets.append(f"Consolidated data covers {len(sections)} independent sections.")
+            bullets.append(
+                f"Consolidated data covers {len(sections)} independent sections."
+            )
             for sec in sections[:2]:
                 label = sec.get("label", "Section")
                 cnt = len(sec.get("data", []))
@@ -129,17 +165,25 @@ def generate_conclusion(
             cnt = len(records)
             summary = f"Query lookup for {category.lower()} records is complete."
             bullets.append(f"Found {cnt} matching {category.lower()} records.")
-            scores = [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
+            scores = [
+                s
+                for s in (_get_score(r) for r in records if isinstance(r, dict))
+                if s is not None
+            ]
             if scores:
                 avg = round(sum(scores) / len(scores), 2)
-                bullets.append(f"Average score: {avg} (range: {round(min(scores), 2)} to {round(max(scores), 2)}).")
+                bullets.append(
+                    f"Average score: {avg} (range: {round(min(scores), 2)} to {round(max(scores), 2)})."
+                )
 
         # Cap at 3 bullets
         bullets = bullets[:3]
         return {"summary": summary, "bullets": bullets}
 
     except Exception as exc:
-        logger.error("conclusion_engine.generate_conclusion failed: %s", exc, exc_info=True)
+        logger.error(
+            "conclusion_engine.generate_conclusion failed: %s", exc, exc_info=True
+        )
         category = intent.get("category") or "Agniveer"
         fallback = f"The review of {category.lower()} records is complete."
         return {"summary": fallback, "bullets": [fallback]}

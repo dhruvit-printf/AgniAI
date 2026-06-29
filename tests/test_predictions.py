@@ -27,7 +27,9 @@ class TestPredictions(unittest.TestCase):
         clean_mixed = _ground_and_sanitize(mixed_pred, aggregate_text)
         self.assertEqual(clean_mixed, "If the rate of 10% holds.")
 
-    @unittest.skip("generate_rule_based_predictions was removed — covered by generate_predictions")
+    @unittest.skip(
+        "generate_rule_based_predictions was removed — covered by generate_predictions"
+    )
     def test_generate_rule_based_predictions_grounding(self):
         pass
 
@@ -51,14 +53,11 @@ class TestPredictions(unittest.TestCase):
 
     def test_comparison_prediction_direction(self):
         from prediction_engine import generate_predictions
-        
+
         answer = {
             "left": {"label": "Company A", "data": [{"score": 90}]},
             "right": {"label": "Company B", "data": [{"score": 70}]},
-            "comparison": {
-                "difference": 20.0,
-                "higher": "Company A"
-            }
+            "comparison": {"difference": 20.0, "higher": "Company A"},
         }
         res = generate_predictions(answer, "compare", {"category": "Performance"})
         # Since Company A (left_label) is higher, shortTerm should be "increasing" / trend "Increasing"
@@ -67,12 +66,11 @@ class TestPredictions(unittest.TestCase):
         answer_decreasing = {
             "left": {"label": "Company A", "data": [{"score": 70}]},
             "right": {"label": "Company B", "data": [{"score": 90}]},
-            "comparison": {
-                "difference": 20.0,
-                "higher": "Company B"
-            }
+            "comparison": {"difference": 20.0, "higher": "Company B"},
         }
-        res_dec = generate_predictions(answer_decreasing, "compare", {"category": "Performance"})
+        res_dec = generate_predictions(
+            answer_decreasing, "compare", {"category": "Performance"}
+        )
         # Since Company B (right_label) is higher, trend should be "Decreasing"
         self.assertEqual(res_dec["trend"], "Decreasing")
 

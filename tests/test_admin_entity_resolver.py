@@ -116,9 +116,12 @@ class TestResolveEntitiesFromQuery:
 
     def test_fallback_lookup_from_api(self):
         from unittest.mock import patch
-        with patch("admin_entity_resolver._fetch_companies") as mock_fetch_companies, \
-             patch("admin_entity_resolver._fetch_platoons") as mock_fetch_platoons:
-            
+
+        with (
+            patch("admin_entity_resolver._fetch_companies") as mock_fetch_companies,
+            patch("admin_entity_resolver._fetch_platoons") as mock_fetch_platoons,
+        ):
+
             mock_fetch_companies.return_value = [
                 {"companyId": 10, "companyName": "Alpha Company"},
                 {"companyId": 20, "companyName": "Bravo"},

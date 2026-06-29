@@ -186,9 +186,7 @@ class TestReliability(unittest.TestCase):
         self.assertIsInstance(response_payload.get("analysis", ""), str)
         self.assertIsInstance(response_payload.get("conclusion", ""), str)
         self.assertEqual(response_payload["status"], True)
-        self.assertIn(
-            "partial", response_payload["message"].lower()
-        )
+        self.assertIn("partial", response_payload["message"].lower())
 
     def test_progress_callback_protection(self):
         # Custom progress callback that raises an exception

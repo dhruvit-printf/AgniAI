@@ -33,6 +33,7 @@ class EntityRefreshService:
 
             def _runner() -> None:
                 import uuid as _uuid
+
                 logger.info("Entity refresh service started.")
                 while not self._stop_event.wait(self.interval_seconds):
                     cycle_trace_id = _uuid.uuid4().hex
@@ -41,7 +42,9 @@ class EntityRefreshService:
                     except Exception as exc:  # pragma: no cover - defensive
                         logger.warning("Entity refresh cycle failed: %s", exc)
 
-            self._thread = threading.Thread(target=_runner, name="entity-refresh-service", daemon=True)
+            self._thread = threading.Thread(
+                target=_runner, name="entity-refresh-service", daemon=True
+            )
             self._thread.start()
 
     def stop(self) -> None:
@@ -51,7 +54,9 @@ class EntityRefreshService:
 _SERVICE = EntityRefreshService()
 
 
-def start_entity_refresh_service(interval_seconds: int = 600, trace_id: Optional[str] = None) -> EntityRefreshService:
+def start_entity_refresh_service(
+    interval_seconds: int = 600, trace_id: Optional[str] = None
+) -> EntityRefreshService:
     _SERVICE.interval_seconds = max(60, int(interval_seconds))
     _SERVICE.start(trace_id=trace_id)
     return _SERVICE

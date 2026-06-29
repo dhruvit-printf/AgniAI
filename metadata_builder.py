@@ -29,9 +29,13 @@ def build_metadata(
     intent_ms = _pick("intentMs", "intentDurationMs", "intent_duration")
     dotnet_ms = _pick("dotnetMs", "dotnetDurationMs", "dotnet_duration")
     combiner_ms = _pick("combinerMs", "combineDurationMs", "combiner_duration")
-    report_ms = _pick("reportMs", "reportDurationMs", "report_duration", "analysisDurationMs")
+    report_ms = _pick(
+        "reportMs", "reportDurationMs", "report_duration", "analysisDurationMs"
+    )
     total_ms = _pick("totalMs", "totalDurationMs", "executionTimeMs", "total_duration")
-    execution_ms = _pick("executionTimeMs", "totalMs", "totalDurationMs", "total_duration")
+    execution_ms = _pick(
+        "executionTimeMs", "totalMs", "totalDurationMs", "total_duration"
+    )
 
     analysis_ms = _pick("analysisDurationMs")
     prediction_ms = _pick("predictionDurationMs")
@@ -39,7 +43,9 @@ def build_metadata(
     entity_resolution_ms = _pick("entityResolutionMs", "entity_resolution_ms")
     planning_ms = _pick("planningMs", "planning_ms")
     widget_ms = _pick("widgetMs", "widget_duration", "widget_ms")
-    response_assembly_ms = _pick("responseAssemblyMs", "response_assembly_duration", "response_assembly_ms")
+    response_assembly_ms = _pick(
+        "responseAssemblyMs", "response_assembly_duration", "response_assembly_ms"
+    )
 
     return {
         "sessionId": session_id,

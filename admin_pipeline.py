@@ -40,7 +40,9 @@ from intent_engine.admin_intent import (
 from query_normalizer import admin_normalize_query, clean_query
 from audit_logger import write_audit_log
 from audit_logger import reset_audit_context, set_audit_context
-from conversation_detector import build_conversational_response as build_conversation_payload
+from conversation_detector import (
+    build_conversational_response as build_conversation_payload,
+)
 from conversation_detector import is_conversational_query
 from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
 from dotnet_executor import _call_dotnet
@@ -297,7 +299,16 @@ def _extract_frontend_intent(body: Dict[str, Any]) -> Dict[str, Any]:
     filters = intent.get("filters")
     if not isinstance(filters, dict):
         filters = {}
-    for field in ("batch_id", "platoon_id", "company_id", "agniveer_no", "section", "sub_section", "class", "sport"):
+    for field in (
+        "batch_id",
+        "platoon_id",
+        "company_id",
+        "agniveer_no",
+        "section",
+        "sub_section",
+        "class",
+        "sport",
+    ):
         value = intent.get(field)
         if value not in (None, "", [], {}):
             filters[field] = value
@@ -415,7 +426,13 @@ def _log_combination_summary(
     raw_results: List[Any],
     combined_result: Any,
 ) -> None:
-    if qtype not in ("cross_filter", "comparison", "compare", "multi_independent", "multi_operation"):
+    if qtype not in (
+        "cross_filter",
+        "comparison",
+        "compare",
+        "multi_independent",
+        "multi_operation",
+    ):
         return
 
     input_counts = []
@@ -752,7 +769,9 @@ def execute_admin_query(
     _original_user_query = user_query
     _ctx_resolution = context_engine.resolve(session_id, user_query or "")
     if _ctx_resolution.needs_clarification:
-        _clarification_msg = _ctx_resolution.clarification_question or "Could you clarify your question?"
+        _clarification_msg = (
+            _ctx_resolution.clarification_question or "Could you clarify your question?"
+        )
         _clarification_payload = build_conversation_payload(
             _clarification_msg,
             session_id=session_id,
@@ -766,13 +785,15 @@ def execute_admin_query(
         }
     if _ctx_resolution.context_source != "fresh":
         logger.info(
-            json.dumps({
-                "message": "Context engine resolved follow-up",
-                "original": _original_user_query,
-                "resolved": _ctx_resolution.resolved_query,
-                "source": _ctx_resolution.context_source,
-                "session_id": session_id,
-            })
+            json.dumps(
+                {
+                    "message": "Context engine resolved follow-up",
+                    "original": _original_user_query,
+                    "resolved": _ctx_resolution.resolved_query,
+                    "source": _ctx_resolution.context_source,
+                    "session_id": session_id,
+                }
+            )
         )
         user_query = _ctx_resolution.resolved_query
 
@@ -781,9 +802,15 @@ def execute_admin_query(
 
     # ── Check Cache ──
     from cache_manager import cache_manager
+
     query_hash = cache_manager.get_query_hash(user_query, scope=_get_cache_scope(body))
     import sys
-    in_testing = "pytest" in sys.modules or "unittest" in sys.modules or os.getenv("ENV") == "testing"
+
+    in_testing = (
+        "pytest" in sys.modules
+        or "unittest" in sys.modules
+        or os.getenv("ENV") == "testing"
+    )
     bypass_cache = (
         body.get("bypass_cache")
         or body.get("bypassCache")
@@ -830,13 +857,17 @@ def execute_admin_query(
         semantic_understanding = understand_query(message)
 
         # ── Greeting / conversational short-circuit ──────────────────────────
-        if semantic_understanding.get("conversational") or _is_admin_conversational(message):
+        if semantic_understanding.get("conversational") or _is_admin_conversational(
+            message
+        ):
             intent_start = time.time()
             if _is_greeting(message):
                 _, reply_text = _build_greeting_response(body, session_id)
                 qtype = "greeting"
             else:
-                reply_text = "I can help with administrative data, reports, and analysis."
+                reply_text = (
+                    "I can help with administrative data, reports, and analysis."
+                )
                 qtype = "conversational"
             intent_duration = time.time() - intent_start
             total_duration = time.time() - start_time
@@ -847,15 +878,22 @@ def execute_admin_query(
             )
             response_payload.setdefault("metadata", {})
             response_payload["metadata"].setdefault("timings", {})
-            response_payload["metadata"]["timings"]["intentDurationMs"] = round(intent_duration * 1000, 2)
-            response_payload["metadata"]["executionTimeMs"] = round(total_duration * 1000)
+            response_payload["metadata"]["timings"]["intentDurationMs"] = round(
+                intent_duration * 1000, 2
+            )
+            response_payload["metadata"]["executionTimeMs"] = round(
+                total_duration * 1000
+            )
             set_audit_context(
                 question=user_query or message,
                 intent=response_payload.get("intent") or {"category": qtype},
             )
             metrics_collector.inc_requests(qtype)
             metrics_collector.inc_success(qtype)
-            write_audit_log(question=user_query or message, intent=response_payload.get("intent") or {})
+            write_audit_log(
+                question=user_query or message,
+                intent=response_payload.get("intent") or {},
+            )
             return {
                 "type": qtype,
                 "response_payload": response_payload,
@@ -887,12 +925,20 @@ def execute_admin_query(
                 if prev_history:
                     prev_intent = prev_history.get("intent") or {}
                     if existing_co is None:
-                        existing_co = prev_intent.get("company_id") or prev_intent.get("companyId")
+                        existing_co = prev_intent.get("company_id") or prev_intent.get(
+                            "companyId"
+                        )
                     if existing_pl is None:
-                        existing_pl = prev_intent.get("platoon_id") or prev_intent.get("platoonId")
+                        existing_pl = prev_intent.get("platoon_id") or prev_intent.get(
+                            "platoonId"
+                        )
                     if existing_ba is None:
-                        existing_ba = prev_intent.get("batch_id") or prev_intent.get("batchId")
-                    resolved_agniveer_no = prev_intent.get("agniveer_no") or prev_intent.get("agniveerNo")
+                        existing_ba = prev_intent.get("batch_id") or prev_intent.get(
+                            "batchId"
+                        )
+                    resolved_agniveer_no = prev_intent.get(
+                        "agniveer_no"
+                    ) or prev_intent.get("agniveerNo")
 
             resolved_entities = resolve_entities_from_query(
                 message,
@@ -922,7 +968,9 @@ def execute_admin_query(
                 id_filters["batchId"] = int(resolved_batch)
             # agniveerNo is a string filter — stored separately
 
-            resolved_agniveer_no = resolved_entities.get("agniveerNo") or resolved_agniveer_no
+            resolved_agniveer_no = (
+                resolved_entities.get("agniveerNo") or resolved_agniveer_no
+            )
 
             planning_start = time.time()
             message = admin_normalize_query(message)
@@ -1054,14 +1102,18 @@ def execute_admin_query(
                                 # Validate DotNetResponseModel
                                 if isinstance(data, dict):
                                     _validate_model_payload(
-                                        DotNetResponseModel, data, "multi.dotnet_response"
+                                        DotNetResponseModel,
+                                        data,
+                                        "multi.dotnet_response",
                                     )
                                 elif isinstance(data, list):
                                     _validate_model_payload(
                                         DotNetResponseModel,
                                         {
                                             "success": True,
-                                            "commandLabel": op.intent_result.get("subcategory")
+                                            "commandLabel": op.intent_result.get(
+                                                "subcategory"
+                                            )
                                             or op.intent_result.get("category")
                                             or "",
                                             "data": data,
@@ -1083,6 +1135,7 @@ def execute_admin_query(
                             results = [f.result() for f in futures]
                     except BaseException as exc:
                         import traceback as _tb
+
                         total_duration = time.time() - start_time
                         logger.error(
                             json.dumps(
@@ -1149,9 +1202,9 @@ def execute_admin_query(
 
                     # CROSS_FILTER primary failure check
                     if query_plan.query_type == QueryType.CROSS_FILTER:
-                        primary_idx, primary_op, primary_data, primary_error, _ = results[
-                            0
-                        ]
+                        primary_idx, primary_op, primary_data, primary_error, _ = (
+                            results[0]
+                        )
                         if primary_error:
                             metrics_collector.inc_errors(qtype_str)
                             total_duration = time.time() - start_time
@@ -1187,8 +1240,14 @@ def execute_admin_query(
                             or op.intent_result.get("class")
                         )
                         plan_label = None
-                        if hasattr(query_plan, "comparison_execution_plan") and query_plan.comparison_execution_plan and idx < len(query_plan.comparison_execution_plan):
-                            plan_label = query_plan.comparison_execution_plan[idx].get("label")
+                        if (
+                            hasattr(query_plan, "comparison_execution_plan")
+                            and query_plan.comparison_execution_plan
+                            and idx < len(query_plan.comparison_execution_plan)
+                        ):
+                            plan_label = query_plan.comparison_execution_plan[idx].get(
+                                "label"
+                            )
 
                         if resolved_canonical:
                             label = resolved_canonical
@@ -1228,19 +1287,27 @@ def execute_admin_query(
                                 ensure_agniveer_no_in_data(dotnet_data)
                                 raw_results.append(dotnet_data)
                                 labeled_results.append((label, dotnet_data))
-                            
-                            comparison_datasets_info.append({
-                                "id": f"dataset_{idx + 1}",
-                                "label": label,
-                                "intent": op.intent_result,
-                                "dotnetPayload": response_dotnet_payload[idx],
-                                "rawData": dotnet_data if not dotnet_error else {"unavailable": True},
-                                "metadata": {
-                                    "endpoint": "api/AiCommand/execute",
-                                    "status": "SUCCESS" if not dotnet_error else "FAILURE",
-                                    "executionTimeMs": op_time_ms
+
+                            comparison_datasets_info.append(
+                                {
+                                    "id": f"dataset_{idx + 1}",
+                                    "label": label,
+                                    "intent": op.intent_result,
+                                    "dotnetPayload": response_dotnet_payload[idx],
+                                    "rawData": (
+                                        dotnet_data
+                                        if not dotnet_error
+                                        else {"unavailable": True}
+                                    ),
+                                    "metadata": {
+                                        "endpoint": "api/AiCommand/execute",
+                                        "status": (
+                                            "SUCCESS" if not dotnet_error else "FAILURE"
+                                        ),
+                                        "executionTimeMs": op_time_ms,
+                                    },
                                 }
-                            })
+                            )
                         elif query_plan.query_type == QueryType.MULTI_OPERATION:
                             label = op.intent_result.get(
                                 "category", f"Section {idx + 1}"
@@ -1256,9 +1323,7 @@ def execute_admin_query(
                                 labeled_results.append((label, dotnet_data))
 
                     if query_plan.query_type == QueryType.COMPARISON:
-                        comparison_context = {
-                            "datasets": comparison_datasets_info
-                        }
+                        comparison_context = {"datasets": comparison_datasets_info}
                     else:
                         comparison_context = None
 
@@ -1266,10 +1331,15 @@ def execute_admin_query(
                         frontend_intent,
                         *(op.intent_result for op in query_plan.operations),
                     )
-                    primary_intent["operations"] = [op.intent_result for op in query_plan.operations]
+                    primary_intent["operations"] = [
+                        op.intent_result for op in query_plan.operations
+                    ]
                     primary_intent["filters"] = _merge_intents(
                         frontend_intent.get("filters", {}),
-                        *(op.intent_result.get("filters", {}) for op in query_plan.operations),
+                        *(
+                            op.intent_result.get("filters", {})
+                            for op in query_plan.operations
+                        ),
                     )
                     dotnet_duration = time.time() - dotnet_start
 
@@ -1284,7 +1354,9 @@ def execute_admin_query(
                         query_plan.operations
                         and query_plan.operations[0].intent_result.get("category")
                     )
-                    else classify_admin_intent(message, resolved_entities=resolved_entities)
+                    else classify_admin_intent(
+                        message, resolved_entities=resolved_entities
+                    )
                 )
                 primary_intent = _merge_intents(
                     frontend_intent,
@@ -1324,7 +1396,9 @@ def execute_admin_query(
 
                     total_duration = time.time() - start_time
                     durations = {
-                        "entity_resolution_ms": round(entity_resolution_duration * 1000, 2),
+                        "entity_resolution_ms": round(
+                            entity_resolution_duration * 1000, 2
+                        ),
                         "planning_ms": round(planning_duration * 1000, 2),
                         "planner_duration": round(planner_duration * 1000, 2),
                         "intent_duration": round(intent_duration * 1000, 2),
@@ -1345,7 +1419,9 @@ def execute_admin_query(
                     response_payload["metadata"].setdefault("timings", {})
                     response_payload["metadata"]["timings"].update(
                         {
-                            "entityResolutionMs": round(entity_resolution_duration * 1000),
+                            "entityResolutionMs": round(
+                                entity_resolution_duration * 1000
+                            ),
                             "planningMs": round(planning_duration * 1000),
                             "plannerDurationMs": round(planner_duration * 1000),
                             "intentDurationMs": round(intent_duration * 1000),
@@ -1366,9 +1442,7 @@ def execute_admin_query(
                     )
                     response_payload["intent"] = {
                         "category": primary_intent.get("category") or "unclear",
-                        "confidence": round(
-                            float(query_plan.confidence), 2
-                        ),
+                        "confidence": round(float(query_plan.confidence), 2),
                         "operation": primary_intent.get("operation"),
                         "query_type": "unrecognised",
                     }
@@ -1538,7 +1612,9 @@ def execute_admin_query(
                     if dotnet_data is not None:
                         if isinstance(dotnet_data, dict):
                             _validate_model_payload(
-                                DotNetResponseModel, dotnet_data, "single.dotnet_response"
+                                DotNetResponseModel,
+                                dotnet_data,
+                                "single.dotnet_response",
                             )
                         elif isinstance(dotnet_data, list):
                             _validate_model_payload(
@@ -1565,8 +1641,11 @@ def execute_admin_query(
             combiner_start = time.time()
             _notify("combiner")
             combined_result = combine_results(
-                raw_results, labeled_results, qtype_str, primary_intent,
-                comparison_context=comparison_context
+                raw_results,
+                labeled_results,
+                qtype_str,
+                primary_intent,
+                comparison_context=comparison_context,
             )
             _log_combination_summary(
                 question=user_query,
@@ -1583,12 +1662,7 @@ def execute_admin_query(
                     CombinedResponseModel, combined_result, "combined.result"
                 )
 
-
-            if (
-                qtype_str == "cross_filter"
-                and bool(failed_filters)
-                and failed_filters
-            ):
+            if qtype_str == "cross_filter" and bool(failed_filters) and failed_filters:
                 combined_result["degraded"] = True
                 combined_result["failedFilters"] = failed_filters
             combiner_duration = time.time() - combiner_start
@@ -1614,7 +1688,11 @@ def execute_admin_query(
                 "futureTrends": ["A reliable prediction is not available yet."],
             },
             "conclusion": None,
-            "durations": {"analysisDurationMs": 0.0, "predictionDurationMs": 0.0, "conclusionDurationMs": 0.0},
+            "durations": {
+                "analysisDurationMs": 0.0,
+                "predictionDurationMs": 0.0,
+                "conclusionDurationMs": 0.0,
+            },
         }
         try:
             with span(SPAN_GENERATE_REPORT, trace_id=trace_id):
@@ -1637,9 +1715,11 @@ def execute_admin_query(
                     and not report.get("prediction")
                     and not report.get("conclusion")
                 ):
-                    report = get_fallback_report(combined_result, qtype_str, primary_intent)
+                    report = get_fallback_report(
+                        combined_result, qtype_str, primary_intent
+                    )
                     records = _extract_records(combined_result)
-                    pred_cat = str(primary_intent.get('category') or 'Agniveer').strip()
+                    pred_cat = str(primary_intent.get("category") or "Agniveer").strip()
                     if pred_cat.lower() in ("unclear", "unknown", "none"):
                         pred_cat = "Agniveer"
                     else:
@@ -1668,15 +1748,19 @@ def execute_admin_query(
                     }
                 report_duration = time.time() - report_start
                 logger.info(
-                    json.dumps({
-                        "message": "Report generator stage finished",
-                        "stage": "report",
-                        "duration_ms": round(report_duration * 1000, 2),
-                        "trace_id": trace_id,
-                        "session_id": session_id,
-                        "query_type": qtype_str,
-                        "output_shape": {k: type(v).__name__ for k, v in report.items()},
-                    })
+                    json.dumps(
+                        {
+                            "message": "Report generator stage finished",
+                            "stage": "report",
+                            "duration_ms": round(report_duration * 1000, 2),
+                            "trace_id": trace_id,
+                            "session_id": session_id,
+                            "query_type": qtype_str,
+                            "output_shape": {
+                                k: type(v).__name__ for k, v in report.items()
+                            },
+                        }
+                    )
                 )
 
                 # Validate report models (non-fatal)
@@ -1694,18 +1778,21 @@ def execute_admin_query(
                     )
         except Exception as report_exc:
             import traceback as _tb
+
             report_duration = time.time() - start_time
             logger.error(
-                json.dumps({
-                    "message": "Report generator stage failed",
-                    "stage": "report",
-                    "duration_ms": round(report_duration * 1000, 2),
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": qtype_str,
-                    "exception": str(report_exc),
-                    "traceback": _tb.format_exc(),
-                })
+                json.dumps(
+                    {
+                        "message": "Report generator stage failed",
+                        "stage": "report",
+                        "duration_ms": round(report_duration * 1000, 2),
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": qtype_str,
+                        "exception": str(report_exc),
+                        "traceback": _tb.format_exc(),
+                    }
+                )
             )
             # report keeps its safe defaults — pipeline continues
 
@@ -1714,7 +1801,10 @@ def execute_admin_query(
 
         # ── Store interaction in context engine (for follow-up resolution) ────
         try:
-            _intent_filters = {**(primary_intent.get("filters") or {}), **_get_id_filters(body)}
+            _intent_filters = {
+                **(primary_intent.get("filters") or {}),
+                **_get_id_filters(body),
+            }
             _payload_summary = (
                 f"{primary_intent.get('operation', 'lookup')} "
                 f"{primary_intent.get('category') or primary_intent.get('section') or ''}".strip()
@@ -1724,7 +1814,9 @@ def execute_admin_query(
                 user_message=_original_user_query,
                 resolved_query=message,
                 intent=primary_intent,
-                entities=resolved_entities if isinstance(resolved_entities, dict) else {},
+                entities=(
+                    resolved_entities if isinstance(resolved_entities, dict) else {}
+                ),
                 filters=_intent_filters,
                 category=primary_intent.get("category"),
                 section=primary_intent.get("section"),
@@ -1790,18 +1882,22 @@ def execute_admin_query(
 
             # ── Audit: log visualization intent ─────────────────────────────
             logger.info(
-                json.dumps({
-                    "message": "Pipeline stage: visualization_intent",
-                    "stage": "visualization_intent",
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "presentation": visualization_intent.get("presentation"),
-                    "chart_type": visualization_intent.get("chart_type"),
-                    "comparison": visualization_intent.get("comparison"),
-                    "trend": visualization_intent.get("trend"),
-                    "record_count": visualization_intent.get("record_count"),
-                    "frontend_override": visualization_intent.get("frontend_override"),
-                })
+                json.dumps(
+                    {
+                        "message": "Pipeline stage: visualization_intent",
+                        "stage": "visualization_intent",
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "presentation": visualization_intent.get("presentation"),
+                        "chart_type": visualization_intent.get("chart_type"),
+                        "comparison": visualization_intent.get("comparison"),
+                        "trend": visualization_intent.get("trend"),
+                        "record_count": visualization_intent.get("record_count"),
+                        "frontend_override": visualization_intent.get(
+                            "frontend_override"
+                        ),
+                    }
+                )
             )
 
             formatted_data_payload = build_widget_list(
@@ -1814,9 +1910,19 @@ def execute_admin_query(
 
             # ── Audit: log full widget output ────────────────────────────────
             widget_duration = time.time() - widget_start
-            _record_count = len(_extract_records(combined_result)) if combined_result else 0
-            _widget_count = len(formatted_data_payload) if isinstance(formatted_data_payload, list) else 0
-            _widget_types = [w.get("type") for w in (formatted_data_payload or []) if isinstance(w, dict)]
+            _record_count = (
+                len(_extract_records(combined_result)) if combined_result else 0
+            )
+            _widget_count = (
+                len(formatted_data_payload)
+                if isinstance(formatted_data_payload, list)
+                else 0
+            )
+            _widget_types = [
+                w.get("type")
+                for w in (formatted_data_payload or [])
+                if isinstance(w, dict)
+            ]
             _has_null_widget = any(
                 w.get("type") is None or w.get("title") is None or w.get("data") is None
                 for w in (formatted_data_payload or [])
@@ -1824,56 +1930,77 @@ def execute_admin_query(
             )
             if _has_null_widget:
                 logger.error(
-                    json.dumps({
-                        "message": "PIPELINE BUG: null-field widget detected before response_builder",
-                        "stage": "widget",
-                        "trace_id": trace_id,
-                        "session_id": session_id,
-                        "widgets": formatted_data_payload,
-                    })
+                    json.dumps(
+                        {
+                            "message": "PIPELINE BUG: null-field widget detected before response_builder",
+                            "stage": "widget",
+                            "trace_id": trace_id,
+                            "session_id": session_id,
+                            "widgets": formatted_data_payload,
+                        }
+                    )
                 )
                 if isinstance(formatted_data_payload, list):
                     formatted_data_payload = [
-                        w if isinstance(w, dict) and w.get("type") and w.get("title") and w.get("data") is not None
-                        else {"type": "null", "title": "No Data Available", "data": []}
+                        (
+                            w
+                            if isinstance(w, dict)
+                            and w.get("type")
+                            and w.get("title")
+                            and w.get("data") is not None
+                            else {
+                                "type": "null",
+                                "title": "No Data Available",
+                                "data": [],
+                            }
+                        )
                         for w in formatted_data_payload
                     ]
             logger.info(
-                json.dumps({
-                    "message": "Pipeline stage: widget_engine",
-                    "stage": "widget",
-                    "duration_ms": round(widget_duration * 1000, 2),
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": qtype_str,
-                    "record_count": _record_count,
-                    "widget_count": _widget_count,
-                    "widget_types": _widget_types,
-                    "formatted_data_count": _widget_count,
-                    "has_null_widget": _has_null_widget,
-                    "output_is_list": isinstance(formatted_data_payload, list),
-                })
+                json.dumps(
+                    {
+                        "message": "Pipeline stage: widget_engine",
+                        "stage": "widget",
+                        "duration_ms": round(widget_duration * 1000, 2),
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": qtype_str,
+                        "record_count": _record_count,
+                        "widget_count": _widget_count,
+                        "widget_types": _widget_types,
+                        "formatted_data_count": _widget_count,
+                        "has_null_widget": _has_null_widget,
+                        "output_is_list": isinstance(formatted_data_payload, list),
+                    }
+                )
             )
         except Exception as widget_exc:
             import traceback as _tb
+
             widget_duration = time.time() - widget_start if widget_start else 0.0
             logger.error(
-                json.dumps({
-                    "message": "Widget stage failed",
-                    "stage": "widget",
-                    "duration_ms": round(widget_duration * 1000, 2) if widget_duration else 0,
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": qtype_str,
-                    "exception": str(widget_exc),
-                    "traceback": _tb.format_exc(),
-                })
+                json.dumps(
+                    {
+                        "message": "Widget stage failed",
+                        "stage": "widget",
+                        "duration_ms": (
+                            round(widget_duration * 1000, 2) if widget_duration else 0
+                        ),
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": qtype_str,
+                        "exception": str(widget_exc),
+                        "traceback": _tb.format_exc(),
+                    }
+                )
             )
 
         # ── Step 6b: Build suggested questions (independent) ──────────────
         suggested = []
         try:
-            suggested = generate_suggested_questions(qtype_str, primary_intent, combined_result)
+            suggested = generate_suggested_questions(
+                qtype_str, primary_intent, combined_result
+            )
             # Validate SuggestedQuestionModel (non-fatal)
             if suggested:
                 for q in suggested:
@@ -1882,13 +2009,15 @@ def execute_admin_query(
                     )
         except Exception as sq_exc:
             logger.error(
-                json.dumps({
-                    "message": "Suggested questions generation failed",
-                    "stage": "suggested_questions",
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "exception": str(sq_exc),
-                })
+                json.dumps(
+                    {
+                        "message": "Suggested questions generation failed",
+                        "stage": "suggested_questions",
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "exception": str(sq_exc),
+                    }
+                )
             )
             suggested = []
 
@@ -1903,7 +2032,10 @@ def execute_admin_query(
                     operation_count=operation_count,
                     durations=durations_payload,
                 )
-                if query_plan.query_type in (QueryType.COMPARE, QueryType.COMPARISON) and bool(comparison_datasets_info):
+                if query_plan.query_type in (
+                    QueryType.COMPARE,
+                    QueryType.COMPARISON,
+                ) and bool(comparison_datasets_info):
                     response_metadata["queryType"] = "COMPARISON"
                     response_metadata["comparisonType"] = ""
                     response_metadata["visualization"] = (
@@ -1915,12 +2047,16 @@ def execute_admin_query(
                         {"id": d["id"], "label": d["label"]}
                         for d in comparison_datasets_info
                     ]
-                    if isinstance(combined_result, dict) and "comparisonMetrics" in combined_result:
-                        response_metadata["comparisonMetrics"] = combined_result["comparisonMetrics"]
+                    if (
+                        isinstance(combined_result, dict)
+                        and "comparisonMetrics" in combined_result
+                    ):
+                        response_metadata["comparisonMetrics"] = combined_result[
+                            "comparisonMetrics"
+                        ]
 
                     response_dotnet_payload = [
-                        d["dotnetPayload"]
-                        for d in comparison_datasets_info
+                        d["dotnetPayload"] for d in comparison_datasets_info
                     ]
 
                 response_payload = build_response(
@@ -1939,28 +2075,37 @@ def execute_admin_query(
                 )
                 response_assembly_duration = time.time() - response_assembly_start
                 logger.info(
-                    json.dumps({
-                        "message": "Response builder stage finished",
-                        "stage": "response_builder",
-                        "duration_ms": round(response_assembly_duration * 1000, 2),
-                        "trace_id": trace_id,
-                        "session_id": session_id,
-                        "query_type": qtype_str,
-                        "output_shape": list(response_payload.keys()) if isinstance(response_payload, dict) else type(response_payload).__name__,
-                    })
+                    json.dumps(
+                        {
+                            "message": "Response builder stage finished",
+                            "stage": "response_builder",
+                            "duration_ms": round(response_assembly_duration * 1000, 2),
+                            "trace_id": trace_id,
+                            "session_id": session_id,
+                            "query_type": qtype_str,
+                            "output_shape": (
+                                list(response_payload.keys())
+                                if isinstance(response_payload, dict)
+                                else type(response_payload).__name__
+                            ),
+                        }
+                    )
                 )
         except Exception as rb_exc:
             import traceback as _tb
+
             logger.error(
-                json.dumps({
-                    "message": "Response builder stage failed",
-                    "stage": "response_builder",
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": qtype_str,
-                    "exception": str(rb_exc),
-                    "traceback": _tb.format_exc(),
-                })
+                json.dumps(
+                    {
+                        "message": "Response builder stage failed",
+                        "stage": "response_builder",
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "query_type": qtype_str,
+                        "exception": str(rb_exc),
+                        "traceback": _tb.format_exc(),
+                    }
+                )
             )
             # Build minimal valid response preserving .NET data
             response_payload = build_response(
@@ -2036,9 +2181,7 @@ def execute_admin_query(
         metrics_collector.record_duration(
             "entity_resolution_ms", durations["entity_resolution_ms"]
         )
-        metrics_collector.record_duration(
-            "planning_ms", durations["planning_ms"]
-        )
+        metrics_collector.record_duration("planning_ms", durations["planning_ms"])
         metrics_collector.record_duration(
             "planner_duration", durations["planner_duration"]
         )
@@ -2087,7 +2230,9 @@ def execute_admin_query(
         metrics_collector.inc_success(qtype_str)
 
         # Cache successful query response
-        is_cacheable = cache_manager.is_cacheable_category(primary_intent.get("category"))
+        is_cacheable = cache_manager.is_cacheable_category(
+            primary_intent.get("category")
+        )
         if is_cacheable and not bypass_cache and response_payload.get("status"):
             result_to_cache = {
                 "type": "query",
@@ -2095,7 +2240,9 @@ def execute_admin_query(
                 "combined_message": combined_message,
                 "execution_time_ms": execution_time_ms,
             }
-            cache_manager.set(query_hash, result_to_cache, category=primary_intent.get("category"))
+            cache_manager.set(
+                query_hash, result_to_cache, category=primary_intent.get("category")
+            )
 
         return {
             "type": "query",
@@ -2122,6 +2269,7 @@ def execute_admin_query(
 
     except Exception as exc:
         import traceback as _tb
+
         total_duration = time.time() - start_time
         error_intent = {"type": "error"}
         set_audit_context(question=user_query, intent=error_intent)
@@ -2170,4 +2318,3 @@ def execute_admin_query(
         request_id_var.reset(token_req)
         trace_id_var.reset(token_trace)
         session_id_var.reset(token_sess)
-

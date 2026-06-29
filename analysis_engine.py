@@ -26,12 +26,13 @@ def _analysis_payload(
         "statistics": statistics or {},
     }
 
+
 def generate_analysis(
     combined_result: Any,
     query_type: str,
     intent: Dict[str, Any],
     user_query: str = "",
-    trace_id: Optional[str] = None
+    trace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Generate observations and insights from JSON combined_result using pure Python
@@ -40,6 +41,7 @@ def generate_analysis(
     """
     try:
         from normalized_models import extract_records as _extract_records
+
         records = _extract_records(combined_result)
 
         if isinstance(combined_result, dict):
@@ -104,17 +106,35 @@ def generate_analysis(
         if query_type in ("compare", "comparison"):
             left_data = left.get("data") or []
             right_data = right.get("data") or []
-            left_scores = [s for s in (_get_score(r) for r in left_data if isinstance(r, dict)) if s is not None]
-            right_scores = [s for s in (_get_score(r) for r in right_data if isinstance(r, dict)) if s is not None]
-            left_avg = round(sum(left_scores) / len(left_scores), 2) if left_scores else None
-            right_avg = round(sum(right_scores) / len(right_scores), 2) if right_scores else None
+            left_scores = [
+                s
+                for s in (_get_score(r) for r in left_data if isinstance(r, dict))
+                if s is not None
+            ]
+            right_scores = [
+                s
+                for s in (_get_score(r) for r in right_data if isinstance(r, dict))
+                if s is not None
+            ]
+            left_avg = (
+                round(sum(left_scores) / len(left_scores), 2) if left_scores else None
+            )
+            right_avg = (
+                round(sum(right_scores) / len(right_scores), 2)
+                if right_scores
+                else None
+            )
             summary = f"Comparison completed between {left.get('label', 'Side 1')} ({len(left_data)} records) and {right.get('label', 'Side 2')} ({len(right_data)} records)."
             insights = []
             if left_avg is not None and right_avg is not None:
                 diff = round(left_avg - right_avg, 2)
-                insights.append(f"{left.get('label', 'Side 1')} average: {left_avg}, {right.get('label', 'Side 2')} average: {right_avg}, difference: {diff}.")
+                insights.append(
+                    f"{left.get('label', 'Side 1')} average: {left_avg}, {right.get('label', 'Side 2')} average: {right_avg}, difference: {diff}."
+                )
             else:
-                insights.append("Comparison highlights metric variances across categories.")
+                insights.append(
+                    "Comparison highlights metric variances across categories."
+                )
             stats = {
                 "left_count": len(left_data),
                 "right_count": len(right_data),
@@ -125,8 +145,13 @@ def generate_analysis(
         elif query_type == "cross_filter":
             match_records = sections[0].get("data") if sections else []
             summary = f"Cross-filter analysis matched {len(match_records)} records after intersecting the requested conditions."
-            insights = [f"{len(match_records)} records satisfy all overlapping filter conditions."]
-            stats = {"match_count": len(match_records), "record_count": len(match_records)}
+            insights = [
+                f"{len(match_records)} records satisfy all overlapping filter conditions."
+            ]
+            stats = {
+                "match_count": len(match_records),
+                "record_count": len(match_records),
+            }
         elif query_type == "multi_independent":
             summary = f"Consolidated data from {len(sections)} independent sections."
             insights = ["Sections are presented independently without correlation."]
@@ -137,18 +162,29 @@ def generate_analysis(
                 count = len(sec.get("data", []))
                 section_details[label] = count
                 total_recs += count
-            stats = {"section_count": len(sections), "sections": section_details, "record_count": total_recs}
+            stats = {
+                "section_count": len(sections),
+                "sections": section_details,
+                "record_count": total_recs,
+            }
         else:
             # simple / trend / distribution
             target_records = sections[0].get("data", []) if sections else []
-            scores = [s for s in (_get_score(r) for r in target_records if isinstance(r, dict)) if s is not None]
+            scores = [
+                s
+                for s in (_get_score(r) for r in target_records if isinstance(r, dict))
+                if s is not None
+            ]
             stats = {"record_count": len(target_records)}
             if scores:
                 import statistics as _stats_mod
+
                 avg_score = round(sum(scores) / len(scores), 2)
                 min_score = round(min(scores), 2)
                 max_score = round(max(scores), 2)
-                std_dev = round(_stats_mod.pstdev(scores), 2) if len(scores) > 1 else 0.0
+                std_dev = (
+                    round(_stats_mod.pstdev(scores), 2) if len(scores) > 1 else 0.0
+                )
                 summary = (
                     f"Matched {len(target_records)} {category.lower()} records with an average score of {avg_score}, "
                     f"ranging from {min_score} to {max_score}."
@@ -159,15 +195,19 @@ def generate_analysis(
                 ]
                 if std_dev > 0:
                     insights.append(f"Standard deviation: {std_dev}.")
-                stats.update({
-                    "average_score": avg_score,
-                    "min_score": min_score,
-                    "max_score": max_score,
-                    "std_dev": std_dev,
-                })
+                stats.update(
+                    {
+                        "average_score": avg_score,
+                        "min_score": min_score,
+                        "max_score": max_score,
+                        "std_dev": std_dev,
+                    }
+                )
             else:
                 summary = f"Matched {len(target_records)} {category.lower()} records."
-                insights = [f"The query returned {len(target_records)} {category.lower()} records."]
+                insights = [
+                    f"The query returned {len(target_records)} {category.lower()} records."
+                ]
 
         return _analysis_payload(summary, insights, stats)
 

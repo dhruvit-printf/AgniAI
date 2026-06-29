@@ -11,7 +11,11 @@ class TestResponseLayerRefactor(unittest.TestCase):
         # Verify response builder contract — analysis/prediction/conclusion at root
         resp = build_response(
             message="Test Message",
-            formatted_data={"type": "TABLE", "title": "Test Title", "data": {"key": "val"}},
+            formatted_data={
+                "type": "TABLE",
+                "title": "Test Title",
+                "data": {"key": "val"},
+            },
             metadata={"queryType": "simple", "sessionId": "123"},
             session_id="123",
             suggested_questions=["question?"],
@@ -22,21 +26,21 @@ class TestResponseLayerRefactor(unittest.TestCase):
         )
 
         # Root-level narrative strings
-        self.assertIsInstance(resp["analysis"],   str)
+        self.assertIsInstance(resp["analysis"], str)
         self.assertIsInstance(resp["prediction"], str)
         self.assertIsInstance(resp["conclusion"], str)
-        self.assertEqual(resp["analysis"],   "Some analysis")
+        self.assertEqual(resp["analysis"], "Some analysis")
         self.assertEqual(resp["prediction"], "Up")
         self.assertEqual(resp["conclusion"], "Done")
 
         # formattedData is always a list
         self.assertIsInstance(resp["formattedData"], list)
         fd = resp["formattedData"][0]
-        self.assertEqual(fd["type"],  "TABLE")
+        self.assertEqual(fd["type"], "TABLE")
         self.assertEqual(fd["title"], "Test Title")
-        self.assertEqual(fd["data"],  {"key": "val"})
+        self.assertEqual(fd["data"], {"key": "val"})
         # analysis/prediction/conclusion must NOT be inside the widget
-        self.assertNotIn("analysis",   fd)
+        self.assertNotIn("analysis", fd)
         self.assertNotIn("prediction", fd)
         self.assertNotIn("conclusion", fd)
 
@@ -44,28 +48,22 @@ class TestResponseLayerRefactor(unittest.TestCase):
         # Verify multi_independent tables preserve section boundaries (Issue 1)
         combined = {
             "sections": [
-                {
-                    "label": "Top Performers",
-                    "data": [{"name": "Amit", "score": 95}]
-                },
-                {
-                    "label": "Leave Takers",
-                    "data": [{"name": "Kapil", "days": 10}]
-                }
+                {"label": "Top Performers", "data": [{"name": "Amit", "score": 95}]},
+                {"label": "Leave Takers", "data": [{"name": "Kapil", "days": 10}]},
             ]
         }
-        
+
         fd = build_formatted_data(
             combined,
             query_type="multi_independent",
-            intent={"category": "Performance", "subcategory": "Top"}
+            intent={"category": "Performance", "subcategory": "Top"},
         )
-        
+
         # Check that sections is preserved at formattedData.data
         data = fd["data"]
         self.assertIn("sections", data)
         self.assertEqual(len(data["sections"]), 2)
-        
+
         sec1 = data["sections"][0]
         self.assertEqual(sec1["label"], "Top Performers")
         self.assertEqual(len(sec1["columns"]), 2)  # name and score
@@ -79,28 +77,22 @@ class TestResponseLayerRefactor(unittest.TestCase):
     def test_comparison_preserves_left_right(self):
         # Verify comparison tables preserve left/right sides without flattening (Issue 2)
         combined = {
-            "left": {
-                "label": "Company A",
-                "data": [{"name": "A", "marks": 80}]
-            },
-            "right": {
-                "label": "Company B",
-                "data": [{"name": "B", "marks": 90}]
-            },
-            "comparison": {"diff": 10}
+            "left": {"label": "Company A", "data": [{"name": "A", "marks": 80}]},
+            "right": {"label": "Company B", "data": [{"name": "B", "marks": 90}]},
+            "comparison": {"diff": 10},
         }
-        
+
         fd = build_formatted_data(
             combined,
             query_type="comparison",
-            intent={"category": "Performance", "subcategory": "Compare"}
+            intent={"category": "Performance", "subcategory": "Compare"},
         )
-        
+
         data = fd["data"]
         self.assertIn("left", data)
         self.assertIn("right", data)
         self.assertIn("comparison", data)
-        
+
         self.assertEqual(data["left"]["label"], "Company A")
         self.assertEqual(data["left"]["rows"][0]["name"], "A")  # camelCase
         self.assertEqual(data["right"]["label"], "Company B")
@@ -116,15 +108,15 @@ class TestResponseLayerRefactor(unittest.TestCase):
             "filterDepth": 2,
             "queryType": "cross_filter",
             "degraded": True,
-            "failedFilters": ["filter1"]
+            "failedFilters": ["filter1"],
         }
-        
+
         fd = build_formatted_data(
             combined,
             query_type="cross_filter",
-            intent={"category": "Performance", "subcategory": "Top"}
+            intent={"category": "Performance", "subcategory": "Top"},
         )
-        
+
         data = fd["data"]
         self.assertEqual(data["matchCount"], 5)
         self.assertEqual(data["totalBeforeFilter"], 10)
@@ -139,11 +131,12 @@ class TestResponseLayerRefactor(unittest.TestCase):
             {
                 "name": "Amit",
                 "attempts": [{"attempt": 1, "score": 90}],
-                "metrics": {"avg": 85}
+                "metrics": {"avg": 85},
             }
         ]
-        
+
         from widget_engine import build_table_data
+
         res = build_table_data(records)
         rows = res["rows"]
         self.assertEqual(rows[0]["name"], "Amit")
@@ -156,27 +149,33 @@ class TestResponseLayerRefactor(unittest.TestCase):
         combined = [
             {
                 "name": "Amit",
-                "nested_info": {"sport": "Cricket", "detail": {"level": "High"}}
+                "nested_info": {"sport": "Cricket", "detail": {"level": "High"}},
             }
         ]
-        
+
         # 1. TABLE widget -> deep flatten should happen
         fd_table = build_formatted_data(
             combined,
             query_type="simple",
             intent={"category": "Performance", "subcategory": "Top"},
-            visualization_intent={"requested_widget_type": "TABLE", "frontend_override": True}
+            visualization_intent={
+                "requested_widget_type": "TABLE",
+                "frontend_override": True,
+            },
         )
         # Verify that nested_info keys are flattened (now camelCase: nested_info_Sport -> nested_info_Sport first char lowered)
         self.assertIn("nested_info_Sport", fd_table["data"]["rows"][0])
         self.assertIn("nested_info_Detail_Level", fd_table["data"]["rows"][0])
-        
+
         # 2. BAR_CHART widget -> deep flatten should NOT happen; new schema uses series
         fd_bar = build_formatted_data(
             combined,
             query_type="simple",
             intent={"category": "Performance", "subcategory": "Top"},
-            visualization_intent={"requested_widget_type": "BAR_CHART", "frontend_override": True}
+            visualization_intent={
+                "requested_widget_type": "BAR_CHART",
+                "frontend_override": True,
+            },
         )
         # New BAR_CHART schema has series, not rows
         self.assertIn("series", fd_bar["data"])
@@ -190,15 +189,15 @@ class TestResponseLayerRefactor(unittest.TestCase):
             "records": [{"name": "Amit"}],
             "bestAttempt": {"marks": 95},
             "subItems": ["item1"],
-            "customDotnetField": "hello"
+            "customDotnetField": "hello",
         }
-        
+
         fd = build_formatted_data(
             combined,
             query_type="simple",
-            intent={"category": "Performance", "subcategory": "Top"}
+            intent={"category": "Performance", "subcategory": "Top"},
         )
-        
+
         data = fd["data"]
         self.assertEqual(data["bestAttempt"], {"marks": 95})
         self.assertEqual(data["subItems"], ["item1"])
@@ -206,20 +205,17 @@ class TestResponseLayerRefactor(unittest.TestCase):
 
     def test_table_columns_union_generation(self):
         # Verify union of all keys across ALL rows is used (Issue 7)
-        combined = [
-            {"name": "A"},
-            {"name": "B", "attempts_section1_marks": 90}
-        ]
-        
+        combined = [{"name": "A"}, {"name": "B", "attempts_section1_marks": 90}]
+
         fd = build_formatted_data(
             combined,
             query_type="simple",
-            intent={"category": "Performance", "subcategory": "Top"}
+            intent={"category": "Performance", "subcategory": "Top"},
         )
-        
+
         columns = fd["data"]["columns"]
         col_keys = [c["key"] for c in columns]
-        
+
         # Column keys are now camelCase (first char lowercased)
         self.assertIn("name", col_keys)
         self.assertIn("attempts_section1_marks", col_keys)

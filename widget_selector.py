@@ -16,8 +16,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def _slug(text: str) -> str:
     """Stable lowercase snake_case slug safe for use in widget IDs."""
@@ -33,11 +33,11 @@ def _title(category: str, operation: str = "") -> str:
 def _canonical(wt: str) -> str:
     """Normalise alias widget types to canonical constants."""
     _ALIASES: Dict[str, str] = {
-        "CHART_BAR":    "BAR_CHART",   # legacy alias
-        "CHART_LINE":   "LINE_CHART",  # legacy alias
-        "CHART_PIE":    "PIE_CHART",   # legacy alias
-        "AREA_CHART":   "AREA_CHART",
-        "DONUT_CHART":  "DONUT_CHART",
+        "CHART_BAR": "BAR_CHART",  # legacy alias
+        "CHART_LINE": "LINE_CHART",  # legacy alias
+        "CHART_PIE": "PIE_CHART",  # legacy alias
+        "AREA_CHART": "AREA_CHART",
+        "DONUT_CHART": "DONUT_CHART",
         "RADIAL_CHART": "RADIAL_CHART",
     }
     return _ALIASES.get((wt or "").upper(), (wt or "TABLE").upper())
@@ -45,17 +45,20 @@ def _canonical(wt: str) -> str:
 
 # ── data ─────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class WidgetSpec:
     """Blueprint for one widget.  No data — only build instructions."""
-    widget_type:    str   # "TABLE" | "CARD" | "BAR_CHART" | "LINE_CHART" | "AREA_CHART" | "PIE_CHART" | "DONUT_CHART" | "RADIAL_CHART"
-    widget_id:      str   # Deterministic, unique within this response
-    title:          str   # Human-readable title rendered on the widget
-    source_hint:    str = "primary"   # "primary"|"summary"|"left"|"right"|"section"
-    section_label:  str = ""          # Non-empty for multi_independent TABLE specs
+
+    widget_type: str  # "TABLE" | "CARD" | "BAR_CHART" | "LINE_CHART" | "AREA_CHART" | "PIE_CHART" | "DONUT_CHART" | "RADIAL_CHART"
+    widget_id: str  # Deterministic, unique within this response
+    title: str  # Human-readable title rendered on the widget
+    source_hint: str = "primary"  # "primary"|"summary"|"left"|"right"|"section"
+    section_label: str = ""  # Non-empty for multi_independent TABLE specs
 
 
 # ── engine ───────────────────────────────────────────────────────────────────
+
 
 class WidgetSelector:
     """
@@ -75,11 +78,11 @@ class WidgetSelector:
         analysis: Optional[Dict[str, Any]] = None,
         frontend_override_type: Optional[str] = None,
     ) -> List[WidgetSpec]:
-        qt        = (query_type or "simple").strip().lower()
-        category  = (intent.get("category")  or "").strip()
-        operation = (intent.get("operation")  or intent.get("subcategory") or "").strip()
-        cat_slug  = _slug(category)
-        op_slug   = _slug(operation)
+        qt = (query_type or "simple").strip().lower()
+        category = (intent.get("category") or "").strip()
+        operation = (intent.get("operation") or intent.get("subcategory") or "").strip()
+        cat_slug = _slug(category)
+        op_slug = _slug(operation)
         has_stats = bool((analysis or {}).get("statistics"))
 
         # Honour explicit frontend widget-type override
@@ -98,16 +101,21 @@ class WidgetSelector:
             return self._trend(category, operation, cat_slug, op_slug)
         if qt == "distribution":
             return self._distribution(category, operation, cat_slug, op_slug)
-        return self._simple(primary_widget_type, category, operation, cat_slug, op_slug, has_stats)
+        return self._simple(
+            primary_widget_type, category, operation, cat_slug, op_slug, has_stats
+        )
 
     # ── per-query-type builders ───────────────────────────────────────────────
 
     def _frontend_override(
-        self, override_type: str,
-        category: str, operation: str,
-        cat_slug: str, op_slug: str,
+        self,
+        override_type: str,
+        category: str,
+        operation: str,
+        cat_slug: str,
+        op_slug: str,
     ) -> List[WidgetSpec]:
-        wt    = _canonical(override_type)
+        wt = _canonical(override_type)
         title = _title(category, operation)
         if wt == "CARD":
             return [WidgetSpec("CARD", f"{cat_slug}_card", title, "primary")]
@@ -119,13 +127,21 @@ class WidgetSelector:
         tid = f"{cat_slug}_table" if cat_slug else "table"
         return [
             WidgetSpec(wt, cid, title, "primary"),
-            WidgetSpec("TABLE", tid, f"{category} Records" if category else "Records", "primary"),
+            WidgetSpec(
+                "TABLE",
+                tid,
+                f"{category} Records" if category else "Records",
+                "primary",
+            ),
         ]
 
     def _simple(
-        self, primary_wt: str,
-        category: str, operation: str,
-        cat_slug: str, op_slug: str,
+        self,
+        primary_wt: str,
+        category: str,
+        operation: str,
+        cat_slug: str,
+        op_slug: str,
         has_stats: bool,
     ) -> List[WidgetSpec]:
         title = _title(category, operation)
@@ -137,16 +153,38 @@ class WidgetSelector:
             return specs
 
         if has_stats:
-            specs.append(WidgetSpec("CARD", f"{cat_slug}_summary", f"{category} Summary", "summary"))
+            specs.append(
+                WidgetSpec(
+                    "CARD", f"{cat_slug}_summary", f"{category} Summary", "summary"
+                )
+            )
 
         pwt = _canonical(primary_wt)
-        if pwt in ("BAR_CHART", "LINE_CHART", "AREA_CHART", "PIE_CHART", "DONUT_CHART",
-                   "RADIAL_CHART", "CHART_BAR", "CHART_LINE", "CHART_PIE"):
+        if pwt in (
+            "BAR_CHART",
+            "LINE_CHART",
+            "AREA_CHART",
+            "PIE_CHART",
+            "DONUT_CHART",
+            "RADIAL_CHART",
+            "CHART_BAR",
+            "CHART_LINE",
+            "CHART_PIE",
+        ):
             suffix = pwt.lower().replace("chart_", "")
-            cid = f"{cat_slug}_{op_slug}_{suffix}" if op_slug else f"{cat_slug}_{suffix}"
+            cid = (
+                f"{cat_slug}_{op_slug}_{suffix}" if op_slug else f"{cat_slug}_{suffix}"
+            )
             specs.append(WidgetSpec(pwt, cid, title, "primary"))
             tid = f"{cat_slug}_{op_slug}_table" if op_slug else f"{cat_slug}_table"
-            specs.append(WidgetSpec("TABLE", tid, f"{category} Records" if category else "Records", "primary"))
+            specs.append(
+                WidgetSpec(
+                    "TABLE",
+                    tid,
+                    f"{category} Records" if category else "Records",
+                    "primary",
+                )
+            )
         else:
             tid = f"{cat_slug}_{op_slug}_table" if op_slug else f"{cat_slug}_table"
             specs.append(WidgetSpec("TABLE", tid, title, "primary"))
@@ -155,42 +193,81 @@ class WidgetSelector:
 
     def _comparison(self, combined_result: Any, cat_slug: str) -> List[WidgetSpec]:
         _ALIASES = {
-            "COMPARE_CHART_BAR":  "COMPARE_BAR_CHART",
+            "COMPARE_CHART_BAR": "COMPARE_BAR_CHART",
             "COMPARE_CHART_LINE": "COMPARE_LINE_CHART",
-            "COMPARE_CHART_PIE":  "COMPARE_PIE_CHART",
+            "COMPARE_CHART_PIE": "COMPARE_PIE_CHART",
         }
         raw_viz = "COMPARE_CARD"
-        if isinstance(combined_result, dict) and combined_result.get("visualizationType"):
+        if isinstance(combined_result, dict) and combined_result.get(
+            "visualizationType"
+        ):
             raw_viz = combined_result["visualizationType"]
         viz_type = _ALIASES.get(raw_viz, raw_viz)
 
-        left_label  = ""
+        left_label = ""
         right_label = ""
         if isinstance(combined_result, dict):
-            left_label  = str((combined_result.get("left")  or {}).get("label") or "Left")
-            right_label = str((combined_result.get("right") or {}).get("label") or "Right")
-        vs_title = f"{left_label} vs {right_label}" if left_label and right_label else "Comparison"
+            left_label = str((combined_result.get("left") or {}).get("label") or "Left")
+            right_label = str(
+                (combined_result.get("right") or {}).get("label") or "Right"
+            )
+        vs_title = (
+            f"{left_label} vs {right_label}"
+            if left_label and right_label
+            else "Comparison"
+        )
 
         specs = [
-            WidgetSpec("COMPARE_CARD", "compare_card", f"{vs_title} — Summary", "primary"),
+            WidgetSpec(
+                "COMPARE_CARD", "compare_card", f"{vs_title} — Summary", "primary"
+            ),
         ]
         if viz_type == "COMPARE_TABLE":
-            specs.append(WidgetSpec("COMPARE_TABLE", "compare_table", f"{vs_title} — Records", "primary"))
+            specs.append(
+                WidgetSpec(
+                    "COMPARE_TABLE", "compare_table", f"{vs_title} — Records", "primary"
+                )
+            )
         elif viz_type == "COMPARE_BAR_CHART":
-            specs.append(WidgetSpec("COMPARE_BAR_CHART", "compare_bar", f"{vs_title} — Score Comparison", "primary"))
-            specs.append(WidgetSpec("COMPARE_TABLE", "compare_table", f"{vs_title} — Records", "primary"))
+            specs.append(
+                WidgetSpec(
+                    "COMPARE_BAR_CHART",
+                    "compare_bar",
+                    f"{vs_title} — Score Comparison",
+                    "primary",
+                )
+            )
+            specs.append(
+                WidgetSpec(
+                    "COMPARE_TABLE", "compare_table", f"{vs_title} — Records", "primary"
+                )
+            )
         elif viz_type == "COMPARE_LINE_CHART":
-            specs.append(WidgetSpec("COMPARE_LINE_CHART", "compare_line", f"{vs_title} — Trend", "primary"))
+            specs.append(
+                WidgetSpec(
+                    "COMPARE_LINE_CHART",
+                    "compare_line",
+                    f"{vs_title} — Trend",
+                    "primary",
+                )
+            )
         elif viz_type == "COMPARE_PIE_CHART":
-            specs.append(WidgetSpec("COMPARE_PIE_CHART", "compare_pie", f"{vs_title} — Distribution", "primary"))
+            specs.append(
+                WidgetSpec(
+                    "COMPARE_PIE_CHART",
+                    "compare_pie",
+                    f"{vs_title} — Distribution",
+                    "primary",
+                )
+            )
 
         return specs
 
     def _cross_filter(self, category: str, cat_slug: str) -> List[WidgetSpec]:
         tid = f"{cat_slug}_results" if cat_slug else "filter_results"
         return [
-            WidgetSpec("CARD",  "filter_summary",  "Filter Summary",   "summary"),
-            WidgetSpec("TABLE", tid,                "Matching Records", "primary"),
+            WidgetSpec("CARD", "filter_summary", "Filter Summary", "summary"),
+            WidgetSpec("TABLE", tid, "Matching Records", "primary"),
         ]
 
     def _multi_independent(self, combined_result: Any) -> List[WidgetSpec]:
@@ -201,10 +278,16 @@ class WidgetSelector:
         if sections:
             for sec in sections:
                 if isinstance(sec, dict):
-                    label    = sec.get("label") or "Section"
+                    label = sec.get("label") or "Section"
                     sec_slug = _slug(label)
                     specs.append(
-                        WidgetSpec("TABLE", f"{sec_slug}_table", label, "section", section_label=label)
+                        WidgetSpec(
+                            "TABLE",
+                            f"{sec_slug}_table",
+                            label,
+                            "section",
+                            section_label=label,
+                        )
                     )
         else:
             specs.append(WidgetSpec("TABLE", "results_table", "Results", "primary"))
@@ -214,16 +297,30 @@ class WidgetSelector:
         self, category: str, operation: str, cat_slug: str, op_slug: str
     ) -> List[WidgetSpec]:
         return [
-            WidgetSpec("CARD",       f"{cat_slug}_summary",  f"{category} Summary",          "summary"),
-            WidgetSpec("LINE_CHART", f"{cat_slug}_trend",     _title(category, operation),    "primary"),
-            WidgetSpec("TABLE",      f"{cat_slug}_records",  f"{category} Records",          "primary"),
+            WidgetSpec("CARD", f"{cat_slug}_summary", f"{category} Summary", "summary"),
+            WidgetSpec(
+                "LINE_CHART",
+                f"{cat_slug}_trend",
+                _title(category, operation),
+                "primary",
+            ),
+            WidgetSpec(
+                "TABLE", f"{cat_slug}_records", f"{category} Records", "primary"
+            ),
         ]
 
     def _distribution(
         self, category: str, operation: str, cat_slug: str, op_slug: str
     ) -> List[WidgetSpec]:
         return [
-            WidgetSpec("CARD",      f"{cat_slug}_summary",       f"{category} Summary",          "summary"),
-            WidgetSpec("PIE_CHART", f"{cat_slug}_distribution",   _title(category, operation),    "primary"),
-            WidgetSpec("TABLE",     f"{cat_slug}_records",       f"{category} Records",          "primary"),
+            WidgetSpec("CARD", f"{cat_slug}_summary", f"{category} Summary", "summary"),
+            WidgetSpec(
+                "PIE_CHART",
+                f"{cat_slug}_distribution",
+                _title(category, operation),
+                "primary",
+            ),
+            WidgetSpec(
+                "TABLE", f"{cat_slug}_records", f"{category} Records", "primary"
+            ),
         ]

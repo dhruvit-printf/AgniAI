@@ -156,7 +156,7 @@ def _extract_number(query: str) -> Optional[int]:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             start = max(0, match.start() - 24)
-            context = text[start:match.start()].strip()
+            context = text[start : match.start()].strip()
             if any(context.endswith(prefix) for prefix in blocked_prefixes):
                 continue
             return int(match.group(1))
@@ -199,7 +199,10 @@ def _extract_grading(query: str) -> Optional[str]:
 
 def _extract_leave_type(query: str) -> Optional[str]:
     query_lower = _normalise(query)
-    if not any(token in query_lower for token in ("leave", "abscond", "absent", "status", "medical leave")):
+    if not any(
+        token in query_lower
+        for token in ("leave", "abscond", "absent", "status", "medical leave")
+    ):
         return None
     for key, value in LEAVE_TYPES.items():
         if _normalise(key) in query_lower:
@@ -269,8 +272,12 @@ def _score_equipment_match(query_tokens: List[str], item: str) -> Tuple[int, int
 def _extract_equipment_item(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     query_tokens = _tokenize(query_lower)
-    has_equipment_context = any(phrase in query_lower for phrase in _EQUIPMENT_CONTEXT_PHRASES)
-    has_non_equipment_domain = any(phrase in query_lower for phrase in _NON_EQUIPMENT_DOMAIN_HINTS)
+    has_equipment_context = any(
+        phrase in query_lower for phrase in _EQUIPMENT_CONTEXT_PHRASES
+    )
+    has_non_equipment_domain = any(
+        phrase in query_lower for phrase in _NON_EQUIPMENT_DOMAIN_HINTS
+    )
 
     exact_matches: List[str] = []
     for item in ISSUED_EQUIPMENT_ITEMS + PROCURED_EQUIPMENT_ITEMS:
@@ -422,7 +429,9 @@ def _extract_batch_id(query: str) -> Optional[int]:
 
 def _extract_agniveer_no(query: str) -> Optional[str]:
     query_lower = _normalise(query)
-    match = re.search(r"agniveer\s+(?:no\.?|no\.?\s+)?(\d+|[A-Z]\d+)", query_lower, re.IGNORECASE)
+    match = re.search(
+        r"agniveer\s+(?:no\.?|no\.?\s+)?(\d+|[A-Z]\d+)", query_lower, re.IGNORECASE
+    )
     if match:
         return match.group(1)
     match = re.search(r"\b([A-Z]\d{5,8}[A-Z]?)\b", query)
@@ -433,22 +442,54 @@ def _extract_agniveer_no(query: str) -> Optional[str]:
 
 def _extract_medical_status(query: str) -> Optional[str]:
     query_lower = _normalise(query)
-    if any(token in query_lower for token in ("active medical", "active case", "active cases", "under treatment", "in hospital", "admitted")):
+    if any(
+        token in query_lower
+        for token in (
+            "active medical",
+            "active case",
+            "active cases",
+            "under treatment",
+            "in hospital",
+            "admitted",
+        )
+    ):
         return "Active"
     return None
 
 
-CANONICAL_ENTITY_KEYS = frozenset({
-    "batchId", "platoonId", "companyId", "agniveerNo", "section", "subSection",
-    "attemptNo", "fromAttempt", "toAttempt", "leaveType", "grading", "bmiCategory",
-    "bloodGroup", "equipmentName", "sport", "class", "unitName", "n", "date",
-    "fromDate", "toDate", "medicalStatus"
-})
+CANONICAL_ENTITY_KEYS = frozenset(
+    {
+        "batchId",
+        "platoonId",
+        "companyId",
+        "agniveerNo",
+        "section",
+        "subSection",
+        "attemptNo",
+        "fromAttempt",
+        "toAttempt",
+        "leaveType",
+        "grading",
+        "bmiCategory",
+        "bloodGroup",
+        "equipmentName",
+        "sport",
+        "class",
+        "unitName",
+        "n",
+        "date",
+        "fromDate",
+        "toDate",
+        "medicalStatus",
+    }
+)
+
 
 def assert_canonical_entity_keys(entities: Dict[str, Any]) -> None:
     for key in entities.keys():
         if key not in CANONICAL_ENTITY_KEYS:
             raise KeyError(f"Non-canonical entity key found: '{key}'")
+
 
 def extract_entities(
     query: str,

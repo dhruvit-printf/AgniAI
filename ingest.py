@@ -328,7 +328,9 @@ def _extract_doc_text(file_path: str) -> str:
     """
     path = Path(file_path).expanduser().resolve()
     if not path.is_relative_to(INGEST_ALLOWED_ROOT):
-        raise ValueError(f"Path '{path}' is not within the allowed ingest root directory.")
+        raise ValueError(
+            f"Path '{path}' is not within the allowed ingest root directory."
+        )
 
     # ── Option 1: LibreOffice ──────────────────────────────────────────────
     soffice = shutil.which("soffice") or shutil.which("libreoffice")
@@ -416,7 +418,9 @@ def ingest_pdf(
     path = Path(file_path).expanduser().resolve()
     # Security Fix: The old code lacked path containment validation, allowing arbitrary local file read.
     if not path.is_relative_to(INGEST_ALLOWED_ROOT):
-        raise ValueError(f"Path '{path}' is not within the allowed ingest root directory.")
+        raise ValueError(
+            f"Path '{path}' is not within the allowed ingest root directory."
+        )
     if not path.exists():
         raise FileNotFoundError(f"PDF not found: {path}")
     if path.suffix.lower() != ".pdf":
@@ -462,7 +466,9 @@ def ingest_txt(
     path = Path(file_path).expanduser().resolve()
     # Security Fix: The old code lacked path containment validation, allowing arbitrary local file read.
     if not path.is_relative_to(INGEST_ALLOWED_ROOT):
-        raise ValueError(f"Path '{path}' is not within the allowed ingest root directory.")
+        raise ValueError(
+            f"Path '{path}' is not within the allowed ingest root directory."
+        )
     if not path.exists():
         raise FileNotFoundError(f"Text file not found: {path}")
 
@@ -490,7 +496,9 @@ def ingest_docx(
     path = Path(file_path).expanduser().resolve()
     # Security Fix: The old code lacked path containment validation, allowing arbitrary local file read.
     if not path.is_relative_to(INGEST_ALLOWED_ROOT):
-        raise ValueError(f"Path '{path}' is not within the allowed ingest root directory.")
+        raise ValueError(
+            f"Path '{path}' is not within the allowed ingest root directory."
+        )
     if not path.exists():
         raise FileNotFoundError(f"Word file not found: {path}")
     if path.suffix.lower() != ".docx":
@@ -541,7 +549,9 @@ def ingest_doc(
     path = Path(file_path).expanduser().resolve()
     # Security Fix: The old code lacked path containment validation, allowing arbitrary local file read.
     if not path.is_relative_to(INGEST_ALLOWED_ROOT):
-        raise ValueError(f"Path '{path}' is not within the allowed ingest root directory.")
+        raise ValueError(
+            f"Path '{path}' is not within the allowed ingest root directory."
+        )
     if not path.exists():
         raise FileNotFoundError(f"Word .doc file not found: {path}")
     if path.suffix.lower() != ".doc":

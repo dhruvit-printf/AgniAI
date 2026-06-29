@@ -11,9 +11,11 @@ from utils import extract_records as _normalize_records
 
 logger = logging.getLogger(__name__)
 
+
 def _extract_records(data: Any) -> List[Dict]:
     """Pull the list of records out of any .NET wrapper shape."""
     return _normalize_records(data)
+
 
 def _extract_agniveer_ids(records: List[Dict]) -> Set[str]:
     ids: Set[str] = set()
@@ -29,7 +31,10 @@ def _extract_agniveer_ids(records: List[Dict]) -> Set[str]:
                     break
     return ids
 
-def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dict[str, Any]:
+
+def cross_filter_datasets(
+    result_sets: List[Any], primary_index: int = 0
+) -> Dict[str, Any]:
     """
     Find common records across N datasets (Intersection).
     """
@@ -39,23 +44,27 @@ def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dic
             "records": [],
             "matchCount": 0,
             "totalBeforeFilter": 0,
-            "filterDepth": 0
+            "filterDepth": 0,
         }
 
     all_record_sets = [_extract_records(rs) for rs in result_sets]
     all_id_sets = [_extract_agniveer_ids(recs) for recs in all_record_sets]
 
-    primary_index = min(primary_index, len(all_record_sets) - 1) if all_record_sets else 0
+    primary_index = (
+        min(primary_index, len(all_record_sets) - 1) if all_record_sets else 0
+    )
 
     if not all_id_sets or any(len(ids) == 0 for ids in all_id_sets):
-         return {
-             "status": False,
-             "message": "No matching records found after cross-filter intersection.",
-             "records": [],
-             "matchCount": 0,
-             "totalBeforeFilter": len(all_record_sets[primary_index]) if all_record_sets else 0,
-             "filterDepth": len(result_sets)
-         }
+        return {
+            "status": False,
+            "message": "No matching records found after cross-filter intersection.",
+            "records": [],
+            "matchCount": 0,
+            "totalBeforeFilter": (
+                len(all_record_sets[primary_index]) if all_record_sets else 0
+            ),
+            "filterDepth": len(result_sets),
+        }
 
     # Intersect all ID sets
     common_ids = all_id_sets[0]
@@ -65,14 +74,14 @@ def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dic
     primary_records = all_record_sets[primary_index] if all_record_sets else []
 
     if not common_ids:
-         return {
-             "status": False,
-             "message": "No matching records found after cross-filter intersection.",
-             "records": [],
-             "matchCount": 0,
-             "totalBeforeFilter": len(primary_records),
-             "filterDepth": len(result_sets)
-         }
+        return {
+            "status": False,
+            "message": "No matching records found after cross-filter intersection.",
+            "records": [],
+            "matchCount": 0,
+            "totalBeforeFilter": len(primary_records),
+            "filterDepth": len(result_sets),
+        }
 
     records_by_id = []
     for recs in all_record_sets:
@@ -113,14 +122,14 @@ def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dic
         filtered.append(merged)
 
     if not filtered:
-         return {
-             "status": False,
-             "message": "No matching records found after cross-filter intersection.",
-             "records": [],
-             "matchCount": 0,
-             "totalBeforeFilter": len(primary_records),
-             "filterDepth": len(result_sets)
-         }
+        return {
+            "status": False,
+            "message": "No matching records found after cross-filter intersection.",
+            "records": [],
+            "matchCount": 0,
+            "totalBeforeFilter": len(primary_records),
+            "filterDepth": len(result_sets),
+        }
 
     logger.debug("cross_filter: common_ids=%d after filtering", len(common_ids))
 
@@ -129,5 +138,5 @@ def cross_filter_datasets(result_sets: List[Any], primary_index: int = 0) -> Dic
         "records": filtered,
         "matchCount": len(filtered),
         "totalBeforeFilter": len(primary_records),
-        "filterDepth": len(result_sets)
+        "filterDepth": len(result_sets),
     }

@@ -38,12 +38,18 @@ class TestPartialFailure(unittest.TestCase):
         processed = response_payload["formattedData"][1]["data"]
         self.assertTrue(processed.get("degraded"))
         self.assertEqual(processed.get("failedFilters"), ["Skills"])
-    
+
         # Find the TABLE widget in formattedData for row and match assertions
-        table_widget = next(w for w in response_payload["formattedData"] if w["type"] == "TABLE")
+        table_widget = next(
+            w for w in response_payload["formattedData"] if w["type"] == "TABLE"
+        )
         table_data = table_widget["data"]
         self.assertEqual(table_data["matchCount"], 1)
-        self.assertEqual(table_data["rows"][0].get("agniveerNo") or table_data["rows"][0].get("AgniveerNo"), "102")
+        self.assertEqual(
+            table_data["rows"][0].get("agniveerNo")
+            or table_data["rows"][0].get("AgniveerNo"),
+            "102",
+        )
 
     @patch("admin_pipeline._call_dotnet")
     @patch("admin_pipeline.generate_report")

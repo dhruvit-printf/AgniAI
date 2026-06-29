@@ -20,17 +20,13 @@ class TestVisualizationQueryAware(unittest.TestCase):
 
     def test_cross_filter_guarantee(self):
         combined = {
-            "sections": [
-                {"label": "Common Records", "data": [{"id": 1}, {"id": 2}]}
-            ]
+            "sections": [{"label": "Common Records", "data": [{"id": 1}, {"id": 2}]}]
         }
         res = build_formatted_data(combined, query_type="cross_filter", intent={})
         self.assertEqual(res["type"], "TABLE")
 
     def test_metric_widget_selection(self):
-        combined = {
-            "sections": [{"label": "Result", "data": [{"count": 5}]}]
-        }
+        combined = {"sections": [{"label": "Result", "data": [{"count": 5}]}]}
         res = build_formatted_data(combined, query_type="simple", intent={})
         self.assertEqual(res["type"], "TABLE")
 

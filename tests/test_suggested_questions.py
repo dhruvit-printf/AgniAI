@@ -17,7 +17,9 @@ class TestSuggestedQuestions(unittest.TestCase):
         intent_leave = {"category": "Leave"}
         questions_leave = generate_suggested_questions("filter_query", intent_leave, {})
         self.assertEqual(len(questions_leave), 4)
-        self.assertIn("Who took the most leaves in this section this month?", questions_leave)
+        self.assertIn(
+            "Who took the most leaves in this section this month?", questions_leave
+        )
 
         # 3. Unrecognized Category
         intent_unknown = {"category": "Greeting"}
@@ -36,7 +38,9 @@ class TestSuggestedQuestions(unittest.TestCase):
         )
 
         # 5. query_type override
-        questions_comp = generate_suggested_questions("compare", {"category": "Assessment"}, {})
+        questions_comp = generate_suggested_questions(
+            "compare", {"category": "Assessment"}, {}
+        )
         self.assertEqual(len(questions_comp), 4)
         self.assertIn("Show side-by-side metric distributions.", questions_comp)
 

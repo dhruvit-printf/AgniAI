@@ -45,7 +45,6 @@ def build_combined_message(intro="", formatted="", analysis=None, conclusion=Non
     return "\n\n".join(parts) if parts else ""
 
 
-
 class TestGroundingGuard(unittest.TestCase):
     def test_extract_numbers(self):
         self.assertEqual(
@@ -127,7 +126,12 @@ class TestResponseBuilder(unittest.TestCase):
         resp = build_response(
             message="Intro",
             formatted_data={"type": "TABLE", "data": {"columns": [], "rows": []}},
-            metadata={"sessionId": "session-123", "confidence": 0.95, "queryType": "simple", "operationCount": 1},
+            metadata={
+                "sessionId": "session-123",
+                "confidence": 0.95,
+                "queryType": "simple",
+                "operationCount": 1,
+            },
             session_id="session-123",
             suggested_questions=["Q1"],
             dotnet_payload={"res": "val"},
@@ -143,6 +147,7 @@ class TestResponseBuilder(unittest.TestCase):
 
     def test_build_response_uses_real_section_label_and_message(self):
         from message_engine import generate_message
+
         intent = {
             "category": "Performance",
             "subcategory": "TopPerformers",
@@ -164,6 +169,7 @@ class TestResponseBuilder(unittest.TestCase):
 
     def test_build_response_uses_overall_label_for_top_performers(self):
         from message_engine import generate_message
+
         intent = {
             "category": "Performance",
             "subcategory": "TopPerformers",
@@ -229,7 +235,7 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertEqual(public["message"], "Intro")
 
         # Root-level narrative strings
-        self.assertIsInstance(public["analysis"],   str)
+        self.assertIsInstance(public["analysis"], str)
         self.assertIsInstance(public["prediction"], str)
         self.assertIsInstance(public["conclusion"], str)
 
@@ -246,29 +252,36 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertIsInstance(public["formattedData"], list)
         self.assertTrue(len(public["formattedData"]) > 0)
         first_widget = public["formattedData"][0]
-        self.assertNotIn("id",         first_widget)
-        self.assertNotIn("analysis",   first_widget)
+        self.assertNotIn("id", first_widget)
+        self.assertNotIn("analysis", first_widget)
         self.assertNotIn("prediction", first_widget)
         self.assertNotIn("conclusion", first_widget)
-        self.assertNotIn("answer",       first_widget)
+        self.assertNotIn("answer", first_widget)
         self.assertNotIn("introMessage", first_widget)
-        self.assertNotIn("message",      first_widget)
+        self.assertNotIn("message", first_widget)
         self.assertEqual(public["message"], internal["message"])
 
-        if isinstance(first_widget.get("data"), dict) and "rows" in first_widget["data"]:
+        if (
+            isinstance(first_widget.get("data"), dict)
+            and "rows" in first_widget["data"]
+        ):
             for row in first_widget["data"]["rows"]:
                 self.assertNotIn("dotnetPayload", row)
 
     def test_extract_primary_widget_title_handles_list_and_dict(self):
         self.assertEqual(
-            extract_primary_widget_title([
-                {"type": "TABLE", "title": "First", "data": {}},
-                {"type": "TABLE", "title": "Second", "data": {}},
-            ]),
+            extract_primary_widget_title(
+                [
+                    {"type": "TABLE", "title": "First", "data": {}},
+                    {"type": "TABLE", "title": "Second", "data": {}},
+                ]
+            ),
             "First",
         )
         self.assertEqual(
-            extract_primary_widget_title({"type": "COMPARE_CARD", "title": "Compare", "data": {}}),
+            extract_primary_widget_title(
+                {"type": "COMPARE_CARD", "title": "Compare", "data": {}}
+            ),
             "Compare",
         )
         self.assertEqual(extract_primary_widget_title({}), "")
@@ -348,18 +361,22 @@ class TestBuildCombinedMessage:
 
     def test_confidence_string_normalized_to_float(self):
         from utils import normalize_confidence
+
         assert normalize_confidence("high") == 0.95
 
     def test_confidence_medium_normalized(self):
         from utils import normalize_confidence
+
         assert normalize_confidence("medium") == 0.70
 
     def test_confidence_low_normalized(self):
         from utils import normalize_confidence
+
         assert normalize_confidence("low") == 0.30
 
     def test_session_id_default_val_when_default(self):
         from response_builder import build_response
+
         resp = build_response(
             message="",
             formatted_data={},
@@ -370,6 +387,7 @@ class TestBuildCombinedMessage:
 
     def test_session_id_included_when_not_default(self):
         from response_builder import build_response
+
         resp = build_response(
             message="",
             formatted_data={},
@@ -426,7 +444,10 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         )
         self.assertIsNotNone(table_widget, "TABLE widget not found")
         rows = table_widget["data"]["rows"]
-        found_john = any(row.get("fullName") == "John Doe" or row.get("FullName") == "John Doe" for row in rows)
+        found_john = any(
+            row.get("fullName") == "John Doe" or row.get("FullName") == "John Doe"
+            for row in rows
+        )
         self.assertTrue(found_john)
 
     @patch("report_generator.generate_analysis")
@@ -436,11 +457,17 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         self, mock_conclusion, mock_predictions, mock_analysis
     ):
         mock_analysis.return_value = {
-            "summary": "A summary", "observations": [], "insights": [], "predictions": []
+            "summary": "A summary",
+            "observations": [],
+            "insights": [],
+            "predictions": [],
         }
         mock_predictions.return_value = {
-            "trend": "Stable", "projection": "Stable projection",
-            "heuristicEstimate": "Est", "shortTerm": "stable", "futureTrends": []
+            "trend": "Stable",
+            "projection": "Stable projection",
+            "heuristicEstimate": "Est",
+            "shortTerm": "stable",
+            "futureTrends": [],
         }
         mock_conclusion.return_value = {"summary": "Short conclusion.", "bullets": []}
 
@@ -451,7 +478,9 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         intent = {"category": "Performance"}
         report = generate_report(combined, "cross_filter", intent, "query")
 
-        self.assertNotIn("Additional details are saved in the system logs", report["message"])
+        self.assertNotIn(
+            "Additional details are saved in the system logs", report["message"]
+        )
         self.assertNotIn(
             "Additional details are saved in the system logs",
             report["conclusion"]["summary"],
@@ -463,7 +492,10 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         mock_predictions.side_effect = Exception("Ollama down")
         mock_conclusion.side_effect = Exception("Ollama down")
         report_fallback = generate_report(combined, "cross_filter", intent, "query")
-        self.assertNotIn("Additional details are saved in the system logs", report_fallback["message"])
+        self.assertNotIn(
+            "Additional details are saved in the system logs",
+            report_fallback["message"],
+        )
         self.assertNotIn(
             "Additional details are saved in the system logs",
             report_fallback["conclusion"]["summary"],
@@ -476,7 +508,7 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         }
         intent = {"category": "Performance"}
         report = generate_report(combined, "cross_filter", intent, "query")
-        
+
         self.assertEqual(report["message"], "No matching records found.")
         self.assertEqual(report["analysis"]["summary"], "No matching records found.")
         self.assertEqual(report["prediction"]["trend"], "Insufficient Data")
@@ -485,18 +517,20 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
     @patch("report_generator.generate_analysis")
     @patch("report_generator.generate_predictions")
     @patch("report_generator.generate_conclusion")
-    def test_generate_report_fallback_gating(self, mock_conclusion, mock_predictions, mock_analysis):
+    def test_generate_report_fallback_gating(
+        self, mock_conclusion, mock_predictions, mock_analysis
+    ):
         mock_analysis.return_value = {
             "summary": "Healthy Analysis Summary",
             "observations": ["Obs"],
-            "insights": ["Insight"]
+            "insights": ["Insight"],
         }
         mock_predictions.return_value = {
             "trend": "Stable",
             "projection": "Stable Projection",
             "heuristicEstimate": "Est",
             "shortTerm": "stable",
-            "futureTrends": ["Trend"]
+            "futureTrends": ["Trend"],
         }
         # Conclusion returns a negative copy marker triggering fallback for conclusion
         mock_conclusion.return_value = {
@@ -515,7 +549,9 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         self.assertEqual(report["prediction"]["projection"], "Stable Projection")
 
         # Conclusion must be replaced by the fallback conclusion summary
-        self.assertNotEqual(report["conclusion"]["summary"], "insufficient data to make conclusion")
+        self.assertNotEqual(
+            report["conclusion"]["summary"], "insufficient data to make conclusion"
+        )
         self.assertIn("returned 1 records", report["conclusion"]["summary"])
 
 

@@ -16,9 +16,7 @@ class TestWidgetEngine(unittest.TestCase):
 
     def test_multiple_records_yield_table(self):
         answer = {
-            "sections": [
-                {"label": "Result", "data": [{"id": 1}, {"id": 2}, {"id": 3}]}
-            ]
+            "sections": [{"label": "Result", "data": [{"id": 1}, {"id": 2}, {"id": 3}]}]
         }
         res = build_formatted_data(answer, query_type="simple", intent={})
         self.assertEqual(res["type"], "TABLE")
@@ -52,7 +50,7 @@ class TestWidgetEngine(unittest.TestCase):
                     "data": [
                         {"sport": "Cricket", "value": 0},
                         {"sport": "Football", "value": 5},
-                    ]
+                    ],
                 }
             ]
         }
@@ -91,14 +89,16 @@ class TestWidgetEngine(unittest.TestCase):
                                             "sectionName": "PPT",
                                             "grading": "Excellent",
                                             "subItems": [
-                                                {"subItemName": "2.4km", "marksObtained": 20}
+                                                {
+                                                    "subItemName": "2.4km",
+                                                    "marksObtained": 20,
+                                                }
                                             ],
                                         }
                                     ],
                                 }
                             ],
-                        }
-                        ,
+                        },
                         {
                             "fullName": "Amit Kumar",
                             "agniveerNo": "A0701773X",
@@ -110,13 +110,16 @@ class TestWidgetEngine(unittest.TestCase):
                                             "sectionName": "PPT",
                                             "grading": "Good",
                                             "subItems": [
-                                                {"subItemName": "2.4km", "marksObtained": 18}
+                                                {
+                                                    "subItemName": "2.4km",
+                                                    "marksObtained": 18,
+                                                }
                                             ],
                                         }
                                     ],
                                 }
                             ],
-                        }
+                        },
                     ],
                 }
             ]
@@ -125,8 +128,8 @@ class TestWidgetEngine(unittest.TestCase):
         res = build_formatted_data(answer, query_type="simple", intent={})
         self.assertEqual(res["type"], "TABLE")
         row = res["data"]["rows"][0]
-        self.assertIn("fullName", row)     # camelCase after normalisation
-        self.assertIn("agniveerNo", row)   # camelCase after normalisation
+        self.assertIn("fullName", row)  # camelCase after normalisation
+        self.assertIn("agniveerNo", row)  # camelCase after normalisation
         self.assertNotIn("attempts", row)
         self.assertNotIn("sections", row)
 

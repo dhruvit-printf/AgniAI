@@ -193,7 +193,11 @@ def _call_dotnet(
             "trace_id": effective_trace_id,
             "session_id": effective_session_id,
             "query_type": query_type or "unknown",
-            "payload_keys": list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__,
+            "payload_keys": (
+                list(payload.keys())
+                if isinstance(payload, dict)
+                else type(payload).__name__
+            ),
             "api_url": DOTNET_EXECUTE_URL,
         }
     )
@@ -268,7 +272,11 @@ def _call_dotnet(
                     "query_type": query_type or "unknown",
                     "status_code": resp.status_code,
                     "duration_ms": round((time.time() - start) * 1000, 2),
-                    "record_count": len(_extract_records(err_body)) if isinstance(err_body, (dict, list)) else 0,
+                    "record_count": (
+                        len(_extract_records(err_body))
+                        if isinstance(err_body, (dict, list))
+                        else 0
+                    ),
                 }
             )
 

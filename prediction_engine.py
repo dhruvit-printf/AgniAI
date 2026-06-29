@@ -13,6 +13,7 @@ from grounding_utils import ground_and_sanitize as _ground_and_sanitize
 from utils import get_score as _get_score
 from utils import safe_float as _safe_float
 
+
 def _build_prediction_grounding_text(combined_result: Any, query_type: str) -> str:
     lines = []
     if isinstance(combined_result, dict):
@@ -27,6 +28,7 @@ def _build_prediction_grounding_text(combined_result: Any, query_type: str) -> s
         comp = {}
 
     from normalized_models import extract_records as _extract_records
+
     records = _extract_records(combined_result)
     if not sections and not (left or right):
         sections = [{"label": "Result", "data": records}]
@@ -46,7 +48,14 @@ def _build_prediction_grounding_text(combined_result: Any, query_type: str) -> s
         lines.append(f"Record Count: {len(target_records)}")
         scores = []
         for r in target_records:
-            for score_field in ("bestTotal", "totalMarks", "score", "Score", "omrInputTotal", "marksObtained"):
+            for score_field in (
+                "bestTotal",
+                "totalMarks",
+                "score",
+                "Score",
+                "omrInputTotal",
+                "marksObtained",
+            ):
                 v = _safe_float(r.get(score_field))
                 if v is not None:
                     scores.append(v)
@@ -58,16 +67,18 @@ def _build_prediction_grounding_text(combined_result: Any, query_type: str) -> s
 
     return "\n".join(lines)
 
-def _build_fallback_prediction(combined_result: Any, query_type: str, intent: Dict[str, Any]) -> Dict[str, Any]:
+
+def _build_fallback_prediction(
+    combined_result: Any, query_type: str, intent: Dict[str, Any]
+) -> Dict[str, Any]:
     category = intent.get("category") or "Agniveer"
     from normalized_models import extract_records as _extract_records
+
     records = _extract_records(combined_result)
     record_count = len(records)
 
     if record_count <= 0:
-        projection = (
-            f"Future projection is unavailable because no {category.lower()} records were returned."
-        )
+        projection = f"Future projection is unavailable because no {category.lower()} records were returned."
         trend = "Insufficient Data"
         return {
             "trend": trend,
@@ -77,9 +88,7 @@ def _build_fallback_prediction(combined_result: Any, query_type: str, intent: Di
             "futureTrends": [],
         }
     else:
-        projection = (
-            f"Performance metrics for {category.lower()} are projected to remain stable and consistent with current baselines."
-        )
+        projection = f"Performance metrics for {category.lower()} are projected to remain stable and consistent with current baselines."
         trend = "Stable"
 
     return {
@@ -90,15 +99,15 @@ def _build_fallback_prediction(combined_result: Any, query_type: str, intent: Di
         "futureTrends": [projection],
     }
 
+
 def generate_predictions(
-    combined_result: Any,
-    query_type: str,
-    intent: Dict[str, Any]
+    combined_result: Any, query_type: str, intent: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
     """
     Generate shortTerm and futureTrends predictions from JSON data.
     """
     from normalized_models import extract_records as _extract_records
+
     records = _extract_records(combined_result)
 
     if isinstance(combined_result, dict):
@@ -146,7 +155,9 @@ def generate_predictions(
             short_term = trend_direction
         else:
             short_term = "stable"
-        future_trends.append(f"The short-term trend is projected as {short_term} based on historical metrics.")
+        future_trends.append(
+            f"The short-term trend is projected as {short_term} based on historical metrics."
+        )
 
     elif query_type in ("compare", "comparison"):
         left_label = left.get("label", "Side 1")
@@ -162,21 +173,27 @@ def generate_predictions(
             higher_label = first_metric.get("higher")
         elif isinstance(first_metric, (int, float)):
             diff = float(first_metric)
-            
+
         if diff and diff > 10:
             short_term = "increasing" if higher_label == left_label else "decreasing"
         else:
             short_term = "stable"
 
-        future_trends.append(f"Performance differences observed between {left_label} and {right_label} are projected to persist in future training cycles.")
+        future_trends.append(
+            f"Performance differences observed between {left_label} and {right_label} are projected to persist in future training cycles."
+        )
 
     elif query_type == "cross_filter":
         short_term = "stable"
-        future_trends.append(f"Subsequent runs of this cross-filter query are highly likely to return a matching count of approximately {total_points} records.")
+        future_trends.append(
+            f"Subsequent runs of this cross-filter query are highly likely to return a matching count of approximately {total_points} records."
+        )
 
     elif query_type == "multi_independent":
         short_term = "stable"
-        future_trends.append("Each section is expected to maintain its current performance level, with no immediate correlation expected between independent categories.")
+        future_trends.append(
+            "Each section is expected to maintain its current performance level, with no immediate correlation expected between independent categories."
+        )
 
     else:
         # simple / other
@@ -191,16 +208,24 @@ def generate_predictions(
             avg_score = round(sum(scores) / len(scores), 2)
             if avg_score > 75:
                 short_term = "stable"
-                future_trends.append(f"Future scores are projected to remain stable around the average of {avg_score}.")
+                future_trends.append(
+                    f"Future scores are projected to remain stable around the average of {avg_score}."
+                )
             elif avg_score < 50:
                 short_term = "decreasing"
-                future_trends.append(f"Trainees averaging {avg_score} are projected to require extra training to improve standard scores.")
+                future_trends.append(
+                    f"Trainees averaging {avg_score} are projected to require extra training to improve standard scores."
+                )
             else:
                 short_term = "stable"
-                future_trends.append(f"Performance is expected to continue near the average score of {avg_score}.")
+                future_trends.append(
+                    f"Performance is expected to continue near the average score of {avg_score}."
+                )
         else:
             short_term = "stable"
-            future_trends.append(f"The {category.lower()} records count of {total_points} is expected to remain stable.")
+            future_trends.append(
+                f"The {category.lower()} records count of {total_points} is expected to remain stable."
+            )
 
     # Sanitize trends against grounding numbers to ensure no hallucinations
     sanitized_trends = []
@@ -209,7 +234,9 @@ def generate_predictions(
         if san:
             sanitized_trends.append(san)
         else:
-            sanitized_trends.append(f"Metrics for {category.lower()} are expected to align with historical baseline.")
+            sanitized_trends.append(
+                f"Metrics for {category.lower()} are expected to align with historical baseline."
+            )
 
     # Strict enum check for short_term (examples: Stable, Increasing, Decreasing)
     trend_val = "Stable"
@@ -229,4 +256,3 @@ def generate_predictions(
         "shortTerm": trend_val.lower(),
         "futureTrends": sanitized_trends[:3],
     }
-

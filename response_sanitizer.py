@@ -55,25 +55,27 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
         payload = {}
 
     formatted = _clean_formatted_data(payload.get("formattedData"))
-    raw_meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    raw_meta = (
+        payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    )
 
     # Flat metadata — no nested "metrics" object
     clean_meta = {
-        "sessionId":      raw_meta.get("sessionId") or payload.get("sessionId") or "",
-        "confidence":     round(float(raw_meta.get("confidence") or 0.0), 2),
-        "queryType":      raw_meta.get("queryType") or "",
+        "sessionId": raw_meta.get("sessionId") or payload.get("sessionId") or "",
+        "confidence": round(float(raw_meta.get("confidence") or 0.0), 2),
+        "queryType": raw_meta.get("queryType") or "",
         "operationCount": int(raw_meta.get("operationCount") or 0),
         "executionTimeMs": round(float(raw_meta.get("executionTimeMs") or 0.0), 2),
     }
 
     return {
-        "status":             bool(payload.get("status", True)),
-        "message":            (payload.get("message") or "").strip(),
-        "formattedData":      formatted,
-        "analysis":           (payload.get("analysis")   or ""),
-        "prediction":         (payload.get("prediction") or ""),
-        "conclusion":         (payload.get("conclusion") or ""),
+        "status": bool(payload.get("status", True)),
+        "message": (payload.get("message") or "").strip(),
+        "formattedData": formatted,
+        "analysis": (payload.get("analysis") or ""),
+        "prediction": (payload.get("prediction") or ""),
+        "conclusion": (payload.get("conclusion") or ""),
         "suggestedQuestions": list(payload.get("suggestedQuestions") or []),
-        "dotnetPayload":      payload.get("dotnetPayload"),
-        "metadata":           clean_meta,
+        "dotnetPayload": payload.get("dotnetPayload"),
+        "metadata": clean_meta,
     }

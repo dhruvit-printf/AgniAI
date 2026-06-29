@@ -37,7 +37,9 @@ def _value_from_record(record: Dict[str, Any], fields: Sequence[str]) -> Any:
     return None
 
 
-def _aliases_for_record(record: Dict[str, Any], label_fields: Sequence[str], alias_fields: Sequence[str]) -> List[str]:
+def _aliases_for_record(
+    record: Dict[str, Any], label_fields: Sequence[str], alias_fields: Sequence[str]
+) -> List[str]:
     aliases: List[str] = []
     for field in list(label_fields) + list(alias_fields):
         value = record.get(field)
@@ -86,13 +88,17 @@ def match_entity(
                 best_alias = alias_text
                 match_type = "exact"
                 break
-            if alias_norm and (alias_norm in normalized_query or normalized_query in alias_norm):
+            if alias_norm and (
+                alias_norm in normalized_query or normalized_query in alias_norm
+            ):
                 score = 97.0
                 if score > best_score:
                     best_score = score
                     best_alias = alias_text
                     match_type = "alias"
-            if alias_compact and (alias_compact in compact_query or compact_query in alias_compact):
+            if alias_compact and (
+                alias_compact in compact_query or compact_query in alias_compact
+            ):
                 score = 96.0
                 if score > best_score:
                     best_score = score
@@ -124,7 +130,13 @@ def match_entity(
             "candidates": [],
         }
 
-    scored.sort(key=lambda item: (item[0], len(str(_value_from_record(item[1], value_fields) or ""))), reverse=True)
+    scored.sort(
+        key=lambda item: (
+            item[0],
+            len(str(_value_from_record(item[1], value_fields) or "")),
+        ),
+        reverse=True,
+    )
     top_score, top_record, top_alias, top_type = scored[0]
     top_matches = [item for item in scored if abs(item[0] - top_score) < 0.01]
 

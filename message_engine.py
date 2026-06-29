@@ -26,9 +26,16 @@ from utils import extract_records as _extract_records
 # Score field candidates (same as utils.get_score)
 # ---------------------------------------------------------------------------
 _SCORE_FIELDS = (
-    "bestTotal", "totalMarks", "score", "Score",
-    "omrInputTotal", "marksObtained", "averageScore",
-    "percentage", "value", "count",
+    "bestTotal",
+    "totalMarks",
+    "score",
+    "Score",
+    "omrInputTotal",
+    "marksObtained",
+    "averageScore",
+    "percentage",
+    "value",
+    "count",
 )
 
 
@@ -60,16 +67,36 @@ def _build_data_summary(
     subcategory = intent.get("subcategory") or ""
 
     if query_type in ("compare", "comparison"):
-        left = (combined_result or {}).get("left") or {} if isinstance(combined_result, dict) else {}
-        right = (combined_result or {}).get("right") or {} if isinstance(combined_result, dict) else {}
-        comp = (combined_result or {}).get("comparison") or {} if isinstance(combined_result, dict) else {}
+        left = (
+            (combined_result or {}).get("left") or {}
+            if isinstance(combined_result, dict)
+            else {}
+        )
+        right = (
+            (combined_result or {}).get("right") or {}
+            if isinstance(combined_result, dict)
+            else {}
+        )
+        comp = (
+            (combined_result or {}).get("comparison") or {}
+            if isinstance(combined_result, dict)
+            else {}
+        )
         left_data = left.get("data") or []
         right_data = right.get("data") or []
         left_label = left.get("label") or "Side A"
         right_label = right.get("label") or "Side B"
 
-        left_scores = [s for s in (_get_score(r) for r in left_data if isinstance(r, dict)) if s is not None]
-        right_scores = [s for s in (_get_score(r) for r in right_data if isinstance(r, dict)) if s is not None]
+        left_scores = [
+            s
+            for s in (_get_score(r) for r in left_data if isinstance(r, dict))
+            if s is not None
+        ]
+        right_scores = [
+            s
+            for s in (_get_score(r) for r in right_data if isinstance(r, dict))
+            if s is not None
+        ]
 
         summary = {
             "type": "comparison",
@@ -95,9 +122,21 @@ def _build_data_summary(
 
     if query_type == "cross_filter":
         records = _extract_records(combined_result)
-        match_count = (combined_result or {}).get("matchCount", len(records)) if isinstance(combined_result, dict) else len(records)
-        total_before = (combined_result or {}).get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
-        names = [r.get("fullName") or r.get("name") for r in records[:5] if isinstance(r, dict)]
+        match_count = (
+            (combined_result or {}).get("matchCount", len(records))
+            if isinstance(combined_result, dict)
+            else len(records)
+        )
+        total_before = (
+            (combined_result or {}).get("totalBeforeFilter", 0)
+            if isinstance(combined_result, dict)
+            else 0
+        )
+        names = [
+            r.get("fullName") or r.get("name")
+            for r in records[:5]
+            if isinstance(r, dict)
+        ]
         names = [n for n in names if n]
         return {
             "type": "cross_filter",
@@ -107,7 +146,11 @@ def _build_data_summary(
         }
 
     if query_type == "multi_independent":
-        sections = (combined_result or {}).get("sections") or [] if isinstance(combined_result, dict) else []
+        sections = (
+            (combined_result or {}).get("sections") or []
+            if isinstance(combined_result, dict)
+            else []
+        )
         section_info = []
         for sec in sections:
             if isinstance(sec, dict):
@@ -122,7 +165,11 @@ def _build_data_summary(
 
     # simple / trend / distribution
     records = _extract_records(combined_result)
-    scores = [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
+    scores = [
+        s
+        for s in (_get_score(r) for r in records if isinstance(r, dict))
+        if s is not None
+    ]
 
     summary: Dict[str, Any] = {
         "type": "simple",
@@ -140,8 +187,14 @@ def _build_data_summary(
     if records and len(records) <= 10:
         # Extract any numeric fields from the first record for direct reference
         first = records[0]
-        numeric_fields = {k: v for k, v in first.items() if isinstance(v, (int, float)) and k != "id"}
-        text_fields = {k: v for k, v in first.items() if isinstance(v, str) and v and k not in ("id", "commandLabel")}
+        numeric_fields = {
+            k: v for k, v in first.items() if isinstance(v, (int, float)) and k != "id"
+        }
+        text_fields = {
+            k: v
+            for k, v in first.items()
+            if isinstance(v, str) and v and k not in ("id", "commandLabel")
+        }
         summary["record_fields"] = {**text_fields, **numeric_fields}
         # All records if small set
         if len(records) > 1:
@@ -191,6 +244,7 @@ def _build_llm_prompt(
 
     # Serialise data summary compactly
     import json
+
     data_str = json.dumps(data_summary, ensure_ascii=False, default=str)
 
     prompt = f"""You are AgniAI — an intelligent military training management assistant for the Indian Army Agniveer program.
@@ -283,14 +337,16 @@ def generate_message(
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
             "options": {
-                "temperature": 0.3,      # Low temp — factual, not creative
+                "temperature": 0.3,  # Low temp — factual, not creative
                 "num_predict": 150,
                 "num_ctx": 1024,
             },
         }
         resp = ollama_session.post(OLLAMA_URL, json=payload, timeout=(5, 20))
         resp.raise_for_status()
-        llm_text = resp.json().get("message", {}).get("content", "").strip().strip("\"'")
+        llm_text = (
+            resp.json().get("message", {}).get("content", "").strip().strip("\"'")
+        )
 
         if llm_text and 10 <= len(llm_text) <= 500:
             # Sanity check: reject if LLM invented numbers not in data_summary
@@ -298,20 +354,27 @@ def generate_message(
             if llm_clean:
                 logger.debug(
                     "message_engine: LLM message generated (trace=%s, len=%d)",
-                    trace_id or "N/A", len(llm_clean)
+                    trace_id or "N/A",
+                    len(llm_clean),
                 )
                 return llm_clean
 
     except Exception as exc:
-        logger.debug("message_engine: Ollama unavailable, using static fallback: %s", exc)
+        logger.debug(
+            "message_engine: Ollama unavailable, using static fallback: %s", exc
+        )
 
     # ── Static fallback ──────────────────────────────────────────────────────
     msg = _static_fallback_message(user_query, data_summary, query_type, intent)
-    logger.debug("message_engine: static fallback message (trace=%s)", trace_id or "N/A")
+    logger.debug(
+        "message_engine: static fallback message (trace=%s)", trace_id or "N/A"
+    )
     return msg
 
 
-def _validate_no_invented_numbers(text: str, data_summary: Dict[str, Any]) -> Optional[str]:
+def _validate_no_invented_numbers(
+    text: str, data_summary: Dict[str, Any]
+) -> Optional[str]:
     """
     Check that numbers in the LLM response are grounded in data_summary.
     If LLM invents a number not in the data, return None (use fallback instead).
@@ -327,22 +390,22 @@ def _validate_no_invented_numbers(text: str, data_summary: Dict[str, Any]) -> Op
 
     # Collect all numbers present in data_summary — canonicalized to float repr
     data_str = json.dumps(data_summary, default=str)
-    data_numbers = {_canon(n) for n in re.findall(r'\b\d+(?:\.\d+)?\b', data_str)}
+    data_numbers = {_canon(n) for n in re.findall(r"\b\d+(?:\.\d+)?\b", data_str)}
 
     # Find numbers in LLM response — canonicalized to float repr
-    llm_numbers = {_canon(n) for n in re.findall(r'\b\d+(?:\.\d+)?\b', text)}
+    llm_numbers = {_canon(n) for n in re.findall(r"\b\d+(?:\.\d+)?\b", text)}
 
     # Allow small integers (1-10) and years as they're likely contextual
     invented = {
-        n for n in llm_numbers
-        if n not in data_numbers
-        and float(n) > 10
-        and not (2000 <= float(n) <= 2030)
+        n
+        for n in llm_numbers
+        if n not in data_numbers and float(n) > 10 and not (2000 <= float(n) <= 2030)
     }
 
     if invented:
         logger.warning(
-            "message_engine: LLM invented numbers %s not in data — using fallback", invented
+            "message_engine: LLM invented numbers %s not in data — using fallback",
+            invented,
         )
         return None
 

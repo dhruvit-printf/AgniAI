@@ -36,5 +36,5 @@ def test_swagger_ui_page_loads():
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
     assert "SwaggerUIBundle" in html
-    assert "window.location.origin + \"/docs/spec\"" in html
+    assert 'window.location.origin + "/docs/spec"' in html
     assert "requestInterceptor" in html

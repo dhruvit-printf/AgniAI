@@ -356,7 +356,7 @@ def combine_results(
     comparison_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Perform the result combination phase.fix  
+    Perform the result combination phase.fix
     Delegates to appropriate intersection/comparison/merge/trend/distribution strategy based on qtype_str.
     """
     if qtype_str == "cross_filter":
@@ -365,13 +365,13 @@ def combine_results(
         )
         return cross_filter_datasets(raw_results, primary_index=0)
     elif qtype_str in ("comparison", "compare"):
-         logger.info(
-             "result_combiner: compare_datasets across %d sides", len(labeled_results)
-         )
-         res = compare_datasets(labeled_results, comparison_context=comparison_context)
-         res["queryType"] = "comparison"
-         return res
-         
+        logger.info(
+            "result_combiner: compare_datasets across %d sides", len(labeled_results)
+        )
+        res = compare_datasets(labeled_results, comparison_context=comparison_context)
+        res["queryType"] = "comparison"
+        return res
+
     elif qtype_str in ("multi_independent", "multi_operation"):
         logger.info(
             "result_combiner: merge_results across %d sections", len(labeled_results)
@@ -390,4 +390,4 @@ def combine_results(
 
 # Backward-compatibility aliases (old names used by some tests)
 intersect_results = cross_filter_datasets
-compare_results   = compare_datasets
+compare_results = compare_datasets

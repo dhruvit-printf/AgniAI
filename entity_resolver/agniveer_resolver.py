@@ -40,7 +40,10 @@ def resolve_agniveer(
 
     if explicit_no:
         for record in records:
-            agniveer_no = str(_get(record, "agniveerNo", "AgniveerNo", "agniveer_no", "AgniVeerNo") or "").upper()
+            agniveer_no = str(
+                _get(record, "agniveerNo", "AgniveerNo", "agniveer_no", "AgniVeerNo")
+                or ""
+            ).upper()
             if agniveer_no == explicit_no:
                 return {
                     "AgniveerNo": agniveer_no,
@@ -56,7 +59,14 @@ def resolve_agniveer(
     match = match_entity(
         query,
         records,
-        value_fields=("agniveerNo", "AgniveerNo", "id", "Id", "agniveerId", "AgniveerId"),
+        value_fields=(
+            "agniveerNo",
+            "AgniveerNo",
+            "id",
+            "Id",
+            "agniveerId",
+            "AgniveerId",
+        ),
         label_fields=("fullName", "FullName", "name", "Name"),
         alias_fields=("agniveerNo", "AgniveerNo", "fullName", "FullName"),
         threshold=threshold * 100.0,
@@ -76,7 +86,11 @@ def resolve_agniveer(
 
     record = match.get("record") or {}
     value = match.get("value")
-    agniveer_no = value if isinstance(value, str) and value else _get(record, "agniveerNo", "AgniveerNo", "agniveer_no", "AgniVeerNo")
+    agniveer_no = (
+        value
+        if isinstance(value, str) and value
+        else _get(record, "agniveerNo", "AgniveerNo", "agniveer_no", "AgniVeerNo")
+    )
     if isinstance(agniveer_no, str):
         agniveer_no = agniveer_no.upper()
     return {

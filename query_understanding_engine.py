@@ -27,7 +27,13 @@ _SECTION_ALIASES = {
 _PERFORMANCE_SECTIONS = {"BPET", "PPT", "Firing", "Drill"}
 _GRADING_VALUES = ("excellent", "good", "sat", "fail", "unsat")
 _COMPARISON_MARKERS = ("compare", "comparison", "versus", "difference between", "vs")
-_MULTI_INDEPENDENT_MARKERS = ("as well as", "along with", "together with", "also", "and also")
+_MULTI_INDEPENDENT_MARKERS = (
+    "as well as",
+    "along with",
+    "together with",
+    "also",
+    "and also",
+)
 _CROSS_FILTER_MARKERS = (
     "who plays",
     "who is on leave",
@@ -47,9 +53,37 @@ _CROSS_FILTER_MARKERS = (
     "had",
     "whose",
 )
-_RANKING_MARKERS = ("rank", "top", "highest", "best", "maximum", "most", "leading", "lowest", "worst", "minimum", "least", "bottom")
-_DISTRIBUTION_MARKERS = ("distribution", "breakdown", "share", "composition", "by unit", "unit wise")
-_TREND_MARKERS = ("trend", "over time", "growth", "increase", "decrease", "decline", "drop")
+_RANKING_MARKERS = (
+    "rank",
+    "top",
+    "highest",
+    "best",
+    "maximum",
+    "most",
+    "leading",
+    "lowest",
+    "worst",
+    "minimum",
+    "least",
+    "bottom",
+)
+_DISTRIBUTION_MARKERS = (
+    "distribution",
+    "breakdown",
+    "share",
+    "composition",
+    "by unit",
+    "unit wise",
+)
+_TREND_MARKERS = (
+    "trend",
+    "over time",
+    "growth",
+    "increase",
+    "decrease",
+    "decline",
+    "drop",
+)
 
 
 @dataclass
@@ -101,7 +135,9 @@ def _extract_bmi_category(text: str) -> Optional[str]:
 
 
 def _extract_blood_group(text: str) -> Optional[str]:
-    match = re.search(r"\b(?:blood\s*group|bg)\s*((?:AB|A|B|O)[+-])\b", text, re.IGNORECASE)
+    match = re.search(
+        r"\b(?:blood\s*group|bg)\s*((?:AB|A|B|O)[+-])\b", text, re.IGNORECASE
+    )
     if match:
         return match.group(1).upper()
     for token in ("ab+", "ab-", "a+", "a-", "b+", "b-", "o+", "o-"):
@@ -113,7 +149,6 @@ def _extract_blood_group(text: str) -> Optional[str]:
 def _extract_number(text: str) -> Optional[int]:
     match = re.search(r"\b(\d+)\b", text)
     return int(match.group(1)) if match else None
-
 
 
 def _has_phrase(text: str, phrase: str) -> bool:
@@ -129,33 +164,111 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
         return "Leave"
     if "leave" in text or "absconded" in text or "absent" in text:
         return "Leave"
-    if entities.get("sport") and any(token in text for token in ("roster", "player", "players", "play", "plays", "played", "which sport", "skills")):
+    if entities.get("sport") and any(
+        token in text
+        for token in (
+            "roster",
+            "player",
+            "players",
+            "play",
+            "plays",
+            "played",
+            "which sport",
+            "skills",
+        )
+    ):
         return "Roster"
-    if "class" in text and any(token in text for token in ("skills", "roster", "sport", "sports")):
+    if "class" in text and any(
+        token in text for token in ("skills", "roster", "sport", "sports")
+    ):
         return "Skills"
-    if entities.get("unit_name") and any(token in text for token in ("distribution", "equipment", "leave", "attendance", "performance")):
+    if entities.get("unit_name") and any(
+        token in text
+        for token in ("distribution", "equipment", "leave", "attendance", "performance")
+    ):
         return "Distribution"
     if entities.get("section") in _PERFORMANCE_SECTIONS:
         return "Performance"
-    if any(token in text for token in ("grade summary", "grading summary", "grade distribution", "grading distribution")):
+    if any(
+        token in text
+        for token in (
+            "grade summary",
+            "grading summary",
+            "grade distribution",
+            "grading distribution",
+        )
+    ):
         return "Performance"
-    if any(token in text for token in ("attendance", "present", "absent", "campus", "headcount", "strength")):
+    if any(
+        token in text
+        for token in (
+            "attendance",
+            "present",
+            "absent",
+            "campus",
+            "headcount",
+            "strength",
+        )
+    ):
         if "strength" in text or "headcount" in text:
             return "Strength"
         return "Attendance"
-    if any(token in text for token in ("medical", "bmi", "blood group", "blood", "hospital", "disease", "fever", "malaria", "injury", "illness", "sick")):
+    if any(
+        token in text
+        for token in (
+            "medical",
+            "bmi",
+            "blood group",
+            "blood",
+            "hospital",
+            "disease",
+            "fever",
+            "malaria",
+            "injury",
+            "illness",
+            "sick",
+        )
+    ):
         return "Medical"
     if any(token in text for token in ("verification", "verified", "pending")):
         return "Verification"
-    if any(token in text for token in ("equipment", "issued", "procured", "overdue", "returned", "holding")):
+    if any(
+        token in text
+        for token in (
+            "equipment",
+            "issued",
+            "procured",
+            "overdue",
+            "returned",
+            "holding",
+        )
+    ):
         return "Equipment"
-    if any(token in text for token in ("distribution", "breakdown", "assigned", "unassigned")):
+    if any(
+        token in text
+        for token in ("distribution", "breakdown", "assigned", "unassigned")
+    ):
         return "Distribution"
     if any(token in text for token in ("overall", "composite")):
         return "Overall"
     if any(token in text for token in ("improvement", "decline", "drop")):
         return "Performance"
-    if any(token in text for token in ("performance", "score", "marks", "grade", "grading", "top", "highest", "best", "lowest", "worst", "rank")):
+    if any(
+        token in text
+        for token in (
+            "performance",
+            "score",
+            "marks",
+            "grade",
+            "grading",
+            "top",
+            "highest",
+            "best",
+            "lowest",
+            "worst",
+            "rank",
+        )
+    ):
         return "Performance"
     return None
 
@@ -197,9 +310,14 @@ def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
 def _infer_sort(operation: str, text: str) -> Optional[str]:
     if operation != "ranking":
         return None
-    if any(marker in text for marker in ("lowest", "worst", "least", "bottom", "minimum")):
+    if any(
+        marker in text for marker in ("lowest", "worst", "least", "bottom", "minimum")
+    ):
         return "ascending"
-    if any(marker in text for marker in ("top", "highest", "best", "most", "maximum", "leading")):
+    if any(
+        marker in text
+        for marker in ("top", "highest", "best", "most", "maximum", "leading")
+    ):
         return "descending"
     return None
 
@@ -219,13 +337,23 @@ def _infer_metric(category: Optional[str], operation: str) -> Optional[str]:
 
 
 def _infer_group_by(text: str) -> Optional[str]:
-    for candidate in ("platoon", "class", "batch", "company", "section", "sport", "unit"):
+    for candidate in (
+        "platoon",
+        "class",
+        "batch",
+        "company",
+        "section",
+        "sport",
+        "unit",
+    ):
         if re.search(rf"\b{candidate}\b", text):
             return candidate
     return None
 
 
-def _build_user_goal(category: Optional[str], operation: str, entities: Dict[str, Any]) -> str:
+def _build_user_goal(
+    category: Optional[str], operation: str, entities: Dict[str, Any]
+) -> str:
     if operation == "compare":
         return "compare the requested entities"
     if operation == "grading":
@@ -252,7 +380,9 @@ def _build_user_goal(category: Optional[str], operation: str, entities: Dict[str
 def _split_on_connectors(text: str, markers: List[str]) -> List[str]:
     for marker in markers:
         if marker in text:
-            parts = [part.strip(" ,") for part in text.split(marker) if part.strip(" ,")]
+            parts = [
+                part.strip(" ,") for part in text.split(marker) if part.strip(" ,")
+            ]
             if len(parts) >= 2:
                 return parts
     return [text]
@@ -265,27 +395,66 @@ def _extract_sub_requests(
     entities: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     if operation == "compare":
-        comparator_split = re.split(r"\b(?:compare|comparison)\b", text, maxsplit=1, flags=re.IGNORECASE)
+        comparator_split = re.split(
+            r"\b(?:compare|comparison)\b", text, maxsplit=1, flags=re.IGNORECASE
+        )
         body = comparator_split[-1].strip() if comparator_split else text
         if " and " in body:
             left, right = body.split(" and ", 1)
             return [
-                {"fragment": left.strip(), "category": category, "operation": operation, "entities": entities},
-                {"fragment": right.strip(), "category": category, "operation": operation, "entities": entities},
+                {
+                    "fragment": left.strip(),
+                    "category": category,
+                    "operation": operation,
+                    "entities": entities,
+                },
+                {
+                    "fragment": right.strip(),
+                    "category": category,
+                    "operation": operation,
+                    "entities": entities,
+                },
             ]
         if " vs " in body:
             left, right = body.split(" vs ", 1)
             return [
-                {"fragment": left.strip(), "category": category, "operation": operation, "entities": entities},
-                {"fragment": right.strip(), "category": category, "operation": operation, "entities": entities},
+                {
+                    "fragment": left.strip(),
+                    "category": category,
+                    "operation": operation,
+                    "entities": entities,
+                },
+                {
+                    "fragment": right.strip(),
+                    "category": category,
+                    "operation": operation,
+                    "entities": entities,
+                },
             ]
         if " versus " in body:
             left, right = body.split(" versus ", 1)
             return [
-                {"fragment": left.strip(), "category": category, "operation": operation, "entities": entities},
-                {"fragment": right.strip(), "category": category, "operation": operation, "entities": entities},
+                {
+                    "fragment": left.strip(),
+                    "category": category,
+                    "operation": operation,
+                    "entities": entities,
+                },
+                {
+                    "fragment": right.strip(),
+                    "category": category,
+                    "operation": operation,
+                    "entities": entities,
+                },
             ]
-        return [{"fragment": body or text, "category": category, "operation": operation, "entities": entities}]
+        return [
+            {
+                "fragment": body or text,
+                "category": category,
+                "operation": operation,
+                "entities": entities,
+            }
+        ]
 
     if any(marker in text for marker in _CROSS_FILTER_MARKERS):
         parts = []
@@ -301,37 +470,78 @@ def _extract_sub_requests(
             current = ""
 
         if current:
-            and_parts = [p.strip(" ,") for p in re.split(r"\band\b", current, flags=re.IGNORECASE) if p.strip(" ,")]
+            and_parts = [
+                p.strip(" ,")
+                for p in re.split(r"\band\b", current, flags=re.IGNORECASE)
+                if p.strip(" ,")
+            ]
             parts.extend(and_parts)
         else:
             new_parts = []
             for p in parts:
-                and_parts = [ap.strip(" ,") for ap in re.split(r"\band\b", p, flags=re.IGNORECASE) if ap.strip(" ,")]
+                and_parts = [
+                    ap.strip(" ,")
+                    for ap in re.split(r"\band\b", p, flags=re.IGNORECASE)
+                    if ap.strip(" ,")
+                ]
                 new_parts.extend(and_parts)
             parts = new_parts
 
         final_parts = []
         for p in parts:
             p_clean = p.strip(" ,")
-            if p_clean and p_clean not in ("who", "with", "and", "plays", "suffering", "suffered"):
+            if p_clean and p_clean not in (
+                "who",
+                "with",
+                "and",
+                "plays",
+                "suffering",
+                "suffered",
+            ):
                 final_parts.append(p_clean)
 
         return [
-            {"fragment": p, "category": category, "operation": operation, "entities": entities}
-            if idx == 0 else
-            {"fragment": p, "category": _infer_category(p, {}), "operation": _infer_operation(p, {}), "entities": entities}
+            (
+                {
+                    "fragment": p,
+                    "category": category,
+                    "operation": operation,
+                    "entities": entities,
+                }
+                if idx == 0
+                else {
+                    "fragment": p,
+                    "category": _infer_category(p, {}),
+                    "operation": _infer_operation(p, {}),
+                    "entities": entities,
+                }
+            )
             for idx, p in enumerate(final_parts)
         ]
     if any(marker in text for marker in _MULTI_INDEPENDENT_MARKERS) or " and " in text:
         parts = _split_on_connectors(text, list(_MULTI_INDEPENDENT_MARKERS))
         if len(parts) == 1 and " and " in text:
-            parts = [part.strip(" ,") for part in text.split(" and ") if part.strip(" ,")]
+            parts = [
+                part.strip(" ,") for part in text.split(" and ") if part.strip(" ,")
+            ]
         if len(parts) >= 2:
             return [
-                {"fragment": part, "category": _infer_category(part, {}), "operation": _infer_operation(part, {}), "entities": entities}
+                {
+                    "fragment": part,
+                    "category": _infer_category(part, {}),
+                    "operation": _infer_operation(part, {}),
+                    "entities": entities,
+                }
                 for part in parts
             ]
-    return [{"fragment": text, "category": category, "operation": operation, "entities": entities}]
+    return [
+        {
+            "fragment": text,
+            "category": category,
+            "operation": operation,
+            "entities": entities,
+        }
+    ]
 
 
 def understand_query(query: str) -> Dict[str, Any]:
@@ -351,6 +561,7 @@ def understand_query(query: str) -> Dict[str, Any]:
         return result.to_dict()
 
     from intent_engine.entity_extractor import extract_entities
+
     entities = extract_entities(text, semantic={})
     section = entities.get("section")
     category = _infer_category(text, entities)
@@ -363,11 +574,14 @@ def understand_query(query: str) -> Dict[str, Any]:
     cross_filter_intent = any(marker in text for marker in _CROSS_FILTER_MARKERS)
     multi_intent = any(marker in text for marker in _MULTI_INDEPENDENT_MARKERS)
     if not multi_intent and " and " in text:
-        clause_parts = [part.strip(" ,") for part in text.split(" and ") if part.strip(" ,")]
+        clause_parts = [
+            part.strip(" ,") for part in text.split(" and ") if part.strip(" ,")
+        ]
         if len(clause_parts) >= 2:
             clause_categories = []
             for part in clause_parts:
                 from intent_engine.entity_extractor import extract_entities
+
                 clause_entities = extract_entities(part, semantic={})
                 clause_categories.append(_infer_category(part, clause_entities))
             if len({cat for cat in clause_categories if cat}) >= 2:
@@ -398,7 +612,17 @@ def understand_query(query: str) -> Dict[str, Any]:
         intent_kind = "comparison"
     elif cross_filter_intent and any(
         token in text
-        for token in ("with ", "who ", "among ", "within ", "players", "player", "plays", "currently on leave", "currently absent")
+        for token in (
+            "with ",
+            "who ",
+            "among ",
+            "within ",
+            "players",
+            "player",
+            "plays",
+            "currently on leave",
+            "currently absent",
+        )
     ):
         query_type = "cross_filter"
         complexity = "cross_filter"
@@ -411,15 +635,23 @@ def understand_query(query: str) -> Dict[str, Any]:
         query_type = "distribution"
         complexity = "distribution"
         intent_kind = "distribution"
-    elif any(token in text for token in ("monthly", "month wise", "per month", "by month")):
+    elif any(
+        token in text for token in ("monthly", "month wise", "per month", "by month")
+    ):
         query_type = "trend"
         complexity = "trend"
         intent_kind = "trend"
-    elif any(token in text for token in ("weekly", "week wise", "this week", "per week", "by week")):
+    elif any(
+        token in text
+        for token in ("weekly", "week wise", "this week", "per week", "by week")
+    ):
         query_type = "trend"
         complexity = "trend"
         intent_kind = "trend"
-    elif "unit" in text and any(token in text for token in ("most", "highest", "lowest", "least", "absconded", "leave")):
+    elif "unit" in text and any(
+        token in text
+        for token in ("most", "highest", "lowest", "least", "absconded", "leave")
+    ):
         query_type = "distribution"
         complexity = "distribution"
         intent_kind = "distribution"
@@ -437,20 +669,52 @@ def understand_query(query: str) -> Dict[str, Any]:
         filters["section"] = section
     if group_by:
         filters["group_by"] = group_by
-    for key in ("grading", "bmi_category", "blood_group", "platoon_id", "company_id", "batch_id", "leave_type", "sport", "class", "unit_name", "date"):
+    for key in (
+        "grading",
+        "bmi_category",
+        "blood_group",
+        "platoon_id",
+        "company_id",
+        "batch_id",
+        "leave_type",
+        "sport",
+        "class",
+        "unit_name",
+        "date",
+    ):
         if entities.get(key) is not None:
             filters[key] = entities[key]
 
     sub_requests = _extract_sub_requests(text, category, operation, entities)
     if cross_filter_intent and len(sub_requests) == 1:
-        for marker in ("who plays", "who is on leave", "currently on leave", "currently absent", "with medical", "with active medical", "on leave", "medical leave", "on medical leave"):
+        for marker in (
+            "who plays",
+            "who is on leave",
+            "currently on leave",
+            "currently absent",
+            "with medical",
+            "with active medical",
+            "on leave",
+            "medical leave",
+            "on medical leave",
+        ):
             if marker in text:
                 head, tail = text.split(marker, 1)
                 tail_clean = tail.strip(" ,")
                 tail_frag = f"{marker} {tail_clean}" if tail_clean else marker
                 sub_requests = [
-                    {"fragment": head.strip(" ,"), "category": category, "operation": operation, "entities": entities},
-                    {"fragment": tail_frag, "category": None, "operation": "lookup", "entities": entities},
+                    {
+                        "fragment": head.strip(" ,"),
+                        "category": category,
+                        "operation": operation,
+                        "entities": entities,
+                    },
+                    {
+                        "fragment": tail_frag,
+                        "category": None,
+                        "operation": "lookup",
+                        "entities": entities,
+                    },
                 ]
                 break
 

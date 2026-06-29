@@ -13,4 +13,3 @@ from typing import Any, Dict, List
 from normalized_models import extract_records, normalize_dotnet_response
 
 __all__ = ["normalize_dotnet_response", "extract_records"]
-

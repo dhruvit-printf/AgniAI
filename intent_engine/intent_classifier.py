@@ -178,13 +178,25 @@ def _score_operation(
         score += 20 if _phrase_score(query_text, "who scored highest") else 0
     if category == "Distribution" and operation == "TopUnit":
         score += 25 if _phrase_score(query_text, "most agniveers") else 0
-    if category == "Equipment" and operation in {"Issued", "Procured", "Holding", "Overdue", "Returned"}:
+    if category == "Equipment" and operation in {
+        "Issued",
+        "Procured",
+        "Holding",
+        "Overdue",
+        "Returned",
+    }:
         score += 8 if _entity_present(entities, "equipmentName") else 0
     if category == "Medical" and operation == "BMI":
         score += 10 if _entity_present(entities, "bmiCategory") else 0
     if category == "Medical" and operation == "BloodGroup":
         score += 10 if _entity_present(entities, "bloodGroup") else 0
-    if category == "Attendance" and operation in {"Monthly", "Weekly", "Daily", "Yearly", "Present"}:
+    if category == "Attendance" and operation in {
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Yearly",
+        "Present",
+    }:
         score += 8 if _entity_present(entities, "date", "fromDate", "toDate") else 0
 
     return score
@@ -211,7 +223,9 @@ def _choose_category(
     if not scores:
         return None, 0
 
-    ranked = sorted(scores.items(), key=lambda item: (item[1], len(item[0])), reverse=True)
+    ranked = sorted(
+        scores.items(), key=lambda item: (item[1], len(item[0])), reverse=True
+    )
     return ranked[0]
 
 
@@ -233,7 +247,9 @@ def _choose_operation(
     if not scores:
         return None, 0
 
-    ranked = sorted(scores.items(), key=lambda item: (item[1], len(item[0])), reverse=True)
+    ranked = sorted(
+        scores.items(), key=lambda item: (item[1], len(item[0])), reverse=True
+    )
     return ranked[0]
 
 
@@ -258,7 +274,9 @@ def _compute_confidence(
     elif conf_float >= 0.2:
         confidence_score += 0.05
     if entities:
-        filled_entities = sum(1 for value in entities.values() if value not in (None, "", [], {}))
+        filled_entities = sum(
+            1 for value in entities.values() if value not in (None, "", [], {})
+        )
         confidence_score += min(filled_entities / 20.0, 0.1)
     return confidence_score
 
@@ -272,26 +290,70 @@ def _should_entity_override_category(
     if not entities:
         return False, None, "no entities present"
     if confidence_score >= 0.45:
-        return False, None, f"confidence sufficient ({confidence_score}) — classifier wins"
+        return (
+            False,
+            None,
+            f"confidence sufficient ({confidence_score}) — classifier wins",
+        )
 
     if _entity_present(entities, "leaveType") and classified_category != "Leave":
         return True, "Leave", "leaveType entity present, classifier confidence low"
-    if _entity_present(entities, "equipmentName") and classified_category != "Equipment":
-        return True, "Equipment", "equipmentName entity present, classifier confidence low"
-    if _entity_present(entities, "bmiCategory", "bloodGroup", "medicalStatus") and classified_category != "Medical":
+    if (
+        _entity_present(entities, "equipmentName")
+        and classified_category != "Equipment"
+    ):
+        return (
+            True,
+            "Equipment",
+            "equipmentName entity present, classifier confidence low",
+        )
+    if (
+        _entity_present(entities, "bmiCategory", "bloodGroup", "medicalStatus")
+        and classified_category != "Medical"
+    ):
         return True, "Medical", "medical entity present, classifier confidence low"
-    if _entity_present(entities, "section") and classified_category not in ("Performance",):
+    if _entity_present(entities, "section") and classified_category not in (
+        "Performance",
+    ):
         return True, "Performance", "section entity present, classifier confidence low"
-    if _entity_present(entities, "sport") and not _phrase_score(query_text, "attendance"):
-        if _phrase_score(query_text, "who plays") or _phrase_score(query_text, "roster"):
+    if _entity_present(entities, "sport") and not _phrase_score(
+        query_text, "attendance"
+    ):
+        if _phrase_score(query_text, "who plays") or _phrase_score(
+            query_text, "roster"
+        ):
             if classified_category != "Roster":
-                return True, "Roster", "sport entity with roster phrase present, classifier confidence low"
+                return (
+                    True,
+                    "Roster",
+                    "sport entity with roster phrase present, classifier confidence low",
+                )
         elif classified_category is None:
-            return True, "Roster", "sport entity present with no category, classifier confidence low"
-    if _entity_present(entities, "class") and _phrase_score(query_text, "skills") and classified_category != "Skills":
-        return True, "Skills", "class entity with skills phrase present, classifier confidence low"
-    if _entity_present(entities, "unitName") and _phrase_score(query_text, "attendance") and classified_category != "Attendance":
-        return True, "Attendance", "unitName entity with attendance phrase present, classifier confidence low"
+            return (
+                True,
+                "Roster",
+                "sport entity present with no category, classifier confidence low",
+            )
+    if (
+        _entity_present(entities, "class")
+        and _phrase_score(query_text, "skills")
+        and classified_category != "Skills"
+    ):
+        return (
+            True,
+            "Skills",
+            "class entity with skills phrase present, classifier confidence low",
+        )
+    if (
+        _entity_present(entities, "unitName")
+        and _phrase_score(query_text, "attendance")
+        and classified_category != "Attendance"
+    ):
+        return (
+            True,
+            "Attendance",
+            "unitName entity with attendance phrase present, classifier confidence low",
+        )
 
     return False, None, "no override condition met"
 
@@ -306,7 +368,9 @@ def _should_entity_override_operation(
         return False, None, "no entities or category"
 
     if category == "Performance":
-        if _entity_present(entities, "attemptNo", "fromAttempt", "toAttempt") and classified_operation not in ("AttemptWise", "BestAttempt"):
+        if _entity_present(
+            entities, "attemptNo", "fromAttempt", "toAttempt"
+        ) and classified_operation not in ("AttemptWise", "BestAttempt"):
             return True, "AttemptWise", "attempt entity present"
         if not classified_operation and _entity_present(entities, "grading"):
             return True, "Grading", "grading entity present without operation"
@@ -314,15 +378,27 @@ def _should_entity_override_operation(
     if category == "Medical":
         if _entity_present(entities, "bmiCategory") and classified_operation != "BMI":
             return True, "BMI", "bmiCategory entity present"
-        if _entity_present(entities, "bloodGroup") and classified_operation != "BloodGroup":
+        if (
+            _entity_present(entities, "bloodGroup")
+            and classified_operation != "BloodGroup"
+        ):
             return True, "BloodGroup", "bloodGroup entity present"
         if not classified_operation and _entity_present(entities, "medicalStatus"):
             return True, "Active", "medicalStatus entity present without operation"
 
-    if category == "Leave" and entities.get("leaveType") == "Current" and classified_operation != "Current":
+    if (
+        category == "Leave"
+        and entities.get("leaveType") == "Current"
+        and classified_operation != "Current"
+    ):
         return True, "Current", "leaveType Current present"
 
-    if category == "Attendance" and classified_operation not in ("Weekly", "Daily", "Yearly", "Monthly"):
+    if category == "Attendance" and classified_operation not in (
+        "Weekly",
+        "Daily",
+        "Yearly",
+        "Monthly",
+    ):
         date_val = str(entities.get("date") or "")
         if re.search(
             r"\b(January|February|March|April|May|June|July|August|September|October|"
@@ -344,7 +420,11 @@ def _should_entity_override_operation(
     if category == "Overall" and not classified_operation:
         return True, "OverallPerformance", "Overall query default operation"
 
-    if category == "Distribution" and not classified_operation and _entity_present(entities, "unitName"):
+    if (
+        category == "Distribution"
+        and not classified_operation
+        and _entity_present(entities, "unitName")
+    ):
         return True, "ByUnit", "unitName entity present without operation"
 
     return False, None, "no override condition met"
@@ -360,7 +440,9 @@ def classify_intent(
     semantic = semantic or understand_query(query)
 
     category, category_score = _choose_category(query_text, semantic, entities)
-    operation, operation_score = _choose_operation(query_text, category, semantic, entities)
+    operation, operation_score = _choose_operation(
+        query_text, category, semantic, entities
+    )
 
     confidence_score = _compute_confidence(
         category, category_score, operation, operation_score, semantic, entities
@@ -370,9 +452,13 @@ def classify_intent(
         entities, category, confidence_score, query_text
     )
     if should_override_cat:
-        logger.info(f"[CATEGORY OVERRIDE] {category} → {override_cat} | reason: {cat_reason}")
+        logger.info(
+            f"[CATEGORY OVERRIDE] {category} → {override_cat} | reason: {cat_reason}"
+        )
         category = override_cat
-        operation, operation_score = _choose_operation(query_text, category, semantic, entities)
+        operation, operation_score = _choose_operation(
+            query_text, category, semantic, entities
+        )
         confidence_score = _compute_confidence(
             category, category_score, operation, operation_score, semantic, entities
         )
@@ -392,7 +478,9 @@ def classify_intent(
         entities, operation, category, confidence_score
     )
     if should_override_op:
-        logger.info(f"[OPERATION OVERRIDE] {operation} → {override_op} | reason: {op_reason}")
+        logger.info(
+            f"[OPERATION OVERRIDE] {operation} → {override_op} | reason: {op_reason}"
+        )
         operation = override_op
         confidence_score = _compute_confidence(
             category, category_score, operation, operation_score, semantic, entities
@@ -406,5 +494,9 @@ def classify_intent(
         "responseType": response_type,
         "raw_query": query,
         "confidence_score": round(confidence_score, 2),
-        "confidence": "high" if confidence_score >= 0.75 else ("medium" if confidence_score >= 0.45 else "low"),
+        "confidence": (
+            "high"
+            if confidence_score >= 0.75
+            else ("medium" if confidence_score >= 0.45 else "low")
+        ),
     }

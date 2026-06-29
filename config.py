@@ -35,6 +35,7 @@ USE_RERANKER = os.getenv("USE_RERANKER", "0") not in {"0", "false", "False"}
 
 # ── Ollama ─────────────────────────────────────────────────────────────────
 import requests as _requests
+
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/chat"
 OLLAMA_TAGS_URL = os.getenv("OLLAMA_TAGS_URL", f"{OLLAMA_BASE_URL}/api/tags")

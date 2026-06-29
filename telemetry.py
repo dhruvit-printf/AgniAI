@@ -41,8 +41,11 @@ request_id_var: ContextVar[str] = ContextVar("request_id", default="N/A")
 trace_id_var: ContextVar[str] = ContextVar("trace_id", default="N/A")
 session_id_var: ContextVar[str] = ContextVar("session_id", default="N/A")
 
+
 @contextmanager
-def trace_context(request_id: str, trace_id: str, session_id: str) -> Generator[None, None, None]:
+def trace_context(
+    request_id: str, trace_id: str, session_id: str
+) -> Generator[None, None, None]:
     """Context manager to bind request, trace, and session contexts to the current thread."""
     t_req = request_id_var.set(request_id)
     t_trace = trace_id_var.set(trace_id)
@@ -53,6 +56,7 @@ def trace_context(request_id: str, trace_id: str, session_id: str) -> Generator[
         request_id_var.reset(t_req)
         trace_id_var.reset(t_trace)
         session_id_var.reset(t_sess)
+
 
 # ── Feature gate ───────────────────────────────────────────────────────────
 _OTEL_ENABLED = os.getenv("ENABLE_OPENTELEMETRY", "false").lower() in (

@@ -122,7 +122,11 @@ class AdminSessionContext:
             while len(self._history) > _MAX_SESSIONS:
                 evicted = next(iter(self._history))
                 del self._history[evicted]
-                logger.debug("AdminSessionContext: evicted session %s (cap=%d)", evicted, _MAX_SESSIONS)
+                logger.debug(
+                    "AdminSessionContext: evicted session %s (cap=%d)",
+                    evicted,
+                    _MAX_SESSIONS,
+                )
         logger.debug("Updated session %s history: %d ids stored", session_id, len(ids))
 
     def get_previous_ids(self, session_id: str) -> Optional[Set[int]]:

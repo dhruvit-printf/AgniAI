@@ -16,7 +16,9 @@ from intent_engine.intent_schema import FUZZY_VOCAB
 
 _FUZZY_PATTERNS = [
     (re.compile(rf"(?<!\w){re.escape(misspelling)}(?!\w)", re.IGNORECASE), canonical)
-    for misspelling, canonical in sorted(FUZZY_VOCAB.items(), key=lambda item: len(item[0]), reverse=True)
+    for misspelling, canonical in sorted(
+        FUZZY_VOCAB.items(), key=lambda item: len(item[0]), reverse=True
+    )
 ]
 
 _INVISIBLE_CHARS = ("\u200b", "\ufeff", "\u200e", "\u200f")

@@ -66,18 +66,20 @@ def build_response(
             fd = []
 
         return {
-            "status":             True,
-            "message":            message or "",
-            "formattedData":      fd,
-            "analysis":           _to_str(analysis),
-            "prediction":         _to_str(prediction),
-            "conclusion":         _to_str(conclusion),
+            "status": True,
+            "message": message or "",
+            "formattedData": fd,
+            "analysis": _to_str(analysis),
+            "prediction": _to_str(prediction),
+            "conclusion": _to_str(conclusion),
             "suggestedQuestions": suggested_questions or [],
-            "dotnetPayload":      dotnet_payload,
-            "metadata":           meta,
-            "overallConfidence":  round(float(overall_confidence or 0.0), 2),
-            "partialFailure":     bool(partial_failure),
-            "failedSections":     failed_sections if isinstance(failed_sections, list) else [],
+            "dotnetPayload": dotnet_payload,
+            "metadata": meta,
+            "overallConfidence": round(float(overall_confidence or 0.0), 2),
+            "partialFailure": bool(partial_failure),
+            "failedSections": (
+                failed_sections if isinstance(failed_sections, list) else []
+            ),
         }
 
     # For other query types
@@ -98,7 +100,7 @@ def build_response(
         "message": message or "",
         "formattedData": fd,
         # Root-level narrative — plain strings, never inside individual widgets
-        "analysis":   _to_str(analysis),
+        "analysis": _to_str(analysis),
         "prediction": _to_str(prediction),
         "conclusion": _to_str(conclusion),
         "suggestedQuestions": suggested_questions or [],

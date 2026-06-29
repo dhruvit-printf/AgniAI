@@ -77,11 +77,10 @@ class TestObservability(unittest.TestCase):
         logger_pipeline = logging.getLogger("admin_pipeline")
         logger_executor = logging.getLogger("dotnet_executor")
 
-        with self.assertLogs(
-            logger_pipeline, level="INFO"
-        ) as log_pipeline, self.assertLogs(
-            logger_executor, level="INFO"
-        ) as log_executor:
+        with (
+            self.assertLogs(logger_pipeline, level="INFO") as log_pipeline,
+            self.assertLogs(logger_executor, level="INFO") as log_executor,
+        ):
 
             # Run query
             result = execute_admin_query(

@@ -65,7 +65,9 @@ class EntityCache:
 
     def _is_fresh(self, key: str) -> bool:
         entry = self._entries[key]
-        return bool(entry.fetched_at) and (time.time() - entry.fetched_at) < _TTL_SECONDS
+        return (
+            bool(entry.fetched_at) and (time.time() - entry.fetched_at) < _TTL_SECONDS
+        )
 
     def _fetch(self, url: str, trace_id: Optional[str] = None) -> List[Dict[str, Any]]:
         start = time.time()
@@ -89,7 +91,14 @@ class EntityCache:
         )
         return data
 
-    def _get(self, key: str, url: str, *, force_refresh: bool = False, trace_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _get(
+        self,
+        key: str,
+        url: str,
+        *,
+        force_refresh: bool = False,
+        trace_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         with self._lock:
             entry = self._entries[key]
             if not force_refresh and self._is_fresh(key):
@@ -102,7 +111,9 @@ class EntityCache:
                 entry = self._entries[key]
                 logger.warning(
                     "Entity cache fetch failed for %s: %s (stale_age=%.0fs)",
-                    key, exc, time.time() - entry.fetched_at
+                    key,
+                    exc,
+                    time.time() - entry.fetched_at,
                 )
                 return list(entry.data or [])
 
@@ -113,14 +124,26 @@ class EntityCache:
             entry.refreshing = False
             return list(entry.data)
 
-    def get_agniveers(self, *, force_refresh: bool = False, trace_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        return self._get("agniveers", _AGNIVEER_URL, force_refresh=force_refresh, trace_id=trace_id)
+    def get_agniveers(
+        self, *, force_refresh: bool = False, trace_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        return self._get(
+            "agniveers", _AGNIVEER_URL, force_refresh=force_refresh, trace_id=trace_id
+        )
 
-    def get_companies(self, *, force_refresh: bool = False, trace_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        return self._get("companies", _COMPANY_URL, force_refresh=force_refresh, trace_id=trace_id)
+    def get_companies(
+        self, *, force_refresh: bool = False, trace_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        return self._get(
+            "companies", _COMPANY_URL, force_refresh=force_refresh, trace_id=trace_id
+        )
 
-    def get_platoons(self, *, force_refresh: bool = False, trace_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        return self._get("platoons", _PLATOON_URL, force_refresh=force_refresh, trace_id=trace_id)
+    def get_platoons(
+        self, *, force_refresh: bool = False, trace_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        return self._get(
+            "platoons", _PLATOON_URL, force_refresh=force_refresh, trace_id=trace_id
+        )
 
     def preload(self, *, trace_id: Optional[str] = None) -> Dict[str, int]:
         agniveers = self.get_agniveers(force_refresh=True, trace_id=trace_id)
@@ -149,15 +172,21 @@ class EntityCache:
 ENTITY_CACHE = EntityCache()
 
 
-def fetch_agniveers(*, force_refresh: bool = False, trace_id: Optional[str] = None) -> List[Dict[str, Any]]:
+def fetch_agniveers(
+    *, force_refresh: bool = False, trace_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
     return ENTITY_CACHE.get_agniveers(force_refresh=force_refresh, trace_id=trace_id)
 
 
-def fetch_companies(*, force_refresh: bool = False, trace_id: Optional[str] = None) -> List[Dict[str, Any]]:
+def fetch_companies(
+    *, force_refresh: bool = False, trace_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
     return ENTITY_CACHE.get_companies(force_refresh=force_refresh, trace_id=trace_id)
 
 
-def fetch_platoons(*, force_refresh: bool = False, trace_id: Optional[str] = None) -> List[Dict[str, Any]]:
+def fetch_platoons(
+    *, force_refresh: bool = False, trace_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
     return ENTITY_CACHE.get_platoons(force_refresh=force_refresh, trace_id=trace_id)
 
 

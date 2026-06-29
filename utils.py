@@ -164,10 +164,24 @@ def build_filters_from_entities(entities: Dict[str, Any]) -> Dict[str, Any]:
     """Build a filters dictionary from entities dictionary using camelCase keys."""
     filters = {}
     keys = (
-        "section", "subSection", "grading", "leaveType", "sport", "class",
-        "unitName", "attemptNo", "fromAttempt", "toAttempt", "date",
-        "companyId", "platoonId", "batchId", "agniveerNo", "bmiCategory",
-        "bloodGroup", "equipmentName"
+        "section",
+        "subSection",
+        "grading",
+        "leaveType",
+        "sport",
+        "class",
+        "unitName",
+        "attemptNo",
+        "fromAttempt",
+        "toAttempt",
+        "date",
+        "companyId",
+        "platoonId",
+        "batchId",
+        "agniveerNo",
+        "bmiCategory",
+        "bloodGroup",
+        "equipmentName",
     )
     for key in keys:
         val = entities.get(key)

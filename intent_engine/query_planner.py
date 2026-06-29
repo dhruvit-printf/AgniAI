@@ -36,7 +36,6 @@ class QueryType(Enum):
     MULTI_OPERATION = "multi_independent"
 
 
-
 @dataclass
 class SubOperation:
     raw_fragment: str
@@ -83,7 +82,6 @@ class QueryPlan:
         if self.comparison_execution_plan:
             d["comparisonExecutionPlan"] = self.comparison_execution_plan
         return d
-
 
 
 _COMPARISON_KEYWORDS: List[str] = [
@@ -546,14 +544,19 @@ def _extract_comparison_fragments(
 
     def _normalize_shared_category(left: str, right: str) -> Tuple[str, str]:
         tail_match = re.search(
-            r"\b(" + "|".join(re.escape(tok) for tok in sorted(category_tokens)) + r")\b\s*$",
+            r"\b("
+            + "|".join(re.escape(tok) for tok in sorted(category_tokens))
+            + r")\b\s*$",
             right,
         )
         if tail_match:
             shared_category = tail_match.group(1)
             right_core = right[: tail_match.start()].strip()
             left_core = left.strip()
-            return f"{left_core} {shared_category}".strip(), f"{right_core} {shared_category}".strip()
+            return (
+                f"{left_core} {shared_category}".strip(),
+                f"{right_core} {shared_category}".strip(),
+            )
         return left, right
 
     for sep in [" vs ", " versus "]:
@@ -573,7 +576,9 @@ def _extract_comparison_fragments(
     if m:
         return list(_normalize_shared_category(m.group(1).strip(), m.group(2).strip()))
 
-    m = re.search(r"(?:difference between|difference\s+between)\s+(.+?)\s+and\s+(.+)", text_lower)
+    m = re.search(
+        r"(?:difference between|difference\s+between)\s+(.+?)\s+and\s+(.+)", text_lower
+    )
     if m:
         return list(_normalize_shared_category(m.group(1).strip(), m.group(2).strip()))
 
@@ -628,32 +633,64 @@ def _build_sub_operation(
         filter_fragment=filter_fragment,
     )
 
-def _is_semantic_comparison(text_lower: str, categories: List[str], semantic: Dict[str, Any]) -> bool:
+
+def _is_semantic_comparison(
+    text_lower: str, categories: List[str], semantic: Dict[str, Any]
+) -> bool:
     # Direct keywords
     if any(kw in text_lower for kw in _COMPARISON_KEYWORDS):
         return True
-    
+
     # Semantic query type from understanding engine
-    if semantic and (semantic.get("query_type") in ("compare", "comparison") or semantic.get("complexity") == "comparison"):
+    if semantic and (
+        semantic.get("query_type") in ("compare", "comparison")
+        or semantic.get("complexity") == "comparison"
+    ):
         return True
 
     # Adjectives / comparative words
-    comparatives = ["better", "worse", "higher", "lower", "faster", "slower", "more", "less", "compare", "comparison", "difference", "vs", "versus"]
-    if any(re.search(r"\b" + re.escape(comp) + r"\b", text_lower) for comp in comparatives):
+    comparatives = [
+        "better",
+        "worse",
+        "higher",
+        "lower",
+        "faster",
+        "slower",
+        "more",
+        "less",
+        "compare",
+        "comparison",
+        "difference",
+        "vs",
+        "versus",
+    ]
+    if any(
+        re.search(r"\b" + re.escape(comp) + r"\b", text_lower) for comp in comparatives
+    ):
         return True
 
     # Multiple sections
-    sections_found = {s for s in {"bpet", "bept", "ppt", "firing", "drill"} if re.search(r"\b" + re.escape(s) + r"\b", text_lower)}
+    sections_found = {
+        s
+        for s in {"bpet", "bept", "ppt", "firing", "drill"}
+        if re.search(r"\b" + re.escape(s) + r"\b", text_lower)
+    }
     if len(sections_found) >= 2:
         return True
 
     # Multiple companies/units
-    companies_found = {u for u in {"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "vanguard"} if re.search(r"\b" + re.escape(u) + r"\b", text_lower)}
+    companies_found = {
+        u
+        for u in {"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "vanguard"}
+        if re.search(r"\b" + re.escape(u) + r"\b", text_lower)
+    }
     if len(companies_found) >= 2:
         return True
 
     # Multiple platoons
-    platoons_found = set(re.findall(r"\bplatoon\s*\d+\b|\bpl\s*\d+\b|\b\d+\s*platoon\b", text_lower))
+    platoons_found = set(
+        re.findall(r"\bplatoon\s*\d+\b|\bpl\s*\d+\b|\b\d+\s*platoon\b", text_lower)
+    )
     if len(platoons_found) >= 2:
         return True
 
@@ -664,13 +701,42 @@ def _is_semantic_comparison(text_lower: str, categories: List[str], semantic: Di
 
     # Multiple sports
     from .intent_schema import SPORTS
-    sports_found = {s for s in SPORTS if re.search(r"\b" + re.escape(s.lower()) + r"\b", text_lower)}
+
+    sports_found = {
+        s for s in SPORTS if re.search(r"\b" + re.escape(s.lower()) + r"\b", text_lower)
+    }
     if len(sports_found) >= 2:
         return True
 
     # Multiple months
-    months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
-    months_found = {m for m in months if re.search(r"\b" + re.escape(m) + r"\b", text_lower)}
+    months = [
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "oct",
+        "nov",
+        "dec",
+    ]
+    months_found = {
+        m for m in months if re.search(r"\b" + re.escape(m) + r"\b", text_lower)
+    }
     if len(months_found) >= 2:
         return True
 
@@ -687,11 +753,18 @@ def _normalize_n_parts(parts: List[str]) -> List[Tuple[str, str]]:
     for part in parts:
         p = part.strip()
         for kw in ("compare", "comparison", "difference", "versus", "vs"):
-            p = re.sub(r"\b" + re.escape(kw) + r"\b", "", p, flags=re.IGNORECASE).strip()
-        p = re.sub(r"\b(results|stats|data|records|performance|score|marks)\b.*$", "", p, flags=re.IGNORECASE).strip()
+            p = re.sub(
+                r"\b" + re.escape(kw) + r"\b", "", p, flags=re.IGNORECASE
+            ).strip()
+        p = re.sub(
+            r"\b(results|stats|data|records|performance|score|marks)\b.*$",
+            "",
+            p,
+            flags=re.IGNORECASE,
+        ).strip()
         p = re.sub(r"\bfor\s+\w+(?:\s+\d+)?$", "", p, flags=re.IGNORECASE).strip()
         cleaned_parts.append(p)
-    
+
     # Check if there is a shared trailing category/keyword in the last part
     last_part = cleaned_parts[-1]
     last_tokens = last_part.split()
@@ -699,7 +772,18 @@ def _normalize_n_parts(parts: List[str]) -> List[Tuple[str, str]]:
         last_word = last_tokens[-1]
         word_lower = last_word.lower()
         category_tokens = {cat.lower() for cat in _CATEGORY_SIGNALS.keys()}
-        common_nouns = {"attendance", "performance", "records", "status", "cases", "score", "marks", "grade", "stats", "cases"}
+        common_nouns = {
+            "attendance",
+            "performance",
+            "records",
+            "status",
+            "cases",
+            "score",
+            "marks",
+            "grade",
+            "stats",
+            "cases",
+        }
         if word_lower in category_tokens or word_lower in common_nouns:
             new_parts = []
             for i in range(len(cleaned_parts) - 1):
@@ -722,18 +806,20 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
             temp_lower = text_lower
             for prefix in ("compare ", "comparison of ", "comparison between "):
                 if temp_lower.startswith(prefix):
-                    temp_text = temp_text[len(prefix):].strip()
+                    temp_text = temp_text[len(prefix) :].strip()
                     temp_lower = temp_text.lower().strip()
             parts = re.split(re.escape(sep), temp_text, flags=re.IGNORECASE)
             return _normalize_n_parts(parts)
 
-    diff_match = re.search(r"difference\s+between\s+(.+?)\s+and\s+(.+)", query_text, re.IGNORECASE)
+    diff_match = re.search(
+        r"difference\s+between\s+(.+?)\s+and\s+(.+)", query_text, re.IGNORECASE
+    )
     if diff_match:
         parts = [diff_match.group(1).strip(), diff_match.group(2).strip()]
         return _normalize_n_parts(parts)
 
     from .intent_schema import SPORTS
-    
+
     def find_matches(pattern_list, text):
         found = []
         for pat in pattern_list:
@@ -743,7 +829,7 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
         return found
 
     def split_on_matches(text, matches):
-        prefix = text[:matches[0][0]].strip()
+        prefix = text[: matches[0][0]].strip()
         # Strip comparison lead words regardless of trailing whitespace
         prefix = re.sub(
             r"^(?:compare|comparison\s+of|comparison\s+between|comparison)\b\s*",
@@ -754,10 +840,10 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
         prefix_lower = prefix.lower()
 
         prefix = re.sub(r"\b(and|or)\b\s*$", "", prefix, flags=re.IGNORECASE).strip()
-        
-        suffix = text[matches[-1][1]:].strip()
+
+        suffix = text[matches[-1][1] :].strip()
         suffix = re.sub(r"^\s*\b(and|or)\b", "", suffix, flags=re.IGNORECASE).strip()
-        
+
         components = []
         for start, end, val in matches:
             label = text[start:end]
@@ -784,12 +870,20 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
         return split_on_matches(query_text, coy_matches)
 
     # 3. Platoons
-    platoon_matches = [(m.start(), m.end(), m.group(0)) for m in re.finditer(r"\bplatoon\s*\d+\b|\bpl\s*\d+\b|\b\d+\s*platoon\b", text_lower)]
+    platoon_matches = [
+        (m.start(), m.end(), m.group(0))
+        for m in re.finditer(
+            r"\bplatoon\s*\d+\b|\bpl\s*\d+\b|\b\d+\s*platoon\b", text_lower
+        )
+    ]
     if len({m[2] for m in platoon_matches}) >= 2:
         return split_on_matches(query_text, platoon_matches)
 
     # 4. Batches
-    batch_matches = [(m.start(), m.end(), m.group(0)) for m in re.finditer(r"\bbatch\s*[a-z0-9]+\b", text_lower)]
+    batch_matches = [
+        (m.start(), m.end(), m.group(0))
+        for m in re.finditer(r"\bbatch\s*[a-z0-9]+\b", text_lower)
+    ]
     if len({m[2] for m in batch_matches}) >= 2:
         return split_on_matches(query_text, batch_matches)
 
@@ -799,13 +893,40 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
         return split_on_matches(query_text, sport_matches)
 
     # 6. Months
-    months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+    months = [
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "oct",
+        "nov",
+        "dec",
+    ]
     month_matches = find_matches(months, text_lower)
     if len({m[2] for m in month_matches}) >= 2:
         return split_on_matches(query_text, month_matches)
 
     # 7. Years
-    year_matches = [(m.start(), m.end(), m.group(0)) for m in re.finditer(r"\b(19\d{2}|20\d{2})\b", text_lower)]
+    year_matches = [
+        (m.start(), m.end(), m.group(0))
+        for m in re.finditer(r"\b(19\d{2}|20\d{2})\b", text_lower)
+    ]
     if len({m[2] for m in year_matches}) >= 2:
         return split_on_matches(query_text, year_matches)
 
@@ -839,7 +960,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
 
     categories = _detect_categories(q)
     is_compare = _is_semantic_comparison(q, categories, semantic)
-    
+
     if is_compare:
         components = _extract_comparison_components(raw_query)
         ops = []
@@ -848,18 +969,24 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         for idx, (label, fragment) in enumerate(components):
             op = _build_sub_operation(fragment)
             ops.append(op)
-            combined_filters.update(build_filters_from_entities(op.intent_result.get("filters", {})))
-            comparison_execution_plan.append({
-                "id": f"dataset_{idx + 1}",
-                "label": label,
-                "intent": op.intent_result,
-                "filters": build_filters_from_entities(op.intent_result.get("filters", {})),
-                "payloadContext": {
-                    "endpoint": "api/AiCommand/execute",
-                    "category": op.intent_result.get("category"),
-                    "operation": op.intent_result.get("operation")
+            combined_filters.update(
+                build_filters_from_entities(op.intent_result.get("filters", {}))
+            )
+            comparison_execution_plan.append(
+                {
+                    "id": f"dataset_{idx + 1}",
+                    "label": label,
+                    "intent": op.intent_result,
+                    "filters": build_filters_from_entities(
+                        op.intent_result.get("filters", {})
+                    ),
+                    "payloadContext": {
+                        "endpoint": "api/AiCommand/execute",
+                        "category": op.intent_result.get("category"),
+                        "operation": op.intent_result.get("operation"),
+                    },
                 }
-            })
+            )
 
         if len(ops) >= 2:
             logger.info(
@@ -883,7 +1010,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 raw_query=raw_query,
                 reasoning="Comparison query detected semantically",
                 filters=combined_filters,
-                comparison_execution_plan=comparison_execution_plan
+                comparison_execution_plan=comparison_execution_plan,
             )
         else:
             logger.warning(
@@ -902,7 +1029,9 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         ops: List[SubOperation] = []
         if isinstance(fragments, list) and fragments:
             for fragment in fragments:
-                frag_text = fragment.get("fragment") if isinstance(fragment, dict) else None
+                frag_text = (
+                    fragment.get("fragment") if isinstance(fragment, dict) else None
+                )
                 if not frag_text:
                     continue
                 ops.append(_build_sub_operation(frag_text))
@@ -912,11 +1041,19 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
 
     if qtype == "comparison":
         ops = _ops_from_semantic_fragments(q)
-        valid_ops = [op for op in ops if op.intent_result.get("category") or op.intent_result.get("section") or op.intent_result.get("sport")]
+        valid_ops = [
+            op
+            for op in ops
+            if op.intent_result.get("category")
+            or op.intent_result.get("section")
+            or op.intent_result.get("sport")
+        ]
         if len(valid_ops) >= 2:
             combined_filters = {}
             for op in valid_ops:
-                combined_filters.update(build_filters_from_entities(op.intent_result.get("filters", {})))
+                combined_filters.update(
+                    build_filters_from_entities(op.intent_result.get("filters", {}))
+                )
             logger.info(
                 "plan_query: COMPARE plan (semantic fallback) | query_type=compare | "
                 "operation_count=%d",
@@ -939,15 +1076,20 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 len(valid_ops),
             )
 
-
     if qtype == "multi_independent":
         ops = _ops_from_semantic_fragments(q)
         valid_ops = [op for op in ops if op.intent_result.get("category")]
         if len(valid_ops) >= 2:
             combined_filters = {}
-            categories = {op.intent_result["category"] for op in valid_ops if op.intent_result.get("category")}
+            categories = {
+                op.intent_result["category"]
+                for op in valid_ops
+                if op.intent_result.get("category")
+            }
             for op in valid_ops:
-                combined_filters.update(build_filters_from_entities(op.intent_result.get("filters", {})))
+                combined_filters.update(
+                    build_filters_from_entities(op.intent_result.get("filters", {}))
+                )
             return QueryPlan(
                 QueryType.MULTI_INDEPENDENT,
                 valid_ops,
@@ -961,17 +1103,23 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         ops = _ops_from_semantic_fragments(q)
         # Schedule is a standalone category (timetable/agenda), never a filter condition
         valid_ops = [
-            op for op in ops
-            if op.intent_result.get("category") and op.intent_result.get("category") != "Schedule"
+            op
+            for op in ops
+            if op.intent_result.get("category")
+            and op.intent_result.get("category") != "Schedule"
         ]
         if len(valid_ops) >= 2:
             for op in valid_ops:
-                if op.intent_result.get("category") == "Roster" and op.intent_result.get("sport"):
+                if op.intent_result.get(
+                    "category"
+                ) == "Roster" and op.intent_result.get("sport"):
                     op.intent_result["category"] = "Skills"
                     op.dotnet_payload = format_admin_payload(op.intent_result)
             combined_filters = {}
             for op in valid_ops:
-                combined_filters.update(build_filters_from_entities(op.intent_result.get("filters", {})))
+                combined_filters.update(
+                    build_filters_from_entities(op.intent_result.get("filters", {}))
+                )
             return QueryPlan(
                 QueryType.CROSS_FILTER,
                 valid_ops,
@@ -1008,7 +1156,10 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
     op = _build_sub_operation(q)
     filters = build_filters_from_entities(op.intent_result.get("filters", {}))
     confidence = max(0.3, float(semantic.get("confidence") or 0.0))
-    if semantic.get("operation") == "ranking" or semantic.get("query_type") == "ranking":
+    if (
+        semantic.get("operation") == "ranking"
+        or semantic.get("query_type") == "ranking"
+    ):
         return QueryPlan(
             QueryType.ANALYTICS,
             [op],

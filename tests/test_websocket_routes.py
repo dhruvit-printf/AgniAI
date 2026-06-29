@@ -14,24 +14,39 @@ class TestRunPipelineSuccessPath:
             "type": qtype,
             "response_payload": {
                 "message": "Test intro",
-                "formattedData": [{"id": "w1", "type": "TABLE", "title": "Test", "data": {}, "analysis": {}, "prediction": {}, "conclusion": {}}],
+                "formattedData": [
+                    {
+                        "id": "w1",
+                        "type": "TABLE",
+                        "title": "Test",
+                        "data": {},
+                        "analysis": {},
+                        "prediction": {},
+                        "conclusion": {},
+                    }
+                ],
                 "suggestedQuestions": ["Q1"],
                 "metadata": {},
                 "status": True,
                 "overallConfidence": 0.95,
                 "partialFailure": False,
-                "failedSections": []
+                "failedSections": [],
             },
         }
 
     def test_success_path_emits_all_events_in_order(self):
         sent = []
-        with patch(
-            "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append(p.get("type") or ("done" if "done" in p else list(p.keys())[0])),
-        ), patch(
-            "websocket_routes.execute_admin_query",
-            return_value=self._make_pipeline_result(),
+        with (
+            patch(
+                "websocket_routes.ws_manager.send_json",
+                side_effect=lambda sid, p: sent.append(
+                    p.get("type") or ("done" if "done" in p else list(p.keys())[0])
+                ),
+            ),
+            patch(
+                "websocket_routes.execute_admin_query",
+                return_value=self._make_pipeline_result(),
+            ),
         ):
             import websocket_routes
 
@@ -44,12 +59,17 @@ class TestRunPipelineSuccessPath:
 
     def test_done_is_last_event_on_success(self):
         sent = []
-        with patch(
-            "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append(p.get("type") or ("done" if "done" in p else list(p.keys())[0])),
-        ), patch(
-            "websocket_routes.execute_admin_query",
-            return_value=self._make_pipeline_result(),
+        with (
+            patch(
+                "websocket_routes.ws_manager.send_json",
+                side_effect=lambda sid, p: sent.append(
+                    p.get("type") or ("done" if "done" in p else list(p.keys())[0])
+                ),
+            ),
+            patch(
+                "websocket_routes.execute_admin_query",
+                return_value=self._make_pipeline_result(),
+            ),
         ):
             import websocket_routes
 
@@ -58,12 +78,17 @@ class TestRunPipelineSuccessPath:
 
     def test_greeting_type_still_emits_done(self):
         sent = []
-        with patch(
-            "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append(p.get("type") or ("done" if "done" in p else list(p.keys())[0])),
-        ), patch(
-            "websocket_routes.execute_admin_query",
-            return_value=self._make_pipeline_result("greeting"),
+        with (
+            patch(
+                "websocket_routes.ws_manager.send_json",
+                side_effect=lambda sid, p: sent.append(
+                    p.get("type") or ("done" if "done" in p else list(p.keys())[0])
+                ),
+            ),
+            patch(
+                "websocket_routes.execute_admin_query",
+                return_value=self._make_pipeline_result("greeting"),
+            ),
         ):
             import websocket_routes
 
@@ -75,12 +100,17 @@ class TestRunPipelineSuccessPath:
 class TestRunPipelineErrorPath:
     def test_error_path_emits_error_then_done(self):
         sent = []
-        with patch(
-            "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append(p.get("type") or ("done" if "done" in p else "unknown")),
-        ), patch(
-            "websocket_routes.execute_admin_query",
-            return_value={"type": "error", "error_message": "Failed"},
+        with (
+            patch(
+                "websocket_routes.ws_manager.send_json",
+                side_effect=lambda sid, p: sent.append(
+                    p.get("type") or ("done" if "done" in p else "unknown")
+                ),
+            ),
+            patch(
+                "websocket_routes.execute_admin_query",
+                return_value={"type": "error", "error_message": "Failed"},
+            ),
         ):
             import websocket_routes
 
@@ -94,12 +124,17 @@ class TestRunPipelineErrorPath:
 
     def test_exception_in_pipeline_emits_error_then_done(self):
         sent = []
-        with patch(
-            "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: sent.append(p.get("type") or ("done" if "done" in p else "unknown")),
-        ), patch(
-            "websocket_routes.execute_admin_query",
-            side_effect=RuntimeError("unexpected crash"),
+        with (
+            patch(
+                "websocket_routes.ws_manager.send_json",
+                side_effect=lambda sid, p: sent.append(
+                    p.get("type") or ("done" if "done" in p else "unknown")
+                ),
+            ),
+            patch(
+                "websocket_routes.execute_admin_query",
+                side_effect=RuntimeError("unexpected crash"),
+            ),
         ):
             import websocket_routes
 
@@ -110,12 +145,15 @@ class TestRunPipelineErrorPath:
 
     def test_error_message_never_exposes_internal_detail(self):
         payloads = []
-        with patch(
-            "websocket_routes.ws_manager.send_json",
-            side_effect=lambda sid, p: payloads.append(p),
-        ), patch(
-            "websocket_routes.execute_admin_query",
-            return_value={"type": "error", "error_message": "Failed"},
+        with (
+            patch(
+                "websocket_routes.ws_manager.send_json",
+                side_effect=lambda sid, p: payloads.append(p),
+            ),
+            patch(
+                "websocket_routes.execute_admin_query",
+                return_value={"type": "error", "error_message": "Failed"},
+            ),
         ):
             import websocket_routes
 
@@ -142,11 +180,12 @@ class TestProgressCallback:
             },
         }
 
-        with patch(
-            "websocket_routes.ws_manager.send_json", side_effect=capture_send
-        ), patch(
-            "websocket_routes.execute_admin_query", return_value=mock_result
-        ) as mock_exec:
+        with (
+            patch("websocket_routes.ws_manager.send_json", side_effect=capture_send),
+            patch(
+                "websocket_routes.execute_admin_query", return_value=mock_result
+            ) as mock_exec,
+        ):
 
             def fake_pipeline(user_query, body, progress_callback, trace_id):
                 for stage in ["planner", "intent", "dotnet", "combiner", "report"]:

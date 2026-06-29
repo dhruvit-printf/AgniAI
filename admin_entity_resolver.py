@@ -95,7 +95,9 @@ def extract_company_mention(text: str) -> Optional[str]:
 
         before: List[str] = []
         for candidate in reversed(tokens[max(0, idx - 3) : idx]):
-            if candidate in _NOISE_WORDS and not (len(candidate) == 1 and candidate.isalpha()):
+            if candidate in _NOISE_WORDS and not (
+                len(candidate) == 1 and candidate.isalpha()
+            ):
                 continue
             before.append(candidate)
         if before:
@@ -103,7 +105,9 @@ def extract_company_mention(text: str) -> Optional[str]:
 
         after: List[str] = []
         for candidate in tokens[idx + 1 : idx + 4]:
-            if candidate in _NOISE_WORDS and not (len(candidate) == 1 and candidate.isalpha()):
+            if candidate in _NOISE_WORDS and not (
+                len(candidate) == 1 and candidate.isalpha()
+            ):
                 break
             after.append(candidate)
         if after:
@@ -154,7 +158,9 @@ def extract_agniveer_mention(text: str) -> Optional[str]:
         if not re.match(r"^[a-z]+$", candidate, re.IGNORECASE):
             return candidate.upper()
 
-    m = re.search(r"\bagniveer\s+(?:no\.?|number|#)?\s*(\w{3,10})\b", text, re.IGNORECASE)
+    m = re.search(
+        r"\bagniveer\s+(?:no\.?|number|#)?\s*(\w{3,10})\b", text, re.IGNORECASE
+    )
     if m:
         return m.group(1).upper()
 
@@ -322,7 +328,9 @@ def resolve_entities_from_query(
     result["agniveerNo"] = agniveer_mention
 
     if company_mention and result["companyId"] is None:
-        result["companyId"] = resolve_company_id(company_mention, trace_id=trace_id, session_id=session_id)
+        result["companyId"] = resolve_company_id(
+            company_mention, trace_id=trace_id, session_id=session_id
+        )
 
     if platoon_mention and result["platoonId"] is None:
         result["platoonId"] = resolve_platoon_id(
@@ -333,7 +341,9 @@ def resolve_entities_from_query(
         )
 
     if batch_mention and result["batchId"] is None:
-        result["batchId"] = resolve_batch_id(batch_mention, trace_id=trace_id, session_id=session_id)
+        result["batchId"] = resolve_batch_id(
+            batch_mention, trace_id=trace_id, session_id=session_id
+        )
 
     # ── Helper for whole-word / phrase matching with boundary checks ──
     from query_normalizer import clean_query
@@ -348,8 +358,11 @@ def resolve_entities_from_query(
         q_clean = clean_query(query_text).lower()
         pos = q_clean.find(cand_clean)
         while pos != -1:
-            before_ok = (pos == 0 or not q_clean[pos - 1].isalnum())
-            after_ok = (pos + len(cand_clean) == len(q_clean) or not q_clean[pos + len(cand_clean)].isalnum())
+            before_ok = pos == 0 or not q_clean[pos - 1].isalnum()
+            after_ok = (
+                pos + len(cand_clean) == len(q_clean)
+                or not q_clean[pos + len(cand_clean)].isalnum()
+            )
             if before_ok and after_ok:
                 return True
             pos = q_clean.find(cand_clean, pos + 1)
@@ -359,7 +372,9 @@ def resolve_entities_from_query(
         companies = _fetch_companies(trace_id=trace_id)
         best_match_len = 0
         for co in companies:
-            stored = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
+            stored = str(
+                _get_field(co, "companyName", "CompanyName", "name", "Name") or ""
+            )
             if not stored:
                 continue
             stored_core = re.sub(r"(?:company|coy|unit)", "", stored.lower()).strip()
@@ -377,7 +392,9 @@ def resolve_entities_from_query(
         platoons = _fetch_platoons(trace_id=trace_id)
         best_match_len = 0
         for pl in platoons:
-            stored = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
+            stored = str(
+                _get_field(pl, "platoonName", "PlatoonName", "name", "Name") or ""
+            )
             if not stored:
                 continue
             stored_core = re.sub(r"(?:platoon|pl)", "", stored.lower()).strip()
@@ -388,7 +405,10 @@ def resolve_entities_from_query(
                         pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
                         cid = _get_field(pl, "companyId", "CompanyId")
                         if pid is not None:
-                            if result["companyId"] is None or cid == result["companyId"]:
+                            if (
+                                result["companyId"] is None
+                                or cid == result["companyId"]
+                            ):
                                 result["platoonId"] = int(pid)
                                 result["platoonName"] = stored
                                 best_match_len = candidate_len
@@ -398,7 +418,9 @@ def resolve_entities_from_query(
         for co in companies:
             cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
             if cid is not None and int(cid) == result["companyId"]:
-                result["companyName"] = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
+                result["companyName"] = str(
+                    _get_field(co, "companyName", "CompanyName", "name", "Name") or ""
+                )
                 break
 
     if result["platoonId"] is not None:
@@ -406,7 +428,9 @@ def resolve_entities_from_query(
         for pl in platoons:
             pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
             if pid is not None and int(pid) == result["platoonId"]:
-                result["platoonName"] = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
+                result["platoonName"] = str(
+                    _get_field(pl, "platoonName", "PlatoonName", "name", "Name") or ""
+                )
                 break
 
     return result

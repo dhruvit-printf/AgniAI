@@ -34,7 +34,9 @@ def _validate_operation_for_category(category: str, operation: Optional[str]) ->
     return True if not operation else is_valid_operation(category, operation)
 
 
-def _validate_entities_for_category(category: str, entities: Dict[str, Any]) -> List[str]:
+def _validate_entities_for_category(
+    category: str, entities: Dict[str, Any]
+) -> List[str]:
     errors: List[str] = []
     allowed_entities = get_allowed_entities_for_category(category)
     for entity_type, value in _get_non_null_entities(entities).items():

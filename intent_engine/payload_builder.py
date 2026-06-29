@@ -63,5 +63,3 @@ def build_ai_command_request_dto(
             payload[dest_key] = value
 
     return payload
-
-

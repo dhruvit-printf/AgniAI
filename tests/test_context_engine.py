@@ -53,7 +53,9 @@ class TestContextEngineHelpers(unittest.TestCase):
         self.assertGreater(_compute_follow_up_score("10"), 0.55)
 
         # Independent domain query should be low score
-        self.assertLess(_compute_follow_up_score("Show BPET scores for company alpha"), 0.35)
+        self.assertLess(
+            _compute_follow_up_score("Show BPET scores for company alpha"), 0.35
+        )
 
     def test_compute_relevance(self):
         record = InteractionRecord(
@@ -97,11 +99,17 @@ class TestContextEngineHelpers(unittest.TestCase):
             payload_summary="",
         )
 
-        self.assertEqual(_detect_follow_up_kind("show as bar chart", record), "visualization")
-        self.assertEqual(_detect_follow_up_kind("compare with PPT", record), "comparison")
+        self.assertEqual(
+            _detect_follow_up_kind("show as bar chart", record), "visualization"
+        )
+        self.assertEqual(
+            _detect_follow_up_kind("compare with PPT", record), "comparison"
+        )
         self.assertEqual(_detect_follow_up_kind("top 5", record), "ranking")
         self.assertEqual(_detect_follow_up_kind("show them", record), "pronoun")
-        self.assertEqual(_detect_follow_up_kind("show PPT results", record), "section_switch")
+        self.assertEqual(
+            _detect_follow_up_kind("show PPT results", record), "section_switch"
+        )
         self.assertEqual(_detect_follow_up_kind("only platoon 2", record), "filter")
         self.assertEqual(_detect_follow_up_kind("again", record), "continuation")
         self.assertEqual(_detect_follow_up_kind("obese trainees", record), "unknown")
@@ -122,47 +130,43 @@ class TestContextEngineHelpers(unittest.TestCase):
         # Visualization
         self.assertEqual(
             _reconstruct_query("show as bar chart", record, "visualization"),
-            "Show BPET results as bar chart"
+            "Show BPET results as bar chart",
         )
 
         # Comparison
         self.assertEqual(
             _reconstruct_query("compare with PPT", record, "comparison"),
-            "Compare BPET with PPT"
+            "Compare BPET with PPT",
         )
 
         # Ranking
         self.assertEqual(
-            _reconstruct_query("top 5", record, "ranking"),
-            "Show top 5 BPET results"
+            _reconstruct_query("top 5", record, "ranking"), "Show top 5 BPET results"
         )
 
         # Filter
         self.assertEqual(
             _reconstruct_query("only platoon 2", record, "filter"),
-            "Show BPET results for platoon 2"
+            "Show BPET results for platoon 2",
         )
 
         # Pronoun
         self.assertEqual(
-            _reconstruct_query("show them", record, "pronoun"),
-            "Show BPET results"
+            _reconstruct_query("show them", record, "pronoun"), "Show BPET results"
         )
 
         # Section Switch
         self.assertEqual(
-            _reconstruct_query("show PPT", record, "section_switch"),
-            "Show PPT results"
+            _reconstruct_query("show PPT", record, "section_switch"), "Show PPT results"
         )
 
         # Continuation
         self.assertEqual(
-            _reconstruct_query("again", record, "continuation"),
-            "Show BPET results"
+            _reconstruct_query("again", record, "continuation"), "Show BPET results"
         )
         self.assertEqual(
             _reconstruct_query("same but for platoon 3", record, "continuation"),
-            "Show BPET results for platoon 3"
+            "Show BPET results for platoon 3",
         )
 
 
@@ -319,4 +323,7 @@ class TestConversationContextEngine(unittest.TestCase):
         # Since follow_up_score is 0.45 (len tokens <= 4, no domain keyword -> +0.45)
         # and both PPT and BPET are relevant, it triggers ambiguity detection.
         self.assertTrue(res.needs_clarification)
-        self.assertIn("Do you mean the PPT results or the BPET records?", res.clarification_question)
+        self.assertIn(
+            "Do you mean the PPT results or the BPET records?",
+            res.clarification_question,
+        )

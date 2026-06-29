@@ -142,8 +142,13 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
             json.dumps(
                 {
                     "question": message[:200],
-                    "query_type": (response_payload.get("metadata") or {}).get("queryType") or result.get("type"),
-                    "intent_formed": extract_primary_widget_title(response_payload.get("formattedData")),
+                    "query_type": (response_payload.get("metadata") or {}).get(
+                        "queryType"
+                    )
+                    or result.get("type"),
+                    "intent_formed": extract_primary_widget_title(
+                        response_payload.get("formattedData")
+                    ),
                 }
             )
         )
@@ -238,7 +243,8 @@ def register_socketio_events(socketio: SocketIO) -> None:
 
         if len(message) > 2000:
             ws_manager.send_json(
-                sid, {"type": "error", "message": "Message exceeds maximum allowed length."}
+                sid,
+                {"type": "error", "message": "Message exceeds maximum allowed length."},
             )
             return
 

@@ -80,7 +80,9 @@ def _get_audit_logger() -> logging.Logger:
 # ── Schema ─────────────────────────────────────────────────────────────────
 
 
-def set_audit_context(*, question: str, intent: Optional[Dict[str, Any]] = None) -> None:
+def set_audit_context(
+    *, question: str, intent: Optional[Dict[str, Any]] = None
+) -> None:
     _audit_question_var.set((question or "").strip())
     _audit_intent_var.set(dict(intent or {}))
     _audit_written_var.set(False)
@@ -147,5 +149,7 @@ def purge_old_audit_logs() -> int:
                 os.remove(path)
                 deleted += 1
         except OSError as exc:
-            logging.getLogger(__name__).warning("Failed to delete audit log %s: %s", path, exc)
+            logging.getLogger(__name__).warning(
+                "Failed to delete audit log %s: %s", path, exc
+            )
     return deleted

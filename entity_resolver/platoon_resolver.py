@@ -84,11 +84,17 @@ def resolve_platoon(
             platoon_no = _get(record, "platoonNo", "PlatoonNo", "no", "No")
             if platoon_no is not None and str(platoon_no) == token:
                 record_company_id = _get(record, "companyId", "CompanyId")
-                if company_id is None or record_company_id in (None, company_id, str(company_id)):
+                if company_id is None or record_company_id in (
+                    None,
+                    company_id,
+                    str(company_id),
+                ):
                     return {
                         "PlatoonId": _get(record, "platoonId", "PlatoonId", "id", "Id"),
                         "PlatoonNo": platoon_no,
-                        "name": _get(record, "platoonName", "PlatoonName", "name", "Name"),
+                        "name": _get(
+                            record, "platoonName", "PlatoonName", "name", "Name"
+                        ),
                         "CompanyId": record_company_id,
                         "companyName": _get(record, "companyName", "CompanyName"),
                         "confidence": 0.99,
@@ -103,7 +109,14 @@ def resolve_platoon(
         records,
         value_fields=("platoonId", "PlatoonId", "id", "Id"),
         label_fields=("platoonName", "PlatoonName", "name", "Name"),
-        alias_fields=("platoonName", "PlatoonName", "name", "Name", "platoonNo", "PlatoonNo"),
+        alias_fields=(
+            "platoonName",
+            "PlatoonName",
+            "name",
+            "Name",
+            "platoonNo",
+            "PlatoonNo",
+        ),
         alias_builder=_alias_builder,
         threshold=threshold * 100.0,
     )
@@ -111,7 +124,11 @@ def resolve_platoon(
     record = match.get("record") or {}
     if company_id is not None:
         record_company_id = _get(record, "companyId", "CompanyId")
-        if record_company_id not in (None, company_id, str(company_id)) and not match.get("needs_clarification"):
+        if record_company_id not in (
+            None,
+            company_id,
+            str(company_id),
+        ) and not match.get("needs_clarification"):
             match = {
                 "value": None,
                 "confidence": match.get("confidence", 0.0),

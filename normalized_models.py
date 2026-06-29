@@ -98,7 +98,9 @@ def normalize_prediction(
 
     future_trends = prediction.get("futureTrends") or []
     trend_text = future_trends[0] if future_trends else ""
-    projection = prediction.get("projection") or prediction.get("forecast") or trend_text
+    projection = (
+        prediction.get("projection") or prediction.get("forecast") or trend_text
+    )
     if not projection:
         projection = "A reliable prediction is not available yet."
 
@@ -114,10 +116,13 @@ def normalize_prediction(
     }
 
 
-def build_intro_message(title: str, intro_message: str, category: str) -> Dict[str, Any]:
+def build_intro_message(
+    title: str, intro_message: str, category: str
+) -> Dict[str, Any]:
     return {
         "title": title,
-        "description": intro_message or f"I have prepared a summary of the matching {category.lower()} records.",
+        "description": intro_message
+        or f"I have prepared a summary of the matching {category.lower()} records.",
     }
 
 
@@ -136,7 +141,16 @@ def _infer_simple_section_label(combined_result: Any, intent: Dict[str, Any]) ->
 
     filters = intent.get("filters") or {}
     if isinstance(filters, dict):
-        for key in ("section", "sub_section", "platoon", "platoonName", "unit", "unitName", "class", "sport"):
+        for key in (
+            "section",
+            "sub_section",
+            "platoon",
+            "platoonName",
+            "unit",
+            "unitName",
+            "class",
+            "sport",
+        ):
             value = filters.get(key)
             if value:
                 return str(value).strip()
@@ -157,7 +171,10 @@ def _infer_simple_section_label(combined_result: Any, intent: Dict[str, Any]) ->
             if value:
                 return str(value).strip()
 
-        if category == "Performance" and subcategory in {"TopPerformers", "LowestPerformers"}:
+        if category == "Performance" and subcategory in {
+            "TopPerformers",
+            "LowestPerformers",
+        }:
             # Top/bottom performer queries often return an overall ranking across
             # the whole dataset. Do not infer a platoon label from the first row,
             # because that can make an overall ranking look like it belongs to one
@@ -223,8 +240,12 @@ def assemble_response_metadata(
     }
     if durations:
         metadata.update(durations)
-        metadata.setdefault("entityResolutionMs", durations.get("entityResolutionMs", 0))
+        metadata.setdefault(
+            "entityResolutionMs", durations.get("entityResolutionMs", 0)
+        )
         metadata.setdefault("planningMs", durations.get("planningMs", 0))
         metadata.setdefault("widgetMs", durations.get("widgetMs", 0))
-        metadata.setdefault("responseAssemblyMs", durations.get("responseAssemblyMs", 0))
+        metadata.setdefault(
+            "responseAssemblyMs", durations.get("responseAssemblyMs", 0)
+        )
     return metadata

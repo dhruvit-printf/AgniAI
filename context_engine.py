@@ -28,26 +28,67 @@ MAX_INTERACTIONS = 10
 
 # ─── Follow-up Signal Patterns ───────────────────────────────────────────────
 
-_PRONOUN_TOKENS = frozenset({
-    "them", "those", "these", "their", "they", "him", "her", "it", "its",
-    "which of", "who among", "any of", "some of", "each of",
-})
+_PRONOUN_TOKENS = frozenset(
+    {
+        "them",
+        "those",
+        "these",
+        "their",
+        "they",
+        "him",
+        "her",
+        "it",
+        "its",
+        "which of",
+        "who among",
+        "any of",
+        "some of",
+        "each of",
+    }
+)
 
-_CONTINUATION_TOKENS = frozenset({
-    "now", "then", "again", "instead", "likewise", "also", "then show",
-    "now show", "next", "similarly",
-})
+_CONTINUATION_TOKENS = frozenset(
+    {
+        "now",
+        "then",
+        "again",
+        "instead",
+        "likewise",
+        "also",
+        "then show",
+        "now show",
+        "next",
+        "similarly",
+    }
+)
 
 _COMPARISON_MARKERS = (
-    "compare with", "comparison with", "vs ", "versus ",
-    "compare against", "now compare", "also compare",
+    "compare with",
+    "comparison with",
+    "vs ",
+    "versus ",
+    "compare against",
+    "now compare",
+    "also compare",
 )
 
 _VISUALIZATION_MARKERS = (
-    "show as", "make it a", "as a ", "display as",
-    "bar chart", "pie chart", "line chart", "as table", "as chart",
-    "as bar", "as pie", "as line", "in a bar", "in a table",
-    "convert to chart", "convert to table",
+    "show as",
+    "make it a",
+    "as a ",
+    "display as",
+    "bar chart",
+    "pie chart",
+    "line chart",
+    "as table",
+    "as chart",
+    "as bar",
+    "as pie",
+    "as line",
+    "in a bar",
+    "in a table",
+    "convert to chart",
+    "convert to table",
 )
 
 _RANKING_PATTERN = re.compile(
@@ -57,34 +98,98 @@ _RANKING_PATTERN = re.compile(
 _NUMBER_ONLY = re.compile(r"^\d+$")
 
 _SECTION_ALIASES: Dict[str, str] = {
-    "bpet": "BPET", "bept": "BPET",
+    "bpet": "BPET",
+    "bept": "BPET",
     "ppt": "PPT",
     "firing": "Firing",
     "drill": "Drill",
 }
 
 # Domain keywords — their presence signals an independent topic
-_DOMAIN_KEYWORDS = frozenset({
-    "bpet", "ppt", "firing", "drill", "leave", "medical", "attendance",
-    "performance", "score", "marks", "grade", "grading",
-    "football", "cricket", "blood", "bmi", "distribution", "trend",
-    "verification", "equipment", "issued", "procured", "absent", "absconded",
-    "strength", "overdue", "pending", "approved", "rejected", "overall",
-    "average", "pass", "fail", "improvement", "decline", "drop", "attempt",
-    "summary", "verify", "cleared", "responded", "roster", "sport", "sports",
-    "medical leave", "sick", "disease", "fever", "malaria", "injury",
-    "current leave", "on leave",
-})
+_DOMAIN_KEYWORDS = frozenset(
+    {
+        "bpet",
+        "ppt",
+        "firing",
+        "drill",
+        "leave",
+        "medical",
+        "attendance",
+        "performance",
+        "score",
+        "marks",
+        "grade",
+        "grading",
+        "football",
+        "cricket",
+        "blood",
+        "bmi",
+        "distribution",
+        "trend",
+        "verification",
+        "equipment",
+        "issued",
+        "procured",
+        "absent",
+        "absconded",
+        "strength",
+        "overdue",
+        "pending",
+        "approved",
+        "rejected",
+        "overall",
+        "average",
+        "pass",
+        "fail",
+        "improvement",
+        "decline",
+        "drop",
+        "attempt",
+        "summary",
+        "verify",
+        "cleared",
+        "responded",
+        "roster",
+        "sport",
+        "sports",
+        "medical leave",
+        "sick",
+        "disease",
+        "fever",
+        "malaria",
+        "injury",
+        "current leave",
+        "on leave",
+    }
+)
 
 # Phrases that are unambiguously continuations regardless of domain keywords
 _EXPLICIT_FOLLOWUP_PHRASES = (
-    "top 5", "top 10", "top 3", "top 20", "top 50",
-    "bottom 5", "bottom 10", "bottom 3",
-    "only these", "list them", "show them", "their details",
-    "compare with", "vs ", "versus ",
-    "same company", "same platoon", "same batch",
-    "this platoon", "that company", "those candidates",
-    "again", "likewise", "show only", "only the",
+    "top 5",
+    "top 10",
+    "top 3",
+    "top 20",
+    "top 50",
+    "bottom 5",
+    "bottom 10",
+    "bottom 3",
+    "only these",
+    "list them",
+    "show them",
+    "their details",
+    "compare with",
+    "vs ",
+    "versus ",
+    "same company",
+    "same platoon",
+    "same batch",
+    "this platoon",
+    "that company",
+    "those candidates",
+    "again",
+    "likewise",
+    "show only",
+    "only the",
 )
 
 
@@ -94,6 +199,7 @@ _EXPLICIT_FOLLOWUP_PHRASES = (
 @dataclass
 class InteractionRecord:
     """One complete resolved interaction stored in conversation memory."""
+
     user_message: str
     resolved_query: str
     intent: Dict[str, Any]
@@ -112,9 +218,10 @@ class InteractionRecord:
 @dataclass
 class ContextResolution:
     """Result returned by ConversationContextEngine.resolve()."""
+
     resolved_query: str
     resolved_entities: Dict[str, Any]
-    context_source: str          # "fresh" | "interaction_N" | "clarification"
+    context_source: str  # "fresh" | "interaction_N" | "clarification"
     needs_clarification: bool
     clarification_question: Optional[str]
     carry_forward_filters: Dict[str, Any]
@@ -329,7 +436,12 @@ def _reconstruct_query(
 
     if follow_up_kind == "visualization":
         # Strip redundant leading "show" / "make it" before appending
-        hint = re.sub(r"^(show\s+as|make\s+it\s+a?|display\s+as|convert\s+to)\s*", "", msg, flags=re.IGNORECASE).strip()
+        hint = re.sub(
+            r"^(show\s+as|make\s+it\s+a?|display\s+as|convert\s+to)\s*",
+            "",
+            msg,
+            flags=re.IGNORECASE,
+        ).strip()
         return f"{base} as {hint}" if hint else f"{base} {msg}"
 
     if follow_up_kind == "comparison":
@@ -340,7 +452,9 @@ def _reconstruct_query(
                 tail = norm.split(marker, 1)[1].strip()
                 source = matched.section or matched.category or "previous results"
                 # Capitalise the comparison target from the original casing
-                tail_original = re.split(marker, msg, maxsplit=1, flags=re.IGNORECASE)[-1].strip()
+                tail_original = re.split(marker, msg, maxsplit=1, flags=re.IGNORECASE)[
+                    -1
+                ].strip()
                 return f"Compare {source} with {tail_original}"
         return f"{base} {msg}"
 
@@ -357,7 +471,9 @@ def _reconstruct_query(
 
     if follow_up_kind == "filter":
         # "only platoon 2" → "{base} for platoon 2"
-        stripped = re.sub(r"^(only|just|show\s+only|show\s+for)\s+", "", msg, flags=re.IGNORECASE).strip()
+        stripped = re.sub(
+            r"^(only|just|show\s+only|show\s+for)\s+", "", msg, flags=re.IGNORECASE
+        ).strip()
         connector = "for" if not stripped.lower().startswith("for ") else ""
         return f"{base} {connector} {stripped}".strip()
 
@@ -521,8 +637,8 @@ class ConversationContextEngine:
         # Only meaningful for moderate follow-ups with real relevance signals.
         if (
             len(scored) >= 2
-            and follow_up_score < 0.7           # not an obvious follow-up
-            and best_score >= 0.2               # both candidates are actually relevant
+            and follow_up_score < 0.7  # not an obvious follow-up
+            and best_score >= 0.2  # both candidates are actually relevant
             and (best_score - scored[1][0]) < 0.08  # nearly tied
         ):
             a = scored[0][2]
@@ -530,7 +646,9 @@ class ConversationContextEngine:
             topic_a = a.section or a.category or a.resolved_query
             topic_b = b.section or b.category or b.resolved_query
             if topic_a != topic_b:
-                question = f"Do you mean the {topic_a} results or the {topic_b} records?"
+                question = (
+                    f"Do you mean the {topic_a} results or the {topic_b} records?"
+                )
                 return ContextResolution(
                     resolved_query=raw_message,
                     resolved_entities={},
@@ -556,9 +674,17 @@ class ConversationContextEngine:
         # Step 5 — collect carry-forward filters (do not override explicit values)
         carry_filters: Dict[str, Any] = {}
         for key in (
-            "section", "category", "company_id", "companyId",
-            "platoon_id", "platoonId", "batch_id", "batchId",
-            "group_by", "sort_by", "top_n",
+            "section",
+            "category",
+            "company_id",
+            "companyId",
+            "platoon_id",
+            "platoonId",
+            "batch_id",
+            "batchId",
+            "group_by",
+            "sort_by",
+            "top_n",
         ):
             val = best_record.filters.get(key) or best_record.entities.get(key)
             if val is not None:

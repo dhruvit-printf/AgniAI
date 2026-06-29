@@ -64,16 +64,16 @@ def _build_data_grounded_report(
             f"The cross-filter query completed successfully and returned {match_count} matching records "
             f"out of {total_before} candidates."
         )
-        analysis_summary = (
-            f"Cross-filter analysis matched {match_count} records after intersecting the requested conditions."
-        )
+        analysis_summary = f"Cross-filter analysis matched {match_count} records after intersecting the requested conditions."
         observations = [f"{match_count} records satisfied all filter conditions."]
         if total_before:
-            observations.append(f"{match_count} of {total_before} candidates remained after filtering.")
-        insights = ["The result set is grounded in the overlapping criteria that were returned."]
-        conclusion = (
-            f"The cross-filter result set is complete with {match_count} matching records and is ready for review."
-        )
+            observations.append(
+                f"{match_count} of {total_before} candidates remained after filtering."
+            )
+        insights = [
+            "The result set is grounded in the overlapping criteria that were returned."
+        ]
+        conclusion = f"The cross-filter result set is complete with {match_count} matching records and is ready for review."
         prediction = {
             "trend": "Stable" if match_count > 0 else "Insufficient Data",
             "projection": (
@@ -108,23 +108,31 @@ def _build_data_grounded_report(
         }
 
     if query_type in ("compare", "comparison"):
-        sides = combined_result.get("sides", []) if isinstance(combined_result, dict) else []
+        sides = (
+            combined_result.get("sides", [])
+            if isinstance(combined_result, dict)
+            else []
+        )
         left = combined_result.get("left") or {}
         right = combined_result.get("right") or {}
-        labels = [side.get("label", f"Side {idx + 1}") for idx, side in enumerate(sides[:2])]
+        labels = [
+            side.get("label", f"Side {idx + 1}") for idx, side in enumerate(sides[:2])
+        ]
         if len(labels) < 2:
             labels = [left.get("label", "Side 1"), right.get("label", "Side 2")]
         left_cnt = len(left.get("data", [])) if isinstance(left, dict) else 0
         right_cnt = len(right.get("data", [])) if isinstance(right, dict) else 0
-        comparison = combined_result.get("comparison") if isinstance(combined_result, dict) else {}
+        comparison = (
+            combined_result.get("comparison")
+            if isinstance(combined_result, dict)
+            else {}
+        )
         diff = None
         if isinstance(comparison, dict):
             first_metric = next(iter(comparison.values()), {})
             diff = first_metric.get("difference")
         message = f"I completed a side-by-side comparison between {labels[0]} and {labels[1]}."
-        analysis_summary = (
-            f"Comparison analysis reviewed {left_cnt} records on {labels[0]} and {right_cnt} records on {labels[1]}."
-        )
+        analysis_summary = f"Comparison analysis reviewed {left_cnt} records on {labels[0]} and {right_cnt} records on {labels[1]}."
         observations = [
             f"{labels[0]} contains {left_cnt} records.",
             f"{labels[1]} contains {right_cnt} records.",
@@ -132,12 +140,8 @@ def _build_data_grounded_report(
         if diff is not None:
             observations.append(f"The recorded comparison difference is {diff}.")
         insights = ["The comparison is grounded in the records returned for each side."]
-        conclusion = (
-            f"The comparison is complete and the returned metrics show {labels[0]} versus {labels[1]} without inventing any unreturned values."
-        )
-        projection = (
-            f"Future comparison results should stay close to the returned {left_cnt} and {right_cnt} record counts unless the source data changes."
-        )
+        conclusion = f"The comparison is complete and the returned metrics show {labels[0]} versus {labels[1]} without inventing any unreturned values."
+        projection = f"Future comparison results should stay close to the returned {left_cnt} and {right_cnt} record counts unless the source data changes."
         return {
             "message": message,
             "analysis": {
@@ -157,17 +161,25 @@ def _build_data_grounded_report(
         }
 
     if query_type == "multi_independent":
-        sections = combined_result.get("sections") or [] if isinstance(combined_result, dict) else []
+        sections = (
+            combined_result.get("sections") or []
+            if isinstance(combined_result, dict)
+            else []
+        )
         section_counts = []
         for section in sections:
             data = section.get("data") or []
             section_counts.append((section.get("label", "Section"), len(data)))
-        message = f"I combined {len(section_counts)} independent sections into one report."
-        analysis_summary = (
-            f"The multi-section report contains {len(section_counts)} independent sections with grounded record counts."
+        message = (
+            f"I combined {len(section_counts)} independent sections into one report."
         )
-        observations = [f"{label} returned {count} records." for label, count in section_counts[:5]]
-        insights = ["Each section is preserved independently to prevent data loss across modules."]
+        analysis_summary = f"The multi-section report contains {len(section_counts)} independent sections with grounded record counts."
+        observations = [
+            f"{label} returned {count} records." for label, count in section_counts[:5]
+        ]
+        insights = [
+            "Each section is preserved independently to prevent data loss across modules."
+        ]
         conclusion = "The consolidated report is complete and reflects only the sections that were returned."
         return {
             "message": message,
@@ -182,7 +194,9 @@ def _build_data_grounded_report(
                 "projection": "Future section counts should remain aligned with the current information unless the source data changes.",
                 "heuristicEstimate": "Future section counts should remain aligned with the current information unless the source data changes.",
                 "shortTerm": "stable",
-                "futureTrends": ["Future section counts should remain aligned with the current information unless the source data changes."],
+                "futureTrends": [
+                    "Future section counts should remain aligned with the current information unless the source data changes."
+                ],
             },
             "conclusion": {"summary": conclusion},
         }
@@ -202,11 +216,15 @@ def _build_data_grounded_report(
     observations = [f"The query returned {cnt} {category.lower()} records."]
     if scores:
         observations.append(f"Average score: {round(sum(scores) / len(scores), 2)}.")
-        observations.append(f"Score range: {round(min(scores), 2)} to {round(max(scores), 2)}.")
+        observations.append(
+            f"Score range: {round(min(scores), 2)} to {round(max(scores), 2)}."
+        )
 
     insights = ["The response is grounded in the records that were returned."]
     if scores:
-        insights.append("The score distribution is based on the actual returned values.")
+        insights.append(
+            "The score distribution is based on the actual returned values."
+        )
 
     pred_cat = category.strip() if category else "Agniveer"
     if pred_cat.lower() in ("unclear", "unknown", "none"):
@@ -241,11 +259,26 @@ def _build_data_grounded_report(
 
 
 _INTRO_TEMPLATES: Dict[Any, str] = {
-    ("Performance", "TopPerformers"): "These assessment results highlight the strongest performers in the evaluation.",
-    ("Performance", "LowestPerformers"): "These results identify the individuals requiring additional training support.",
-    ("Leave", "CurrentLeaveStatus"): "Current leave records outline person availability across the unit.",
-    ("Medical", "ActiveCases"): "This summary captures current active cases undergoing medical attention.",
-    ("Verification", "CompletedVerification"): "These records confirm files that have cleared the verification process.",
+    (
+        "Performance",
+        "TopPerformers",
+    ): "These assessment results highlight the strongest performers in the evaluation.",
+    (
+        "Performance",
+        "LowestPerformers",
+    ): "These results identify the individuals requiring additional training support.",
+    (
+        "Leave",
+        "CurrentLeaveStatus",
+    ): "Current leave records outline person availability across the unit.",
+    (
+        "Medical",
+        "ActiveCases",
+    ): "This summary captures current active cases undergoing medical attention.",
+    (
+        "Verification",
+        "CompletedVerification",
+    ): "These records confirm files that have cleared the verification process.",
 }
 
 
@@ -260,51 +293,87 @@ def get_fallback_report(
     cnt = len(records)
 
     if query_type == "cross_filter":
-        match_count = combined_result.get("matchCount", cnt) if isinstance(combined_result, dict) else cnt
-        total_before = combined_result.get("totalBeforeFilter", 0) if isinstance(combined_result, dict) else 0
+        match_count = (
+            combined_result.get("matchCount", cnt)
+            if isinstance(combined_result, dict)
+            else cnt
+        )
+        total_before = (
+            combined_result.get("totalBeforeFilter", 0)
+            if isinstance(combined_result, dict)
+            else 0
+        )
         if match_count > 0:
             message = f"I found {match_count} records that match all of the selected conditions."
             summary = f"The cross-filter search identified exactly {match_count} records that satisfy every selected condition."
-            obs = [f"{match_count} records were matched out of {total_before} before filtering."]
-            insights = ["The overlap between the selected conditions identifies the records that fit every rule."]
+            obs = [
+                f"{match_count} records were matched out of {total_before} before filtering."
+            ]
+            insights = [
+                "The overlap between the selected conditions identifies the records that fit every rule."
+            ]
             conclusion = f"The cross-filter search is complete and the {match_count} matching records are ready for review."
         else:
-            message = "I checked the selected conditions, but no matching records were found."
+            message = (
+                "I checked the selected conditions, but no matching records were found."
+            )
             summary = "The cross-filter search did not find any records that satisfy every selected condition."
             obs = ["The search did not return any overlapping records."]
-            insights = ["The selected conditions may be too narrow for the current set of records."]
+            insights = [
+                "The selected conditions may be too narrow for the current set of records."
+            ]
             conclusion = "The cross-filter search did not return any matches. You may want to broaden the conditions and try again."
     elif query_type in ("comparison", "compare"):
-        sides = combined_result.get("sides", []) if isinstance(combined_result, dict) else []
+        sides = (
+            combined_result.get("sides", [])
+            if isinstance(combined_result, dict)
+            else []
+        )
         labels = [s.get("label", "Section") for s in sides]
         labels_str = " and ".join(labels) if labels else "selected categories"
-        has_data = any(len(s.get("data", [])) > 0 for s in sides) if sides else (cnt > 0)
+        has_data = (
+            any(len(s.get("data", [])) > 0 for s in sides) if sides else (cnt > 0)
+        )
         if has_data:
             message = f"I completed a side-by-side comparison between {labels_str}."
             summary = f"The comparison highlights the differences across {labels_str}."
             obs = [f"Compared {len(sides)} groups: {', '.join(labels)}."]
-            insights = ["Looking at the groups side by side makes the main differences easy to spot."]
-            conclusion = f"The comparison of {labels_str} is complete and ready for review."
+            insights = [
+                "Looking at the groups side by side makes the main differences easy to spot."
+            ]
+            conclusion = (
+                f"The comparison of {labels_str} is complete and ready for review."
+            )
         else:
             message = "I could not complete the comparison because no matching records were found for either side."
             summary = "The comparison could not be completed because the selected groups returned no records."
             obs = ["Both comparison groups returned no records."]
-            insights = ["There is not enough data available yet to compare the selected groups."]
+            insights = [
+                "There is not enough data available yet to compare the selected groups."
+            ]
             conclusion = "The comparison could not be completed because no matching records were found."
     elif query_type == "multi_independent":
-        sections = combined_result.get("sections") or [] if isinstance(combined_result, dict) else []
+        sections = (
+            combined_result.get("sections") or []
+            if isinstance(combined_result, dict)
+            else []
+        )
         has_data = any(len(s.get("data", [])) > 0 for s in sections)
         if has_data:
             message = f"I combined data from {len(sections)} independent sections into one report."
             summary = f"The consolidated report brings together {len(sections)} separate sections."
             obs = [f"Merged {len(sections)} independent sections into one view."]
-            insights = ["Keeping each section separate makes the report easier to review."]
+            insights = [
+                "Keeping each section separate makes the report easier to review."
+            ]
             conclusion = f"The consolidated report is complete and includes all {len(sections)} sections."
         else:
             message = "I compiled the report, but none of the requested sections returned any records."
             summary = "The multi-section report is empty because no records were returned for the requested sections."
             obs = ["All requested sections returned no records."]
-            insights = ["There is not enough data available in the requested sections to build a fuller report."]
+            insights = [
+                "There is not enough data available in the requested sections to build a fuller report."
+            ]
             conclusion = "The consolidated report is empty because no matching records were found."
     else:
         if cnt > 0:
@@ -319,13 +388,22 @@ def get_fallback_report(
         else:
             message = f"I could not find any matching {category.lower()} records."
             summary = f"No matching records were found for the selected {category.lower()} criteria."
-            obs = [f"The search returned 0 records for the {category.lower()} category."]
-            insights = ["The selected criteria may be too narrow for the available records."]
+            obs = [
+                f"The search returned 0 records for the {category.lower()} category."
+            ]
+            insights = [
+                "The selected criteria may be too narrow for the available records."
+            ]
             conclusion = f"No matching {category.lower()} records were found. Try broadening the criteria and search again."
 
     return {
         "message": message,
-        "analysis": {"summary": summary, "observations": obs, "insights": insights, "predictions": []},
+        "analysis": {
+            "summary": summary,
+            "observations": obs,
+            "insights": insights,
+            "predictions": [],
+        },
         "conclusion": {"summary": conclusion},
     }
 
@@ -373,13 +451,23 @@ def generate_report(
     analysis_ms = 0.0
     t0 = time.time()
     try:
-        analysis = generate_analysis(combined_result, query_type, intent, user_query, trace_id)
+        analysis = generate_analysis(
+            combined_result, query_type, intent, user_query, trace_id
+        )
         analysis_ms = round((time.time() - t0) * 1000, 2)
-        _log_stage("analysis_time", analysis_ms, query_type=query_type, trace_id=trace_id)
+        _log_stage(
+            "analysis_time", analysis_ms, query_type=query_type, trace_id=trace_id
+        )
     except Exception as exc:
         analysis_ms = round((time.time() - t0) * 1000, 2)
         logger.error("report_generator: analysis stage failed: %s", exc, exc_info=True)
-        _log_stage("analysis_time", analysis_ms, query_type=query_type, trace_id=trace_id, error=str(exc))
+        _log_stage(
+            "analysis_time",
+            analysis_ms,
+            query_type=query_type,
+            trace_id=trace_id,
+            error=str(exc),
+        )
 
     prediction = None
     prediction_ms = 0.0
@@ -387,11 +475,21 @@ def generate_report(
     try:
         prediction = generate_predictions(combined_result, query_type, intent)
         prediction_ms = round((time.time() - t0) * 1000, 2)
-        _log_stage("prediction_time", prediction_ms, query_type=query_type, trace_id=trace_id)
+        _log_stage(
+            "prediction_time", prediction_ms, query_type=query_type, trace_id=trace_id
+        )
     except Exception as exc:
         prediction_ms = round((time.time() - t0) * 1000, 2)
-        logger.error("report_generator: prediction stage failed: %s", exc, exc_info=True)
-        _log_stage("prediction_time", prediction_ms, query_type=query_type, trace_id=trace_id, error=str(exc))
+        logger.error(
+            "report_generator: prediction stage failed: %s", exc, exc_info=True
+        )
+        _log_stage(
+            "prediction_time",
+            prediction_ms,
+            query_type=query_type,
+            trace_id=trace_id,
+            error=str(exc),
+        )
 
     conclusion = None
     conclusion_ms = 0.0
@@ -399,14 +497,25 @@ def generate_report(
     try:
         conclusion = generate_conclusion(combined_result, query_type, intent, trace_id)
         conclusion_ms = round((time.time() - t0) * 1000, 2)
-        _log_stage("conclusion_time", conclusion_ms, query_type=query_type, trace_id=trace_id)
+        _log_stage(
+            "conclusion_time", conclusion_ms, query_type=query_type, trace_id=trace_id
+        )
     except Exception as exc:
         conclusion_ms = round((time.time() - t0) * 1000, 2)
-        logger.error("report_generator: conclusion stage failed: %s", exc, exc_info=True)
-        _log_stage("conclusion_time", conclusion_ms, query_type=query_type, trace_id=trace_id, error=str(exc))
+        logger.error(
+            "report_generator: conclusion stage failed: %s", exc, exc_info=True
+        )
+        _log_stage(
+            "conclusion_time",
+            conclusion_ms,
+            query_type=query_type,
+            trace_id=trace_id,
+            error=str(exc),
+        )
 
     try:
         from message_engine import generate_message
+
         message = generate_message(
             user_query=user_query,
             combined_result=combined_result,
@@ -417,13 +526,18 @@ def generate_report(
     except Exception as exc:
         logger.warning("report_generator: message_engine failed: %s", exc)
         category = intent.get("category") or "Agniveer"
-        message = (analysis or {}).get("summary") or \
-                  f"The {category.lower()} query returned {len(records)} records."
+        message = (analysis or {}).get(
+            "summary"
+        ) or f"The {category.lower()} query returned {len(records)} records."
 
     analysis_summary_text = (analysis or {}).get("summary", "")
-    conclusion_text = (conclusion or {}).get("summary") or (conclusion or {}).get("message") or ""
+    conclusion_text = (
+        (conclusion or {}).get("summary") or (conclusion or {}).get("message") or ""
+    )
 
-    intro_needs_fallback = _has_negative_copy(message) or _has_negative_copy(analysis_summary_text)
+    intro_needs_fallback = _has_negative_copy(message) or _has_negative_copy(
+        analysis_summary_text
+    )
     conclusion_needs_fallback = _has_negative_copy(conclusion_text)
 
     if intro_needs_fallback or conclusion_needs_fallback:
@@ -433,7 +547,9 @@ def generate_report(
             analysis = grounded.get("analysis", analysis)
             prediction = grounded.get("prediction", prediction)
         if conclusion_needs_fallback:
-            conclusion_text = grounded.get("conclusion", {}).get("summary", conclusion_text)
+            conclusion_text = grounded.get("conclusion", {}).get(
+                "summary", conclusion_text
+            )
 
     return {
         "message": message,
@@ -441,7 +557,11 @@ def generate_report(
         "prediction": prediction,
         "conclusion": {
             "summary": conclusion_text,
-            "bullets": conclusion.get("bullets") if (conclusion and isinstance(conclusion, dict)) else [],
+            "bullets": (
+                conclusion.get("bullets")
+                if (conclusion and isinstance(conclusion, dict))
+                else []
+            ),
         },
         "durations": {
             "analysisDurationMs": analysis_ms,

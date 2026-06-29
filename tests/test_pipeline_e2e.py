@@ -89,7 +89,9 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
     @patch("admin_pipeline._call_dotnet")
     @patch("admin_pipeline.generate_report")
-    def test_disclaimer_banner_stays_conversational(self, mock_generate_report, mock_call_dotnet):
+    def test_disclaimer_banner_stays_conversational(
+        self, mock_generate_report, mock_call_dotnet
+    ):
         result = execute_admin_query(
             "AgniAI may make mistakes. Verify important information.",
             {},
@@ -185,8 +187,10 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertIsNotNone(table_widget, "TABLE widget not found in formattedData")
         rows = table_widget["data"]["rows"]
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["fullName"], "AMIT KUMAR")    # camelCase after normalisation
-        self.assertEqual(rows[0]["agniveerNo"], "A01")          # camelCase after normalisation
+        self.assertEqual(
+            rows[0]["fullName"], "AMIT KUMAR"
+        )  # camelCase after normalisation
+        self.assertEqual(rows[0]["agniveerNo"], "A01")  # camelCase after normalisation
 
         self.assertEqual(mock_call_dotnet.call_count, 3)
 

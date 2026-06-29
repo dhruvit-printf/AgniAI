@@ -30,48 +30,66 @@ def test_dynamic_visualization_selection():
     # Table shape (contain names)
     sides_table = [
         {"data": [{"fullName": "John Doe", "score": 90}]},
-        {"data": [{"fullName": "Jane Doe", "score": 95}]}
+        {"data": [{"fullName": "Jane Doe", "score": 95}]},
     ]
     assert select_visualization_type(sides_table) == "COMPARE_TABLE"
 
     # Line chart shape (contain dates/attempts)
     sides_line = [
         {"data": [{"date": "2026-01-01", "score": 80}]},
-        {"data": [{"date": "2026-01-02", "score": 85}]}
+        {"data": [{"date": "2026-01-02", "score": 85}]},
     ]
     assert select_visualization_type(sides_line) == "COMPARE_LINE_CHART"
 
     # Pie chart shape (contain leave/medical category)
     sides_pie = [
         {"data": [{"leaveType": "Sick", "count": 2}]},
-        {"data": [{"leaveType": "Sick", "count": 3}]}
+        {"data": [{"leaveType": "Sick", "count": 3}]},
     ]
     assert select_visualization_type(sides_pie) == "COMPARE_PIE_CHART"
 
     # Bar chart shape (contain platoon/company)
     sides_bar = [
         {"data": [{"platoon": "Platoon 1", "score": 75}]},
-        {"data": [{"platoon": "Platoon 2", "score": 80}]}
+        {"data": [{"platoon": "Platoon 2", "score": 80}]},
     ]
     assert select_visualization_type(sides_bar) == "COMPARE_BAR_CHART"
 
     # Card shape (1 record, 2 keys)
-    sides_card = [
-        {"data": [{"score": 90}]},
-        {"data": [{"score": 95}]}
-    ]
+    sides_card = [{"data": [{"score": 90}]}, {"data": [{"score": 95}]}]
     assert select_visualization_type(sides_card) == "COMPARE_CARD"
 
 
 def test_compare_datasets_metrics():
     labeled_results = [
-        ("PPT", {"data": [{"score": 100}, {"score": 90}], "recordCount": 2, "averageScore": 95.0}),
-        ("BPET", {"data": [{"score": 80}, {"score": 70}], "recordCount": 2, "averageScore": 75.0}),
-        ("Medical", {"data": [{"score": 90}, {"score": 80}], "recordCount": 2, "averageScore": 85.0})
+        (
+            "PPT",
+            {
+                "data": [{"score": 100}, {"score": 90}],
+                "recordCount": 2,
+                "averageScore": 95.0,
+            },
+        ),
+        (
+            "BPET",
+            {
+                "data": [{"score": 80}, {"score": 70}],
+                "recordCount": 2,
+                "averageScore": 75.0,
+            },
+        ),
+        (
+            "Medical",
+            {
+                "data": [{"score": 90}, {"score": 80}],
+                "recordCount": 2,
+                "averageScore": 85.0,
+            },
+        ),
     ]
-    
+
     result = compare_datasets(labeled_results)
-    
+
     assert "comparisonMetrics" in result
     metrics = result["comparisonMetrics"]
     assert metrics["difference"]["averageScore"] == 20.0  # 95.0 - 75.0
@@ -89,26 +107,24 @@ def test_response_builder_format():
             "lowest": {},
             "difference": {},
             "percentageDifference": {},
-            "variance": {}
-        }
+            "variance": {},
+        },
     }
     formatted_data = {
         "type": "COMPARE_CARD",
         "title": "Comparison Result",
-        "data": {"metrics": []}
+        "data": {"metrics": []},
     }
-    dotnet_payload = [
-        {"id": "dataset_1", "label": "PPT"}
-    ]
-    
+    dotnet_payload = [{"id": "dataset_1", "label": "PPT"}]
+
     response = build_response(
         message="Comparison generated",
         formatted_data=formatted_data,
         metadata=metadata,
         session_id="test_session",
-        dotnet_payload=dotnet_payload
+        dotnet_payload=dotnet_payload,
     )
-    
+
     assert response["status"] is True
     assert isinstance(response["formattedData"], list)
     assert response["formattedData"][0]["type"] == "COMPARE_CARD"

@@ -24,6 +24,7 @@ from normalized_models import extract_records as _orig_extract_records
 
 logger = logging.getLogger(__name__)
 
+
 def capitalize_segment(s: str) -> str:
     if not s:
         return ""
@@ -41,7 +42,9 @@ def get_singular_key(key: str) -> str:
     return key
 
 
-def recursive_flatten(val: Any, path_prefix: List[str], flat_dict: Dict[str, Any]) -> None:
+def recursive_flatten(
+    val: Any, path_prefix: List[str], flat_dict: Dict[str, Any]
+) -> None:
     if isinstance(val, dict):
         if not path_prefix:
             for k, v in val.items():
@@ -52,10 +55,14 @@ def recursive_flatten(val: Any, path_prefix: List[str], flat_dict: Dict[str, Any
         name_key = None
         for k in val.keys():
             k_lower = k.lower()
-            if k_lower in ("name", "label", "sectionname", "subitemname", "itemname") or k_lower.endswith("name") or k_lower.endswith("label"):
+            if (
+                k_lower in ("name", "label", "sectionname", "subitemname", "itemname")
+                or k_lower.endswith("name")
+                or k_lower.endswith("label")
+            ):
                 name_key = k
                 break
-        
+
         value_key = None
         for k in val.keys():
             k_lower = k.lower()
@@ -63,7 +70,7 @@ def recursive_flatten(val: Any, path_prefix: List[str], flat_dict: Dict[str, Any
                 if isinstance(val[k], (str, int, float, bool)) or val[k] is None:
                     value_key = k
                     break
-        
+
         label_already_in_path = False
         if name_key and path_prefix:
             label_val = str(val[name_key])
@@ -71,7 +78,7 @@ def recursive_flatten(val: Any, path_prefix: List[str], flat_dict: Dict[str, Any
                 label_seg = capitalize_segment(label_val)
                 if path_prefix[-1].lower() == label_seg.lower():
                     label_already_in_path = True
-        
+
         if label_already_in_path:
             if value_key:
                 flat_dict["_".join(path_prefix)] = val[value_key]
@@ -102,37 +109,42 @@ def recursive_flatten(val: Any, path_prefix: List[str], flat_dict: Dict[str, Any
                 for k, v in val.items():
                     k_seg = capitalize_segment(k)
                     recursive_flatten(v, path_prefix + [k_seg], flat_dict)
-                    
+
     elif isinstance(val, list):
         parent_key = path_prefix[-1] if path_prefix else "Item"
         singular = get_singular_key(parent_key)
         base_prefix = capitalize_segment(singular)
-        
+
         for idx, item in enumerate(val):
             segment_name = None
             if isinstance(item, dict):
                 name_key = None
                 for k in item.keys():
                     k_lower = k.lower()
-                    if k_lower in ("name", "label", "sectionname", "subitemname", "itemname") or k_lower.endswith("name") or k_lower.endswith("label"):
+                    if (
+                        k_lower
+                        in ("name", "label", "sectionname", "subitemname", "itemname")
+                        or k_lower.endswith("name")
+                        or k_lower.endswith("label")
+                    ):
                         name_key = k
                         break
                 if name_key:
                     label_val = str(item[name_key])
                     if label_val:
                         segment_name = capitalize_segment(label_val)
-            
+
             if not segment_name:
                 segment_name = f"{base_prefix}{idx + 1}"
-            
+
             new_path = list(path_prefix)
             if new_path:
                 new_path[-1] = segment_name
             else:
                 new_path = [segment_name]
-            
+
             recursive_flatten(item, new_path, flat_dict)
-            
+
     else:
         if val is None or isinstance(val, (str, int, float, bool)):
             col_key = "_".join(path_prefix)
@@ -150,7 +162,9 @@ def deep_flatten_record(r: Dict[str, Any]) -> Dict[str, Any]:
     return flat
 
 
-def flatten_records(records: List[Dict[str, Any]], deep_flatten: bool = False) -> List[Dict[str, Any]]:
+def flatten_records(
+    records: List[Dict[str, Any]], deep_flatten: bool = False
+) -> List[Dict[str, Any]]:
     flat_records = []
     for r in records:
         if isinstance(r, dict):
@@ -176,7 +190,9 @@ def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 record_id = f"id:{val}"
                 break
         if record_id is None:
-            record_id = "row:" + json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
+            record_id = "row:" + json.dumps(
+                record, sort_keys=True, ensure_ascii=False, default=str
+            )
         if record_id in seen:
             continue
         seen.add(record_id)
@@ -184,8 +200,13 @@ def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return deduped
 
 
-def _extract_records(combined_result: Any, deep_flatten: bool = False) -> List[Dict[str, Any]]:
-    return flatten_records(_orig_extract_records(combined_result), deep_flatten=deep_flatten)
+def _extract_records(
+    combined_result: Any, deep_flatten: bool = False
+) -> List[Dict[str, Any]]:
+    return flatten_records(
+        _orig_extract_records(combined_result), deep_flatten=deep_flatten
+    )
+
 
 from schemas import (
     CardItem,
@@ -218,107 +239,107 @@ from schemas import (
 # ---------------------------------------------------------------------------
 WIDGET_MAP: Dict[Tuple[str, str], str] = {
     # ── Performance ──────────────────────────────────────────────────────────
-    ("Performance", "Top"):             "TABLE",
-    ("Performance", "Bottom"):          "TABLE",
-    ("Performance", "Improvement"):     "LINE_CHART",
-    ("Performance", "ImprovementTrend"):"LINE_CHART",
-    ("Performance", "Drop"):            "LINE_CHART",
-    ("Performance", "DropTrend"):       "LINE_CHART",
-    ("Performance", "Grading"):         "TABLE",
-    ("Performance", "GradingSummary"):  "BAR_CHART",
-    ("Performance", "Average"):         "PIE_CHART",
-    ("Performance", "AttemptWise"):     "TABLE",
-    ("Performance", "BestAttempt"):     "TABLE",
-    ("Performance", "Compare"):         "AREA_CHART",
-    ("Performance", "Comparison"):      "AREA_CHART",
-    ("Performance", "Summary"):         "TABLE",
-    ("Performance", "PassPercentage"):  "PIE_CHART",
-    ("Performance", "FailPercentage"):  "PIE_CHART",
-    ("Performance", "Overall"):         "TABLE",
+    ("Performance", "Top"): "TABLE",
+    ("Performance", "Bottom"): "TABLE",
+    ("Performance", "Improvement"): "LINE_CHART",
+    ("Performance", "ImprovementTrend"): "LINE_CHART",
+    ("Performance", "Drop"): "LINE_CHART",
+    ("Performance", "DropTrend"): "LINE_CHART",
+    ("Performance", "Grading"): "TABLE",
+    ("Performance", "GradingSummary"): "BAR_CHART",
+    ("Performance", "Average"): "PIE_CHART",
+    ("Performance", "AttemptWise"): "TABLE",
+    ("Performance", "BestAttempt"): "TABLE",
+    ("Performance", "Compare"): "AREA_CHART",
+    ("Performance", "Comparison"): "AREA_CHART",
+    ("Performance", "Summary"): "TABLE",
+    ("Performance", "PassPercentage"): "PIE_CHART",
+    ("Performance", "FailPercentage"): "PIE_CHART",
+    ("Performance", "Overall"): "TABLE",
     # ── Leave ─────────────────────────────────────────────────────────────────
-    ("Leave", "Most"):                  "TABLE",
-    ("Leave", "Least"):                 "TABLE",
-    ("Leave", "Current"):               "TABLE",
-    ("Leave", "Absconded"):             "TABLE",
-    ("Leave", "LeaveType"):             "TABLE",
+    ("Leave", "Most"): "TABLE",
+    ("Leave", "Least"): "TABLE",
+    ("Leave", "Current"): "TABLE",
+    ("Leave", "Absconded"): "TABLE",
+    ("Leave", "LeaveType"): "TABLE",
     # ── Medical ──────────────────────────────────────────────────────────────
-    ("Medical", "Active"):              "TABLE",
-    ("Medical", "BMI"):                 "DONUT_CHART",
-    ("Medical", "BMIAnalysis"):         "DONUT_CHART",   # already correct name
-    ("Medical", "Disease"):             "TABLE",
+    ("Medical", "Active"): "TABLE",
+    ("Medical", "BMI"): "DONUT_CHART",
+    ("Medical", "BMIAnalysis"): "DONUT_CHART",  # already correct name
+    ("Medical", "Disease"): "TABLE",
     # ── Attendance ───────────────────────────────────────────────────────────
-    ("Attendance", "Monthly"):          "BAR_CHART",
-    ("Attendance", "MonthlyAttendance"):"BAR_CHART",
-    ("Attendance", "Weekly"):          "BAR_CHART",
+    ("Attendance", "Monthly"): "BAR_CHART",
+    ("Attendance", "MonthlyAttendance"): "BAR_CHART",
+    ("Attendance", "Weekly"): "BAR_CHART",
     ("Attendance", "WeeklyAttendance"): "BAR_CHART",
-    ("Attendance", "Daily"):            "TABLE",
-    ("Attendance", "Present"):          "PIE_CHART",
-    ("Attendance", "PresentToday"):     "PIE_CHART",
-    ("Attendance", "Summary"):          "TABLE",
-    ("Attendance", "AttendanceSummary"):"TABLE",
+    ("Attendance", "Daily"): "TABLE",
+    ("Attendance", "Present"): "PIE_CHART",
+    ("Attendance", "PresentToday"): "PIE_CHART",
+    ("Attendance", "Summary"): "TABLE",
+    ("Attendance", "AttendanceSummary"): "TABLE",
     # ── Strength ─────────────────────────────────────────────────────────────
-    ("Strength", "Strength"):           "RADIAL_CHART",
-    ("Strength", "StrengthBreakdown"):  "RADIAL_CHART",
-    ("Strength", "Overall"):            "RADIAL_CHART",
+    ("Strength", "Strength"): "RADIAL_CHART",
+    ("Strength", "StrengthBreakdown"): "RADIAL_CHART",
+    ("Strength", "Overall"): "RADIAL_CHART",
     # ── Verification ─────────────────────────────────────────────────────────
-    ("Verification", "Pending"):        "TABLE",
-    ("Verification", "Completed"):      "TABLE",
+    ("Verification", "Pending"): "TABLE",
+    ("Verification", "Completed"): "TABLE",
     ("Verification", "CompletedVerification"): "TABLE",
-    ("Verification", "NotResponded"):   "TABLE",
-    ("Verification", "Verified"):       "TABLE",
-    ("Verification", "Rejected"):       "TABLE",
-    ("Verification", "Sent"):           "TABLE",
-    ("Verification", "SentVerification"):"TABLE",
+    ("Verification", "NotResponded"): "TABLE",
+    ("Verification", "Verified"): "TABLE",
+    ("Verification", "Rejected"): "TABLE",
+    ("Verification", "Sent"): "TABLE",
+    ("Verification", "SentVerification"): "TABLE",
     # ── Equipment ────────────────────────────────────────────────────────────
-    ("Equipment", "Stats"):             "CARD",
-    ("Equipment", "EquipmentSummary"):  "CARD",
-    ("Equipment", "Overdue"):           "TABLE",
-    ("Equipment", "Returned"):          "TABLE",
-    ("Equipment", "Returend"):          "TABLE",   # typo in original, keep for compat
-    ("Equipment", "Issued"):            "TABLE",
-    ("Equipment", "IssuedItems"):       "TABLE",
-    ("Equipment", "Procured"):          "TABLE",
-    ("Equipment", "ProcuredItems"):     "TABLE",
-    ("Equipment", "Holding"):           "TABLE",
-    ("Equipment", "HoldingEquipment"):  "TABLE",
-    ("Equipment", "AgniveerWise"):      "TABLE",
+    ("Equipment", "Stats"): "CARD",
+    ("Equipment", "EquipmentSummary"): "CARD",
+    ("Equipment", "Overdue"): "TABLE",
+    ("Equipment", "Returned"): "TABLE",
+    ("Equipment", "Returend"): "TABLE",  # typo in original, keep for compat
+    ("Equipment", "Issued"): "TABLE",
+    ("Equipment", "IssuedItems"): "TABLE",
+    ("Equipment", "Procured"): "TABLE",
+    ("Equipment", "ProcuredItems"): "TABLE",
+    ("Equipment", "Holding"): "TABLE",
+    ("Equipment", "HoldingEquipment"): "TABLE",
+    ("Equipment", "AgniveerWise"): "TABLE",
     ("Equipment", "AgniveerWiseEquipment"): "TABLE",
     # ── Skills / Roster ──────────────────────────────────────────────────────
-    ("Skills", "BySport"):              "TABLE",
-    ("Skills", "ByClass"):              "TABLE",
-    ("Roster", "BySport"):              "TABLE",
-    ("Roster", "ByClass"):              "TABLE",
+    ("Skills", "BySport"): "TABLE",
+    ("Skills", "ByClass"): "TABLE",
+    ("Roster", "BySport"): "TABLE",
+    ("Roster", "ByClass"): "TABLE",
     # ── Distribution ─────────────────────────────────────────────────────────
-    ("Distribution", "Latest"):         "TABLE",
-    ("Distribution", "ByUnit"):         "TABLE",
-    ("Distribution", "Unassigned"):     "TABLE",
-    ("Distribution", "TopUnit"):        "CARD",
-    ("Distribution", "Overall"):        "TABLE",
-    ("Distribution", "Schedule"):       "TABLE",
+    ("Distribution", "Latest"): "TABLE",
+    ("Distribution", "ByUnit"): "TABLE",
+    ("Distribution", "Unassigned"): "TABLE",
+    ("Distribution", "TopUnit"): "CARD",
+    ("Distribution", "Overall"): "TABLE",
+    ("Distribution", "Schedule"): "TABLE",
     # ── Overall (top-level) ──────────────────────────────────────────────────
-    ("Overall", "Overall"):             "TABLE",
-    ("Overall", "OverallPerformance"):  "TABLE",
+    ("Overall", "Overall"): "TABLE",
+    ("Overall", "OverallPerformance"): "TABLE",
     # ── Schedule ─────────────────────────────────────────────────────────────
     # Keyed by both .NET operation string AND subcategory name
-    ("schedule", "Date"):               "TABLE",
-    ("schedule", "date"):               "TABLE",
-    ("schedule", "company"):            "TABLE",
-    ("schedule", "agniveer"):           "TABLE",
-    ("schedule", "CompanySchedule"):    "TABLE",
-    ("schedule", "AgniveerSchedule"):   "TABLE",
-    ("schedule", "DateSchedule"):       "TABLE",
-    ("Schedule", "Date"):               "TABLE",
+    ("schedule", "Date"): "TABLE",
+    ("schedule", "date"): "TABLE",
+    ("schedule", "company"): "TABLE",
+    ("schedule", "agniveer"): "TABLE",
+    ("schedule", "CompanySchedule"): "TABLE",
+    ("schedule", "AgniveerSchedule"): "TABLE",
+    ("schedule", "DateSchedule"): "TABLE",
+    ("Schedule", "Date"): "TABLE",
     # ── Medical extras ───────────────────────────────────────────────────────
-    ("Medical", "Individual"):          "TABLE",
-    ("Medical", "IndividualMedical"):   "TABLE",
-    ("Medical", "BloodGroup"):          "TABLE",
+    ("Medical", "Individual"): "TABLE",
+    ("Medical", "IndividualMedical"): "TABLE",
+    ("Medical", "BloodGroup"): "TABLE",
     # ── Attendance extras ────────────────────────────────────────────────────
-    ("Attendance", "Yearly"):           "BAR_CHART",
+    ("Attendance", "Yearly"): "BAR_CHART",
     ("Attendance", "YearlyAttendance"): "BAR_CHART",
     # ── Performance subcategory-keyed (direct lookup without alias) ───────────
-    ("Performance", "GradeDistribution"):  "TABLE",
-    ("Performance", "AverageScore"):       "PIE_CHART",
-    ("Performance", "SectionSummary"):     "TABLE",
+    ("Performance", "GradeDistribution"): "TABLE",
+    ("Performance", "AverageScore"): "PIE_CHART",
+    ("Performance", "SectionSummary"): "TABLE",
     ("Performance", "OverallPerformance"): "TABLE",
 }
 
@@ -326,91 +347,92 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
 # Operation aliases — maps .NET command names → canonical operation keys
 # ---------------------------------------------------------------------------
 _OPERATION_ALIASES: Dict[str, str] = {
-    "TopPerformers":          "Top",
-    "LowestPerformers":       "Bottom",
-    "Comparison":             "Compare",
-    "MonthlyAttendance":      "Monthly",
-    "WeeklyAttendance":       "Weekly",
-    "YearlyAttendance":       "Yearly",
-    "PresentToday":           "Present",
-    "StrengthBreakdown":      "Strength",
-    "BMIAnalysis":            "BMI",
-    "EquipmentSummary":       "Stats",
-    "IssuedItems":            "Issued",
-    "ProcuredItems":          "Procured",
-    "CompletedVerification":  "Verified",
-    "SentVerification":       "Sent",
-    "HoldingEquipment":       "Holding",
-    "AgniveerWiseEquipment":  "AgniveerWise",
-    "IndividualMedical":      "Individual",
-    "AttendanceSummary":      "Summary",
-    "ImprovementTrend":       "Improvement",
-    "DropTrend":              "Drop",
-    "GradingSummary":         "GradingSummary",
-    "BestAttempt":            "BestAttempt",
-    "AttemptWise":            "AttemptWise",
-    "PassPercentage":         "PassPercentage",
-    "FailPercentage":         "FailPercentage",
+    "TopPerformers": "Top",
+    "LowestPerformers": "Bottom",
+    "Comparison": "Compare",
+    "MonthlyAttendance": "Monthly",
+    "WeeklyAttendance": "Weekly",
+    "YearlyAttendance": "Yearly",
+    "PresentToday": "Present",
+    "StrengthBreakdown": "Strength",
+    "BMIAnalysis": "BMI",
+    "EquipmentSummary": "Stats",
+    "IssuedItems": "Issued",
+    "ProcuredItems": "Procured",
+    "CompletedVerification": "Verified",
+    "SentVerification": "Sent",
+    "HoldingEquipment": "Holding",
+    "AgniveerWiseEquipment": "AgniveerWise",
+    "IndividualMedical": "Individual",
+    "AttendanceSummary": "Summary",
+    "ImprovementTrend": "Improvement",
+    "DropTrend": "Drop",
+    "GradingSummary": "GradingSummary",
+    "BestAttempt": "BestAttempt",
+    "AttemptWise": "AttemptWise",
+    "PassPercentage": "PassPercentage",
+    "FailPercentage": "FailPercentage",
     # admin_intent subcategory names → WIDGET_MAP keys
-    "GradeDistribution":      "Grading",        # → ("Performance","Grading") TABLE
-    "AverageScore":           "Average",         # → ("Performance","Average") CHART_PIE
-    "SectionSummary":         "Summary",         # → ("Performance","Summary") TABLE
-    "OverallPerformance":     "Overall",         # → ("Performance","Overall") TABLE
-    "MostLeaveTaken":         "Most",
-    "LeastLeaveTaken":        "Least",
-    "CurrentLeaveStatus":     "Current",
-    "AbscondedPerson":        "Absconded",
-    "ActiveCases":            "Active",
-    "DiseaseStatistics":      "Disease",
-    "BloodGroup":             "BloodGroup",      # → ("Medical","BloodGroup") TABLE
-    "DailyAttendance":        "Daily",
-    "PendingVerification":    "Pending",
+    "GradeDistribution": "Grading",  # → ("Performance","Grading") TABLE
+    "AverageScore": "Average",  # → ("Performance","Average") CHART_PIE
+    "SectionSummary": "Summary",  # → ("Performance","Summary") TABLE
+    "OverallPerformance": "Overall",  # → ("Performance","Overall") TABLE
+    "MostLeaveTaken": "Most",
+    "LeastLeaveTaken": "Least",
+    "CurrentLeaveStatus": "Current",
+    "AbscondedPerson": "Absconded",
+    "ActiveCases": "Active",
+    "DiseaseStatistics": "Disease",
+    "BloodGroup": "BloodGroup",  # → ("Medical","BloodGroup") TABLE
+    "DailyAttendance": "Daily",
+    "PendingVerification": "Pending",
     "NotRespondedVerification": "NotResponded",
-    "VerifiedVerification":   "Verified",
-    "RejectedVerification":   "Rejected",
-    "OverdueEquipment":       "Overdue",
+    "VerifiedVerification": "Verified",
+    "RejectedVerification": "Rejected",
+    "OverdueEquipment": "Overdue",
     "PoorConditionEquipment": "Returned",
-    "LatestDistribution":     "Latest",
-    "DistributionByUnit":     "ByUnit",
-    "UnassignedItems":        "Unassigned",
-    "CompanySchedule":        "company",
-    "AgniveerSchedule":       "agniveer",
-    "DateSchedule":           "date",
+    "LatestDistribution": "Latest",
+    "DistributionByUnit": "ByUnit",
+    "UnassignedItems": "Unassigned",
+    "CompanySchedule": "company",
+    "AgniveerSchedule": "agniveer",
+    "DateSchedule": "date",
     # Direct subcategory → map key (for cases where alias = key itself)
-    "Top":                    "Top",
-    "Bottom":                 "Bottom",
-    "Grading":                "Grading",
-    "Average":                "Average",
-    "Summary":                "Summary",
-    "Compare":                "Compare",
-    "Overall":                "Overall",
-    "Most":                   "Most",
-    "Least":                  "Least",
-    "Current":                "Current",
-    "Absconded":              "Absconded",
-    "LeaveType":              "LeaveType",
-    "Active":                 "Active",
-    "Disease":                "Disease",
-    "Monthly":                "Monthly",
-    "Weekly":                 "Weekly",
-    "Daily":                  "Daily",
-    "Present":                "Present",
-    "Pending":                "Pending",
-    "Completed":              "Completed",
-    "NotResponded":           "NotResponded",
-    "Verified":               "Verified",
-    "Rejected":               "Rejected",
-    "Overdue":                "Overdue",
-    "Returned":               "Returned",
-    "Returend":               "Returend",
-    "BySport":                "BySport",
-    "ByClass":                "ByClass",
-    "Latest":                 "Latest",
-    "ByUnit":                 "ByUnit",
-    "Unassigned":             "Unassigned",
-    "TopUnit":                "TopUnit",
-    "Schedule":               "Schedule",
+    "Top": "Top",
+    "Bottom": "Bottom",
+    "Grading": "Grading",
+    "Average": "Average",
+    "Summary": "Summary",
+    "Compare": "Compare",
+    "Overall": "Overall",
+    "Most": "Most",
+    "Least": "Least",
+    "Current": "Current",
+    "Absconded": "Absconded",
+    "LeaveType": "LeaveType",
+    "Active": "Active",
+    "Disease": "Disease",
+    "Monthly": "Monthly",
+    "Weekly": "Weekly",
+    "Daily": "Daily",
+    "Present": "Present",
+    "Pending": "Pending",
+    "Completed": "Completed",
+    "NotResponded": "NotResponded",
+    "Verified": "Verified",
+    "Rejected": "Rejected",
+    "Overdue": "Overdue",
+    "Returned": "Returned",
+    "Returend": "Returend",
+    "BySport": "BySport",
+    "ByClass": "ByClass",
+    "Latest": "Latest",
+    "ByUnit": "ByUnit",
+    "Unassigned": "Unassigned",
+    "TopUnit": "TopUnit",
+    "Schedule": "Schedule",
 }
+
 
 # ---------------------------------------------------------------------------
 # _normalize_requested_widget_type
@@ -433,8 +455,14 @@ def _normalize_requested_widget_type(value: Any) -> Optional[str]:
 
     # Direct canonical match (frontend already sending internal constant)
     _CANONICAL = {
-        "TABLE", "CARD", "BAR_CHART", "LINE_CHART",
-        "AREA_CHART", "PIE_CHART", "DONUT_CHART", "RADIAL_CHART",
+        "TABLE",
+        "CARD",
+        "BAR_CHART",
+        "LINE_CHART",
+        "AREA_CHART",
+        "PIE_CHART",
+        "DONUT_CHART",
+        "RADIAL_CHART",
     }
     if text in _CANONICAL:
         return text
@@ -442,45 +470,45 @@ def _normalize_requested_widget_type(value: Any) -> Optional[str]:
     # Case-insensitive label lookup covering all labels from the widget menu
     _LABEL_MAP: Dict[str, str] = {
         # ── Tabular ───────────────────────────────────────────────────────────
-        "tabular":                      "TABLE",
-        "table":                        "TABLE",
-        "grid":                         "TABLE",
+        "tabular": "TABLE",
+        "table": "TABLE",
+        "grid": "TABLE",
         # ── Card ──────────────────────────────────────────────────────────────
-        "card":                         "CARD",
-        "cards":                        "CARD",
-        "stats card":                   "CARD",
+        "card": "CARD",
+        "cards": "CARD",
+        "stats card": "CARD",
         # ── Bar Chart ─────────────────────────────────────────────────────────
-        "bar chart":                    "BAR_CHART",
-        "bar":                          "BAR_CHART",
-        "monthly bar chart":            "BAR_CHART",
-        "weekly bar chart":             "BAR_CHART",
-        "gradingsummary bar chart":     "BAR_CHART",
+        "bar chart": "BAR_CHART",
+        "bar": "BAR_CHART",
+        "monthly bar chart": "BAR_CHART",
+        "weekly bar chart": "BAR_CHART",
+        "gradingsummary bar chart": "BAR_CHART",
         # ── Line / Trend Chart ────────────────────────────────────────────────
-        "line chart":                   "LINE_CHART",
-        "line":                         "LINE_CHART",
-        "trend chart":                  "LINE_CHART",
-        "trend":                        "LINE_CHART",
-        "improvement trend chart":      "LINE_CHART",
-        "drop trend chart":             "LINE_CHART",
+        "line chart": "LINE_CHART",
+        "line": "LINE_CHART",
+        "trend chart": "LINE_CHART",
+        "trend": "LINE_CHART",
+        "improvement trend chart": "LINE_CHART",
+        "drop trend chart": "LINE_CHART",
         # ── Area Chart ────────────────────────────────────────────────────────
-        "area chart":                   "AREA_CHART",
-        "area":                         "AREA_CHART",
-        "compare area chart":           "AREA_CHART",
+        "area chart": "AREA_CHART",
+        "area": "AREA_CHART",
+        "compare area chart": "AREA_CHART",
         # ── Pie Chart ─────────────────────────────────────────────────────────
-        "pie chart":                    "PIE_CHART",
-        "pie":                          "PIE_CHART",
-        "average pie chart":            "PIE_CHART",
-        "present pie chart":            "PIE_CHART",
-        "passpercentage pie chart":     "PIE_CHART",
-        "failpercentage pie chart":     "PIE_CHART",
+        "pie chart": "PIE_CHART",
+        "pie": "PIE_CHART",
+        "average pie chart": "PIE_CHART",
+        "present pie chart": "PIE_CHART",
+        "passpercentage pie chart": "PIE_CHART",
+        "failpercentage pie chart": "PIE_CHART",
         # ── Donut Chart ───────────────────────────────────────────────────────
-        "donut chart":                  "DONUT_CHART",
-        "donut":                        "DONUT_CHART",
-        "bmi donut chart":              "DONUT_CHART",
+        "donut chart": "DONUT_CHART",
+        "donut": "DONUT_CHART",
+        "bmi donut chart": "DONUT_CHART",
         # ── Radial Chart ──────────────────────────────────────────────────────
-        "radial chart":                 "RADIAL_CHART",
-        "radial":                       "RADIAL_CHART",
-        "strength radial chart":        "RADIAL_CHART",
+        "radial chart": "RADIAL_CHART",
+        "radial": "RADIAL_CHART",
+        "strength radial chart": "RADIAL_CHART",
     }
 
     lower = text.lower()
@@ -504,21 +532,22 @@ def _collect_keys(data: Any) -> Set[str]:
             keys.update(_collect_keys(item))
     return keys
 
+
 def _map_to_supported_type(inferred: str) -> str:
     mapped = {
-        "TABLE":        "TABLE",
-        "CARD":         "CARD",
-        "METRIC_CARD":  "CARD",
-        "BAR_CHART":    "BAR_CHART",
-        "CHART_BAR":    "BAR_CHART",   # legacy alias
-        "LINE_CHART":   "LINE_CHART",
-        "CHART_LINE":   "LINE_CHART",  # legacy alias
-        "AREA_CHART":   "AREA_CHART",
-        "PIE_CHART":    "PIE_CHART",
-        "CHART_PIE":    "PIE_CHART",   # legacy alias
-        "DONUT_CHART":  "DONUT_CHART",
+        "TABLE": "TABLE",
+        "CARD": "CARD",
+        "METRIC_CARD": "CARD",
+        "BAR_CHART": "BAR_CHART",
+        "CHART_BAR": "BAR_CHART",  # legacy alias
+        "LINE_CHART": "LINE_CHART",
+        "CHART_LINE": "LINE_CHART",  # legacy alias
+        "AREA_CHART": "AREA_CHART",
+        "PIE_CHART": "PIE_CHART",
+        "CHART_PIE": "PIE_CHART",  # legacy alias
+        "DONUT_CHART": "DONUT_CHART",
         "RADIAL_CHART": "RADIAL_CHART",
-        "CALENDAR_UI":  "TABLE",
+        "CALENDAR_UI": "TABLE",
     }
     return mapped.get(inferred, "TABLE")
 
@@ -575,30 +604,35 @@ def infer_supported_type(
 
     # ── Priority 1: Explicit frontend override ──
     if isinstance(visualization_intent, dict):
-        if visualization_intent.get("frontend_override") or visualization_intent.get("requested_widget_type") or visualization_intent.get("widget_type"):
-            raw_requested = (
-                visualization_intent.get("requested_widget_type")
-                or visualization_intent.get("widget_type")
-            )
+        if (
+            visualization_intent.get("frontend_override")
+            or visualization_intent.get("requested_widget_type")
+            or visualization_intent.get("widget_type")
+        ):
+            raw_requested = visualization_intent.get(
+                "requested_widget_type"
+            ) or visualization_intent.get("widget_type")
             normalized = _normalize_requested_widget_type(raw_requested)
             if normalized:
                 return normalized
 
     # ── Priority 3: WIDGET_MAP ──
-    category   = (intent.get("category")   or "").strip()
+    category = (intent.get("category") or "").strip()
     subcategory = (intent.get("subcategory") or "").strip()
-    operation   = (intent.get("operation")   or "").strip()
+    operation = (intent.get("operation") or "").strip()
 
     default_widget = _default_widget_type_for_intent(category, subcategory, query_type)
     if not default_widget and operation:
-        default_widget = _default_widget_type_for_intent(category, operation, query_type)
+        default_widget = _default_widget_type_for_intent(
+            category, operation, query_type
+        )
     if default_widget:
         return default_widget
 
     # ── Priority 2: Presentation/chart_type hints (non-override soft hints) ──
     if isinstance(visualization_intent, dict):
         presentation = (visualization_intent.get("presentation") or "").strip().lower()
-        chart_type   = (visualization_intent.get("chart_type")   or "").strip().lower()
+        chart_type = (visualization_intent.get("chart_type") or "").strip().lower()
 
         if presentation == "cards":
             return "CARD"
@@ -631,7 +665,11 @@ def infer_supported_type(
     # ── Priority 5: Record-count heuristic ──
     records = _extract_records(combined_result, deep_flatten=False)
     has_sections = isinstance(combined_result, dict) and "sections" in combined_result
-    if len(records) == 1 and intent.get("responseType") != "Detail" and not has_sections:
+    if (
+        len(records) == 1
+        and intent.get("responseType") != "Detail"
+        and not has_sections
+    ):
         return "CARD"
 
     # ── Priority 6: Fallback ──
@@ -643,17 +681,24 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
     cards = []
     for r in records:
         card_title = (
-            r.get("fullName") or r.get("name")
+            r.get("fullName")
+            or r.get("name")
             or (f"Record {r.get('id', '')}" if "id" in r else "Details")
         )
         card_value = (
-            r.get("bestTotal") or r.get("score") or r.get("marksObtained")
-            or r.get("count") or r.get("status") or r.get("leaveStatus") or ""
+            r.get("bestTotal")
+            or r.get("score")
+            or r.get("marksObtained")
+            or r.get("count")
+            or r.get("status")
+            or r.get("leaveStatus")
+            or ""
         )
         cards.append({"title": str(card_title), "value": str(card_value)})
     if not cards:
         cards.append({"title": title, "value": "No records found."})
     return {"cards": cards}
+
 
 # ---------------------------------------------------------------------------
 # Column key normalisation helpers
@@ -670,10 +715,14 @@ _EXCLUDED_COLUMN_SUFFIXES = (
 
 # Top-level fields that are internal and should not appear as columns.
 _EXCLUDED_COLUMN_KEYS_EXACT = {
-    "IsActive", "isActive",
-    "ID", "id",
-    "DisplayOrder", "displayOrder",
-    "SectionId", "sectionId",
+    "IsActive",
+    "isActive",
+    "ID",
+    "id",
+    "DisplayOrder",
+    "displayOrder",
+    "SectionId",
+    "sectionId",
 }
 
 
@@ -705,6 +754,7 @@ def _should_exclude_column(key: str) -> bool:
 
 def make_readable_label(k: str) -> str:
     import re
+
     parts = k.split("_")
     readable_parts = []
     for part in parts:
@@ -714,9 +764,14 @@ def make_readable_label(k: str) -> str:
             s = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", part)
             s = re.sub(r"([A-Z])([A-Z][a-z])", r"\1 \2", s)
             readable_parts.append(s.strip().title())
-            
+
     label = " ".join(readable_parts)
-    label = label.replace("Agniveer No", "Agniveer No.").replace("Id", "ID").replace("Bpet", "BPET").replace("Bmi", "BMI")
+    label = (
+        label.replace("Agniveer No", "Agniveer No.")
+        .replace("Id", "ID")
+        .replace("Bpet", "BPET")
+        .replace("Bmi", "BMI")
+    )
     return label
 
 
@@ -744,14 +799,18 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     # Sort with priority fields first.
     key_priority = {
-        "fullname": -10, "agniveerno": -9, "name": -8,
-        "agniveerid": -7, "score": -6, "besttotal": -5,
+        "fullname": -10,
+        "agniveerno": -9,
+        "name": -8,
+        "agniveerid": -7,
+        "score": -6,
+        "besttotal": -5,
     }
     keys_seen.sort(key=lambda k: key_priority.get(k.lower(), 0))
 
     # Build normalised column specs: camelCase key, human-readable label.
     columns = []
-    key_map: Dict[str, str] = {}   # original_key -> camelCase_key
+    key_map: Dict[str, str] = {}  # original_key -> camelCase_key
     for k in keys_seen:
         camel = _pascal_to_camel(k)
         key_map[k] = camel
@@ -772,6 +831,7 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     return {"columns": columns, "rows": rows}
 
+
 def _find_key(records: List[Dict], candidates: List[str]) -> Optional[str]:
     """Return the first field key matching any candidate (case-insensitive)."""
     for c in candidates:
@@ -785,12 +845,16 @@ def _find_key(records: List[Dict], candidates: List[str]) -> Optional[str]:
 def _find_numeric_key(records: List[Dict], exclude: List[str]) -> Optional[str]:
     for r in records[:1]:
         for k, v in r.items():
-            if isinstance(v, (int, float)) and k.lower() not in {e.lower() for e in exclude}:
+            if isinstance(v, (int, float)) and k.lower() not in {
+                e.lower() for e in exclude
+            }:
                 return k
     return None
 
 
-def build_bar_chart_data(combined_result: Any, series_label: str = "") -> Dict[str, Any]:
+def build_bar_chart_data(
+    combined_result: Any, series_label: str = ""
+) -> Dict[str, Any]:
     """
     BAR_CHART schema:
     {
@@ -802,12 +866,28 @@ def build_bar_chart_data(combined_result: Any, series_label: str = "") -> Dict[s
     records = _extract_records(combined_result, deep_flatten=False)
     records = _dedupe_records(records)
     if not records:
-        return {"xAxis": "", "yAxis": "", "series": [{"label": series_label or "Value", "data": []}]}
+        return {
+            "xAxis": "",
+            "yAxis": "",
+            "series": [{"label": series_label or "Value", "data": []}],
+        }
 
-    x_key = _find_key(records, [
-        "fullName", "name", "month", "date", "year",
-        "sport", "grade", "leaveType", "label", "category", "sectionName",
-    ])
+    x_key = _find_key(
+        records,
+        [
+            "fullName",
+            "name",
+            "month",
+            "date",
+            "year",
+            "sport",
+            "grade",
+            "leaveType",
+            "label",
+            "category",
+            "sectionName",
+        ],
+    )
     if not x_key:
         for r in records[:1]:
             for k, v in r.items():
@@ -816,14 +896,28 @@ def build_bar_chart_data(combined_result: Any, series_label: str = "") -> Dict[s
                     break
     x_key = x_key or "label"
 
-    y_key = _find_key(records, [
-        "bestTotal", "totalMarks", "score", "marksObtained",
-        "count", "value", "percentage", "averageScore",
-    ]) or _find_numeric_key(records, ["id"]) or "value"
+    y_key = (
+        _find_key(
+            records,
+            [
+                "bestTotal",
+                "totalMarks",
+                "score",
+                "marksObtained",
+                "count",
+                "value",
+                "percentage",
+                "averageScore",
+            ],
+        )
+        or _find_numeric_key(records, ["id"])
+        or "value"
+    )
 
-    data = [{"x": r.get(x_key) or r.get("fullName") or "Category",
-             "y": r.get(y_key) or 0}
-            for r in records]
+    data = [
+        {"x": r.get(x_key) or r.get("fullName") or "Category", "y": r.get(y_key) or 0}
+        for r in records
+    ]
 
     return {
         "xAxis": make_readable_label(x_key),
@@ -843,27 +937,35 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
     """
     records = _extract_records(combined_result, deep_flatten=False)
     if not records:
-        return {"xAxis": "Time", "yAxis": "Value",
-                "series": [{"label": "Value", "data": []}]}
+        return {
+            "xAxis": "Time",
+            "yAxis": "Value",
+            "series": [{"label": "Value", "data": []}],
+        }
 
     time_keys = ["date", "month", "year", "attemptNo", "attempt", "time", "day"]
     x_key = _find_key(records, time_keys) or "date"
 
     numeric_keys = [
-        k for r in records[:1]
+        k
+        for r in records[:1]
         for k, v in r.items()
-        if isinstance(v, (int, float)) and k.lower() not in {t.lower() for t in time_keys + ["id"]}
+        if isinstance(v, (int, float))
+        and k.lower() not in {t.lower() for t in time_keys + ["id"]}
     ]
     if not numeric_keys:
         numeric_keys = ["value"]
 
     import re as _re
+
     series = []
     for sk in numeric_keys:
-        series.append({
-            "label": make_readable_label(sk),
-            "data": [{"x": r.get(x_key, ""), "y": r.get(sk, 0)} for r in records],
-        })
+        series.append(
+            {
+                "label": make_readable_label(sk),
+                "data": [{"x": r.get(x_key, ""), "y": r.get(sk, 0)} for r in records],
+            }
+        )
 
     return {
         "xAxis": make_readable_label(x_key),
@@ -872,7 +974,9 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
     }
 
 
-def build_pie_chart_data(combined_result: Any, series_label: str = "Distribution") -> Dict[str, Any]:
+def build_pie_chart_data(
+    combined_result: Any, series_label: str = "Distribution"
+) -> Dict[str, Any]:
     """
     PIE_CHART / DONUT_CHART schema:
     {
@@ -883,10 +987,20 @@ def build_pie_chart_data(combined_result: Any, series_label: str = "Distribution
     if not records:
         return {"series": [{"label": series_label, "data": []}]}
 
-    label_key = _find_key(records, [
-        "label", "sport", "grade", "leaveType", "bloodGroup",
-        "disease", "status", "category", "name",
-    ])
+    label_key = _find_key(
+        records,
+        [
+            "label",
+            "sport",
+            "grade",
+            "leaveType",
+            "bloodGroup",
+            "disease",
+            "status",
+            "category",
+            "name",
+        ],
+    )
     if not label_key:
         for r in records[:1]:
             for k, v in r.items():
@@ -895,13 +1009,29 @@ def build_pie_chart_data(combined_result: Any, series_label: str = "Distribution
                     break
     label_key = label_key or "label"
 
-    value_key = _find_key(records, [
-        "value", "count", "score", "percentage", "bestTotal", "marksObtained",
-    ]) or _find_numeric_key(records, ["id"]) or "value"
+    value_key = (
+        _find_key(
+            records,
+            [
+                "value",
+                "count",
+                "score",
+                "percentage",
+                "bestTotal",
+                "marksObtained",
+            ],
+        )
+        or _find_numeric_key(records, ["id"])
+        or "value"
+    )
 
-    data = [{"label": str(r.get(label_key) or r.get("fullName") or "Category"),
-             "value": r.get(value_key) if r.get(value_key) is not None else 1}
-            for r in records]
+    data = [
+        {
+            "label": str(r.get(label_key) or r.get("fullName") or "Category"),
+            "value": r.get(value_key) if r.get(value_key) is not None else 1,
+        }
+        for r in records
+    ]
 
     return {"series": [{"label": series_label, "data": data}]}
 
@@ -915,24 +1045,37 @@ def build_radial_chart_data(combined_result: Any) -> Dict[str, Any]:
         return {"value": 0, "maximum": 100, "label": ""}
 
     # Prefer explicit percentage/rate field
-    pct_key = _find_key(records, ["percentage", "rate", "readiness", "completion", "strength"])
+    pct_key = _find_key(
+        records, ["percentage", "rate", "readiness", "completion", "strength"]
+    )
     if pct_key:
         val = records[0].get(pct_key)
         if isinstance(val, (int, float)):
-            return {"value": round(float(val), 1), "maximum": 100,
-                    "label": make_readable_label(pct_key)}
+            return {
+                "value": round(float(val), 1),
+                "maximum": 100,
+                "label": make_readable_label(pct_key),
+            }
 
     # Compute from present/total pair
     present_key = _find_key(records, ["present", "presentCount"])
-    total_key   = _find_key(records, ["total", "totalCount", "strength"])
+    total_key = _find_key(records, ["total", "totalCount", "strength"])
     if present_key and total_key:
         p = records[0].get(present_key, 0)
         t = records[0].get(total_key, 0)
         if isinstance(p, (int, float)) and isinstance(t, (int, float)) and t > 0:
-            return {"value": round(float(p) / float(t) * 100, 1),
-                    "maximum": 100, "label": "Attendance"}
+            return {
+                "value": round(float(p) / float(t) * 100, 1),
+                "maximum": 100,
+                "label": "Attendance",
+            }
 
-    return {"value": len(records), "maximum": max(len(records), 100), "label": "Records"}
+    return {
+        "value": len(records),
+        "maximum": max(len(records), 100),
+        "label": "Records",
+    }
+
 
 def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
     if inferred_type == "TABLE":
@@ -945,8 +1088,13 @@ def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
             for col in cols:
                 if col not in row:
                     row[col] = None
-    elif inferred_type in {"BAR_CHART", "LINE_CHART", "AREA_CHART",
-                           "CHART_BAR", "CHART_LINE"}:  # legacy aliases
+    elif inferred_type in {
+        "BAR_CHART",
+        "LINE_CHART",
+        "AREA_CHART",
+        "CHART_BAR",
+        "CHART_LINE",
+    }:  # legacy aliases
         for s in data.get("series", []):
             for pt in s.get("data", []):
                 pt.setdefault("x", "")
@@ -960,6 +1108,7 @@ def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
         data.setdefault("value", 0)
         data.setdefault("maximum", 100)
         data.setdefault("label", "")
+
 
 def build_formatted_data(
     combined_result: Any,
@@ -978,12 +1127,18 @@ def build_formatted_data(
         intent,
         visualization_intent=visualization_intent,
     )
-    
+
     from normalized_models import _derive_title
+
     title = _derive_title(query_type, intent)
-    
-    if query_type in ("compare", "comparison") and isinstance(source_result, dict) and "sides" in source_result:
+
+    if (
+        query_type in ("compare", "comparison")
+        and isinstance(source_result, dict)
+        and "sides" in source_result
+    ):
         from widget_selector import WidgetSelector
+
         primary_wt = infer_supported_type(
             source_result, query_type, intent, visualization_intent
         )
@@ -1000,16 +1155,23 @@ def build_formatted_data(
             data = _build_widget_data(spec, source_result, query_type, intent, analysis)
             if isinstance(source_result, dict):
                 for k, v in source_result.items():
-                    if k not in ("records", "data", "sections", "columns", "rows") and k not in data:
+                    if (
+                        k not in ("records", "data", "sections", "columns", "rows")
+                        and k not in data
+                    ):
                         data[k] = v
             return {
                 "type": spec.widget_type,
                 "title": spec.title or title,
-                "data": data
+                "data": data,
             }
 
     # Check for multi_independent and comparison early to bypass extract/flatten
-    if query_type == "multi_independent" and isinstance(source_result, dict) and "sections" in source_result:
+    if (
+        query_type == "multi_independent"
+        and isinstance(source_result, dict)
+        and "sections" in source_result
+    ):
         sections_list = []
         for sec in source_result["sections"]:
             if isinstance(sec, dict):
@@ -1022,18 +1184,22 @@ def build_formatted_data(
                 sec_payload = {
                     "label": label,
                     "columns": sec_table.get("columns", []),
-                    "rows": sec_table.get("rows", [])
+                    "rows": sec_table.get("rows", []),
                 }
                 for k, v in sec.items():
                     if k not in ("label", "data", "columns", "rows"):
                         sec_payload[k] = v
                 sections_list.append(sec_payload)
         data_payload = {"sections": sections_list}
-        
-    elif isinstance(source_result, dict) and "left" in source_result and "right" in source_result:
+
+    elif (
+        isinstance(source_result, dict)
+        and "left" in source_result
+        and "right" in source_result
+    ):
         left_section = source_result["left"]
         right_section = source_result["right"]
-        
+
         # Format left
         left_label = ""
         left_flat_records = []
@@ -1050,15 +1216,15 @@ def build_formatted_data(
         else:
             left_data = left_section if isinstance(left_section, list) else []
             left_flat_records = flatten_records(left_data, deep_flatten=True)
-        
+
         left_table = build_table_data(left_flat_records)
         left_payload = {
             "label": left_label,
             "columns": left_table.get("columns", []),
             "rows": left_table.get("rows", []),
-            **left_extra
+            **left_extra,
         }
-        
+
         # Format right
         right_label = ""
         right_flat_records = []
@@ -1075,21 +1241,21 @@ def build_formatted_data(
         else:
             right_data = right_section if isinstance(right_section, list) else []
             right_flat_records = flatten_records(right_data, deep_flatten=True)
-            
+
         right_table = build_table_data(right_flat_records)
         right_payload = {
             "label": right_label,
             "columns": right_table.get("columns", []),
             "rows": right_table.get("rows", []),
-            **right_extra
+            **right_extra,
         }
-        
+
         comparison_payload = source_result.get("comparison", {})
-        
+
         data_payload = {
             "left": left_payload,
             "right": right_payload,
-            "comparison": comparison_payload
+            "comparison": comparison_payload,
         }
 
     elif inferred_type == "CARD":
@@ -1110,10 +1276,7 @@ def build_formatted_data(
                     flattened_data = [r for r in s_data if isinstance(r, dict)]
                 else:
                     flattened_data = s_data
-                side_payload = {
-                    "label": side.get("label"),
-                    "data": flattened_data
-                }
+                side_payload = {"label": side.get("label"), "data": flattened_data}
                 for k, v in side.items():
                     if k not in ("label", "data"):
                         side_payload[k] = v
@@ -1126,14 +1289,24 @@ def build_formatted_data(
     # Preserve unknown .NET keys for non-comparison queries so cross-filter metadata
     # (matchCount, totalBeforeFilter, etc.) and other backend context reaches the frontend.
     # Comparison widgets are fully self-contained — never merge extra keys into them.
-    if query_type not in ("compare", "comparison") and isinstance(source_result, dict) and isinstance(data_payload, dict):
+    if (
+        query_type not in ("compare", "comparison")
+        and isinstance(source_result, dict)
+        and isinstance(data_payload, dict)
+    ):
         for k, v in source_result.items():
             if k not in data_payload:
                 data_payload[k] = v
 
     # Fallback to TABLE if invalid chart fields are detected (FIX 30)
     is_invalid_chart = False
-    if inferred_type in ("BAR_CHART", "LINE_CHART", "AREA_CHART", "PIE_CHART", "DONUT_CHART"):
+    if inferred_type in (
+        "BAR_CHART",
+        "LINE_CHART",
+        "AREA_CHART",
+        "PIE_CHART",
+        "DONUT_CHART",
+    ):
         if "left" in data_payload and "right" in data_payload:
             pass
         elif "sections" in data_payload:
@@ -1157,7 +1330,7 @@ def build_formatted_data(
         data_payload = build_table_data(table_records)
 
     validate_payload(inferred_type, data_payload)
-    
+
     fd = FormattedData(
         type=inferred_type,
         title=title,
@@ -1179,13 +1352,14 @@ def build_formatted_data(
 # MULTI-WIDGET API  (new contract: formattedData is always a list)
 # =============================================================================
 
+
 def build_summary_card_from_analysis(
     analysis: Optional[Dict[str, Any]],
     query_type: str,
     intent: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Build CARD data from analysis.statistics for use as a summary widget."""
-    stats    = (analysis or {}).get("statistics") or {}
+    stats = (analysis or {}).get("statistics") or {}
     category = (intent or {}).get("category") or "Results"
     cards: List[Dict[str, Any]] = []
 
@@ -1203,9 +1377,9 @@ def build_summary_card_from_analysis(
     lc = stats.get("left_count")
     rc2 = stats.get("right_count")
     if lc is not None:
-        left_label  = stats.get("left_label")  or "Side 1"
+        left_label = stats.get("left_label") or "Side 1"
         right_label = stats.get("right_label") or "Side 2"
-        cards.append(_card(left_label,  lc))
+        cards.append(_card(left_label, lc))
         if rc2 is not None:
             cards.append(_card(right_label, rc2))
 
@@ -1224,7 +1398,14 @@ def build_summary_card_from_analysis(
 
 
 def _get_score(record: Dict[str, Any]) -> Optional[float]:
-    for key in ("bestTotal", "totalMarks", "score", "Score", "omrInputTotal", "marksObtained"):
+    for key in (
+        "bestTotal",
+        "totalMarks",
+        "score",
+        "Score",
+        "omrInputTotal",
+        "marksObtained",
+    ):
         val = record.get(key)
         if val is not None:
             try:
@@ -1233,6 +1414,7 @@ def _get_score(record: Dict[str, Any]) -> Optional[float]:
                 pass
     return None
 
+
 def _safe_float(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -1240,6 +1422,7 @@ def _safe_float(value: Any) -> Optional[float]:
         return float(value)
     except (ValueError, TypeError):
         return None
+
 
 def _extract_chronological_key(record: Dict[str, Any]) -> Any:
     for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp"):
@@ -1258,40 +1441,43 @@ def _extract_chronological_key(record: Dict[str, Any]) -> Any:
         return year
     return None
 
+
 def _build_compare_card(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     """COMPARE_CARD: {left: [{label, value}], right: [{label, value}]}"""
-    left_side  = combined_result.get("left")  or {}
+    left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
 
     _LABELS = {
-        "recordCount":  "Total Records",
+        "recordCount": "Total Records",
         "averageScore": "Average Score",
-        "topScore":     "Top Score",
-        "bottomScore":  "Bottom Score",
+        "topScore": "Top Score",
+        "bottomScore": "Bottom Score",
     }
 
     def _side_cards(side: Dict[str, Any]) -> List[Dict[str, str]]:
         metrics = side.get("metrics") or {}
-        records = side.get("data")    or []
+        records = side.get("data") or []
         cards: List[Dict[str, str]] = []
         for k in ("recordCount", "averageScore", "topScore", "bottomScore"):
             val = metrics.get(k)
             if val is not None:
-                display = str(round(float(val), 2)) if isinstance(val, float) else str(val)
+                display = (
+                    str(round(float(val), 2)) if isinstance(val, float) else str(val)
+                )
                 cards.append({"label": _LABELS[k], "value": display})
         if not cards:
             cards.append({"label": "Records", "value": str(len(records))})
         return cards
 
     return {
-        "left":  _side_cards(left_side),
+        "left": _side_cards(left_side),
         "right": _side_cards(right_side),
     }
 
 
 def _build_compare_table(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     """COMPARE_TABLE: {left: {columns, rows}, right: {columns, rows}}"""
-    left_side  = combined_result.get("left")  or {}
+    left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
 
     def _side_table(side: Dict[str, Any]) -> Dict[str, Any]:
@@ -1300,40 +1486,68 @@ def _build_compare_table(combined_result: Dict[str, Any]) -> Dict[str, Any]:
         return build_table_data(flat)
 
     return {
-        "left":  _side_table(left_side),
+        "left": _side_table(left_side),
         "right": _side_table(right_side),
     }
 
 
 def _build_compare_bar(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     """COMPARE_BAR_CHART: {left: {xKey, yKey, rows}, right: {xKey, yKey, rows}}"""
-    left_side  = combined_result.get("left")  or {}
+    left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
 
     def _side_bar(side: Dict[str, Any]) -> Dict[str, Any]:
         records = side.get("data") or []
         if not records:
             return {"xKey": "label", "yKey": "value", "rows": []}
-        x_key = _find_key(records, [
-            "fullName", "name", "company", "platoon", "batch", "unit",
-            "section", "group", "label", "category", "sport",
-        ]) or "label"
-        y_key = _find_key(records, [
-            "bestTotal", "totalMarks", "score", "marksObtained",
-            "count", "value", "percentage", "averageScore",
-        ]) or _find_numeric_key(records, ["id"]) or "value"
+        x_key = (
+            _find_key(
+                records,
+                [
+                    "fullName",
+                    "name",
+                    "company",
+                    "platoon",
+                    "batch",
+                    "unit",
+                    "section",
+                    "group",
+                    "label",
+                    "category",
+                    "sport",
+                ],
+            )
+            or "label"
+        )
+        y_key = (
+            _find_key(
+                records,
+                [
+                    "bestTotal",
+                    "totalMarks",
+                    "score",
+                    "marksObtained",
+                    "count",
+                    "value",
+                    "percentage",
+                    "averageScore",
+                ],
+            )
+            or _find_numeric_key(records, ["id"])
+            or "value"
+        )
         rows = [{x_key: r.get(x_key), y_key: r.get(y_key)} for r in records]
         return {"xKey": x_key, "yKey": y_key, "rows": rows}
 
     return {
-        "left":  _side_bar(left_side),
+        "left": _side_bar(left_side),
         "right": _side_bar(right_side),
     }
 
 
 def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     """COMPARE_LINE_CHART: {left: {xKey, series, rows}, right: {xKey, series, rows}}"""
-    left_side  = combined_result.get("left")  or {}
+    left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
 
     _TIME_KEYS = ["date", "month", "year", "attemptNo", "attempt", "time", "day"]
@@ -1344,9 +1558,11 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
             return {"xKey": "date", "series": [], "rows": []}
         x_key = _find_key(records, _TIME_KEYS) or "date"
         numeric_keys = [
-            k for r in records[:1]
+            k
+            for r in records[:1]
             for k, v in r.items()
-            if isinstance(v, (int, float)) and k.lower() not in {t.lower() for t in _TIME_KEYS + ["id"]}
+            if isinstance(v, (int, float))
+            and k.lower() not in {t.lower() for t in _TIME_KEYS + ["id"]}
         ] or ["value"]
         rows = []
         for r in records:
@@ -1357,20 +1573,30 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
         return {"xKey": x_key, "series": numeric_keys, "rows": rows}
 
     return {
-        "left":  _side_line(left_side),
+        "left": _side_line(left_side),
         "right": _side_line(right_side),
     }
 
 
 def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     """COMPARE_PIE_CHART: {left: {rows: [{label, value}]}, right: {rows: [{label, value}]}}"""
-    left_side  = combined_result.get("left")  or {}
+    left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
 
     _PIE_LABEL_CANDIDATES = [
-        "label", "sport", "grade", "leaveType", "bloodGroup",
-        "disease", "status", "category", "name",
-        "leavetype", "bmiCategory", "grading", "type",
+        "label",
+        "sport",
+        "grade",
+        "leaveType",
+        "bloodGroup",
+        "disease",
+        "status",
+        "category",
+        "name",
+        "leavetype",
+        "bmiCategory",
+        "grading",
+        "type",
     ]
 
     def _side_pie(side: Dict[str, Any]) -> Dict[str, Any]:
@@ -1385,26 +1611,41 @@ def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
                         label_key = k
                         break
         label_key = label_key or "label"
-        value_key = _find_key(records, [
-            "value", "count", "score", "percentage", "bestTotal", "marksObtained",
-        ]) or _find_numeric_key(records, ["id"]) or "value"
+        value_key = (
+            _find_key(
+                records,
+                [
+                    "value",
+                    "count",
+                    "score",
+                    "percentage",
+                    "bestTotal",
+                    "marksObtained",
+                ],
+            )
+            or _find_numeric_key(records, ["id"])
+            or "value"
+        )
         rows = [
-            {"label": str(r.get(label_key) or ""), "value": r.get(value_key) if r.get(value_key) is not None else 0}
+            {
+                "label": str(r.get(label_key) or ""),
+                "value": r.get(value_key) if r.get(value_key) is not None else 0,
+            }
             for r in records
         ]
         return {"rows": rows}
 
     return {
-        "left":  _side_pie(left_side),
+        "left": _side_pie(left_side),
         "right": _side_pie(right_side),
     }
 
 
 # Canonical type names coming from compare_engine — handle any legacy aliases.
 _COMPARE_TYPE_ALIASES: Dict[str, str] = {
-    "COMPARE_CHART_BAR":  "COMPARE_BAR_CHART",
+    "COMPARE_CHART_BAR": "COMPARE_BAR_CHART",
     "COMPARE_CHART_LINE": "COMPARE_LINE_CHART",
-    "COMPARE_CHART_PIE":  "COMPARE_PIE_CHART",
+    "COMPARE_CHART_PIE": "COMPARE_PIE_CHART",
 }
 
 
@@ -1421,9 +1662,9 @@ def build_comparison_widgets(
     All widgets follow {type, title, data} with left/right structure.
     No internal fields (intent, dotnetPayload, metadata, endpoint) are included.
     """
-    left_side  = combined_result.get("left")  or {}
+    left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
-    left_label  = str(left_side.get("label")  or "Left")
+    left_label = str(left_side.get("label") or "Left")
     right_label = str(right_side.get("label") or "Right")
     vs_title = f"{left_label} vs {right_label}"
 
@@ -1433,55 +1674,68 @@ def build_comparison_widgets(
     widgets: List[Dict[str, Any]] = []
 
     # 1. Summary card — always first
-    widgets.append({
-        "type":  "COMPARE_CARD",
-        "title": f"{vs_title} — Summary",
-        "data":  _build_compare_card(combined_result),
-    })
+    widgets.append(
+        {
+            "type": "COMPARE_CARD",
+            "title": f"{vs_title} — Summary",
+            "data": _build_compare_card(combined_result),
+        }
+    )
 
     # 2. Primary visualization
     if viz_type == "COMPARE_TABLE":
-        widgets.append({
-            "type":  "COMPARE_TABLE",
-            "title": f"{vs_title} — Records",
-            "data":  _build_compare_table(combined_result),
-        })
+        widgets.append(
+            {
+                "type": "COMPARE_TABLE",
+                "title": f"{vs_title} — Records",
+                "data": _build_compare_table(combined_result),
+            }
+        )
     elif viz_type == "COMPARE_BAR_CHART":
-        widgets.append({
-            "type":  "COMPARE_BAR_CHART",
-            "title": f"{vs_title} — Score Comparison",
-            "data":  _build_compare_bar(combined_result),
-        })
-        widgets.append({
-            "type":  "COMPARE_TABLE",
-            "title": f"{vs_title} — Records",
-            "data":  _build_compare_table(combined_result),
-        })
+        widgets.append(
+            {
+                "type": "COMPARE_BAR_CHART",
+                "title": f"{vs_title} — Score Comparison",
+                "data": _build_compare_bar(combined_result),
+            }
+        )
+        widgets.append(
+            {
+                "type": "COMPARE_TABLE",
+                "title": f"{vs_title} — Records",
+                "data": _build_compare_table(combined_result),
+            }
+        )
     elif viz_type == "COMPARE_LINE_CHART":
-        widgets.append({
-            "type":  "COMPARE_LINE_CHART",
-            "title": f"{vs_title} — Trend",
-            "data":  _build_compare_line(combined_result),
-        })
+        widgets.append(
+            {
+                "type": "COMPARE_LINE_CHART",
+                "title": f"{vs_title} — Trend",
+                "data": _build_compare_line(combined_result),
+            }
+        )
     elif viz_type == "COMPARE_PIE_CHART":
-        widgets.append({
-            "type":  "COMPARE_PIE_CHART",
-            "title": f"{vs_title} — Distribution",
-            "data":  _build_compare_pie(combined_result),
-        })
+        widgets.append(
+            {
+                "type": "COMPARE_PIE_CHART",
+                "title": f"{vs_title} — Distribution",
+                "data": _build_compare_pie(combined_result),
+            }
+        )
     # COMPARE_CARD already added above — no second widget needed
 
     return widgets
 
+
 def _build_widget_data(
-    spec: Any,   # WidgetSpec — typed loosely to avoid circular import
+    spec: Any,  # WidgetSpec — typed loosely to avoid circular import
     combined_result: Any,
     query_type: str,
     intent: Dict[str, Any],
     analysis: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """Dispatch to the appropriate builder for a single WidgetSpec."""
-    wt   = spec.widget_type
+    wt = spec.widget_type
     hint = spec.source_hint
 
     if wt == "COMPARE_CARD":
@@ -1508,15 +1762,15 @@ def _build_widget_data(
     if wt == "TABLE":
         if hint == "left" and isinstance(combined_result, dict):
             left = combined_result.get("left") or {}
-            raw  = left.get("data") if isinstance(left, dict) else []
+            raw = left.get("data") if isinstance(left, dict) else []
             flat = flatten_records(raw or [], deep_flatten=True)
         elif hint == "right" and isinstance(combined_result, dict):
             right = combined_result.get("right") or {}
-            raw   = right.get("data") if isinstance(right, dict) else []
-            flat  = flatten_records(raw or [], deep_flatten=True)
+            raw = right.get("data") if isinstance(right, dict) else []
+            flat = flatten_records(raw or [], deep_flatten=True)
         elif hint == "section" and isinstance(combined_result, dict):
             flat = []
-            for sec in (combined_result.get("sections") or []):
+            for sec in combined_result.get("sections") or []:
                 if isinstance(sec, dict) and sec.get("label") == spec.section_label:
                     flat = flatten_records(sec.get("data") or [], deep_flatten=True)
                     break
@@ -1563,8 +1817,13 @@ def build_widget_list(
 
     Always returns at least one widget — never an empty list.
     """
-    if query_type in ("compare", "comparison") and isinstance(combined_result, dict) and "sides" in combined_result:
+    if (
+        query_type in ("compare", "comparison")
+        and isinstance(combined_result, dict)
+        and "sides" in combined_result
+    ):
         from normalized_models import _derive_title
+
         base_title = _derive_title(query_type, intent) or ""
         widgets = build_comparison_widgets(combined_result, base_title)
         for w in widgets:
@@ -1584,11 +1843,12 @@ def build_widget_list(
     # Extract frontend override (if user explicitly picked a different view)
     frontend_override: Optional[str] = None
     if isinstance(visualization_intent, dict):
-        if visualization_intent.get("frontend_override") or visualization_intent.get("requested_widget_type"):
-            raw = (
-                visualization_intent.get("requested_widget_type")
-                or visualization_intent.get("widget_type")
-            )
+        if visualization_intent.get("frontend_override") or visualization_intent.get(
+            "requested_widget_type"
+        ):
+            raw = visualization_intent.get(
+                "requested_widget_type"
+            ) or visualization_intent.get("widget_type")
             if raw:
                 frontend_override = _normalize_requested_widget_type(raw)
 
@@ -1606,8 +1866,14 @@ def build_widget_list(
     widgets: List[Dict[str, Any]] = []
     for spec in specs:
         try:
-            data = _build_widget_data(spec, combined_result, query_type, intent, analysis)
-            if spec.widget_type == "TABLE" and isinstance(data, dict) and "rows" not in data:
+            data = _build_widget_data(
+                spec, combined_result, query_type, intent, analysis
+            )
+            if (
+                spec.widget_type == "TABLE"
+                and isinstance(data, dict)
+                and "rows" not in data
+            ):
                 flat = _extract_records(combined_result, deep_flatten=True)
                 table_data = build_table_data(flat)
                 data["rows"] = table_data.get("rows") or []
@@ -1618,46 +1884,60 @@ def build_widget_list(
                         data[key] = combined_result[key]
         except Exception:
             import logging as _logging
+
             _logging.getLogger(__name__).exception(
                 "build_widget_list: failed building widget %s", spec.widget_id
             )
             data = {"_error": True}
-        widgets.append({
-            "id":    spec.widget_id,
-            "type":  spec.widget_type,
-            "title": spec.title,
-            "data":  data,
-        })
+        widgets.append(
+            {
+                "id": spec.widget_id,
+                "type": spec.widget_type,
+                "title": spec.title,
+                "data": data,
+            }
+        )
 
     # Guard: never return an empty list — fall back to a plain TABLE
     if not widgets:
         flat = _extract_records(combined_result, deep_flatten=True)
-        widgets.append({
-            "id":    "fallback_table",
-            "type":  "TABLE",
-            "title": "Results",
-            "data":  build_table_data(flat),
-        })
+        widgets.append(
+            {
+                "id": "fallback_table",
+                "type": "TABLE",
+                "title": "Results",
+                "data": build_table_data(flat),
+            }
+        )
 
     # Validate: every widget must have non-None type, title, and data.
     # Any widget missing these fields is a bug — replace it with a safe fallback
     # rather than propagating nulls downstream.
     import logging as _logging
+
     _wlog = _logging.getLogger(__name__)
     validated: List[Dict[str, Any]] = []
     for w in widgets:
-        if not isinstance(w, dict) or not w.get("type") or w.get("title") is None or w.get("data") is None:
+        if (
+            not isinstance(w, dict)
+            or not w.get("type")
+            or w.get("title") is None
+            or w.get("data") is None
+        ):
             _wlog.error(
                 "build_widget_list: null-field widget detected and replaced with fallback — "
-                "widget=%r", w
+                "widget=%r",
+                w,
             )
             flat = _extract_records(combined_result, deep_flatten=True)
-            validated.append({
-                "id":    w.get("id") or "fallback_table",
-                "type":  "TABLE",
-                "title": w.get("title") or "Results",
-                "data":  build_table_data(flat),
-            })
+            validated.append(
+                {
+                    "id": w.get("id") or "fallback_table",
+                    "type": "TABLE",
+                    "title": w.get("title") or "Results",
+                    "data": build_table_data(flat),
+                }
+            )
         else:
             validated.append(w)
 

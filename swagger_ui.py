@@ -28,14 +28,13 @@ def _load_spec() -> dict:
     try:
         spec = json.loads(_SPEC_PATH.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"openapi": "3.0.0", "info": {"title": "AgniAI", "version": "1.0.0"}, "paths": {}}
-    host_url = request.host_url.rstrip("/")
-    spec["servers"] = [
-        {
-            "url": host_url,
-            "description": "Current server"
+        return {
+            "openapi": "3.0.0",
+            "info": {"title": "AgniAI", "version": "1.0.0"},
+            "paths": {},
         }
-    ]
+    host_url = request.host_url.rstrip("/")
+    spec["servers"] = [{"url": host_url, "description": "Current server"}]
     return spec
 
 

@@ -17,7 +17,11 @@ from .entity_cache import (
     refresh_all_entities,
 )
 from .entity_matcher import match_entity, normalize_text
-from .entity_refresh_service import EntityRefreshService, refresh_entities_now, start_entity_refresh_service
+from .entity_refresh_service import (
+    EntityRefreshService,
+    refresh_entities_now,
+    start_entity_refresh_service,
+)
 from .entity_models import AgniveerEntity, CompanyEntity, EntityMatch, PlatoonEntity
 from .platoon_resolver import resolve_platoon
 
@@ -41,8 +45,16 @@ def resolve_entities_from_query(
     agniveer = resolve_agniveer(query, trace_id=trace_id, session_id=session_id)
 
     return {
-        "companyId": existing_company_id if existing_company_id is not None else company.get("CompanyId"),
-        "platoonId": existing_platoon_id if existing_platoon_id is not None else platoon.get("PlatoonId"),
+        "companyId": (
+            existing_company_id
+            if existing_company_id is not None
+            else company.get("CompanyId")
+        ),
+        "platoonId": (
+            existing_platoon_id
+            if existing_platoon_id is not None
+            else platoon.get("PlatoonId")
+        ),
         "batchId": existing_batch_id,
         "agniveerNo": agniveer.get("AgniveerNo"),
         "companyName": company.get("name"),
@@ -62,6 +74,7 @@ def resolve_entities_from_query(
             "agniveer": agniveer.get("candidates", []),
         },
     }
+
 
 __all__ = [
     "AgniveerEntity",

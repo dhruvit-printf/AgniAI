@@ -20,7 +20,7 @@ class IntentModel(BaseModel):
     confidence: Any = None
     operation: Optional[str] = None
     raw_query: Optional[str] = None
-    query_type: Optional[str] = None          # ← added: set by understand_query()
+    query_type: Optional[str] = None  # ← added: set by understand_query()
     number: Optional[int] = None
     section: Optional[str] = None
     sub_section: Optional[str] = None
@@ -88,7 +88,7 @@ class DotNetPayloadModel(BaseModel):
     fullName: Optional[str] = None
     groupBy: Optional[str] = None
     analyticsHint: Optional[str] = None
-    sortBy: Optional[str] = None             # ← added: passed by admin_pipeline for ranking
+    sortBy: Optional[str] = None  # ← added: passed by admin_pipeline for ranking
 
 
 class DotNetResponseModel(BaseModel):
@@ -103,7 +103,9 @@ class DotNetResponseModel(BaseModel):
 
 
 class CombinedResponseModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")   # was "forbid" — same reasoning as DotNetResponseModel
+    model_config = ConfigDict(
+        extra="ignore"
+    )  # was "forbid" — same reasoning as DotNetResponseModel
 
     success: Optional[bool] = None
     status: Optional[bool] = None
@@ -137,7 +139,7 @@ class CombinedResponseModel(BaseModel):
 
 
 class AnalysisModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")   # was "forbid" — safe to relax
+    model_config = ConfigDict(extra="ignore")  # was "forbid" — safe to relax
 
     insights: List[str] = Field(default_factory=list)
     summary: str = ""
@@ -147,7 +149,7 @@ class AnalysisModel(BaseModel):
 
 
 class PredictionModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")   # was "forbid" — safe to relax
+    model_config = ConfigDict(extra="ignore")  # was "forbid" — safe to relax
 
     trend: str = ""
     projection: Optional[str] = None
@@ -157,7 +159,7 @@ class PredictionModel(BaseModel):
 
 
 class ConclusionModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")   # was "forbid" — safe to relax
+    model_config = ConfigDict(extra="ignore")  # was "forbid" — safe to relax
 
     summary: str = ""
     bullets: List[str] = Field(default_factory=list)
@@ -289,12 +291,13 @@ class FormattedData(BaseModel):
 
 class WidgetItem(BaseModel):
     """Single self-contained widget in a multi-widget response."""
+
     model_config = ConfigDict(extra="allow")
 
-    id:    str
-    type:  str
+    id: str
+    type: str
     title: str
-    data:  Dict[str, Any] = Field(default_factory=dict)
+    data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class FinalResponse(BaseModel):
@@ -304,9 +307,11 @@ class FinalResponse(BaseModel):
     message: str
     # Comparison responses intentionally use a single widget dict, while
     # standard responses use a list of widget dicts.
-    formattedData: Union[List[Dict[str, Any]], Dict[str, Any]] = Field(default_factory=list)
+    formattedData: Union[List[Dict[str, Any]], Dict[str, Any]] = Field(
+        default_factory=list
+    )
     # Root-level narrative — plain strings, never injected into individual widgets
-    analysis:   str = ""
+    analysis: str = ""
     prediction: str = ""
     conclusion: str = ""
     suggestedQuestions: List[str] = Field(default_factory=list)

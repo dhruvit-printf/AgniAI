@@ -108,16 +108,35 @@ def build_visualization_intent(
         }
         return result
 
-    if query_type in {"compare", "comparison"} or "compare" in text or " vs " in text or "versus" in text:
+    if (
+        query_type in {"compare", "comparison"}
+        or "compare" in text
+        or " vs " in text
+        or "versus" in text
+    ):
         comparison = True
-    elif query_type == "trend" or any(token in text for token in ("trend", "timeline", "over months", "over time", "growth")):
+    elif query_type == "trend" or any(
+        token in text
+        for token in ("trend", "timeline", "over months", "over time", "growth")
+    ):
         presentation = "chart"
         chart_type = "line"
         trend = True
-    elif query_type == "distribution" or any(token in text for token in ("distribution", "breakdown", "percentage", "share")):
+    elif query_type == "distribution" or any(
+        token in text for token in ("distribution", "breakdown", "percentage", "share")
+    ):
         presentation = "chart"
         chart_type = "pie"
-    elif any(token in text for token in ("show all", "list all", "all candidates", "all records", "show all candidates")):
+    elif any(
+        token in text
+        for token in (
+            "show all",
+            "list all",
+            "all candidates",
+            "all records",
+            "show all candidates",
+        )
+    ):
         presentation = "table"
 
     if comparison:
