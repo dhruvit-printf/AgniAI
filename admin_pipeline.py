@@ -201,7 +201,7 @@ def _get_session_id(data: Dict) -> str:
     return session_id or "admin-default"
 
 
-def _get_id_filters(data: Dict) -> Dict[str, int]:
+def _get_id_filters(data: Dict) -> Dict[str, Any]:
     """Extract numeric ID filters from the request body."""
 
     def _safe_int(value) -> Optional[int]:
@@ -837,7 +837,7 @@ def execute_admin_query(
                     payload["sessionId"] = session_id
                 cached_val = dict(cached_val)
                 cached_val["response_payload"] = payload
-            cached_intent = {}
+            cached_intent: Dict[str, Any] = {}
             if isinstance(cached_val, dict):
                 cached_intent = (
                     cached_val.get("response_payload", {}).get("intent") or {}
@@ -1678,7 +1678,7 @@ def execute_admin_query(
             )
 
         # ── Step 5: Report Generator ──────────────────────────────────────────
-        report = {
+        report: Dict[str, Any] = {
             "message": "I could only prepare a partial summary for this request.",
             "analysis": None,
             "prediction": {
