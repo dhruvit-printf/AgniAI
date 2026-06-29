@@ -17,6 +17,7 @@ from report_generator import (
 from response_builder import (
     build_response,
 )
+from response_helpers import extract_primary_widget_title
 from response_sanitizer import public_response_view
 
 
@@ -204,7 +205,7 @@ class TestResponseBuilder(unittest.TestCase):
 
         public = public_response_view(internal)
 
-        # New contract keys — no dotnetPayload, analysis/prediction/conclusion at root
+        # Contract keys — analysis/prediction/conclusion at root, dotnetPayload included
         self.assertEqual(
             set(public.keys()),
             {
@@ -215,14 +216,20 @@ class TestResponseBuilder(unittest.TestCase):
                 "prediction",
                 "conclusion",
                 "suggestedQuestions",
+                "dotnetPayload",
+                "comparisonMetrics",
+                "overallConfidence",
+                "partialFailure",
+                "failedSections",
                 "metadata",
             },
         )
         self.assertNotIn("result", public)
         self.assertNotIn("intent", public)
         self.assertNotIn("answer", public)
+        # dotnetPayload passes through exactly as supplied
+        self.assertEqual(public["dotnetPayload"], {})
         self.assertNotIn("sessionId", public)
-        self.assertNotIn("dotnetPayload", public)
         self.assertEqual(public["message"], "Intro")
 
         # Root-level narrative strings
@@ -255,6 +262,21 @@ class TestResponseBuilder(unittest.TestCase):
         if isinstance(first_widget.get("data"), dict) and "rows" in first_widget["data"]:
             for row in first_widget["data"]["rows"]:
                 self.assertNotIn("dotnetPayload", row)
+
+    def test_extract_primary_widget_title_handles_list_and_dict(self):
+        self.assertEqual(
+            extract_primary_widget_title([
+                {"type": "TABLE", "title": "First", "data": {}},
+                {"type": "TABLE", "title": "Second", "data": {}},
+            ]),
+            "First",
+        )
+        self.assertEqual(
+            extract_primary_widget_title({"type": "COMPARE_CARD", "title": "Compare", "data": {}}),
+            "Compare",
+        )
+        self.assertEqual(extract_primary_widget_title({}), "")
+        self.assertEqual(extract_primary_widget_title(None), "")
 
 
 class TestBuildResponseSecurity:

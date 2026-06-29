@@ -748,11 +748,14 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
 
     def split_on_matches(text, matches):
         prefix = text[:matches[0][0]].strip()
+        # Strip comparison lead words regardless of trailing whitespace
+        prefix = re.sub(
+            r"^(?:compare|comparison\s+of|comparison\s+between|comparison)\b\s*",
+            "",
+            prefix,
+            flags=re.IGNORECASE,
+        ).strip()
         prefix_lower = prefix.lower()
-        for pfx in ("compare ", "comparison of ", "comparison between "):
-            if prefix_lower.startswith(pfx):
-                prefix = prefix[len(pfx):].strip()
-                prefix_lower = prefix.lower()
 
         prefix = re.sub(r"\b(and|or)\b\s*$", "", prefix, flags=re.IGNORECASE).strip()
         
@@ -861,8 +864,22 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                     "operation": op.intent_result.get("operation")
                 }
             })
-        
+
         if len(ops) >= 2:
+            logger.info(
+                "plan_query: COMPARE plan | query_type=compare | operation_count=%d | "
+                "operations=%s",
+                len(ops),
+                [
+                    {
+                        "label": label,
+                        "category": ops[i].intent_result.get("category"),
+                        "operation": ops[i].intent_result.get("operation"),
+                        "section": ops[i].intent_result.get("section"),
+                    }
+                    for i, (label, _) in enumerate(components)
+                ],
+            )
             return QueryPlan(
                 query_type=QueryType.COMPARE,
                 operations=ops,
@@ -871,6 +888,15 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 reasoning="Comparison query detected semantically",
                 filters=combined_filters,
                 comparison_execution_plan=comparison_execution_plan
+            )
+        else:
+            logger.warning(
+                "plan_query: comparison detected but could not decompose into "
+                ">= 2 independent operations | raw_query=%r | components_found=%d | "
+                "falling through to semantic analysis. "
+                "Note: 'Compare' operation will NOT be sent to .NET.",
+                raw_query,
+                len(ops),
             )
 
     qtype = (semantic.get("query_type") or "simple").strip().lower()
@@ -895,6 +921,11 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             combined_filters = {}
             for op in valid_ops:
                 combined_filters.update(build_filters_from_entities(op.intent_result.get("filters", {})))
+            logger.info(
+                "plan_query: COMPARE plan (semantic fallback) | query_type=compare | "
+                "operation_count=%d",
+                len(valid_ops),
+            )
             return QueryPlan(
                 QueryType.COMPARE,
                 valid_ops,
@@ -902,6 +933,14 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 raw_query,
                 "Comparison query detected from semantic understanding",
                 filters=combined_filters,
+            )
+        else:
+            logger.warning(
+                "plan_query: semantic comparison fallback also produced < 2 valid ops "
+                "| raw_query=%r | valid_ops=%d | continuing to single-op fallback. "
+                "Note: 'Compare' operation will NOT be sent to .NET.",
+                raw_query,
+                len(valid_ops),
             )
 
 

@@ -225,11 +225,30 @@ def classify_admin_intent(
     return result
 
 
+_INVALID_DOTNET_OPERATIONS: frozenset = frozenset({"Compare"})
+
+
 def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     category = intent_result.get("category")
     operation = intent_result.get("operation")
     subcategory = intent_result.get("subcategory")
     response_type = intent_result.get("responseType", "Summary")
+
+    # "Compare" is an application-layer aggregation, never a .NET backend operation.
+    # The planner decomposes comparison queries into independent retrieval operations
+    # before they reach this layer. If "Compare" arrives here, it means the planner
+    # fell through (could not extract >= 2 components); remap to "Summary" so the
+    # .NET call is valid rather than returning HTTP 400.
+    if operation in _INVALID_DOTNET_OPERATIONS:
+        logger.warning(
+            "format_admin_payload: blocked operation=%r from reaching .NET "
+            "(category=%r) — remapping to 'Summary'. "
+            "Indicates planner fallthrough on a comparison query.",
+            operation,
+            category,
+        )
+        operation = "Summary"
+        intent_result = {**intent_result, "operation": "Summary"}
 
     entities: Dict[str, Any] = {
         "n": intent_result.get("number"),

@@ -31,6 +31,7 @@ from typing import Any, Dict
 from flask_socketio import SocketIO
 
 from admin_pipeline import execute_admin_query
+from response_helpers import extract_primary_widget_title
 from response_sanitizer import public_response_view
 from websocket_manager import ws_manager
 
@@ -142,7 +143,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
                 {
                     "question": message,
                     "query_type": (response_payload.get("metadata") or {}).get("queryType") or result.get("type"),
-                    "intent_formed": (response_payload.get("formattedData") or [{}])[0].get("title"),
+                    "intent_formed": extract_primary_widget_title(response_payload.get("formattedData")),
                 }
             )
         )

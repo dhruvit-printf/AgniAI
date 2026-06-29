@@ -26,6 +26,7 @@ from intent_engine.admin_intent import (
 from admin_pipeline import execute_admin_query
 from admin_entity_resolver import resolve_entities_from_query
 from response_sanitizer import public_response_view
+from response_helpers import extract_primary_widget_title
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,8 @@ def admin_chat():
 
     # ── Call the unified pipeline ───────────────────────────────────────────
     result = execute_admin_query(user_query=message, body=body, trace_id=trace_id)
+    if not isinstance(result, dict):
+        result = {}
 
     result_type = result.get("type", "error")
     duration_ms = round((time.time() - start_time) * 1000, 2)
@@ -144,18 +147,20 @@ def admin_chat():
 
     # ── Successful query / greeting / conversational ────────────────────────
     payload = result.get("response_payload") or {}
+    if not isinstance(payload, dict):
+        payload = {}
 
     logger.info(
         json.dumps(
             {
                 "question": message,
                 "query_type": (payload.get("metadata") or {}).get("queryType"),
-                "intent_formed": (payload.get("formattedData") or [{}])[0].get("title"),
+                "intent_formed": extract_primary_widget_title(payload.get("formattedData")),
             }
         )
     )
 
-    return jsonify(public_response_view(result["response_payload"])), 200
+    return jsonify(public_response_view(payload)), 200
 
 
 # =============================================================================

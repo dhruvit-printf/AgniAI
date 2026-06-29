@@ -916,7 +916,9 @@ def execute_admin_query(
                 query_plan.query_type
                 in (
                     QueryType.CROSS_FILTER,
+                    QueryType.COMPARE,
                     QueryType.COMPARISON,
+                    QueryType.MULTI_INDEPENDENT,
                     QueryType.MULTI_OPERATION,
                 )
                 and len(query_plan.operations) >= 2
@@ -1002,7 +1004,12 @@ def execute_admin_query(
                         op_start = time.time()
                         try:
                             with trace_context(request_id, trace_id, session_id):
-                                data, err = _call_dotnet(payload, trace_id=trace_id)
+                                data, err = _call_dotnet(
+                                    payload,
+                                    trace_id=trace_id,
+                                    session_id=session_id,
+                                    query_type=qtype_str,
+                                )
                             op_time_ms = round((time.time() - op_start) * 1000, 2)
                             if not err and data is not None:
                                 # Validate DotNetResponseModel
@@ -1433,7 +1440,10 @@ def execute_admin_query(
 
                     with trace_context(request_id, trace_id, session_id):
                         dotnet_data, dotnet_error = _call_dotnet(
-                            dotnet_payload, trace_id=trace_id
+                            dotnet_payload,
+                            trace_id=trace_id,
+                            session_id=session_id,
+                            query_type=qtype_str,
                         )
                     if dotnet_error:
                         logger.warning(

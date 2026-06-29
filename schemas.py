@@ -5,7 +5,7 @@ Pydantic v2 models for strict request/response validation across all stages of t
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -302,7 +302,9 @@ class FinalResponse(BaseModel):
 
     status: bool
     message: str
-    formattedData: List[Dict[str, Any]] = Field(default_factory=list)
+    # Comparison responses intentionally use a single widget dict, while
+    # standard responses use a list of widget dicts.
+    formattedData: Union[List[Dict[str, Any]], Dict[str, Any]] = Field(default_factory=list)
     # Root-level narrative — plain strings, never injected into individual widgets
     analysis:   str = ""
     prediction: str = ""

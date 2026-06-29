@@ -2,6 +2,7 @@ import unittest
 import json
 from response_builder import build_response
 from widget_engine import build_formatted_data, validate_payload
+from schemas import FinalResponseModel
 
 
 class TestResponseLayerRefactor(unittest.TestCase):
@@ -228,6 +229,27 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertIsNone(rows[0]["attempts_section1_marks"])
         self.assertEqual(rows[1]["name"], "B")
         self.assertEqual(rows[1]["attempts_section1_marks"], 90)
+
+    def test_final_response_schema_accepts_single_comparison_widget(self):
+        payload = {
+            "status": True,
+            "message": "Comparison generated",
+            "formattedData": {
+                "type": "COMPARE_TABLE",
+                "title": "Comparison Result",
+                "data": {"left": {}, "right": {}},
+            },
+            "metadata": {
+                "sessionId": "admin-default",
+                "confidence": 0.9,
+                "queryType": "COMPARISON",
+                "operationCount": 1,
+                "executionTimeMs": 123,
+            },
+        }
+
+        model = FinalResponseModel.model_validate(payload)
+        self.assertEqual(model.formattedData["type"], "COMPARE_TABLE")
 
 
 if __name__ == "__main__":

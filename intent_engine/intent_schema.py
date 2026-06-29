@@ -46,7 +46,7 @@ OFFICIAL_CATEGORIES: FrozenSet[str] = frozenset([
 OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
     "Performance": frozenset([
         "Top", "Bottom", "Improvement", "Drop", "Grading", "GradingSummary",
-        "Average", "AttemptWise", "BestAttempt", "Compare", "Summary",
+        "Average", "AttemptWise", "BestAttempt", "Summary",
         "PassPercentage", "FailPercentage", "Overall",
     ]),
     "Leave": frozenset([
@@ -200,10 +200,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         "BestAttempt": (
             "best attempt", "best score attempt", "highest attempt",
             "peak attempt", "personal best",
-        ),
-        "Compare": (
-            "compare", "comparison", "vs", "versus", "compared to",
-            "side by side", "head to head",
         ),
         "Summary": (
             "summary", "overview", "section summary", "section overview",
