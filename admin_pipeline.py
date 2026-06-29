@@ -999,9 +999,11 @@ def execute_admin_query(
 
                         response_dotnet_payload[idx] = dict(payload)
 
+                        op_start = time.time()
                         try:
                             with trace_context(request_id, trace_id, session_id):
                                 data, err = _call_dotnet(payload, trace_id=trace_id)
+                            op_time_ms = round((time.time() - op_start) * 1000, 2)
                             if not err and data is not None:
                                 # Validate DotNetResponseModel
                                 if isinstance(data, dict):
@@ -1021,9 +1023,10 @@ def execute_admin_query(
                                         },
                                         "multi.dotnet_response_list",
                                     )
-                            return idx, op, data, err
+                            return idx, op, data, err, op_time_ms
                         except Exception as exc:
-                            return idx, op, None, str(exc)
+                            op_time_ms = round((time.time() - op_start) * 1000, 2)
+                            return idx, op, None, str(exc), op_time_ms
 
                     try:
                         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1079,7 +1082,7 @@ def execute_admin_query(
                     # ── Task 2: Partial failure checks ──
                     all_failed = all(r[3] is not None for r in results)
                     if all_failed:
-                        for idx, op, _, err in results:
+                        for idx, op, _, err, _ in results:
                             metrics_collector.inc_errors(qtype_str)
                         total_duration = time.time() - start_time
                         metrics_collector.record_duration(
@@ -1100,7 +1103,7 @@ def execute_admin_query(
 
                     # CROSS_FILTER primary failure check
                     if query_plan.query_type == QueryType.CROSS_FILTER:
-                        primary_idx, primary_op, primary_data, primary_error = results[
+                        primary_idx, primary_op, primary_data, primary_error, _ = results[
                             0
                         ]
                         if primary_error:
@@ -1124,14 +1127,33 @@ def execute_admin_query(
 
                     # Build raw_results and labeled_results preserving the order
                     failed_filters = []
-                    for idx, op, dotnet_data, dotnet_error in results:
-                        label = (
-                            op.intent_result.get("category")
-                            or op.intent_result.get("section")
+                    comparison_datasets_info = []
+                    for res in results:
+                        idx = res[0]
+                        op = res[1]
+                        dotnet_data = res[2]
+                        dotnet_error = res[3]
+                        op_time_ms = res[4]
+
+                        resolved_canonical = (
+                            op.intent_result.get("section")
                             or op.intent_result.get("sport")
                             or op.intent_result.get("class")
-                            or op.raw_fragment.upper()
                         )
+                        plan_label = None
+                        if hasattr(query_plan, "comparison_execution_plan") and query_plan.comparison_execution_plan and idx < len(query_plan.comparison_execution_plan):
+                            plan_label = query_plan.comparison_execution_plan[idx].get("label")
+
+                        if resolved_canonical:
+                            label = resolved_canonical
+                        elif plan_label:
+                            label = plan_label
+                        else:
+                            label = (
+                                op.intent_result.get("category")
+                                or op.raw_fragment.upper()
+                            )
+
                         if dotnet_error:
                             partial_failure = True
                             failed_sections.append(label)
@@ -1151,12 +1173,6 @@ def execute_admin_query(
                                 )
                                 labeled_results.append((label, dotnet_data))
                         elif query_plan.query_type == QueryType.COMPARISON:
-                            label = (
-                                op.intent_result.get("section")
-                                or op.intent_result.get("sport")
-                                or op.intent_result.get("class")
-                                or op.raw_fragment.upper()
-                            )
                             if dotnet_error:
                                 metrics_collector.inc_errors(qtype_str)
                                 data_placeholder = {"unavailable": True}
@@ -1166,6 +1182,19 @@ def execute_admin_query(
                                 ensure_agniveer_no_in_data(dotnet_data)
                                 raw_results.append(dotnet_data)
                                 labeled_results.append((label, dotnet_data))
+                            
+                            comparison_datasets_info.append({
+                                "id": f"dataset_{idx + 1}",
+                                "label": label,
+                                "intent": op.intent_result,
+                                "dotnetPayload": response_dotnet_payload[idx],
+                                "rawData": dotnet_data if not dotnet_error else {"unavailable": True},
+                                "metadata": {
+                                    "endpoint": "api/AiCommand/execute",
+                                    "status": "SUCCESS" if not dotnet_error else "FAILURE",
+                                    "executionTimeMs": op_time_ms
+                                }
+                            })
                         elif query_plan.query_type == QueryType.MULTI_OPERATION:
                             label = op.intent_result.get(
                                 "category", f"Section {idx + 1}"
@@ -1179,6 +1208,13 @@ def execute_admin_query(
                                 ensure_agniveer_no_in_data(dotnet_data)
                                 raw_results.append(dotnet_data)
                                 labeled_results.append((label, dotnet_data))
+
+                    if query_plan.query_type == QueryType.COMPARISON:
+                        comparison_context = {
+                            "datasets": comparison_datasets_info
+                        }
+                    else:
+                        comparison_context = None
 
                     primary_intent = _merge_intents(
                         frontend_intent,
@@ -1480,7 +1516,8 @@ def execute_admin_query(
             combiner_start = time.time()
             _notify("combiner")
             combined_result = combine_results(
-                raw_results, labeled_results, qtype_str, primary_intent
+                raw_results, labeled_results, qtype_str, primary_intent,
+                comparison_context=locals().get("comparison_context", None)
             )
             _log_combination_summary(
                 question=user_query,
@@ -1795,6 +1832,34 @@ def execute_admin_query(
                     operation_count=operation_count,
                     durations=durations_payload,
                 )
+                if query_plan.query_type in (QueryType.COMPARE, QueryType.COMPARISON) and "comparison_datasets_info" in locals():
+                    response_metadata["queryType"] = "COMPARISON"
+                    response_metadata["comparisonType"] = ""
+                    response_metadata["visualization"] = (
+                        combined_result.get("visualizationType")
+                        if isinstance(combined_result, dict)
+                        else "COMPARE_CARD"
+                    )
+                    response_metadata["datasets"] = [
+                        {"id": d["id"], "label": d["label"]}
+                        for d in locals().get("comparison_datasets_info", [])
+                    ]
+                    if isinstance(combined_result, dict) and "comparisonMetrics" in combined_result:
+                        response_metadata["comparisonMetrics"] = combined_result["comparisonMetrics"]
+                        
+                    response_dotnet_payload = [
+                        {
+                            "id": d["id"],
+                            "label": d["label"],
+                            "endpoint": d["metadata"]["endpoint"],
+                            "intent": d["intent"],
+                            "payload": d["dotnetPayload"],
+                            "status": d["metadata"]["status"],
+                            "executionTimeMs": d["metadata"]["executionTimeMs"]
+                        }
+                        for d in locals().get("comparison_datasets_info", [])
+                    ]
+
                 response_payload = build_response(
                     message=report.get("message", ""),
                     formatted_data=formatted_data_payload,

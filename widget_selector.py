@@ -154,20 +154,11 @@ class WidgetSelector:
         return specs
 
     def _comparison(self, combined_result: Any, cat_slug: str) -> List[WidgetSpec]:
-        left_label  = "Side 1"
-        right_label = "Side 2"
-        if isinstance(combined_result, dict):
-            left  = combined_result.get("left")  or {}
-            right = combined_result.get("right") or {}
-            if isinstance(left, dict):
-                left_label  = left.get("label")  or "Side 1"
-            if isinstance(right, dict):
-                right_label = right.get("label") or "Side 2"
+        viz_type = "COMPARE_CARD"
+        if isinstance(combined_result, dict) and combined_result.get("visualizationType"):
+            viz_type = combined_result["visualizationType"]
         return [
-            WidgetSpec("CARD",      "comparison_summary",           "Comparison Summary",   "summary"),
-            WidgetSpec("BAR_CHART", "comparison_bar",                "Comparison Overview",  "primary"),
-            WidgetSpec("TABLE",     f"{_slug(left_label)}_table",   left_label,             "left"),
-            WidgetSpec("TABLE",     f"{_slug(right_label)}_table",  right_label,            "right"),
+            WidgetSpec(viz_type, "comparison_widget", "Comparison Result", "primary")
         ]
 
     def _cross_filter(self, category: str, cat_slug: str) -> List[WidgetSpec]:

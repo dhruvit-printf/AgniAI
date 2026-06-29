@@ -35,7 +35,7 @@ class TestParallelExecution(unittest.TestCase):
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
 
-        sides = response_payload["formattedData"][0]["data"]["sides"]
+        sides = response_payload["formattedData"]["data"]["sides"]
         self.assertEqual(len(sides), 2)
 
         # PPT must be first side, BEPT must be second side

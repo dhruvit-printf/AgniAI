@@ -972,6 +972,32 @@ def build_formatted_data(
     from normalized_models import _derive_title
     title = _derive_title(query_type, intent)
     
+    if query_type in ("compare", "comparison") and isinstance(source_result, dict) and "sides" in source_result:
+        from widget_selector import WidgetSelector
+        primary_wt = infer_supported_type(
+            source_result, query_type, intent, visualization_intent
+        )
+        selector = WidgetSelector()
+        specs = selector.select(
+            query_type=query_type,
+            intent=intent,
+            combined_result=source_result,
+            primary_widget_type=primary_wt,
+            analysis=analysis,
+        )
+        if specs:
+            spec = specs[0]
+            data = _build_widget_data(spec, source_result, query_type, intent, analysis)
+            if isinstance(source_result, dict):
+                for k, v in source_result.items():
+                    if k not in ("records", "data", "sections", "columns", "rows") and k not in data:
+                        data[k] = v
+            return {
+                "type": spec.widget_type,
+                "title": spec.title or title,
+                "data": data
+            }
+
     # Check for multi_independent and comparison early to bypass extract/flatten
     if query_type == "multi_independent" and isinstance(source_result, dict) and "sections" in source_result:
         sections_list = []
@@ -1185,30 +1211,214 @@ def build_summary_card_from_analysis(
     return {"cards": cards}
 
 
-def _build_comparison_bar_chart(combined_result: Any) -> Dict[str, Any]:
-    """Side-by-side BAR_CHART for comparison queries — new series schema."""
-    if not isinstance(combined_result, dict):
-        return build_bar_chart_data(combined_result)
-    left  = combined_result.get("left")  or {}
-    right = combined_result.get("right") or {}
-    left_label  = (left.get("label")  if isinstance(left, dict) else None)  or "Side 1"
-    right_label = (right.get("label") if isinstance(right, dict) else None) or "Side 2"
-    left_count  = len(left.get("data")  or []) if isinstance(left, dict) else 0
-    right_count = len(right.get("data") or []) if isinstance(right, dict) else 0
+def _get_score(record: Dict[str, Any]) -> Optional[float]:
+    for key in ("bestTotal", "totalMarks", "score", "Score", "omrInputTotal", "marksObtained"):
+        val = record.get(key)
+        if val is not None:
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                pass
+    return None
+
+def _safe_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+def _extract_chronological_key(record: Dict[str, Any]) -> Any:
+    for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp"):
+        val = record.get(k)
+        if val:
+            return str(val)
+    for k in ("attempt", "attemptNo", "Attempt", "AttemptNo"):
+        val = _safe_float(record.get(k))
+        if val is not None:
+            return val
+    month = record.get("month") or record.get("Month")
+    year = record.get("year") or record.get("Year")
+    if year is not None:
+        if month is not None:
+            return (year, month)
+        return year
+    return None
+
+def _build_compare_card(combined_result: Dict[str, Any]) -> Dict[str, Any]:
+    sides = combined_result.get("sides") or []
+    metrics = []
+    compared_metrics = combined_result.get("comparedMetrics") or ["recordCount", "averageScore"]
+    for m in compared_metrics:
+        metric_label = m.replace("averageScore", "Average Score").replace("recordCount", "Record Count").replace("topScore", "Top Score").replace("bottomScore", "Bottom Score")
+        side_vals = {}
+        for side in sides:
+            val = side.get("metrics", {}).get(m)
+            if val is None and m == "recordCount":
+                val = len(side.get("data") or [])
+            if val is not None:
+                side_vals[side["label"]] = val
+        if side_vals:
+            metrics.append({
+                "metric": metric_label,
+                "values": side_vals
+            })
     return {
-        "xAxis": "Group",
-        "yAxis": "Count",
-        "series": [
-            {
-                "label": "Record Count",
-                "data": [
-                    {"x": left_label,  "y": left_count},
-                    {"x": right_label, "y": right_count},
-                ],
-            }
-        ],
+        "metrics": metrics
     }
 
+def _build_compare_table(combined_result: Dict[str, Any]) -> Dict[str, Any]:
+    sides = combined_result.get("sides") or []
+    all_keys = []
+    seen = set()
+    for side in sides:
+        for row in (side.get("data") or []):
+            for k in row.keys():
+                k_lower = k.lower()
+                if k_lower not in seen:
+                    seen.add(k_lower)
+                    all_keys.append(k)
+                    
+    headers = [k for k in all_keys]
+    
+    aligned_sides = []
+    for side in sides:
+        rows = side.get("data") or []
+        aligned_rows = []
+        for r in rows:
+            aligned_row = {}
+            for k in headers:
+                aligned_row[k] = r.get(k)
+            aligned_rows.append(aligned_row)
+        aligned_sides.append({
+            "label": side["label"],
+            "rows": aligned_rows
+        })
+        
+    return {
+        "headers": headers,
+        "sides": aligned_sides
+    }
+
+def _build_compare_bar(combined_result: Dict[str, Any]) -> Dict[str, Any]:
+    sides = combined_result.get("sides") or []
+    all_categories = []
+    seen = set()
+    for side in sides:
+        for r in (side.get("data") or []):
+            group_val = r.get("group") or r.get("label") or r.get("category") or r.get("section") or r.get("company") or r.get("platoon") or r.get("batch") or r.get("unit") or r.get("sport")
+            if group_val is not None:
+                group_str = str(group_val)
+                if group_str not in seen:
+                    seen.add(group_str)
+                    all_categories.append(group_str)
+                    
+    all_categories.sort()
+    
+    series = []
+    for side in sides:
+        cat_to_val = {}
+        for r in (side.get("data") or []):
+            group_val = r.get("group") or r.get("label") or r.get("category") or r.get("section") or r.get("company") or r.get("platoon") or r.get("batch") or r.get("unit") or r.get("sport")
+            val = _get_score(r)
+            if val is None:
+                val = _safe_float(r.get("count")) or 1.0
+            if group_val is not None:
+                cat_to_val[str(group_val)] = val
+                
+        data_points = []
+        for cat in all_categories:
+            data_points.append(cat_to_val.get(cat, None))
+            
+        series.append({
+            "label": side["label"],
+            "data": data_points
+        })
+        
+    return {
+        "categories": all_categories,
+        "series": series
+    }
+
+def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
+    sides = combined_result.get("sides") or []
+    all_labels = []
+    seen = set()
+    for side in sides:
+        for r in (side.get("data") or []):
+            key = _extract_chronological_key(r)
+            if key is not None:
+                key_str = f"{key[0]}-{key[1]}" if isinstance(key, tuple) else str(key)
+                if key_str not in seen:
+                    seen.add(key_str)
+                    all_labels.append(key_str)
+                    
+    all_labels.sort()
+    
+    series = []
+    for side in sides:
+        label_to_val = {}
+        for r in (side.get("data") or []):
+            key = _extract_chronological_key(r)
+            val = _get_score(r)
+            if val is None:
+                val = _safe_float(r.get("count")) or 1.0
+            if key is not None:
+                key_str = f"{key[0]}-{key[1]}" if isinstance(key, tuple) else str(key)
+                label_to_val[key_str] = val
+                
+        data_points = []
+        for lbl in all_labels:
+            data_points.append(label_to_val.get(lbl, None))
+            
+        series.append({
+            "label": side["label"],
+            "data": data_points
+        })
+        
+    return {
+        "labels": all_labels,
+        "series": series
+    }
+
+def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
+    sides = combined_result.get("sides") or []
+    all_labels = []
+    seen = set()
+    for side in sides:
+        for r in (side.get("data") or []):
+            lbl_val = r.get("group") or r.get("label") or r.get("category") or r.get("leavetype") or r.get("medicalcategory") or r.get("bloodgroup") or r.get("grading") or r.get("type") or r.get("status")
+            if lbl_val is not None:
+                lbl_str = str(lbl_val)
+                if lbl_str not in seen:
+                    seen.add(lbl_str)
+                    all_labels.append(lbl_str)
+                    
+    all_labels.sort()
+    
+    aligned_sides = []
+    for side in sides:
+        lbl_to_val = {}
+        for r in (side.get("data") or []):
+            lbl_val = r.get("group") or r.get("label") or r.get("category") or r.get("leavetype") or r.get("medicalcategory") or r.get("bloodgroup") or r.get("grading") or r.get("type") or r.get("status")
+            val = _safe_float(r.get("count")) or _safe_float(r.get("value")) or 1.0
+            if lbl_val is not None:
+                lbl_to_val[str(lbl_val)] = val
+                
+        data_points = []
+        for lbl in all_labels:
+            data_points.append(lbl_to_val.get(lbl, None))
+            
+        aligned_sides.append({
+            "label": side["label"],
+            "values": data_points
+        })
+        
+    return {
+        "labels": all_labels,
+        "sides": aligned_sides
+    }
 
 def _build_widget_data(
     spec: Any,   # WidgetSpec — typed loosely to avoid circular import
@@ -1220,6 +1430,17 @@ def _build_widget_data(
     """Dispatch to the appropriate builder for a single WidgetSpec."""
     wt   = spec.widget_type
     hint = spec.source_hint
+
+    if wt == "COMPARE_CARD":
+        return _build_compare_card(combined_result)
+    elif wt == "COMPARE_TABLE":
+        return _build_compare_table(combined_result)
+    elif wt == "COMPARE_CHART_BAR":
+        return _build_compare_bar(combined_result)
+    elif wt == "COMPARE_CHART_LINE":
+        return _build_compare_line(combined_result)
+    elif wt == "COMPARE_CHART_PIE":
+        return _build_compare_pie(combined_result)
 
     # ── Summary CARD (from analysis.statistics) ──────────────────────────────
     if hint == "summary":
@@ -1253,7 +1474,8 @@ def _build_widget_data(
     # ── BAR_CHART ────────────────────────────────────────────────────────────
     if wt in ("BAR_CHART", "CHART_BAR"):
         if query_type in ("compare", "comparison"):
-            return _build_comparison_bar_chart(combined_result)
+            # Fallback for dynamic schema
+            return _build_compare_bar(combined_result)
         return build_bar_chart_data(combined_result)
 
     # ── LINE_CHART / AREA_CHART ───────────────────────────────────────────────
@@ -1288,6 +1510,34 @@ def build_widget_list(
 
     Always returns at least one widget — never an empty list.
     """
+    if query_type in ("compare", "comparison") and isinstance(combined_result, dict) and "sides" in combined_result:
+        from widget_selector import WidgetSelector
+        primary_wt = infer_supported_type(
+            combined_result, query_type, intent, visualization_intent
+        )
+        selector = WidgetSelector()
+        specs = selector.select(
+            query_type=query_type,
+            intent=intent,
+            combined_result=combined_result,
+            primary_widget_type=primary_wt,
+            analysis=analysis,
+        )
+        if specs:
+            spec = specs[0]
+            data = _build_widget_data(spec, combined_result, query_type, intent, analysis)
+            if isinstance(combined_result, dict):
+                for k, v in combined_result.items():
+                    if k not in ("records", "data", "sections", "columns", "rows") and k not in data:
+                        data[k] = v
+            from normalized_models import _derive_title
+            return [{
+                "id": spec.widget_id,
+                "type": spec.widget_type,
+                "title": spec.title or _derive_title(query_type, intent),
+                "data": data
+            }]
+
     from widget_selector import WidgetSelector
 
     # Determine the primary widget type (reuses existing priority logic)

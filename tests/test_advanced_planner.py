@@ -161,7 +161,7 @@ class TestFilteredComparison(unittest.TestCase):
         self.assertEqual(len(plan.operations), 2)
         # Each operation fragment should mention the filter
         frags = [op.raw_fragment for op in plan.operations]
-        self.assertTrue(any("sikh" in f for f in frags))
+        self.assertTrue(any("sikh" in f.lower() for f in frags))
 
     def test_compare_results_with_record_lists(self):
         """compare_results() must extract metrics from record lists, not just dicts."""

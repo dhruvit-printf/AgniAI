@@ -354,6 +354,7 @@ def combine_results(
     labeled_results: List[Tuple[str, Any]],
     qtype_str: str,
     primary_intent: Dict[str, Any],
+    comparison_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Perform the result combination phase.fix  
@@ -368,7 +369,7 @@ def combine_results(
          logger.info(
              "result_combiner: compare_datasets across %d sides", len(labeled_results)
          )
-         res = compare_datasets(labeled_results)
+         res = compare_datasets(labeled_results, comparison_context=comparison_context)
          res["queryType"] = "comparison"
          return res
          

@@ -5,6 +5,7 @@ Compare engine for comparing N-way datasets side-by-side.
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple, Set
 
 from utils import extract_records as _normalize_records
@@ -13,9 +14,29 @@ from utils import safe_float as _safe_float
 
 logger = logging.getLogger(__name__)
 
+
 def _extract_records(data: Any) -> List[Dict]:
     """Pull the list of records out of any .NET wrapper shape."""
     return _normalize_records(data)
+
+
+def _extract_chronological_key(record: Dict) -> Any:
+    for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp"):
+        val = record.get(k)
+        if val:
+            return str(val)
+    for k in ("attempt", "attemptNo", "Attempt", "AttemptNo"):
+        val = _safe_float(record.get(k))
+        if val is not None:
+            return val
+    month = record.get("month") or record.get("Month")
+    year = record.get("year") or record.get("Year")
+    if year is not None:
+        if month is not None:
+            return (year, month)
+        return year
+    return None
+
 
 def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
     metrics: Dict[str, Any] = {}
@@ -43,16 +64,78 @@ def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
             metrics["averageScore"] = round(sum(scores) / len(scores), 2)
             metrics["topScore"] = max(scores)
             metrics["bottomScore"] = min(scores)
+            metrics["average"] = metrics["averageScore"]
+            metrics["top"] = metrics["topScore"]
+            metrics["bottom"] = metrics["bottomScore"]
     return metrics
 
-def compare_datasets(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
+
+def select_visualization_type(sides: List[Dict[str, Any]]) -> str:
+    all_records = []
+    for side in sides:
+        r = side.get("data") or []
+        if r:
+            all_records.append(r)
+    
+    if not all_records:
+        return "COMPARE_CARD"
+        
+    sample_records = all_records[0]
+    sample = sample_records[0]
+    sample_keys = {k.lower() for k in sample.keys()}
+    
+    table_keys = {"fullname", "agniveerno", "rollno", "personnel", "name", "agniveerid"}
+    if any(tk in sample_keys for tk in table_keys):
+        return "COMPARE_TABLE"
+
+    time_keys = {"date", "month", "year", "attempt", "timestamp", "week", "createddate"}
+    if any(tk in sample_keys for tk in time_keys):
+        return "COMPARE_CHART_LINE"
+
+    pie_keys = {"leavetype", "leavestatus", "leavecategory", "medicalcategory", "disease", "bloodgroup", "blood_group", "bmicategory", "bmi_category", "grading", "grade"}
+    if any(pk in sample_keys for pk in pie_keys):
+        return "COMPARE_CHART_PIE"
+
+    bar_keys = {"company", "platoon", "batch", "unit", "section", "group", "label", "sports", "sport"}
+    if any(bk in sample_keys for bk in bar_keys):
+        return "COMPARE_CHART_BAR"
+
+    if len(sample_records) == 1:
+        if len(sample.keys()) <= 3:
+            return "COMPARE_CARD"
+        return "COMPARE_TABLE"
+        
+    if len(sample.keys()) > 3:
+        return "COMPARE_TABLE"
+        
+    return "COMPARE_CHART_BAR"
+
+
+def compare_datasets(
+    labeled_results: List[Tuple[str, Any]],
+    comparison_context: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
     Compare side-by-side comparison of 2-way and N-way datasets.
     """
+    if not comparison_context:
+        datasets = []
+        for idx, (label, data) in enumerate(labeled_results):
+            datasets.append({
+                "id": f"dataset_{idx + 1}",
+                "label": label,
+                "intent": {},
+                "dotnetPayload": {},
+                "rawData": data,
+                "metadata": {}
+            })
+        comparison_context = {"datasets": datasets}
+
     sides: List[Dict[str, Any]] = []
     all_metric_keys: Set[str] = set()
 
-    for label, data in labeled_results:
+    for ds in comparison_context["datasets"]:
+        data = ds["rawData"]
         is_unavailable = False
         if isinstance(data, dict) and data.get("unavailable") is True:
             is_unavailable = True
@@ -62,20 +145,37 @@ def compare_datasets(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
             all_metric_keys.update(metrics.keys())
 
         side = {
-            "label": label,
+            "id": ds["id"],
+            "label": ds["label"],
             "data": _extract_records(data),
             "metrics": metrics,
+            "intent": ds["intent"],
+            "dotnetPayload": ds["dotnetPayload"],
+            "metadata": ds["metadata"]
         }
         if is_unavailable:
             side["unavailable"] = True
         sides.append(side)
 
-    # 2-way values
+    visualization_type = select_visualization_type(sides)
+
     left = sides[0] if len(sides) >= 1 else {}
     right = sides[1] if len(sides) >= 2 else {}
 
-    # Calculate comparison for all metrics
     comparison_metrics = {}
+    
+    comparison_metrics_payload = {
+        "recordCount": {},
+        "highest": {},
+        "lowest": {},
+        "difference": {},
+        "percentageDifference": {},
+        "variance": {},
+        "trendDifference": {},
+        "distributionDifference": {},
+        "categoryDifference": {}
+    }
+
     for metric in all_metric_keys:
         valid_sides = []
         for side in sides:
@@ -89,12 +189,31 @@ def compare_datasets(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
             highest_label, highest_val = valid_sides[-1]
             diff = highest_val - lowest_val
             pct = (diff / lowest_val * 100.0) if lowest_val != 0 else 0.0
+            
+            raw_vals = [v[1] for v in valid_sides]
+            mean = sum(raw_vals) / len(raw_vals)
+            variance = sum((x - mean) ** 2 for x in raw_vals) / len(raw_vals)
+            
             comparison_metrics[metric] = {
                 "higher": highest_label,
                 "lower": lowest_label,
                 "difference": round(diff, 2),
                 "percentage": round(pct, 2),
             }
+            
+            values_map = {label: val for label, val in valid_sides}
+            if metric == "recordCount":
+                comparison_metrics_payload["recordCount"] = {
+                    "values": values_map,
+                    "difference": round(diff, 2),
+                    "percentageDifference": round(pct, 2)
+                }
+            comparison_metrics_payload["highest"][metric] = {"label": highest_label, "value": round(highest_val, 2)}
+            comparison_metrics_payload["lowest"][metric] = {"label": lowest_label, "value": round(lowest_val, 2)}
+            comparison_metrics_payload["difference"][metric] = round(diff, 2)
+            comparison_metrics_payload["percentageDifference"][metric] = round(pct, 2)
+            comparison_metrics_payload["variance"][metric] = round(variance, 2)
+            
         elif len(valid_sides) == 1:
             label, val = valid_sides[0]
             comparison_metrics[metric] = {
@@ -103,6 +222,34 @@ def compare_datasets(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
                 "difference": 0.0,
                 "percentage": 0.0,
             }
+            values_map = {label: val}
+            if metric == "recordCount":
+                comparison_metrics_payload["recordCount"] = {
+                    "values": values_map,
+                    "difference": 0.0,
+                    "percentageDifference": 0.0
+                }
+            comparison_metrics_payload["highest"][metric] = {"label": label, "value": round(val, 2)}
+            comparison_metrics_payload["lowest"][metric] = {"label": "N/A", "value": 0.0}
+            comparison_metrics_payload["difference"][metric] = 0.0
+            comparison_metrics_payload["percentageDifference"][metric] = 0.0
+            comparison_metrics_payload["variance"][metric] = 0.0
+
+    trend_diff = {}
+    if visualization_type == "COMPARE_CHART_LINE":
+        for s in sides:
+            recs = s.get("data") or []
+            if len(recs) >= 2:
+                sorted_recs = sorted(recs, key=lambda x: _extract_chronological_key(x) or "")
+                first_val = _get_score(sorted_recs[0])
+                last_val = _get_score(sorted_recs[-1])
+                if first_val is not None and last_val is not None:
+                    delta = last_val - first_val
+                    trend_diff[s["label"]] = round(delta, 2)
+    comparison_metrics_payload["trendDifference"] = trend_diff
+
+    comparison_metrics_payload["distributionDifference"] = {}
+    comparison_metrics_payload["categoryDifference"] = {}
 
     return {
         "left": left,
@@ -110,5 +257,6 @@ def compare_datasets(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
         "sides": sides,
         "comparedMetrics": sorted(all_metric_keys),
         "comparison": comparison_metrics,
-        "comparisonMetrics": comparison_metrics
+        "comparisonMetrics": comparison_metrics_payload,
+        "visualizationType": visualization_type
     }

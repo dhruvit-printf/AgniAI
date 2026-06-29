@@ -210,20 +210,14 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
-        self.assertEqual(response_payload["metadata"]["queryType"], "compare")
+        self.assertEqual(response_payload["metadata"]["queryType"], "COMPARISON")
 
-        # Check comparison results — verify the correct widgets are built (summary, chart, and tables)
-        widgets = response_payload["formattedData"]
-        self.assertTrue(any(w["type"] == "CARD" and w["id"] == "comparison_summary" for w in widgets))
-        self.assertTrue(any(w["type"] == "BAR_CHART" and w["id"] == "comparison_bar" for w in widgets))
-
-        ppt_table = next((w for w in widgets if w["title"] == "PPT"), None)
-        self.assertIsNotNone(ppt_table)
-        self.assertEqual(ppt_table["type"], "TABLE")
-
-        bpet_table = next((w for w in widgets if w["title"] == "BPET"), None)
-        self.assertIsNotNone(bpet_table)
-        self.assertEqual(bpet_table["type"], "TABLE")
+        # Check comparison results — verify correct COMPARE widget is built
+        widget = response_payload["formattedData"]
+        self.assertEqual(widget["type"], "COMPARE_TABLE")
+        self.assertIn("comparisonMetrics", response_payload)
+        self.assertIn("headers", widget["data"])
+        self.assertIn("sides", widget["data"])
 
         self.assertEqual(mock_call_dotnet.call_count, 2)
 
