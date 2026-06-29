@@ -1858,15 +1858,7 @@ def execute_admin_query(
                         response_metadata["comparisonMetrics"] = combined_result["comparisonMetrics"]
                         
                     response_dotnet_payload = [
-                        {
-                            "id": d["id"],
-                            "label": d["label"],
-                            "endpoint": d["metadata"]["endpoint"],
-                            "intent": d["intent"],
-                            "payload": d["dotnetPayload"],
-                            "status": d["metadata"]["status"],
-                            "executionTimeMs": d["metadata"]["executionTimeMs"]
-                        }
+                        d["dotnetPayload"]
                         for d in locals().get("comparison_datasets_info", [])
                     ]
 

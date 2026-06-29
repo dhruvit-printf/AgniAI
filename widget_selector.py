@@ -154,12 +154,37 @@ class WidgetSelector:
         return specs
 
     def _comparison(self, combined_result: Any, cat_slug: str) -> List[WidgetSpec]:
-        viz_type = "COMPARE_CARD"
+        _ALIASES = {
+            "COMPARE_CHART_BAR":  "COMPARE_BAR_CHART",
+            "COMPARE_CHART_LINE": "COMPARE_LINE_CHART",
+            "COMPARE_CHART_PIE":  "COMPARE_PIE_CHART",
+        }
+        raw_viz = "COMPARE_CARD"
         if isinstance(combined_result, dict) and combined_result.get("visualizationType"):
-            viz_type = combined_result["visualizationType"]
-        return [
-            WidgetSpec(viz_type, "comparison_widget", "Comparison Result", "primary")
+            raw_viz = combined_result["visualizationType"]
+        viz_type = _ALIASES.get(raw_viz, raw_viz)
+
+        left_label  = ""
+        right_label = ""
+        if isinstance(combined_result, dict):
+            left_label  = str((combined_result.get("left")  or {}).get("label") or "Left")
+            right_label = str((combined_result.get("right") or {}).get("label") or "Right")
+        vs_title = f"{left_label} vs {right_label}" if left_label and right_label else "Comparison"
+
+        specs = [
+            WidgetSpec("COMPARE_CARD", "compare_card", f"{vs_title} — Summary", "primary"),
         ]
+        if viz_type == "COMPARE_TABLE":
+            specs.append(WidgetSpec("COMPARE_TABLE", "compare_table", f"{vs_title} — Records", "primary"))
+        elif viz_type == "COMPARE_BAR_CHART":
+            specs.append(WidgetSpec("COMPARE_BAR_CHART", "compare_bar", f"{vs_title} — Score Comparison", "primary"))
+            specs.append(WidgetSpec("COMPARE_TABLE", "compare_table", f"{vs_title} — Records", "primary"))
+        elif viz_type == "COMPARE_LINE_CHART":
+            specs.append(WidgetSpec("COMPARE_LINE_CHART", "compare_line", f"{vs_title} — Trend", "primary"))
+        elif viz_type == "COMPARE_PIE_CHART":
+            specs.append(WidgetSpec("COMPARE_PIE_CHART", "compare_pie", f"{vs_title} — Distribution", "primary"))
+
+        return specs
 
     def _cross_filter(self, category: str, cat_slug: str) -> List[WidgetSpec]:
         tid = f"{cat_slug}_results" if cat_slug else "filter_results"

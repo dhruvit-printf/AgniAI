@@ -90,25 +90,25 @@ def select_visualization_type(sides: List[Dict[str, Any]]) -> str:
 
     time_keys = {"date", "month", "year", "attempt", "timestamp", "week", "createddate"}
     if any(tk in sample_keys for tk in time_keys):
-        return "COMPARE_CHART_LINE"
+        return "COMPARE_LINE_CHART"
 
     pie_keys = {"leavetype", "leavestatus", "leavecategory", "medicalcategory", "disease", "bloodgroup", "blood_group", "bmicategory", "bmi_category", "grading", "grade"}
     if any(pk in sample_keys for pk in pie_keys):
-        return "COMPARE_CHART_PIE"
+        return "COMPARE_PIE_CHART"
 
     bar_keys = {"company", "platoon", "batch", "unit", "section", "group", "label", "sports", "sport"}
     if any(bk in sample_keys for bk in bar_keys):
-        return "COMPARE_CHART_BAR"
+        return "COMPARE_BAR_CHART"
 
     if len(sample_records) == 1:
         if len(sample.keys()) <= 3:
             return "COMPARE_CARD"
         return "COMPARE_TABLE"
-        
+
     if len(sample.keys()) > 3:
         return "COMPARE_TABLE"
-        
-    return "COMPARE_CHART_BAR"
+
+    return "COMPARE_BAR_CHART"
 
 
 def compare_datasets(
@@ -149,9 +149,6 @@ def compare_datasets(
             "label": ds["label"],
             "data": _extract_records(data),
             "metrics": metrics,
-            "intent": ds["intent"],
-            "dotnetPayload": ds["dotnetPayload"],
-            "metadata": ds["metadata"]
         }
         if is_unavailable:
             side["unavailable"] = True
@@ -236,7 +233,7 @@ def compare_datasets(
             comparison_metrics_payload["variance"][metric] = 0.0
 
     trend_diff = {}
-    if visualization_type == "COMPARE_CHART_LINE":
+    if visualization_type == "COMPARE_LINE_CHART":
         for s in sides:
             recs = s.get("data") or []
             if len(recs) >= 2:

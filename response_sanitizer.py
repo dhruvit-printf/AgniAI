@@ -75,9 +75,5 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
         "conclusion":         (payload.get("conclusion") or ""),
         "suggestedQuestions": list(payload.get("suggestedQuestions") or []),
         "dotnetPayload":      payload.get("dotnetPayload"),
-        "comparisonMetrics":  payload.get("comparisonMetrics") or {},
-        "overallConfidence":  round(float(payload.get("overallConfidence") or 0.0), 2),
-        "partialFailure":     bool(payload.get("partialFailure", False)),
-        "failedSections":     list(payload.get("failedSections") or []),
         "metadata":           clean_meta,
     }

@@ -57,39 +57,27 @@ def build_response(
 
     # If it is a COMPARISON query:
     if meta.get("queryType") == "COMPARISON":
-        # Keep formatted_data unwrapped
-        if isinstance(formatted_data, list) and formatted_data:
-            formatted_data = formatted_data[0]
-            
-        fd = {
-            "type": formatted_data.get("type") if isinstance(formatted_data, dict) else "COMPARE_CARD",
-            "title": formatted_data.get("title") or "Comparison Result",
-            "data": formatted_data.get("data") or {}
-        }
-        
-        comparison_metrics_payload = meta.pop("comparisonMetrics", {
-            "recordCount": {},
-            "highest": {},
-            "lowest": {},
-            "difference": {},
-            "percentageDifference": {},
-            "variance": {},
-            "trendDifference": {},
-            "distributionDifference": {},
-            "categoryDifference": {}
-        })
-        
+        # formattedData is a list of comparison widgets from build_comparison_widgets()
+        if isinstance(formatted_data, list):
+            fd = formatted_data
+        elif isinstance(formatted_data, dict) and formatted_data:
+            fd = [formatted_data]
+        else:
+            fd = []
+
         return {
-            "status": True,
-            "message": message or "",
-            "formattedData": fd,
-            "dotnetPayload": dotnet_payload or [],
-            "comparisonMetrics": comparison_metrics_payload,
+            "status":             True,
+            "message":            message or "",
+            "formattedData":      fd,
+            "analysis":           _to_str(analysis),
+            "prediction":         _to_str(prediction),
+            "conclusion":         _to_str(conclusion),
             "suggestedQuestions": suggested_questions or [],
-            "metadata": meta,
-            "overallConfidence": round(float(overall_confidence or 0.0), 2),
-            "partialFailure": bool(partial_failure),
-            "failedSections": failed_sections if isinstance(failed_sections, list) else [],
+            "dotnetPayload":      dotnet_payload or [],
+            "metadata":           meta,
+            "overallConfidence":  round(float(overall_confidence or 0.0), 2),
+            "partialFailure":     bool(partial_failure),
+            "failedSections":     failed_sections if isinstance(failed_sections, list) else [],
         }
 
     # For other query types

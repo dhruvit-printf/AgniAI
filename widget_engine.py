@@ -1113,8 +1113,10 @@ def build_formatted_data(
             table_records = _extract_records(source_result, deep_flatten=True)
             data_payload = build_table_data(table_records)
 
-    # Preserve 100% of .NET data and unknown keys
-    if isinstance(source_result, dict) and isinstance(data_payload, dict):
+    # Preserve unknown .NET keys for non-comparison queries so cross-filter metadata
+    # (matchCount, totalBeforeFilter, etc.) and other backend context reaches the frontend.
+    # Comparison widgets are fully self-contained — never merge extra keys into them.
+    if query_type not in ("compare", "comparison") and isinstance(source_result, dict) and isinstance(data_payload, dict):
         for k, v in source_result.items():
             if k not in data_payload:
                 data_payload[k] = v
@@ -1247,184 +1249,219 @@ def _extract_chronological_key(record: Dict[str, Any]) -> Any:
     return None
 
 def _build_compare_card(combined_result: Dict[str, Any]) -> Dict[str, Any]:
-    sides = combined_result.get("sides") or []
-    metrics = []
-    compared_metrics = combined_result.get("comparedMetrics") or ["recordCount", "averageScore"]
-    for m in compared_metrics:
-        metric_label = m.replace("averageScore", "Average Score").replace("recordCount", "Record Count").replace("topScore", "Top Score").replace("bottomScore", "Bottom Score")
-        side_vals = {}
-        for side in sides:
-            val = side.get("metrics", {}).get(m)
-            if val is None and m == "recordCount":
-                val = len(side.get("data") or [])
-            if val is not None:
-                side_vals[side["label"]] = val
-        if side_vals:
-            metrics.append({
-                "metric": metric_label,
-                "values": side_vals
-            })
-    return {
-        "metrics": metrics
+    """COMPARE_CARD: {left: [{label, value}], right: [{label, value}]}"""
+    left_side  = combined_result.get("left")  or {}
+    right_side = combined_result.get("right") or {}
+
+    _LABELS = {
+        "recordCount":  "Total Records",
+        "averageScore": "Average Score",
+        "topScore":     "Top Score",
+        "bottomScore":  "Bottom Score",
     }
+
+    def _side_cards(side: Dict[str, Any]) -> List[Dict[str, str]]:
+        metrics = side.get("metrics") or {}
+        records = side.get("data")    or []
+        cards: List[Dict[str, str]] = []
+        for k in ("recordCount", "averageScore", "topScore", "bottomScore"):
+            val = metrics.get(k)
+            if val is not None:
+                display = str(round(float(val), 2)) if isinstance(val, float) else str(val)
+                cards.append({"label": _LABELS[k], "value": display})
+        if not cards:
+            cards.append({"label": "Records", "value": str(len(records))})
+        return cards
+
+    return {
+        "left":  _side_cards(left_side),
+        "right": _side_cards(right_side),
+    }
+
 
 def _build_compare_table(combined_result: Dict[str, Any]) -> Dict[str, Any]:
-    sides = combined_result.get("sides") or []
-    all_keys = []
-    seen = set()
-    for side in sides:
-        for row in (side.get("data") or []):
-            for k in row.keys():
-                k_lower = k.lower()
-                if k_lower not in seen:
-                    seen.add(k_lower)
-                    all_keys.append(k)
-                    
-    headers = [k for k in all_keys]
-    
-    aligned_sides = []
-    for side in sides:
-        rows = side.get("data") or []
-        aligned_rows = []
-        for r in rows:
-            aligned_row = {}
-            for k in headers:
-                aligned_row[k] = r.get(k)
-            aligned_rows.append(aligned_row)
-        
-        side_payload = {
-            "label": side["label"],
-            "data": aligned_rows,
-            "rows": aligned_rows
-        }
-        for k, v in side.items():
-            if k not in ("label", "data", "rows"):
-                side_payload[k] = v
-        aligned_sides.append(side_payload)
-        
+    """COMPARE_TABLE: {left: {columns, rows}, right: {columns, rows}}"""
+    left_side  = combined_result.get("left")  or {}
+    right_side = combined_result.get("right") or {}
+
+    def _side_table(side: Dict[str, Any]) -> Dict[str, Any]:
+        records = side.get("data") or []
+        flat = flatten_records(records, deep_flatten=True)
+        return build_table_data(flat)
+
     return {
-        "headers": headers,
-        "sides": aligned_sides
+        "left":  _side_table(left_side),
+        "right": _side_table(right_side),
     }
+
 
 def _build_compare_bar(combined_result: Dict[str, Any]) -> Dict[str, Any]:
-    sides = combined_result.get("sides") or []
-    all_categories = []
-    seen = set()
-    for side in sides:
-        for r in (side.get("data") or []):
-            group_val = r.get("group") or r.get("label") or r.get("category") or r.get("section") or r.get("company") or r.get("platoon") or r.get("batch") or r.get("unit") or r.get("sport")
-            if group_val is not None:
-                group_str = str(group_val)
-                if group_str not in seen:
-                    seen.add(group_str)
-                    all_categories.append(group_str)
-                    
-    all_categories.sort()
-    
-    series = []
-    for side in sides:
-        cat_to_val = {}
-        for r in (side.get("data") or []):
-            group_val = r.get("group") or r.get("label") or r.get("category") or r.get("section") or r.get("company") or r.get("platoon") or r.get("batch") or r.get("unit") or r.get("sport")
-            val = _get_score(r)
-            if val is None:
-                val = _safe_float(r.get("count")) or 1.0
-            if group_val is not None:
-                cat_to_val[str(group_val)] = val
-                
-        data_points = []
-        for cat in all_categories:
-            data_points.append(cat_to_val.get(cat, None))
-            
-        series.append({
-            "label": side["label"],
-            "data": data_points
-        })
-        
+    """COMPARE_BAR_CHART: {left: {xKey, yKey, rows}, right: {xKey, yKey, rows}}"""
+    left_side  = combined_result.get("left")  or {}
+    right_side = combined_result.get("right") or {}
+
+    def _side_bar(side: Dict[str, Any]) -> Dict[str, Any]:
+        records = side.get("data") or []
+        if not records:
+            return {"xKey": "label", "yKey": "value", "rows": []}
+        x_key = _find_key(records, [
+            "fullName", "name", "company", "platoon", "batch", "unit",
+            "section", "group", "label", "category", "sport",
+        ]) or "label"
+        y_key = _find_key(records, [
+            "bestTotal", "totalMarks", "score", "marksObtained",
+            "count", "value", "percentage", "averageScore",
+        ]) or _find_numeric_key(records, ["id"]) or "value"
+        rows = [{x_key: r.get(x_key), y_key: r.get(y_key)} for r in records]
+        return {"xKey": x_key, "yKey": y_key, "rows": rows}
+
     return {
-        "categories": all_categories,
-        "series": series
+        "left":  _side_bar(left_side),
+        "right": _side_bar(right_side),
     }
+
 
 def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
-    sides = combined_result.get("sides") or []
-    all_labels = []
-    seen = set()
-    for side in sides:
-        for r in (side.get("data") or []):
-            key = _extract_chronological_key(r)
-            if key is not None:
-                key_str = f"{key[0]}-{key[1]}" if isinstance(key, tuple) else str(key)
-                if key_str not in seen:
-                    seen.add(key_str)
-                    all_labels.append(key_str)
-                    
-    all_labels.sort()
-    
-    series = []
-    for side in sides:
-        label_to_val = {}
-        for r in (side.get("data") or []):
-            key = _extract_chronological_key(r)
-            val = _get_score(r)
-            if val is None:
-                val = _safe_float(r.get("count")) or 1.0
-            if key is not None:
-                key_str = f"{key[0]}-{key[1]}" if isinstance(key, tuple) else str(key)
-                label_to_val[key_str] = val
-                
-        data_points = []
-        for lbl in all_labels:
-            data_points.append(label_to_val.get(lbl, None))
-            
-        series.append({
-            "label": side["label"],
-            "data": data_points
-        })
-        
+    """COMPARE_LINE_CHART: {left: {xKey, series, rows}, right: {xKey, series, rows}}"""
+    left_side  = combined_result.get("left")  or {}
+    right_side = combined_result.get("right") or {}
+
+    _TIME_KEYS = ["date", "month", "year", "attemptNo", "attempt", "time", "day"]
+
+    def _side_line(side: Dict[str, Any]) -> Dict[str, Any]:
+        records = side.get("data") or []
+        if not records:
+            return {"xKey": "date", "series": [], "rows": []}
+        x_key = _find_key(records, _TIME_KEYS) or "date"
+        numeric_keys = [
+            k for r in records[:1]
+            for k, v in r.items()
+            if isinstance(v, (int, float)) and k.lower() not in {t.lower() for t in _TIME_KEYS + ["id"]}
+        ] or ["value"]
+        rows = []
+        for r in records:
+            row: Dict[str, Any] = {x_key: r.get(x_key)}
+            for sk in numeric_keys:
+                row[sk] = r.get(sk)
+            rows.append(row)
+        return {"xKey": x_key, "series": numeric_keys, "rows": rows}
+
     return {
-        "labels": all_labels,
-        "series": series
+        "left":  _side_line(left_side),
+        "right": _side_line(right_side),
     }
 
+
 def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
-    sides = combined_result.get("sides") or []
-    all_labels = []
-    seen = set()
-    for side in sides:
-        for r in (side.get("data") or []):
-            lbl_val = r.get("group") or r.get("label") or r.get("category") or r.get("leavetype") or r.get("medicalcategory") or r.get("bloodgroup") or r.get("grading") or r.get("type") or r.get("status")
-            if lbl_val is not None:
-                lbl_str = str(lbl_val)
-                if lbl_str not in seen:
-                    seen.add(lbl_str)
-                    all_labels.append(lbl_str)
-                    
-    all_labels.sort()
-    
-    aligned_sides = []
-    for side in sides:
-        lbl_to_val = {}
-        for r in (side.get("data") or []):
-            lbl_val = r.get("group") or r.get("label") or r.get("category") or r.get("leavetype") or r.get("medicalcategory") or r.get("bloodgroup") or r.get("grading") or r.get("type") or r.get("status")
-            val = _safe_float(r.get("count")) or _safe_float(r.get("value")) or 1.0
-            if lbl_val is not None:
-                lbl_to_val[str(lbl_val)] = val
-                
-        data_points = []
-        for lbl in all_labels:
-            data_points.append(lbl_to_val.get(lbl, None))
-            
-        aligned_sides.append({
-            "label": side["label"],
-            "values": data_points
-        })
-        
+    """COMPARE_PIE_CHART: {left: {rows: [{label, value}]}, right: {rows: [{label, value}]}}"""
+    left_side  = combined_result.get("left")  or {}
+    right_side = combined_result.get("right") or {}
+
+    _PIE_LABEL_CANDIDATES = [
+        "label", "sport", "grade", "leaveType", "bloodGroup",
+        "disease", "status", "category", "name",
+        "leavetype", "bmiCategory", "grading", "type",
+    ]
+
+    def _side_pie(side: Dict[str, Any]) -> Dict[str, Any]:
+        records = side.get("data") or []
+        if not records:
+            return {"rows": []}
+        label_key = _find_key(records, _PIE_LABEL_CANDIDATES)
+        if not label_key:
+            for r in records[:1]:
+                for k, v in r.items():
+                    if isinstance(v, str) and k.lower() not in ("id",):
+                        label_key = k
+                        break
+        label_key = label_key or "label"
+        value_key = _find_key(records, [
+            "value", "count", "score", "percentage", "bestTotal", "marksObtained",
+        ]) or _find_numeric_key(records, ["id"]) or "value"
+        rows = [
+            {"label": str(r.get(label_key) or ""), "value": r.get(value_key) if r.get(value_key) is not None else 0}
+            for r in records
+        ]
+        return {"rows": rows}
+
     return {
-        "labels": all_labels,
-        "sides": aligned_sides
+        "left":  _side_pie(left_side),
+        "right": _side_pie(right_side),
     }
+
+
+# Canonical type names coming from compare_engine — handle any legacy aliases.
+_COMPARE_TYPE_ALIASES: Dict[str, str] = {
+    "COMPARE_CHART_BAR":  "COMPARE_BAR_CHART",
+    "COMPARE_CHART_LINE": "COMPARE_LINE_CHART",
+    "COMPARE_CHART_PIE":  "COMPARE_PIE_CHART",
+}
+
+
+def build_comparison_widgets(
+    combined_result: Dict[str, Any],
+    base_title: str = "",
+) -> List[Dict[str, Any]]:
+    """
+    Entry point for comparison visualization assembly.
+
+    Returns an ordered list:
+      [COMPARE_CARD, <primary_viz>, COMPARE_TABLE?]
+
+    All widgets follow {type, title, data} with left/right structure.
+    No internal fields (intent, dotnetPayload, metadata, endpoint) are included.
+    """
+    left_side  = combined_result.get("left")  or {}
+    right_side = combined_result.get("right") or {}
+    left_label  = str(left_side.get("label")  or "Left")
+    right_label = str(right_side.get("label") or "Right")
+    vs_title = f"{left_label} vs {right_label}"
+
+    raw_viz = combined_result.get("visualizationType") or "COMPARE_CARD"
+    viz_type = _COMPARE_TYPE_ALIASES.get(raw_viz, raw_viz)
+
+    widgets: List[Dict[str, Any]] = []
+
+    # 1. Summary card — always first
+    widgets.append({
+        "type":  "COMPARE_CARD",
+        "title": f"{vs_title} — Summary",
+        "data":  _build_compare_card(combined_result),
+    })
+
+    # 2. Primary visualization
+    if viz_type == "COMPARE_TABLE":
+        widgets.append({
+            "type":  "COMPARE_TABLE",
+            "title": f"{vs_title} — Records",
+            "data":  _build_compare_table(combined_result),
+        })
+    elif viz_type == "COMPARE_BAR_CHART":
+        widgets.append({
+            "type":  "COMPARE_BAR_CHART",
+            "title": f"{vs_title} — Score Comparison",
+            "data":  _build_compare_bar(combined_result),
+        })
+        widgets.append({
+            "type":  "COMPARE_TABLE",
+            "title": f"{vs_title} — Records",
+            "data":  _build_compare_table(combined_result),
+        })
+    elif viz_type == "COMPARE_LINE_CHART":
+        widgets.append({
+            "type":  "COMPARE_LINE_CHART",
+            "title": f"{vs_title} — Trend",
+            "data":  _build_compare_line(combined_result),
+        })
+    elif viz_type == "COMPARE_PIE_CHART":
+        widgets.append({
+            "type":  "COMPARE_PIE_CHART",
+            "title": f"{vs_title} — Distribution",
+            "data":  _build_compare_pie(combined_result),
+        })
+    # COMPARE_CARD already added above — no second widget needed
+
+    return widgets
 
 def _build_widget_data(
     spec: Any,   # WidgetSpec — typed loosely to avoid circular import
@@ -1441,11 +1478,11 @@ def _build_widget_data(
         return _build_compare_card(combined_result)
     elif wt == "COMPARE_TABLE":
         return _build_compare_table(combined_result)
-    elif wt == "COMPARE_CHART_BAR":
+    elif wt in ("COMPARE_BAR_CHART", "COMPARE_CHART_BAR"):
         return _build_compare_bar(combined_result)
-    elif wt == "COMPARE_CHART_LINE":
+    elif wt in ("COMPARE_LINE_CHART", "COMPARE_CHART_LINE"):
         return _build_compare_line(combined_result)
-    elif wt == "COMPARE_CHART_PIE":
+    elif wt in ("COMPARE_PIE_CHART", "COMPARE_CHART_PIE"):
         return _build_compare_pie(combined_result)
 
     # ── Summary CARD (from analysis.statistics) ──────────────────────────────
@@ -1517,32 +1554,9 @@ def build_widget_list(
     Always returns at least one widget — never an empty list.
     """
     if query_type in ("compare", "comparison") and isinstance(combined_result, dict) and "sides" in combined_result:
-        from widget_selector import WidgetSelector
-        primary_wt = infer_supported_type(
-            combined_result, query_type, intent, visualization_intent
-        )
-        selector = WidgetSelector()
-        specs = selector.select(
-            query_type=query_type,
-            intent=intent,
-            combined_result=combined_result,
-            primary_widget_type=primary_wt,
-            analysis=analysis,
-        )
-        if specs:
-            spec = specs[0]
-            data = _build_widget_data(spec, combined_result, query_type, intent, analysis)
-            if isinstance(combined_result, dict):
-                for k, v in combined_result.items():
-                    if k not in ("records", "data", "sections", "columns", "rows") and k not in data:
-                        data[k] = v
-            from normalized_models import _derive_title
-            return [{
-                "id": spec.widget_id,
-                "type": spec.widget_type,
-                "title": spec.title or _derive_title(query_type, intent),
-                "data": data
-            }]
+        from normalized_models import _derive_title
+        base_title = _derive_title(query_type, intent) or ""
+        return build_comparison_widgets(combined_result, base_title)
 
     from widget_selector import WidgetSelector
 
@@ -1577,16 +1591,11 @@ def build_widget_list(
     for spec in specs:
         try:
             data = _build_widget_data(spec, combined_result, query_type, intent, analysis)
-            # Backward-compatibility: copy top-level metadata keys to widget data
-            if isinstance(combined_result, dict):
-                for k, v in combined_result.items():
-                    if k not in ("records", "data", "sections", "columns", "rows") and k not in data:
-                        data[k] = v
-                if spec.widget_type == "TABLE" and "rows" not in data:
-                    flat = _extract_records(combined_result, deep_flatten=True)
-                    table_data = build_table_data(flat)
-                    data["rows"] = table_data.get("rows") or []
-                    data["columns"] = table_data.get("columns") or []
+            if spec.widget_type == "TABLE" and isinstance(data, dict) and "rows" not in data:
+                flat = _extract_records(combined_result, deep_flatten=True)
+                table_data = build_table_data(flat)
+                data["rows"] = table_data.get("rows") or []
+                data["columns"] = table_data.get("columns") or []
         except Exception:
             import logging as _logging
             _logging.getLogger(__name__).exception(
