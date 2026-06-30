@@ -619,7 +619,7 @@ def generate_message(
             },
         }
 
-        resp = ollama_session.post(OLLAMA_URL, json=payload, timeout=(5, 25))
+        resp = ollama_session.post(OLLAMA_URL, json=payload, timeout=(0.5, 10.0))
         resp.raise_for_status()
 
         raw_text = resp.json().get("message", {}).get("content", "").strip()

@@ -191,9 +191,11 @@ def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 record_id = f"id:{val}"
                 break
         if record_id is None:
-            record_id = "row:" + json.dumps(
+            import hashlib
+            row_str = json.dumps(
                 record, sort_keys=True, ensure_ascii=False, default=str
             )
+            record_id = "row:" + hashlib.md5(row_str.encode("utf-8")).hexdigest()
         if record_id in seen:
             continue
         seen.add(record_id)

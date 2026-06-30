@@ -20,8 +20,6 @@ _ID_FIELD_PRIORITY = (
     "agniveerId",
     "AgniveerId",
     "AgniVeerId",
-    "id",
-    "Id",
 )
 
 

@@ -28,7 +28,9 @@ class TestMetricsHealth(unittest.TestCase):
         mock_llm.return_value = "healthy"
         mock_db.return_value = "healthy"
 
-        resp = self.app_client.get("/api/admin/health")
+        from config import API_SECRET_KEY
+        headers = {"X-Api-Key": API_SECRET_KEY} if API_SECRET_KEY else {}
+        resp = self.app_client.get("/api/admin/health", headers=headers)
         self.assertEqual(resp.status_code, 200)
 
         data = json.loads(resp.data.decode("utf-8"))
@@ -50,7 +52,9 @@ class TestMetricsHealth(unittest.TestCase):
         mock_llm.return_value = "healthy"
         mock_db.return_value = "healthy"
 
-        resp = self.app_client.get("/api/admin/health")
+        from config import API_SECRET_KEY
+        headers = {"X-Api-Key": API_SECRET_KEY} if API_SECRET_KEY else {}
+        resp = self.app_client.get("/api/admin/health", headers=headers)
         self.assertEqual(resp.status_code, 503)
 
         data = json.loads(resp.data.decode("utf-8"))

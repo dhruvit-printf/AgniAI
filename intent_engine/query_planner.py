@@ -579,10 +579,20 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
     if len({m[2] for m in year_matches}) >= 2:
         return split_on_matches(query_text, year_matches)
 
-    # Fallback to simple split by "and"
-    if " and " in text_lower:
-        parts = re.split(r"\s+and\s+", query_text, flags=re.IGNORECASE)
-        return _normalize_n_parts(parts)
+    # Fallback for single target comparison with separator: "compare BPET with Platoon 15"
+    for sep in (" with ", " against ", " versus ", " vs "):
+        if sep in text_lower:
+            idx = text_lower.find(sep)
+            left_part = query_text[:idx].strip()
+            right_part = query_text[idx + len(sep):].strip()
+            left_clean = re.sub(
+                r"^(?:compare|comparison\s+of|comparison\s+between|comparison)\b\s*",
+                "",
+                left_part,
+                flags=re.IGNORECASE,
+            ).strip()
+            if left_clean and right_part:
+                return [(left_clean, left_clean), (right_part, f"{left_clean} for {right_part}")]
 
     return [(query_text, query_text)]
 

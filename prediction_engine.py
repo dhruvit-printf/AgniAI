@@ -242,6 +242,28 @@ def _build_fallback_prediction(
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
+def _has_sufficient_history(records: List[Any]) -> bool:
+    if not records:
+        return False
+    timestamps = set()
+    attempts = set()
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp", "month", "Month", "year", "Year"):
+            val = r.get(k)
+            if val is not None:
+                timestamps.add(str(val))
+        for k in ("attemptNo", "AttemptNo", "attempt", "Attempt"):
+            val = r.get(k)
+            if val is not None:
+                attempts.add(str(val))
+        for attempt in r.get("attempts") or []:
+            attempts.add(str(attempt.get("attemptNo") or attempt.get("AttemptNo") or ""))
+    attempts.discard("")
+    return len(timestamps) >= 3 or len(attempts) >= 3
+
+
 def generate_predictions(
     combined_result: Any, query_type: str, intent: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
@@ -256,6 +278,17 @@ def generate_predictions(
 
         from normalized_models import extract_records as _extract_records
         records = _extract_records(combined_result)
+
+        if query_type not in ("compare", "comparison") and not _has_sufficient_history(records):
+            return {
+                "trend": "Stable",
+                "trendConfidence": "Low",
+                "momentum": 0.0,
+                "projection": "Prediction unavailable due to insufficient historical data.",
+                "heuristicEstimate": "Prediction unavailable due to insufficient historical data.",
+                "shortTerm": "stable",
+                "futureTrends": ["Prediction unavailable due to insufficient historical data."],
+            }
 
         if isinstance(combined_result, dict):
             left           = combined_result.get("left")          or {}

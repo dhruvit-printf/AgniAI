@@ -88,8 +88,25 @@ def match_entity(
                 best_alias = alias_text
                 match_type = "exact"
                 break
+            def _has_boundary(pattern: str, query: str) -> bool:
+                idx = query.find(pattern)
+                if idx == -1:
+                    return False
+                if idx > 0:
+                    if pattern[0].isdigit() and query[idx - 1].isdigit():
+                        return False
+                    if pattern[0].isalpha() and query[idx - 1].isalnum():
+                        return False
+                end_idx = idx + len(pattern)
+                if end_idx < len(query):
+                    if pattern[-1].isdigit() and query[end_idx].isdigit():
+                        return False
+                    if pattern[-1].isalpha() and query[end_idx].isalnum():
+                        return False
+                return True
+
             if alias_norm and (
-                alias_norm in normalized_query or normalized_query in alias_norm
+                _has_boundary(alias_norm, normalized_query) or _has_boundary(normalized_query, alias_norm)
             ):
                 score = 97.0
                 if score > best_score:
@@ -97,7 +114,7 @@ def match_entity(
                     best_alias = alias_text
                     match_type = "alias"
             if alias_compact and (
-                alias_compact in compact_query or compact_query in alias_compact
+                _has_boundary(alias_compact, compact_query) or _has_boundary(compact_query, alias_compact)
             ):
                 score = 96.0
                 if score > best_score:

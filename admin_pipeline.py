@@ -764,6 +764,8 @@ def execute_admin_query(
     token_sess = session_id_var.set(session_id)
     set_audit_context(question=user_query or "", intent={"type": "Unknown"})
 
+    carry_forward_filters: Dict[str, Any] = {}
+
     # ── Context Resolution ────────────────────────────────────────────────────
     # Resolve follow-up queries against the last 10 interactions for this session.
     # Returns either the original query ("fresh") or a fully reconstructed one.
@@ -797,9 +799,10 @@ def execute_admin_query(
             )
         )
         user_query = _ctx_resolution.resolved_query
+        carry_forward_filters = dict(_ctx_resolution.carry_forward_filters or {})
 
     # Initialise entity dict so it's always bound when add_interaction() fires
-    resolved_entities: Dict[str, Any] = {}
+    resolved_entities: Dict[str, Any] = dict(_ctx_resolution.resolved_entities or {})
 
     # ── Check Cache ──
     from cache_manager import cache_manager
@@ -941,7 +944,7 @@ def execute_admin_query(
                         "agniveer_no"
                     ) or prev_intent.get("agniveerNo")
 
-            resolved_entities = resolve_entities_from_query(
+            new_resolved = resolve_entities_from_query(
                 message,
                 existing_company_id=existing_co,
                 existing_platoon_id=existing_pl,
@@ -949,6 +952,7 @@ def execute_admin_query(
                 trace_id=trace_id,
                 session_id=session_id,
             )
+            resolved_entities.update(new_resolved)
             entity_resolution_duration = time.time() - entity_resolution_start
             logger.info(
                 {
@@ -1061,6 +1065,15 @@ def execute_admin_query(
                     def run_op(idx, op):
                         payload = dict(op.dotnet_payload)
                         payload.update(id_filters)
+                        if query_plan.query_type == QueryType.COMPARISON:
+                            if idx == 0:
+                                for k, v in carry_forward_filters.items():
+                                    if payload.get(k) in (None, ""):
+                                        payload[k] = v
+                        else:
+                            for k, v in carry_forward_filters.items():
+                                if payload.get(k) in (None, ""):
+                                    payload[k] = v
                         if resolved_agniveer_no and not payload.get("agniveerNo"):
                             payload["agniveerNo"] = resolved_agniveer_no
                         if full_name:
@@ -1508,6 +1521,9 @@ def execute_admin_query(
 
                 dotnet_payload = format_admin_payload(primary_intent)
                 dotnet_payload.update(id_filters)
+                for k, v in carry_forward_filters.items():
+                    if dotnet_payload.get(k) in (None, ""):
+                        dotnet_payload[k] = v
                 if full_name:
                     dotnet_payload["fullName"] = full_name
                 # Wire in agniveerNo from entity resolution if not already set by intent

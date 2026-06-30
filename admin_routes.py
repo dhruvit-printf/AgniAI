@@ -38,6 +38,38 @@ LAST_DOTNET_HEALTH_LATENCY_MS: Optional[float] = None
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
 
+def _require_secret(fn):
+    """Decorator: reject request if API_SECRET_KEY is set and header doesn't match."""
+    from functools import wraps
+    from flask import request, jsonify
+    from config import API_SECRET_KEY
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if API_SECRET_KEY:
+            provided = request.headers.get("X-Api-Key", "")
+            if provided != API_SECRET_KEY:
+                return jsonify({
+                    "status": False,
+                    "message": "Unauthorized. Provide X-Api-Key header.",
+                    "formattedData": [],
+                    "analysis": "",
+                    "prediction": "",
+                    "conclusion": "",
+                    "suggestedQuestions": [],
+                    "metadata": {
+                        "sessionId": "admin-default",
+                        "confidence": 0.0,
+                        "queryType": "error",
+                        "operationCount": 0,
+                        "executionTimeMs": 0.0,
+                    },
+                }), 401
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
 # =============================================================================
 # RATE LIMITER
 # =============================================================================
@@ -74,6 +106,7 @@ def _success_response(data: Dict, http_status: int = 200, message: str = ""):
 
 
 @admin_bp.route("/chat", methods=["POST"])
+@_require_secret
 def admin_chat():
     """
     Main admin chat endpoint.
@@ -236,6 +269,7 @@ def check_database_health() -> str:
 
 
 @admin_bp.route("/health", methods=["GET"])
+@_require_secret
 def admin_health():
     py_h = check_python_health()
     dn_h = check_dotnet_health()
@@ -262,6 +296,7 @@ def admin_health():
 
 
 @admin_bp.route("/classify", methods=["POST"])
+@_require_secret
 def admin_classify():
     """
     Classify admin intent debug endpoint.
