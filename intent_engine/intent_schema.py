@@ -136,26 +136,8 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Date",
         ]
     ),
-    "personalDetails": frozenset(
-        [
-            "Summary",
-            "Contact",
-            "Education",
-            "Address",
-            "Family",
-            "Individual",
-            "Mobile",
-            "Email",
-
-
-        ]
-    ),
-    "DisqualifiedAgniveer": frozenset(
-        [
-
-            "Reason"
-        ]
-    ),
+    "personalDetails": frozenset(),
+    "DisqualifiedAgniveer": frozenset(),
 }
 
 # =============================================================================
@@ -1174,6 +1156,8 @@ CATEGORY_ENTITY_COMPATIBILITY: Dict[str, Set[str]] = {
     "Skills": {"sport", "class", "section", "subSection"},
     "Overall": {"sport", "class"},
     "Schedule": {"date", "sport", "class"},
+    "personalDetails": {"sport", "class"},
+    "DisqualifiedAgniveer": {"sport", "class"},
 }
 
 # Common entities allowed in ALL categories
@@ -1200,6 +1184,8 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
     "Skills": ("skills", "sport", "class", "roster", "who plays"),
     "Overall": ("overall", "composite", "all criteria"),
     "Schedule": ("schedule", "company", "agniveer", "date"),
+    "personalDetails": ("profile", "contact", "address", "education", "family", "details"),
+    "DisqualifiedAgniveer": ("disqualified", "removed", "expelled"),
 }
 
 # Named unit aliases that should normalize to canonical unit labels.
