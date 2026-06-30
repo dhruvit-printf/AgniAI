@@ -147,16 +147,28 @@ def test_leave_type_annual():
     assert r["leave_type"] == "Annual"
 
 
+def test_leave_type_hospitalized():
+    r = classify_admin_intent("List anyone who is hospitalized")
+    assert r["category"] == "Leave"
+    assert r["leave_type"] == "Hospitalized"
+
+
+def test_leave_type_threshold():
+    r = classify_admin_intent("Who has leave above threshold?")
+    assert r["category"] == "Leave"
+    assert r["leave_type"] == "Threshold"
+
+
+def test_leave_type_noleave():
+    r = classify_admin_intent("Who has noleave?")
+    assert r["category"] == "Leave"
+    assert r["leave_type"] == "NoLeave"
+
+
 # =============================================================================
 # MEDICAL
 # =============================================================================
 
-
-def test_active_cases():
-    r = classify_admin_intent("How many active medical cases are there?")
-    assert r["category"] == "Medical"
-    assert r["subcategory"] == "ActiveCases"
-    assert r["type"] == "Tabular"
 
 
 def test_bmi_analysis():
@@ -207,7 +219,7 @@ def test_present_today():
 
 def test_strength_breakdown():
     r = classify_admin_intent("Give me the strength breakdown")
-    assert r["category"] == "Strength"
+    assert r["category"] == "Attendance"
     assert r["subcategory"] == "StrengthBreakdown"
     assert r["type"] == "Radial Chart"
 
@@ -290,9 +302,19 @@ def test_top_unit():
 
 def test_by_sport():
     r = classify_admin_intent("Show roster by sport")
-    assert r["category"] == "Roster"
+    assert r["category"] == "Skills"
     assert r["subcategory"] == "BySport"
     assert r["type"] == "Tabular"
+
+
+def test_by_sport_specific():
+    r1 = classify_admin_intent("Show roster for badminton")
+    assert r1["category"] == "Skills"
+    assert r1["sport"] == "Badminton"
+
+    r2 = classify_admin_intent("Show roster for chess")
+    assert r2["category"] == "Skills"
+    assert r2["sport"] == "Chess"
 
 
 def test_explicit_type_override():
@@ -396,13 +418,6 @@ def test_new_operations():
     assert p4["operation"] == "Individual"
     assert p4["agniveerNo"] == "12345"
 
-    # Yearly attendance
-    r5 = classify_admin_intent("Show yearly attendance stats")
-    assert r5["category"] == "Attendance"
-    assert r5["subcategory"] == "YearlyAttendance"
-    p5 = format_admin_payload(r5)
-    assert p5["operation"] == "Yearly"
-
     # Attendance summary
     r6 = classify_admin_intent("Show attendance summary")
     assert r6["category"] == "Attendance"
@@ -440,16 +455,9 @@ def test_synonyms():
     p4 = format_admin_payload(r4)
     assert p4["operation"] == "Summary"
 
-    # annual attendance -> Yearly
-    r5 = classify_admin_intent("Show annual attendance")
-    assert r5["category"] == "Attendance"
-    assert r5["subcategory"] == "YearlyAttendance"
-    p5 = format_admin_payload(r5)
-    assert p5["operation"] == "Yearly"
-
-    # football -> BySport
+    # football -> BySport (Skills, since Roster merged into Skills)
     r6 = classify_admin_intent("Show roster for football")
-    assert r6["category"] == "Roster"
+    assert r6["category"] == "Skills"
     assert r6["subcategory"] == "BySport"
     assert r6["sport"] == "Football"
     p6 = format_admin_payload(r6)
@@ -504,12 +512,12 @@ def test_parameter_propagation():
     p3 = format_admin_payload(r3)
     assert p3["unitName"] == "Bravo Unit"
 
-    # medical_status
-    r4 = classify_admin_intent("Show active medical cases")
+    # bmi_category via fitness keyword ("fittest" -> Normal BMI)
+    r4 = classify_admin_intent("Who is the fittest agniveer?")
     assert r4["category"] == "Medical"
-    assert r4["medical_status"] == "Active"
+    assert r4["bmi_category"] == "Normal"
     p4 = format_admin_payload(r4)
-    assert p4["medicalStatus"] == "Active"
+    assert p4["bmiCategory"] == "Normal"
 
 
 def test_auto_detect_agniveer_no():

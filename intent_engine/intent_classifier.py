@@ -289,15 +289,9 @@ def _should_entity_override_category(
 ) -> Tuple[bool, Optional[str], str]:
     if not entities:
         return False, None, "no entities present"
-    if confidence_score >= 0.45:
-        return (
-            False,
-            None,
-            f"confidence sufficient ({confidence_score}) — classifier wins",
-        )
 
     if _entity_present(entities, "leaveType") and classified_category != "Leave":
-        return True, "Leave", "leaveType entity present, classifier confidence low"
+        return True, "Leave", "leaveType entity present"
     if (
         _entity_present(entities, "equipmentName")
         and classified_category != "Equipment"
@@ -305,13 +299,21 @@ def _should_entity_override_category(
         return (
             True,
             "Equipment",
-            "equipmentName entity present, classifier confidence low",
+            "equipmentName entity present",
         )
     if (
         _entity_present(entities, "bmiCategory", "bloodGroup", "medicalStatus")
         and classified_category != "Medical"
     ):
-        return True, "Medical", "medical entity present, classifier confidence low"
+        return True, "Medical", "medical entity present"
+
+    if confidence_score >= 0.45:
+        return (
+            False,
+            None,
+            f"confidence sufficient ({confidence_score}) — classifier wins",
+        )
+
     if _entity_present(entities, "section") and classified_category not in (
         "Performance",
     ):

@@ -34,10 +34,10 @@ OFFICIAL_CATEGORIES: FrozenSet[str] = frozenset(
         "Equipment",
         "Distribution",
         "Skills",
-        "Roster",
-        "Strength",
         "Overall",
         "Schedule",
+        "personalDetails",
+        "DisqualifiedAgniveer",
     ]
 )
 
@@ -61,6 +61,7 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "PassPercentage",
             "FailPercentage",
             "Overall",
+            "Trend",
         ]
     ),
     "Leave": frozenset(
@@ -73,7 +74,6 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
     ),
     "Medical": frozenset(
         [
-            "Active",
             "BMI",
             "BloodGroup",
             "Disease",
@@ -85,14 +85,9 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Monthly",
             "Weekly",
             "Daily",
-            "Yearly",
             "Present",
             "Summary",
-        ]
-    ),
-    "Strength": frozenset(
-        [
-            "Summary",
+            "Strength",
         ]
     ),
     "Verification": frozenset(
@@ -100,7 +95,6 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Pending",
             "Sent",
             "NotResponded",
-            "Verified",
             "Completed",
             "Rejected",
         ]
@@ -130,12 +124,6 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "ByClass",
         ]
     ),
-    "Roster": frozenset(
-        [
-            "BySport",
-            "ByClass",
-        ]
-    ),
     "Overall": frozenset(
         [
             "OverallPerformance",
@@ -146,6 +134,26 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Company",
             "Agniveer",
             "Date",
+        ]
+    ),
+    "personalDetails": frozenset(
+        [
+            "Summary",
+            "Contact",
+            "Education",
+            "Address",
+            "Family",
+            "Individual",
+            "Mobile",
+            "Email",
+
+
+        ]
+    ),
+    "DisqualifiedAgniveer": frozenset(
+        [
+
+            "Reason"
         ]
     ),
 }
@@ -267,19 +275,6 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "assigned",
         "agniveer assignment",
     ),
-    "Roster": (
-        "roster",
-        "rosters",
-        "sport roster",
-        "class roster",
-        "sports roster",
-    ),
-    "Strength": (
-        "strength",
-        "headcount",
-        "breakdown",
-        "strength breakdown",
-    ),
     "Skills": (
         "skills",
         "sport",
@@ -287,6 +282,11 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "football",
         "class",
         "community",
+        "roster",
+        "rosters",
+        "sport roster",
+        "class roster",
+        "sports roster",
     ),
     "Schedule": (
         "schedule",
@@ -297,6 +297,32 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "overall",
         "composite",
         "all criteria",
+    ),
+    "personalDetails": (
+        "personal details",
+        "personal info",
+        "profile",
+        "biography",
+        "bio data",
+        "biodata",
+        "contact",
+        "phone number",
+        "email",
+        "address",
+        "education",
+        "qualification",
+        "family details",
+        "next of kin",
+        "kin details",
+    ),
+    "DisqualifiedAgniveer": (
+        "disqualified",
+        "disqualification",
+        "disqualified agniveer",
+        "disqualified agniveers",
+        "removed agniveer",
+        "expelled agniveer",
+        "disqualification reason",
     ),
 }
 
@@ -449,6 +475,20 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "combined performance",
             "aggregate",
         ),
+        "Trend": (
+            "trend",
+            "per attempt average",
+            "attempt average",
+            "average marks per attempt",
+            "average percentage per attempt",
+            "batch trend",
+            "attempt trend",
+            "performance trend",
+            "score trend",
+            "marks trend",
+            "how is the batch performing",
+            "batch performance over attempts",
+        ),
     },
     "Leave": {
         "Most": (
@@ -497,17 +537,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         ),
     },
     "Medical": {
-        "Active": (
-            "active",
-            "cases",
-            "admitted",
-            "active medical cases",
-            "current patients",
-            "in hospital",
-            "under treatment",
-            "how many sick",
-            "who is admitted",
-        ),
         "BMI": (
             "bmi",
             "weight",
@@ -516,6 +545,11 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "who is obese",
             "overweight",
             "underweight",
+            "who is the fittest",
+            "fittest",
+            "most fit",
+            "physically fit",
+            "fit agniveer",
         ),
         "BloodGroup": (
             "blood",
@@ -563,12 +597,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "daily attendance",
             "day wise",
         ),
-        "Yearly": (
-            "yearly",
-            "year",
-            "yearly attendance",
-            "annual",
-        ),
         "Present": (
             "present",
             "present today",
@@ -582,6 +610,13 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "attendance summary",
             "attendance overview",
             "summary of attendance",
+        ),
+        "Strength": (
+            "strength",
+            "strength breakdown",
+            "headcount",
+            "headcount breakdown",
+            "strength summary",
         ),
     },
     "Equipment": {
@@ -673,23 +708,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "most distribution",
         ),
     },
-    "Roster": {
-        "BySport": (
-            "by sport",
-            "sport wise",
-            "cricket players",
-            "football players",
-            "who plays",
-            "sports roster",
-        ),
-        "ByClass": (
-            "by class",
-            "class wise",
-            "sikh class",
-            "dogra class",
-            "class wise roster",
-        ),
-    },
+
     "Skills": {
         "BySport": (
             "by sport",
@@ -729,8 +748,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "done",
             "verification completed",
             "all clear",
-        ),
-        "Verified": (
             "verified",
             "all verified",
         ),
@@ -740,15 +757,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "verification failed",
         ),
     },
-    "Strength": {
-        "Summary": (
-            "strength",
-            "strength breakdown",
-            "headcount",
-            "headcount breakdown",
-            "strength summary",
-        ),
-    },
+
     "Schedule": {
         "Company": (
             "company schedule",
@@ -896,8 +905,6 @@ GRADING_CATEGORIES: Dict[str, str] = {
     "sat": "SAT",
     "satisfactory": "SAT",
     "fail": "Fail",
-    "unsa": "UNSA",
-    "unsatisfactory": "UNSA",
 }
 
 # =============================================================================
@@ -916,13 +923,9 @@ LEAVE_TYPES: Dict[str, str] = {
     "ex ppg": "ExPPG",
     "exppg": "ExPPG",
     "ex-ppg": "ExPPG",
-    "on leave": "Current",
-    "currently on leave": "Current",
-    "leave today": "Current",
-    "current leave": "Current",
-    "absent today": "Current",
-    "currently absent": "Current",
-    "leave status": "Current",
+    "hospitalized": "Hospitalized",
+    "threshold": "Threshold",
+    "noleave": "NoLeave",
 }
 
 # =============================================================================
@@ -934,6 +937,10 @@ BMI_CATEGORIES: Dict[str, str] = {
     "normal": "Normal",
     "overweight": "Overweight",
     "obese": "Obese",
+    "fittest": "Normal",
+    "fit": "Normal",
+    "most fit": "Normal",
+    "physically fit": "Normal",
 }
 
 # =============================================================================
@@ -960,11 +967,50 @@ BLOOD_GROUPS: FrozenSet[str] = frozenset(
 SPORTS: Dict[str, str] = {
     "cricket": "Cricket",
     "football": "Football",
+    "soccer": "Football",
     "running": "Running",
+    "athletics": "Athletics",
     "basketball": "Basketball",
     "volleyball": "Volleyball",
     "kabaddi": "Kabaddi",
     "hockey": "Hockey",
+    "badminton": "Badminton",
+    "tennis": "Tennis",
+    "lawn tennis": "Tennis",
+    "table tennis": "Table Tennis",
+    "ping pong": "Table Tennis",
+    "swimming": "Swimming",
+    "wrestling": "Wrestling",
+    "kushti": "Wrestling",
+    "boxing": "Boxing",
+    "archery": "Archery",
+    "shooting": "Shooting",
+    "weightlifting": "Weightlifting",
+    "gymnastics": "Gymnastics",
+    "cycling": "Cycling",
+    "chess": "Chess",
+    "carrom": "Carrom",
+    "kho kho": "Kho Kho",
+    "kho-kho": "Kho Kho",
+    "squash": "Squash",
+    "billiards": "Billiards",
+    "snooker": "Snooker",
+    "pool": "Pool",
+    "judo": "Judo",
+    "karate": "Karate",
+    "taekwondo": "Taekwondo",
+    "martial arts": "Martial Arts",
+    "handball": "Handball",
+    "rugby": "Rugby",
+    "golf": "Golf",
+    "rowing": "Rowing",
+    "sailing": "Sailing",
+    "fencing": "Fencing",
+    "equestrian": "Equestrian",
+    "horse riding": "Equestrian",
+    "polo": "Polo",
+    "cross country": "Cross Country",
+    "marathon": "Marathon",
 }
 
 # =============================================================================
@@ -1126,8 +1172,6 @@ CATEGORY_ENTITY_COMPATIBILITY: Dict[str, Set[str]] = {
     "Equipment": {"equipmentName", "sport", "class"},
     "Distribution": {"sport", "class"},
     "Skills": {"sport", "class", "section", "subSection"},
-    "Roster": {"sport", "class", "section", "subSection"},
-    "Strength": {"sport", "class"},
     "Overall": {"sport", "class"},
     "Schedule": {"date", "sport", "class"},
 }
@@ -1146,16 +1190,14 @@ COMMON_ENTITY_TYPES: Set[str] = {
 }
 
 CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
-    "Performance": ("section", "grading", "attempt", "score", "marks"),
+    "Performance": ("section", "grading", "attempt", "score", "marks", "trend"),
     "Leave": ("leave", "absent", "abscond", "leaveType"),
     "Medical": ("medical", "hospital", "bmi", "blood"),
-    "Attendance": ("attendance", "present", "campus", "date"),
+    "Attendance": ("attendance", "present", "campus", "date", "strength", "headcount"),
     "Verification": ("verification", "verified", "pending"),
     "Equipment": ("equipment", "gear", "inventory", "overdue"),
     "Distribution": ("distribution", "unit", "unassigned"),
-    "Roster": ("roster", "sport", "class", "who plays"),
-    "Skills": ("skills", "sport", "class"),
-    "Strength": ("strength", "headcount", "breakdown"),
+    "Skills": ("skills", "sport", "class", "roster", "who plays"),
     "Overall": ("overall", "composite", "all criteria"),
     "Schedule": ("schedule", "company", "agniveer", "date"),
 }
@@ -1361,13 +1403,12 @@ INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Performance", "Compare"): "Area Chart",
     ("Performance", "Summary"): "Tabular",
     ("Performance", "PassPercentage"): "Tabular",
-    ("Performance", "FailPercentage"): "Tabular",
+    ("Performance", "Trend"): "Trend Chart",
     ("Performance", "Overall"): "Tabular",
     ("Leave", "Most"): "Tabular",
     ("Leave", "Least"): "Tabular",
     ("Leave", "Current"): "Tabular",
     ("Leave", "Absconded"): "Tabular",
-    ("Medical", "Active"): "Tabular",
     ("Medical", "BMI"): "Donut Chart",
     ("Medical", "BloodGroup"): "Tabular",
     ("Medical", "Disease"): "Tabular",
@@ -1377,12 +1418,11 @@ INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Attendance", "Daily"): "Calendar UI",
     ("Attendance", "Present"): "Pie Chart",
     ("Attendance", "Summary"): "Tabular",
-    ("Attendance", "Yearly"): "Bar Chart",
+    ("Attendance", "Strength"): "Radial Chart",
     ("Verification", "Pending"): "Tabular",
     ("Verification", "Sent"): "Tabular",
     ("Verification", "NotResponded"): "Tabular",
     ("Verification", "Completed"): "Tabular",
-    ("Verification", "Verified"): "Tabular",
     ("Verification", "Rejected"): "Tabular",
     ("Equipment", "Stats"): "Card",
     ("Equipment", "Issued"): "Tabular",
@@ -1397,9 +1437,6 @@ INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Distribution", "TopUnit"): "Tabular",
     ("Skills", "BySport"): "Tabular",
     ("Skills", "ByClass"): "Tabular",
-    ("Roster", "BySport"): "Tabular",
-    ("Roster", "ByClass"): "Tabular",
-    ("Strength", "Summary"): "Radial Chart",
     ("Overall", "OverallPerformance"): "Tabular",
     ("Schedule", "Company"): "Tabular",
     ("Schedule", "Agniveer"): "Tabular",
@@ -1435,13 +1472,12 @@ SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "WeeklyAttendance": "Weekly",
     "DailyAttendance": "Daily",
     "PresentToday": "Present",
-    "StrengthBreakdown": "Summary",
-    "YearlyAttendance": "Yearly",
+    "StrengthBreakdown": "Strength",
     "AttendanceSummary": "Summary",
     "PendingVerification": "Pending",
     "CompletedVerification": "Completed",
     "NotRespondedVerification": "NotResponded",
-    "VerifiedVerification": "Verified",
+    "VerifiedVerification": "Completed",
     "RejectedVerification": "Rejected",
     "SentVerification": "Sent",
     "EquipmentSummary": "Stats",
@@ -1489,8 +1525,8 @@ OPERATION_TO_PAYLOAD_FIELD: Dict[str, str] = {
     "Monthly": "Monthly",
     "Weekly": "Weekly",
     "Daily": "Daily",
-    "Yearly": "Yearly",
     "Present": "Present",
+    "Strength": "Strength",
     "Stats": "Stats",
     "Issued": "Issued",
     "Procured": "Procured",
@@ -1507,7 +1543,6 @@ OPERATION_TO_PAYLOAD_FIELD: Dict[str, str] = {
     "Pending": "Pending",
     "Sent": "Sent",
     "NotResponded": "NotResponded",
-    "Verified": "Verified",
     "Rejected": "Rejected",
     "Company": "Company",
     "Agniveer": "Agniveer",
@@ -1544,13 +1579,12 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Attendance", "Daily"): "DailyAttendance",
     ("Attendance", "Present"): "PresentToday",
     ("Attendance", "Summary"): "AttendanceSummary",
-    ("Attendance", "Yearly"): "YearlyAttendance",
-    ("Strength", "Summary"): "StrengthBreakdown",
+    ("Attendance", "Strength"): "StrengthBreakdown",
     ("Verification", "Pending"): "PendingVerification",
     ("Verification", "Sent"): "SentVerification",
     ("Verification", "NotResponded"): "NotRespondedVerification",
     ("Verification", "Completed"): "CompletedVerification",
-    ("Verification", "Verified"): "VerifiedVerification",
+    ("Verification", "Verified"): "CompletedVerification",
     ("Verification", "Rejected"): "RejectedVerification",
     ("Equipment", "Stats"): "EquipmentSummary",
     ("Equipment", "Issued"): "IssuedItems",
@@ -1563,9 +1597,6 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Distribution", "ByUnit"): "DistributionByUnit",
     ("Distribution", "Unassigned"): "UnassignedItems",
     ("Distribution", "TopUnit"): "TopUnit",
-    ("Roster", "BySport"): "BySport",
-    ("Roster", "ByClass"): "ByClass",
-
     ("Skills", "BySport"): "BySport",
     ("Skills", "ByClass"): "ByClass",
     ("Overall", "OverallPerformance"): "OverallPerformance",

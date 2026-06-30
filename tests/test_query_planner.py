@@ -27,8 +27,8 @@ class TestQueryPlanner(unittest.TestCase):
         self.assertEqual(plan.query_type, QueryType.MULTI_OPERATION)
         self.assertEqual(len(plan.operations), 2)
 
-    def test_independent_and_query_with_active_section(self):
-        plan = plan_query("Show top performers and active medical cases")
+    def test_independent_and_query_with_bmi_section(self):
+        plan = plan_query("Show top performers and BMI analysis")
         self.assertEqual(plan.query_type, QueryType.MULTI_OPERATION)
         self.assertEqual(len(plan.operations), 2)
         self.assertEqual(plan.operations[0].intent_result["category"], "Performance")
@@ -39,7 +39,7 @@ class TestQueryPlanner(unittest.TestCase):
         self.assertEqual(plan.query_type, QueryType.MULTI_OPERATION)
         self.assertEqual(len(plan.operations), 2)
         self.assertEqual(plan.operations[0].intent_result["category"], "Leave")
-        self.assertEqual(plan.operations[1].intent_result["category"], "Strength")
+        self.assertEqual(plan.operations[1].intent_result["category"], "Attendance")
 
     def test_no_split_phrase_guard(self):
         plan = plan_query("show approved and pending leave records")

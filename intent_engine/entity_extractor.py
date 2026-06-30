@@ -201,7 +201,7 @@ def _extract_leave_type(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     if not any(
         token in query_lower
-        for token in ("leave", "abscond", "absent", "status", "medical leave")
+        for token in ("leave", "abscond", "absent", "status", "medical leave", "hospitalized", "threshold", "noleave", "annual", "sick")
     ):
         return None
     for key, value in LEAVE_TYPES.items():
