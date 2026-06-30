@@ -21,7 +21,7 @@ license: mit
 AgniAI is a fully local, offline-first platform with **two chatbots in one service**:
 
 1. **User RAG Chatbot** — answers **Agniveer / Agnipath recruitment & training** questions, grounded entirely in documents you ingest. No cloud, no API keys.
-2. **Admin Command Console** — a natural-language interface for commanding officers that classifies a question, routes it through a **.NET AiCommand backend**, and returns formatted, grounded reports (Performance, Leave, Medical, Attendance, Verification, Equipment, Distribution, Skills).
+2. **Admin Command Console** — a natural-language interface for commanding officers that classifies a question, routes it through a **.NET AiCommand backend**, and returns formatted, grounded reports (Performance, Leave, Medical, Attendance, Verification, Equipment, Distribution, Skills, personalDetails, DisqualifiedAgniveer).
 
 Both run inside the same Flask server and share the same Ollama LLM.
 
@@ -175,7 +175,7 @@ A separate pipeline (`admin_pipeline.py`) for officers. A single question can re
 | `multi_independent` | "Show attendance stats as well as equipment overdue records" |
 | `analytics` | "Which section has the highest average score?" |
 
-Supported modules: **Performance, Leave, Medical, Attendance, Verification, Equipment, Distribution, Skills**. Company/platoon names in the question are resolved to IDs against the .NET lookup APIs (`admin_entity_resolver.py`), and follow-up phrasing ("which of them…") is tracked per session (`admin_context.py`).
+Supported modules: **Performance, Leave, Medical, Attendance, Verification, Equipment, Distribution, Skills, personalDetails, DisqualifiedAgniveer**. Company/platoon names in the question are resolved to IDs against the .NET lookup APIs (`admin_entity_resolver.py`), and follow-up phrasing ("which of them…") is tracked per session (`admin_context.py`).
 
 Reports are generated with strict grounding guards — any number the LLM emits that does not appear in the aggregate data is stripped (`report_generator.py`). Raw .NET responses are **never** forwarded to the frontend (`response_builder.py`).
 

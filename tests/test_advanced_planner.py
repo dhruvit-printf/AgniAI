@@ -86,7 +86,7 @@ class TestNestedCrossFilters(unittest.TestCase):
         self.assertEqual(plan.operations[1].intent_result["category"], "Skills")
         self.assertEqual(plan.operations[1].intent_result["sport"], "Cricket")
         self.assertEqual(plan.operations[2].intent_result["category"], "Leave")
-        self.assertEqual(plan.operations[2].intent_result["leave_type"], "Current")
+        self.assertEqual(plan.operations[2].intent_result["operation"], "Current")
 
     def test_n_way_intersect_three_result_sets(self):
         """result_combiner: 3-way ID intersection."""
@@ -126,8 +126,8 @@ class TestMultiFilterCrossCategory(unittest.TestCase):
         self.assertTrue(len(cats) >= 1)
 
     def test_sport_cross_with_medical(self):
-        """Football players with active medical cases."""
-        plan = plan_query("Show football players with active medical cases")
+        """Football players with BMI analysis."""
+        plan = plan_query("Show football players with BMI analysis")
         self.assertEqual(plan.query_type, QueryType.CROSS_FILTER)
 
     def test_cricket_cross_with_leave(self):
