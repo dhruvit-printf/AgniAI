@@ -44,6 +44,7 @@ AUDITED_QUERY_TYPES = frozenset({"simple", "multi_independent", "cross_filter", 
 
 # ── Internal logger instance ─────────────────────────────────────────────────
 _audit_logger: Optional[logging.Logger] = None
+_audit_context: ContextVar[Dict[str, Any]] = ContextVar("_audit_context", default={})
 
 
 def _get_audit_logger() -> logging.Logger:
@@ -87,14 +88,16 @@ def write_audit_log(
 
     Only logs query types in AUDITED_QUERY_TYPES — silently skips others.
     Never raises — failures are logged as warnings to the root logger.
-
-    Args:
-        trace_id:           Per-request trace ID for correlation.
-        query_type:         Must be one of: simple, multi_independent, cross_filter, comparison.
-        question:           The raw natural-language question from the officer.
-        dotnet_payload:     The exact dict/list sent to the .NET backend API.
-        visualization_type: The resolved viz type (e.g. "table", "bar_chart", "comparison_table").
     """
+    ctx = _audit_context.get()
+    
+    # Merge context if present
+    trace_id = trace_id or ctx.get("trace_id") or ""
+    query_type = query_type or ctx.get("query_type") or "simple"
+    question = question or ctx.get("question") or ""
+    dotnet_payload = dotnet_payload or ctx.get("dotnet_payload")
+    visualization_type = visualization_type or ctx.get("visualization_type") or ""
+
     if query_type not in AUDITED_QUERY_TYPES:
         return
 
@@ -114,6 +117,23 @@ def write_audit_log(
             "dotnet_payload": dotnet_payload,
             "visualization_type": visualization_type or "",
         }
+        
+        # 1. Merge extra keys from arguments (high priority)
+        for k, v in kwargs.items():
+            if k not in entry or entry[k] in (None, "", [], {}):
+                entry[k] = v
+                
+        # 2. Merge extra keys from context (lower priority)
+        for k, v in ctx.items():
+            if k not in entry or entry[k] in (None, "", [], {}):
+                entry[k] = v
+
+        # 3. Unpack intent sub-keys to the root level if present
+        if "intent" in entry and isinstance(entry["intent"], dict):
+            for sub_k, sub_v in entry["intent"].items():
+                if sub_k not in entry:
+                    entry[sub_k] = sub_v
+
         _get_audit_logger().info(json.dumps(entry, ensure_ascii=False, default=str))
 
     except Exception as exc:
@@ -146,8 +166,10 @@ def purge_old_audit_logs() -> int:
 
 
 def set_audit_context(**kwargs: Any) -> None:
-    pass
+    current = _audit_context.get().copy()
+    current.update(kwargs)
+    _audit_context.set(current)
 
 
 def reset_audit_context() -> None:
-    pass
+    _audit_context.set({})

@@ -42,7 +42,7 @@ class TestSuggestedQuestions(unittest.TestCase):
             "compare", {"category": "Assessment"}, {}
         )
         self.assertEqual(len(questions_comp), 4)
-        self.assertIn("Show side-by-side metric distributions.", questions_comp)
+        self.assertIn("Compare BEPT and PPT scores between Side A and Side B.", questions_comp)
 
     def test_build_response_payload_suggestions(self):
         # Verify that build_response correctly integrates suggestedQuestions
