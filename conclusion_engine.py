@@ -12,16 +12,12 @@ Pure Python — no LLM dependency.
 """
 
 import logging
-import math
 import statistics as _stats_mod
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-from feature_flags import get_flags
-from grounding_utils import ground_and_sanitize as _ground_and_sanitize
 from utils import get_score as _get_score
-from utils import safe_float as _safe_float
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

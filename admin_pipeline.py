@@ -27,12 +27,11 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import requests as _requests
 
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
-from audit_logger import reset_audit_context, set_audit_context, write_audit_log
-from config import GREETING_PHRASES, _is_greeting, _is_patriotic, _is_small_talk
+from audit_logger import set_audit_context, write_audit_log
+from config import _is_greeting, _is_patriotic, _is_small_talk
 from context_engine import context_engine
 from conversation_detector import (
     build_conversational_response as build_conversation_payload,

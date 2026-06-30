@@ -84,9 +84,6 @@ from memory import ConversationMemory
 from ollama_cpu_chat import MODEL_NAME as DEFAULT_MODEL
 from ollama_cpu_chat import PartialResponseError, chat_with_fallback
 from rag import (
-    LOW_RETRIEVAL_CONFIDENCE,
-    STRICT_TOP_K,
-    build_context,
     build_strict_messages,
     deterministic_policy_answer,
     get_cached_response,

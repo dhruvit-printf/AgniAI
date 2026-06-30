@@ -32,5 +32,3 @@ def resolve_dotnet_verify_ssl(log: Optional[logging.Logger] = None) -> bool:
         return _is_truthy(verify_raw)
 
     return True
-
-    return True
