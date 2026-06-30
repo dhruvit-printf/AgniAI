@@ -50,6 +50,7 @@ class IntentModel(BaseModel):
     blood_group: Optional[str] = None
     type: Optional[str] = None
     medical_status: Optional[str] = None
+    diagnose: Optional[str] = None
     group_by: Optional[str] = None
     sort_by: Optional[str] = None
     aggregation: Optional[str] = None
@@ -87,6 +88,7 @@ class DotNetPayloadModel(BaseModel):
     agniveerNo: Optional[str] = None
     bmiCategory: Optional[str] = None
     medicalStatus: Optional[str] = None
+    diagnose: Optional[str] = None
     fullName: Optional[str] = None
     groupBy: Optional[str] = None
     analyticsHint: Optional[str] = None

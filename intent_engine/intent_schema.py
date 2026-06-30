@@ -690,7 +690,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "most distribution",
         ),
     },
-
     "Skills": {
         "BySport": (
             "by sport",
@@ -739,7 +738,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "verification failed",
         ),
     },
-
     "Schedule": {
         "Company": (
             "company schedule",
@@ -1148,7 +1146,14 @@ CATEGORY_ENTITY_COMPATIBILITY: Dict[str, Set[str]] = {
         "class",
     },
     "Leave": {"leaveType", "sport", "class"},
-    "Medical": {"bmiCategory", "bloodGroup", "medicalStatus", "sport", "class"},
+    "Medical": {
+        "bmiCategory",
+        "bloodGroup",
+        "medicalStatus",
+        "sport",
+        "class",
+        "diagnose",
+    },
     "Attendance": {"date", "fromDate", "toDate", "sport", "class"},
     "Verification": {"sport", "class"},
     "Equipment": {"equipmentName", "sport", "class"},
@@ -1184,7 +1189,14 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
     "Skills": ("skills", "sport", "class", "roster", "who plays"),
     "Overall": ("overall", "composite", "all criteria"),
     "Schedule": ("schedule", "company", "agniveer", "date"),
-    "personalDetails": ("profile", "contact", "address", "education", "family", "details"),
+    "personalDetails": (
+        "profile",
+        "contact",
+        "address",
+        "education",
+        "family",
+        "details",
+    ),
     "DisqualifiedAgniveer": ("disqualified", "removed", "expelled"),
 }
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from query_normalizer import clean_query
 from query_understanding_engine import understand_query
@@ -63,7 +63,7 @@ def _category_entity_bonus(category: str, entities: Optional[Dict[str, Any]]) ->
     if not entities:
         return 0
 
-    bonuses = {
+    bonuses: Dict[str, List[Tuple[Any, int]]] = {
         "Performance": [
             ("section", 30),
             ("grading", 14),
@@ -302,7 +302,9 @@ def _should_entity_override_category(
             "equipmentName entity present",
         )
     if (
-        _entity_present(entities, "bmiCategory", "bloodGroup", "medicalStatus")
+        _entity_present(
+            entities, "bmiCategory", "bloodGroup", "medicalStatus", "diagnose"
+        )
         and classified_category != "Medical"
     ):
         return True, "Medical", "medical entity present"
@@ -473,6 +475,8 @@ def classify_intent(
         operation = operation or "BloodGroup"
     if category == "Medical" and _phrase_score(query_text, "bmi"):
         operation = operation or "BMI"
+    if category == "Medical" and entities and entities.get("diagnose"):
+        operation = operation or "Disease"
     if category == "Attendance" and _phrase_score(query_text, "present today"):
         operation = operation or "Present"
 

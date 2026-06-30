@@ -54,6 +54,7 @@ def build_ai_command_request_dto(
         "batchId": "batchId",
         "agniveerNo": "agniveerNo",
         "medicalStatus": "medicalStatus",
+        "diagnose": "diagnose",
         "isExceptional": "isExceptional",
     }
 

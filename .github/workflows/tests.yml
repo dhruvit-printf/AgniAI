@@ -17,3 +17,5 @@ jobs:
       - run: pip install pytest pytest-cov
       - run: python -m pytest --cov=. --cov-report=xml -v
       - uses: codecov/codecov-action@v4
+        with:
+          fail_ci_if_error: false

@@ -170,7 +170,6 @@ def test_leave_type_noleave():
 # =============================================================================
 
 
-
 def test_bmi_analysis():
     r = classify_admin_intent("Show BMI analysis of trainees")
     assert r["category"] == "Medical"
@@ -182,6 +181,45 @@ def test_disease_stats():
     r = classify_admin_intent("What are the top diseases this month?")
     assert r["category"] == "Medical"
     assert r["subcategory"] == "DiseaseStatistics"
+
+
+def test_disease_filter_diagnose():
+    r1 = classify_admin_intent("Who has viral fever?")
+    assert r1["category"] == "Medical"
+    assert r1["operation"] == "Disease"
+    assert r1["diagnose"] == "Viral Fever"
+    p1 = format_admin_payload(r1)
+    assert p1.get("diagnose") == "Viral Fever"
+
+    r2 = classify_admin_intent("Who has cancer?")
+    assert r2["category"] == "Medical"
+    assert r2["operation"] == "Disease"
+    assert r2["diagnose"] == "Cancer"
+
+    r3 = classify_admin_intent("List patients with HIV records")
+    assert r3["category"] == "Medical"
+    assert r3["operation"] == "Disease"
+    assert r3["diagnose"] == "Hiv"
+
+    r4 = classify_admin_intent("Who is suffering from food poisoning?")
+    assert r4["category"] == "Medical"
+    assert r4["operation"] == "Disease"
+    assert r4["diagnose"] == "Food Poisoning"
+
+    r5 = classify_admin_intent("Who was diagnosed with depression?")
+    assert r5["category"] == "Medical"
+    assert r5["operation"] == "Disease"
+    assert r5["diagnose"] == "Depression"
+
+    r6 = classify_admin_intent("Show bone fracture cases")
+    assert r6["category"] == "Medical"
+    assert r6["operation"] == "Disease"
+    assert r6["diagnose"] == "Bone Fracture"
+
+    r7 = classify_admin_intent("Who has back pain?")
+    assert r7["category"] == "Medical"
+    assert r7["operation"] == "Disease"
+    assert r7["diagnose"] == "Back Pain"
 
 
 # =============================================================================

@@ -201,7 +201,18 @@ def _extract_leave_type(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     if not any(
         token in query_lower
-        for token in ("leave", "abscond", "absent", "status", "medical leave", "hospitalized", "threshold", "noleave", "annual", "sick")
+        for token in (
+            "leave",
+            "abscond",
+            "absent",
+            "status",
+            "medical leave",
+            "hospitalized",
+            "threshold",
+            "noleave",
+            "annual",
+            "sick",
+        )
     ):
         return None
     for key, value in LEAVE_TYPES.items():
@@ -481,6 +492,7 @@ CANONICAL_ENTITY_KEYS = frozenset(
         "fromDate",
         "toDate",
         "medicalStatus",
+        "diagnose",
     }
 )
 
@@ -489,6 +501,109 @@ def assert_canonical_entity_keys(entities: Dict[str, Any]) -> None:
     for key in entities.keys():
         if key not in CANONICAL_ENTITY_KEYS:
             raise KeyError(f"Non-canonical entity key found: '{key}'")
+
+
+def _extract_diagnose(query: str) -> Optional[str]:
+    query_lower = _normalise(query)
+    diseases = (
+        "viral fever",
+        "covid-19",
+        "swine flu",
+        "heat stroke",
+        "scrub typhus",
+        "kidney stone",
+        "chicken pox",
+        "chickenpox",
+        "hepatitis b",
+        "hepatitis a",
+        "hepatitis c",
+        "food poisoning",
+        "gastroenteritis",
+        "stomach flu",
+        "panic attack",
+        "bipolar disorder",
+        "bone fracture",
+        "hairline fracture",
+        "bone crack",
+        "ligament tear",
+        "muscle pull",
+        "back pain",
+        "joint pain",
+        "slipped disc",
+        "rheumatoid arthritis",
+        "osteoarthritis",
+        "fever",
+        "cough",
+        "cold",
+        "dengue",
+        "malaria",
+        "typhoid",
+        "flu",
+        "influenza",
+        "asthma",
+        "bronchitis",
+        "pneumonia",
+        "tuberculosis",
+        "headache",
+        "migraine",
+        "covid",
+        "hypertension",
+        "diabetes",
+        "cholera",
+        "diarrhea",
+        "dysentery",
+        "sunstroke",
+        "dehydration",
+        "hepatitis",
+        "jaundice",
+        "rabies",
+        "tetanus",
+        "leprosy",
+        "leptospirosis",
+        "h1n1",
+        "cancer",
+        "hiv",
+        "aids",
+        "chikungunya",
+        "meningitis",
+        "encephalitis",
+        "measles",
+        "mumps",
+        "rubella",
+        "polio",
+        "allergy",
+        "acidity",
+        "vomiting",
+        "nausea",
+        "constipation",
+        "ulcer",
+        "gastritis",
+        "appendicitis",
+        "arthritis",
+        "hernia",
+        "anemia",
+        "thyroid",
+        "insomnia",
+        "depression",
+        "anxiety",
+        "stress",
+        "ptsd",
+        "schizophrenia",
+        "fracture",
+        "dislocation",
+        "sprain",
+        "concussion",
+        "burn",
+        "injury",
+        "wound",
+        "sciatica",
+        "spasm",
+        "fatigue",
+    )
+    for d in diseases:
+        if d in query_lower:
+            return d.title()
+    return None
 
 
 def extract_entities(
@@ -524,6 +639,7 @@ def extract_entities(
         "fromDate": None,
         "toDate": None,
         "medicalStatus": None,
+        "diagnose": None,
     }
 
     result["n"] = _extract_number(raw_query)
@@ -544,6 +660,7 @@ def extract_entities(
     result["date"] = _extract_date_patterns(raw_query)
     result["fromDate"], result["toDate"] = _extract_date_range(raw_query)
     result["medicalStatus"] = _extract_medical_status(raw_query)
+    result["diagnose"] = _extract_diagnose(raw_query)
 
     result["companyId"] = (
         resolved_entities.get("company_id")

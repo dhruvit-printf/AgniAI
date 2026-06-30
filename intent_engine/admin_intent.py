@@ -100,6 +100,7 @@ def _build_base_intent(
         "blood_group": None,
         "type": None,
         "medical_status": None,
+        "diagnose": None,
         "responseType": "Summary",
         "raw_query": raw_query,
         "confidence": "low",
@@ -167,7 +168,7 @@ def classify_admin_intent(
     # ── Stage 3: Classify intent (single source of truth for category/op) ───
     intent_result = classify_intent(raw_query, entities, semantic)
 
-    category: Optional[str] = intent_result.get("category")
+    category = intent_result.get("category")
     operation: Optional[str] = intent_result.get("operation")
 
     # ── Stage 4: Subcategory — pure table lookup, no inference ───────────────
@@ -205,8 +206,6 @@ def classify_admin_intent(
                 # Fallback: no explicit keywords, use item category.
                 subcategory = item_cat
                 operation = SUBCATEGORY_TO_OPERATION.get(subcategory, operation)
-
-
 
     # ── Stage 5: Legacy visualization hint — pure lookup ────────────────────
     legacy_type: Optional[str] = _legacy_type(category, operation, subcategory)
@@ -250,6 +249,7 @@ def classify_admin_intent(
         "blood_group": entities.get("bloodGroup"),
         "type": legacy_type,
         "medical_status": entities.get("medicalStatus"),
+        "diagnose": entities.get("diagnose"),
         "responseType": intent_result.get("responseType", "Summary"),
         "raw_query": raw_query,
         "confidence_score": confidence_score,
@@ -287,6 +287,8 @@ def classify_admin_intent(
             ("bmiCategory", result["bmi_category"]),
             ("bloodGroup", result["blood_group"]),
             ("equipmentName", result["item_name"]),
+            ("medicalStatus", result["medical_status"]),
+            ("diagnose", result["diagnose"]),
         )
         if value is not None
     }
@@ -342,6 +344,7 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
         "batchId": intent_result.get("batch_id"),
         "agniveerNo": intent_result.get("agniveer_no"),
         "medicalStatus": intent_result.get("medical_status"),
+        "diagnose": intent_result.get("diagnose"),
     }
 
     is_valid, errors = validate_payload(category, operation, entities)
