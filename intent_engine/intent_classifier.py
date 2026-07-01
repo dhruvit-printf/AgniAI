@@ -309,17 +309,23 @@ def _should_entity_override_category(
     ):
         return True, "Medical", "medical entity present"
 
+    if (
+        _entity_present(entities, "grading", "attemptNo", "fromAttempt", "toAttempt")
+        and classified_category != "Performance"
+    ):
+        return True, "Performance", "performance entity present"
+    if (
+        _entity_present(entities, "section", "subSection")
+        and classified_category not in ("Performance", "Skills")
+    ):
+        return True, "Performance", "section entity present"
+
     if confidence_score >= 0.45:
         return (
             False,
             None,
             f"confidence sufficient ({confidence_score}) — classifier wins",
         )
-
-    if _entity_present(entities, "section") and classified_category not in (
-        "Performance",
-    ):
-        return True, "Performance", "section entity present, classifier confidence low"
     if _entity_present(entities, "sport") and not _phrase_score(
         query_text, "attendance"
     ):
@@ -374,7 +380,7 @@ def _should_entity_override_operation(
     if category == "Performance":
         if _entity_present(
             entities, "attemptNo", "fromAttempt", "toAttempt"
-        ) and classified_operation not in ("AttemptWise", "BestAttempt"):
+        ) and classified_operation not in ("AttemptWise", "BestAttempt", "Improvement", "ImprovementTrend", "Drop", "DropTrend"):
             return True, "AttemptWise", "attempt entity present"
         if not classified_operation and _entity_present(entities, "grading"):
             return True, "Grading", "grading entity present without operation"

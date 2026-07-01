@@ -19,7 +19,7 @@ class IntentModel(BaseModel):
 
     category: Optional[str] = None
     subcategory: Optional[str] = None
-    confidence: Optional[float] = None
+    confidence: Optional[Union[str, float]] = None
     operation: Optional[str] = None
     raw_query: Optional[str] = None
     query_type: Optional[str] = None  # ← added: set by understand_query()

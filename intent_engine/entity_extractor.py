@@ -173,9 +173,15 @@ def _extract_section(query: str) -> Optional[str]:
         aliases = section_data.get("aliases", ())
         candidates = (section_name.lower(), *aliases)
         for alias in candidates:
-            pattern = r"\b" + re.escape(alias).replace(r"\ ", r"\s+") + r"\b"
-            if re.search(pattern, query_lower, re.IGNORECASE):
-                return section_name
+            if len(alias) <= 2:
+                # Require case-sensitive match for short acronyms like 'IT' or 'MR'
+                orig_pattern = r"\b" + re.escape(alias.upper()).replace(r"\ ", r"\s+") + r"\b"
+                if re.search(orig_pattern, query):
+                    return section_name
+            else:
+                pattern = r"\b" + re.escape(alias).replace(r"\ ", r"\s+") + r"\b"
+                if re.search(pattern, query_lower, re.IGNORECASE):
+                    return section_name
     return None
 
 

@@ -89,6 +89,23 @@ def test_improvement():
     assert r["type"] == "Trend Chart"
 
 
+def test_improvement_with_attempts():
+    r = classify_admin_intent("give me improved agniveer from attempt 1 to attempt 3")
+    assert r["category"] == "Performance"
+    assert r["subcategory"] == "Improvement"
+    assert r["from_attempt"] == 1
+    assert r["to_attempt"] == 3
+
+
+def test_compare_sections_with_leave_filter():
+    r = classify_admin_intent("Compare PPT and BEPT among cricket players currently on leave")
+    assert r["category"] == "Performance"
+    assert r["subcategory"] == "Comparison"
+    assert r["operation"] == "Compare"
+    assert r["section"] == "PPT"
+    assert r["sport"] == "Cricket"
+
+
 def test_decline():
     r = classify_admin_intent("Who had a decline in scores?")
     assert r["category"] == "Performance"
