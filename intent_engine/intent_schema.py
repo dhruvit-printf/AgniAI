@@ -136,8 +136,8 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Date",
         ]
     ),
-    "personalDetails": frozenset(),
-    "DisqualifiedAgniveer": frozenset(),
+    "personalDetails": frozenset(["Summary"]),
+    "DisqualifiedAgniveer": frozenset(["Summary"]),
 }
 
 # =============================================================================

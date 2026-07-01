@@ -523,6 +523,9 @@ def _should_entity_override_operation(
     if category == "Overall" and not classified_operation:
         return True, "OverallPerformance", "Overall query default operation"
 
+    if category in {"personalDetails", "DisqualifiedAgniveer"} and not classified_operation:
+        return True, "Summary", f"{category} query default operation"
+
     if (
         category == "Distribution"
         and not classified_operation

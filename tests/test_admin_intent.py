@@ -624,13 +624,13 @@ def test_personal_details_classification():
     assert r1["subcategory"] is None
     assert r1["agniveer_no"] == "A0701515Y"
     p1 = format_admin_payload(r1)
-    assert p1.get("operation") is None
+    assert p1.get("operation") == "Summary"
 
     r2 = classify_admin_intent("Show education details of agniveer 12345")
     assert r2["category"] == "personalDetails"
     assert r2["subcategory"] is None
     p2 = format_admin_payload(r2)
-    assert p2.get("operation") is None
+    assert p2.get("operation") == "Summary"
 
 
 def test_disqualified_agniveer_classification():
@@ -638,14 +638,14 @@ def test_disqualified_agniveer_classification():
     assert r1["category"] == "DisqualifiedAgniveer"
     assert r1["subcategory"] is None
     p1 = format_admin_payload(r1)
-    assert p1.get("operation") is None
+    assert p1.get("operation") == "Summary"
 
     r2 = classify_admin_intent("Show disqualification reason for A0701515Y")
     assert r2["category"] == "DisqualifiedAgniveer"
     assert r2["subcategory"] is None
     assert r2["agniveer_no"] == "A0701515Y"
     p2 = format_admin_payload(r2)
-    assert p2.get("operation") is None
+    assert p2.get("operation") == "Summary"
 
 
 def test_noise_like_query_is_not_forced_into_performance():
