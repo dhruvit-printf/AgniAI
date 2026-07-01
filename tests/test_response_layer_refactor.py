@@ -30,9 +30,9 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertIsInstance(resp["analysis"], str)
         self.assertIsInstance(resp["prediction"], str)
         self.assertIsInstance(resp["conclusion"], str)
-        self.assertEqual(resp["analysis"], "Some analysis")
-        self.assertEqual(resp["prediction"], "Up")
-        self.assertEqual(resp["conclusion"], "Done")
+        self.assertEqual(resp["analysis"], "Some analysis.")
+        self.assertEqual(resp["prediction"], "Up.")
+        self.assertEqual(resp["conclusion"], "Done.")
 
         # formattedData is always a list
         self.assertIsInstance(resp["formattedData"], list)

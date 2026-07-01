@@ -99,6 +99,76 @@ def _extract_scores(records: List[Any], preserve_order: bool = True) -> List[flo
     return scores
 
 
+# ── Named record helpers (individual-level insight) ───────────────────────────
+
+_NAME_FIELDS = ("fullName", "name", "agniveerName", "recruiterName")
+_ID_FIELDS = ("agniveerNo", "agniveerNumber", "enrollmentNo")
+_UNIT_FIELDS = ("platoonName", "platoon", "company", "unit", "class", "batchName")
+
+
+def _record_label(record: Dict[str, Any]) -> Optional[str]:
+    for f in _NAME_FIELDS:
+        if record.get(f):
+            return str(record[f])
+    for f in _ID_FIELDS:
+        if record.get(f):
+            return str(record[f])
+    return None
+
+
+def _record_unit(record: Dict[str, Any]) -> Optional[str]:
+    for f in _UNIT_FIELDS:
+        if record.get(f):
+            return str(record[f])
+    return None
+
+
+def _named_score_records(records: List[Any]) -> List[Dict[str, Any]]:
+    """Pair each record's best score with its human-readable label/unit so
+    analysis can call out specific individuals, not just aggregate stats."""
+    out: List[Dict[str, Any]] = []
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        label = _record_label(r)
+        if not label:
+            continue
+        nested = _extract_nested_scores(r)
+        score = max(nested) if nested else _get_score(r)
+        if score is None:
+            continue
+        out.append({"label": label, "score": score, "unit": _record_unit(r)})
+    return out
+
+
+def _group_breakdown(records: List[Any], limit: int = 5) -> List[Dict[str, Any]]:
+    """Aggregate scores by platoon/unit/class so the analysis reflects the
+    whole dataset's structure, not just a single overall average."""
+    groups: Dict[str, List[float]] = {}
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        unit = _record_unit(r)
+        if not unit:
+            continue
+        nested = _extract_nested_scores(r)
+        score = max(nested) if nested else _get_score(r)
+        if score is None:
+            continue
+        groups.setdefault(unit, []).append(score)
+
+    breakdown = [
+        {
+            "group": name,
+            "count": len(scores),
+            "average_score": round(sum(scores) / len(scores), 2),
+        }
+        for name, scores in groups.items()
+    ]
+    breakdown.sort(key=lambda g: (-g["average_score"], -g["count"]))
+    return breakdown[:limit]
+
+
 def _normalise_sections(combined_result: Any, records: List[Any]) -> List[Dict[str, Any]]:
     """
     Build a canonical sections list from whatever shape the .NET response uses:
@@ -338,6 +408,26 @@ def generate_analysis(
                 )
                 insights += _score_insights(scores, category, score_stats)[:2]
 
+            named = _named_score_records(match_records)
+            weak = sorted(
+                [n for n in named if n["score"] < LOW_SCORE_THRESHOLD], key=lambda x: x["score"]
+            )[:3]
+            strong = sorted(
+                [n for n in named if n["score"] > HIGH_SCORE_THRESHOLD], key=lambda x: -x["score"]
+            )[:3]
+            if weak:
+                insights.append(
+                    "Individuals needing attention: "
+                    + ", ".join(f"{n['label']} ({n['score']})" for n in weak)
+                    + "."
+                )
+            if strong:
+                insights.append(
+                    "Standout performers in this filtered set: "
+                    + ", ".join(f"{n['label']} ({n['score']})" for n in strong)
+                    + "."
+                )
+
             stats = {
                 "match_count":  len(match_records),
                 "record_count": len(match_records),
@@ -399,6 +489,38 @@ def generate_analysis(
                     f"Range: {min_score}–{max_score}.",
                 ]
                 insights += _score_insights(scores, category, score_stats)
+
+                named = _named_score_records(all_records)
+                weak = sorted(
+                    [n for n in named if n["score"] < LOW_SCORE_THRESHOLD], key=lambda x: x["score"]
+                )[:3]
+                strong = sorted(
+                    [n for n in named if n["score"] > HIGH_SCORE_THRESHOLD], key=lambda x: -x["score"]
+                )[:3]
+
+                if weak:
+                    insights.append(
+                        "Individuals needing attention: "
+                        + ", ".join(f"{n['label']} ({n['score']})" for n in weak)
+                        + "."
+                    )
+                if strong:
+                    insights.append(
+                        "Standout performers: "
+                        + ", ".join(f"{n['label']} ({n['score']})" for n in strong)
+                        + "."
+                    )
+
+                groups = _group_breakdown(all_records)
+                if len(groups) > 1:
+                    lead = groups[0]
+                    trail = groups[-1]
+                    insights.append(
+                        f"Across {len(groups)} group(s), {lead['group']} leads with {lead['count']} "
+                        f"record(s) averaging {lead['average_score']}, while {trail['group']} trails "
+                        f"at {trail['average_score']}."
+                    )
+                    stats["group_breakdown"] = groups
             else:
                 summary  = f"Matched {len(all_records)} {category.lower()} records."
                 insights = [f"The query returned {len(all_records)} {category.lower()} records."]

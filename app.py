@@ -125,7 +125,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # ── CORS ───────────────────────────────────────────────────────────────────
 CORS(
     app,
-    origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS else "*",
+    origins=[o.strip() for o in ALLOWED_ORIGINS.split(",")] if ALLOWED_ORIGINS and ALLOWED_ORIGINS != "*" else "*",
     allow_headers=[
         "Content-Type",
         "X-Api-Key",

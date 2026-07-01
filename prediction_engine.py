@@ -79,6 +79,87 @@ def _extract_scores(records: List[Any]) -> List[float]:
     return scores
 
 
+# ── Named record helpers (who needs help, who is excelling) ───────────────────
+
+_NAME_FIELDS = ("fullName", "name", "agniveerName", "recruiterName")
+_ID_FIELDS = ("agniveerNo", "agniveerNumber", "enrollmentNo")
+
+
+def _record_label(record: Dict[str, Any]) -> Optional[str]:
+    for f in _NAME_FIELDS:
+        if record.get(f):
+            return str(record[f])
+    for f in _ID_FIELDS:
+        if record.get(f):
+            return str(record[f])
+    return None
+
+
+def _named_score_records(records: List[Any]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        label = _record_label(r)
+        if not label:
+            continue
+        nested = _extract_nested_scores(r)
+        score = max(nested) if nested else _get_score(r)
+        if score is None:
+            continue
+        out.append({"label": label, "score": score})
+    return out
+
+
+# ── Category-aware recovery / improvement guidance ─────────────────────────────
+# Maps the query's module/section keywords to a concrete, actionable plan so
+# low performers get a real recovery path rather than generic advice.
+
+_RECOMMENDATION_RULES: List[tuple] = [
+    (
+        ("bpet", "pet", "physical", "fitness", "bft", "endurance", "run", "race"),
+        "a structured physical conditioning plan — daily interval running, core and leg "
+        "strength circuits, and technique correction — with fitness re-tested every two weeks",
+    ),
+    (
+        ("swim",),
+        "supervised swimming sessions focused on breathing technique and stamina building, "
+        "at least twice a week",
+    ),
+    (
+        ("weapon", "firing", "range", "marksmanship", "shooting"),
+        "additional range time with a marksmanship instructor, focusing on grouping, "
+        "trigger control, and stance drills",
+    ),
+    (
+        ("drill", "parade"),
+        "extra drill-square practice under a section commander to correct timing and coordination",
+    ),
+    (
+        ("academic", "written", "omr", "exam", "test", "theory", "class"),
+        "structured remedial classes and guided self-study, reinforced with periodic mock "
+        "tests on the weak topics",
+    ),
+    (
+        ("medical", "bmi", "health"),
+        "a supervised diet and conditioning regimen under medical guidance, with regular "
+        "health monitoring",
+    ),
+]
+_DEFAULT_RECOMMENDATION = (
+    "focused one-on-one mentoring and a structured improvement plan, reviewed at the "
+    "end of every training cycle"
+)
+
+
+def _recommendation_for(category: str, section: str = "") -> str:
+    text = f"{category} {section}".lower()
+    for keywords, rec in _RECOMMENDATION_RULES:
+        if any(k in text for k in keywords):
+            return rec
+    return _DEFAULT_RECOMMENDATION
+
+
 def _normalise_sections(combined_result: Any, records: List[Any]) -> List[Dict[str, Any]]:
     """Canonical sections list from .NET or AgniAI shaped response."""
     if not isinstance(combined_result, dict):
@@ -198,6 +279,12 @@ def _build_prediction_grounding_text(combined_result: Any, query_type: str) -> s
             lines.append(f"Average Score: {round(sum(scores)/len(scores), 2)}")
             lines.append(f"Top Score: {max(scores)}")
             lines.append(f"Bottom Score: {min(scores)}")
+            # Individual scores must be grounded too, otherwise named
+            # weak/strong-performer sentences get stripped by the sanitizer
+            # below just because their specific number wasn't in the summary.
+            lines.append("Individual Scores: " + ", ".join(str(s) for s in scores))
+        lines.append(f"Low Threshold: {LOW_SCORE_THRESHOLD:.0f}")
+        lines.append(f"High Threshold: {HIGH_SCORE_THRESHOLD:.0f}")
 
     return "\n".join(lines)
 
@@ -279,7 +366,11 @@ def generate_predictions(
         from normalized_models import extract_records as _extract_records
         records = _extract_records(combined_result)
 
-        if query_type not in ("compare", "comparison") and not _has_sufficient_history(records):
+        # Momentum/trend-over-time forecasting genuinely needs multiple data
+        # points. Score-level recommendations (who needs help, who is
+        # excelling) don't — those are derivable from a single snapshot, so
+        # only gate the "trend" query type on historical depth.
+        if query_type == "trend" and not _has_sufficient_history(records):
             return {
                 "trend": "Stable",
                 "trendConfidence": "Low",
@@ -447,6 +538,20 @@ def generate_predictions(
                         f"This high-performing filtered group ({avg}) is expected to sustain "
                         f"or improve its metrics with continued engagement."
                     )
+
+                named = _named_score_records(target_records)
+                weak = sorted(
+                    [n for n in named if n["score"] < LOW_SCORE_THRESHOLD], key=lambda x: x["score"]
+                )[:2]
+                if weak:
+                    rec_text = _recommendation_for(
+                        category, intent.get("section") or intent.get("sub_section") or ""
+                    )
+                    names_str = ", ".join(f"{n['label']} ({n['score']})" for n in weak)
+                    future_trends.append(
+                        f"Within this filtered set, {names_str} fall below the passing threshold; "
+                        f"{rec_text} is advised for recovery."
+                    )
             else:
                 future_trends.append(
                     f"No score data available for filtered records; count stability is the "
@@ -517,6 +622,33 @@ def generate_predictions(
                             f"{direction.capitalize()} momentum ({momentum_val:+.2f}) observed — "
                             f"monitor closely over the next cycle."
                         )
+
+                named = _named_score_records(target_records)
+                weak = sorted(
+                    [n for n in named if n["score"] < LOW_SCORE_THRESHOLD], key=lambda x: x["score"]
+                )[:3]
+                strong = sorted(
+                    [n for n in named if n["score"] > HIGH_SCORE_THRESHOLD], key=lambda x: -x["score"]
+                )[:2]
+                rec_text = _recommendation_for(
+                    category, intent.get("section") or intent.get("sub_section") or ""
+                )
+
+                if weak:
+                    names_str = ", ".join(f"{n['label']} ({n['score']})" for n in weak)
+                    verb = "is" if len(weak) == 1 else "are"
+                    future_trends.append(
+                        f"{names_str} {verb} currently below the {LOW_SCORE_THRESHOLD:.0f}-mark "
+                        f"passing threshold. Recommended recovery path: {rec_text}, with progress "
+                        f"re-assessed at the next training cycle."
+                    )
+                elif strong:
+                    names_str = ", ".join(f"{n['label']} ({n['score']})" for n in strong)
+                    verb = "is" if len(strong) == 1 else "are"
+                    future_trends.append(
+                        f"{names_str} {verb} performing at peak level. Sustaining this requires "
+                        f"continued conditioning, and they could be leveraged to mentor lower-scoring peers."
+                    )
             else:
                 short_term = "stable"
                 future_trends.append(
@@ -524,7 +656,7 @@ def generate_predictions(
                 )
 
         # ── Sanitize trends — cap BEFORE loop (save work) ─────────────────
-        future_trends = future_trends[:3]
+        future_trends = future_trends[:5]
         sanitized_trends: List[str] = []
         for trend in future_trends:
             san = _ground_and_sanitize(trend, grounding_text)

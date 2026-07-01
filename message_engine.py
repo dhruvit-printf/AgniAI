@@ -359,19 +359,21 @@ Module: {scope_label}
 Retrieved data summary:
 {data_str}
 
-Write a response of 2 to 4 sentences that:
+Write a complete, well-formed briefing (roughly 4 to 8 sentences — as many as needed to fully cover the data, no artificial cap) that:
 1. Opens by directly answering what was asked — no preamble like "Sure" or "Of course"
 2. States the key numbers from the data above (use ONLY numbers present in the JSON above)
-3. If there are named records (top_entries, sample_records), reference 1-2 by name naturally
-4. If record_count is 0 (or match_count is 0), politely report no records found and suggest widening the filter
-5. Ends with a brief, relevant observation or forward pointer if appropriate (e.g. "The detailed breakdown is available below.")
+3. If there are named records (top_entries, sample_records, records), reference several of them by name naturally, not just one
+4. Calls out any notable spread, grouping, or pattern in the data (e.g. platoons/units represented, score range) if present
+5. If record_count is 0 (or match_count is 0), politely report no records found and suggest widening the filter
+6. Always ends with a complete sentence — never trail off or cut a thought short
+7. Closes with a brief, relevant observation or forward pointer (e.g. "The detailed breakdown is available below.")
 
 Style rules:
 - Tone: confident aide briefing a senior officer — not a chatbot, not a report template
 - Do NOT use markdown, bullets, headers, or numbered lists
 - Do NOT say "I retrieved", "the system fetched", "as per the data" — just speak the answer
 - Do NOT invent any number, name, or statistic not present in the data summary above
-- Maximum 90 words"""
+- Write in full prose. Do not truncate — finish every sentence you start"""
 
     return prompt
 
@@ -482,7 +484,10 @@ def _static_fallback(
     # ── Simple / ranking / default ────────────────────────────────────────────
     rec_count = data_summary.get("record_count", 0)
     avg = data_summary.get("avg_score")
+    max_score = data_summary.get("max_score")
+    min_score = data_summary.get("min_score")
     top_entries = data_summary.get("top_entries") or []
+    unit_breakdown = data_summary.get("unit_breakdown") or {}
 
     # Scope label with filter context
     filter_parts = []
@@ -504,21 +509,33 @@ def _static_fallback(
             msg += f" Their recorded score is {score_val}."
         return msg
 
-    msg = f"{rec_count} {scope} record{'s' if rec_count != 1 else ''} found{filter_str}."
+    sentences = [f"{rec_count} {scope} record{'s' if rec_count != 1 else ''} found{filter_str}."]
 
     if avg is not None:
-        msg += f" The average score across this set is {avg}."
+        if max_score is not None and min_score is not None and max_score != min_score:
+            sentences.append(
+                f"Scores average {avg}, spanning a range from {min_score} to {max_score}."
+            )
+        else:
+            sentences.append(f"The average score across this set is {avg}.")
 
     if top_entries:
-        first = top_entries[0]
-        msg += f" Top result: {first}."
+        names_str = ", ".join(top_entries[:5])
+        lead_word = "Leading the list" if qtype == "ranking" else "Notable entries include"
+        sentences.append(f"{lead_word}: {names_str}.")
+
+    if unit_breakdown:
+        top_unit = max(unit_breakdown, key=unit_breakdown.get)  # type: ignore[arg-type]
+        sentences.append(
+            f"{top_unit} contributes the most entries to this set, with {unit_breakdown[top_unit]} record(s)."
+        )
 
     if qtype == "ranking" and rec_count > 1:
-        msg += " The full ranking is listed below."
+        sentences.append("The full ranking is listed below.")
     else:
-        msg += " The complete dataset is formatted below."
+        sentences.append("The complete dataset is formatted below.")
 
-    return msg
+    return " ".join(sentences)
 
 
 # ---------------------------------------------------------------------------
@@ -571,6 +588,10 @@ def _validate_llm_response(
     if len(stripped) < 15:
         return None
 
+    # Reject responses that look cut off mid-sentence (no terminal punctuation)
+    if stripped[-1] not in ".!?":
+        return None
+
     return stripped
 
 
@@ -614,29 +635,38 @@ def generate_message(
             "stream": False,
             "options": {
                 "temperature": 0.25,  # Low temp — factual, grounded
-                "num_predict": 180,   # ~3-4 sentences
-                "num_ctx": 2048,      # Enough for prompt + data summary
+                "num_predict": 600,   # Generous budget — avoid mid-sentence cutoff
+                "num_ctx": 4096,      # Enough for prompt + data summary + full reply
             },
         }
 
-        resp = ollama_session.post(OLLAMA_URL, json=payload, timeout=(0.5, 10.0))
+        resp = ollama_session.post(OLLAMA_URL, json=payload, timeout=(0.5, 25.0))
         resp.raise_for_status()
 
-        raw_text = resp.json().get("message", {}).get("content", "").strip()
-        validated = _validate_llm_response(raw_text, data_summary)
+        resp_json = resp.json()
+        raw_text = resp_json.get("message", {}).get("content", "").strip()
+        truncated = resp_json.get("done_reason") == "length"
 
-        if validated:
+        if truncated:
             logger.debug(
-                "%s message_engine: LLM message OK (len=%d)",
+                "%s message_engine: LLM output hit token limit (done_reason=length) — using fallback",
                 log_prefix,
-                len(validated),
             )
-            return validated
+        else:
+            validated = _validate_llm_response(raw_text, data_summary)
 
-        logger.debug(
-            "%s message_engine: LLM response rejected by validator — using fallback",
-            log_prefix,
-        )
+            if validated:
+                logger.debug(
+                    "%s message_engine: LLM message OK (len=%d)",
+                    log_prefix,
+                    len(validated),
+                )
+                return validated
+
+            logger.debug(
+                "%s message_engine: LLM response rejected by validator — using fallback",
+                log_prefix,
+            )
 
     except Exception as exc:
         logger.debug(

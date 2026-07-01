@@ -28,6 +28,34 @@ def _extract_scores(records: List[Any]) -> List[float]:
     return [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
 
 
+# ── Named record helpers (who to call out in the conclusion) ──────────────────
+
+_NAME_FIELDS = ("fullName", "name", "agniveerName", "recruiterName")
+_ID_FIELDS = ("agniveerNo", "agniveerNumber", "enrollmentNo")
+
+
+def _record_label(record: Dict[str, Any]) -> Optional[str]:
+    for f in _NAME_FIELDS:
+        if record.get(f):
+            return str(record[f])
+    for f in _ID_FIELDS:
+        if record.get(f):
+            return str(record[f])
+    return None
+
+
+def _named_score_records(records: List[Any]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        label = _record_label(r)
+        score = _get_score(r)
+        if label and score is not None:
+            out.append({"label": label, "score": score})
+    return out
+
+
 def _percentile(sorted_data: List[float], pct: float) -> float:
     if not sorted_data:
         return 0.0
@@ -432,7 +460,18 @@ def generate_conclusion(
                     f"P75: {p75}). {pct_above}% scored above average."
                 )
 
-                # Trend + prediction as bullet 3
+                named = _named_score_records(records)
+                if named:
+                    best = max(named, key=lambda n: n["score"])
+                    worst = min(named, key=lambda n: n["score"])
+                    if best["label"] != worst["label"] or best["score"] != worst["score"]:
+                        bullets.append(
+                            f"Top performer: {best['label']} ({best['score']}). "
+                            f"Lowest recorded: {worst['label']} ({worst['score']})"
+                            + (", flagged for review." if worst["score"] < 50 else ".")
+                        )
+
+                # Trend + prediction
                 trend_label, slope = _detect_trend(scores)
                 pred = _predict_future(scores, trend_label, slope)
                 if pred:
@@ -442,8 +481,22 @@ def generate_conclusion(
                         f"{high_cnt} high performer(s) scored above 75 out of {cnt} total."
                     )
 
-        # Cap at 3 bullets
-        bullets = bullets[:3]
+                # Closing verdict — ties the numbers to a clear next step
+                below_passing = sum(1 for s in scores if s < 50)
+                if below_passing:
+                    bullets.append(
+                        f"Overall verdict: {below_passing} record(s) are below the passing mark "
+                        f"and need corrective action — see the prediction guidance below for a "
+                        f"recovery plan."
+                    )
+                else:
+                    bullets.append(
+                        "Overall verdict: the set is performing at or above standard, with no "
+                        "records currently flagged for concern."
+                    )
+
+        # Cap at 5 bullets to allow named highlights plus a closing verdict
+        bullets = bullets[:5]
         return {"summary": summary, "bullets": bullets}
 
     except Exception as exc:

@@ -18,22 +18,45 @@ from typing import Any, Dict, List, Optional
 
 
 def _to_str(value: Any) -> str:
-    """Convert an engine dict or plain string to a single readable string."""
+    """Convert an engine dict or plain string to a full readable string.
+
+    The analysis/prediction/conclusion engines each return a structured dict
+    with a headline plus supporting detail (insights, bullets, future trends).
+    Previously only the headline field was kept and everything else was
+    silently dropped. Compose all of it into one coherent narrative instead.
+    """
     if value is None:
         return ""
     if isinstance(value, str):
         return value.strip()
     if isinstance(value, dict):
-        # analysis engine  → {"summary": "...", "observations": [...], ...}
-        # prediction engine → {"projection": "...", "heuristicEstimate": "...", ...}
+        parts: List[str] = []
+
+        # analysis engine  → {"summary": "...", "insights": [...], "statistics": {...}}
         # conclusion engine → {"summary": "...", "bullets": [...]}
-        text = (
-            value.get("summary")
-            or value.get("projection")
-            or value.get("heuristicEstimate")
-            or ""
-        )
-        return str(text).strip()
+        headline = value.get("summary") or value.get("projection") or ""
+        if headline:
+            parts.append(str(headline).strip())
+
+        for detail in value.get("insights") or value.get("bullets") or []:
+            detail_str = str(detail).strip()
+            if detail_str and detail_str not in parts:
+                parts.append(detail_str)
+
+        # prediction engine → {"projection": "...", "heuristicEstimate": "...", "futureTrends": [...]}
+        heuristic = value.get("heuristicEstimate")
+        if heuristic and str(heuristic).strip() not in parts:
+            parts.append(str(heuristic).strip())
+
+        for trend in value.get("futureTrends") or []:
+            trend_str = str(trend).strip()
+            if trend_str and trend_str not in parts:
+                parts.append(trend_str)
+
+        if not parts:
+            return ""
+
+        return " ".join(p if p.endswith((".", "!", "?")) else f"{p}." for p in parts)
     return str(value).strip()
 
 
