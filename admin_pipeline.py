@@ -172,6 +172,13 @@ def _sanitize_error(err_msg: Any) -> str:
 # ID fields that must never be sent as null / empty / zero (Rule 9)
 _ID_FIELDS: frozenset = frozenset({"companyId", "platoonId", "batchId", "agniveerNo"})
 
+_NO_CARRY_FORWARD_CATEGORIES = frozenset(
+    {
+        "DisqualifiedAgniveer",
+        "personalDetails",
+    }
+)
+
 
 def _strip_empty_id_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -1380,6 +1387,9 @@ def execute_admin_query(
                     classified_intent.get("filters", {}),
                 )
 
+                if primary_intent.get("category") in _NO_CARRY_FORWARD_CATEGORIES:
+                    carry_forward_filters = {}
+
                 # Validate IntentModel
                 _validate_model_payload(IntentModel, primary_intent, "single.intent")
 
@@ -1575,6 +1585,7 @@ def execute_admin_query(
                             query_type=qtype_str,
                         )
                     if dotnet_error:
+                        sanitized_error = _sanitize_error(dotnet_error)
                         logger.warning(
                             json.dumps(
                                 {
@@ -1582,7 +1593,7 @@ def execute_admin_query(
                                     "trace_id": trace_id,
                                     "session_id": session_id,
                                     "query_type": qtype_str,
-                                    "error": _sanitize_error(dotnet_error),
+                                    "error": sanitized_error,
                                 }
                             )
                         )
@@ -1616,43 +1627,46 @@ def execute_admin_query(
                             error_type="dotnet_error",
                         )
 
-                        # For direct lookup-style categories, return a graceful
-                        # availability message instead of a hard failure. This
-                        # keeps the UX useful when the backend is temporarily
-                        # unreachable while preserving the existing hard-error
-                        # behavior for other query types.
-                        if primary_intent.get("category") in {
-                            "DisqualifiedAgniveer",
-                            "personalDetails",
-                        }:
-                            unavailable_msg = (
-                                f"I cannot reach the backend right now, so I cannot "
-                                f"fetch {primary_intent.get('category')} records."
-                            )
-                            availability_payload = build_conversation_payload(
-                                unavailable_msg,
-                                session_id=session_id,
-                                query_type="service_unavailable",
-                            )
-                            availability_payload.setdefault("metadata", {})
-                            availability_payload["metadata"].setdefault("timings", {})
-                            availability_payload["metadata"]["timings"][
-                                "dotnetDurationMs"
-                            ] = round(dotnet_duration * 1000, 2)
-                            availability_payload["metadata"]["executionTimeMs"] = round(
-                                total_duration * 1000
-                            )
-                            return {
-                                "type": "service_unavailable",
-                                "response_payload": availability_payload,
-                                "combined_message": unavailable_msg,
-                                "execution_time_ms": round(total_duration * 1000),
-                            }
+                        # Transport failures can be softened into a service
+                        # unavailable response. HTTP 400 means the backend
+                        # rejected the payload, so keep that visible as an
+                        # actual error instead of mislabeling it as outage.
+                        if "cannot connect to .net backend" in sanitized_error.lower():
+                            if primary_intent.get("category") in {
+                                "DisqualifiedAgniveer",
+                                "personalDetails",
+                            }:
+                                unavailable_msg = (
+                                    f"I cannot reach the backend right now, so I cannot "
+                                    f"fetch {primary_intent.get('category')} records."
+                                )
+                                availability_payload = build_conversation_payload(
+                                    unavailable_msg,
+                                    session_id=session_id,
+                                    query_type="service_unavailable",
+                                )
+                                availability_payload.setdefault("metadata", {})
+                                availability_payload["metadata"].setdefault(
+                                    "timings", {}
+                                )
+                                availability_payload["metadata"]["timings"][
+                                    "dotnetDurationMs"
+                                ] = round(dotnet_duration * 1000, 2)
+                                availability_payload["metadata"][
+                                    "executionTimeMs"
+                                ] = round(total_duration * 1000)
+                                return {
+                                    "type": "service_unavailable",
+                                    "response_payload": availability_payload,
+                                    "combined_message": unavailable_msg,
+                                    "execution_time_ms": round(total_duration * 1000),
+                                }
 
                         return {
                             "type": "error",
                             "error_type": "dotnet_error",
-                            "error_message": "Failed to process request.",
+                            "error_message": sanitized_error
+                            or "Failed to process request.",
                         }
 
                     ensure_agniveer_no_in_data(dotnet_data)

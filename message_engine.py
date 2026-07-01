@@ -596,6 +596,48 @@ def _validate_llm_response(
     return stripped
 
 
+def _strip_prompt_echo(text: str) -> str:
+    """
+    Remove obvious prompt scaffolding if the LLM echoes the request template.
+
+    This keeps the final answer focused on the actual response when the model
+    copies lines like "Officer's query:" or "Retrieved data summary:".
+    """
+    if not text:
+        return ""
+
+    stripped = text.strip()
+    markers = (
+        "Officer's query:",
+        "Query type:",
+        "Module:",
+        "Retrieved data summary:",
+        "Write a complete, well-formed briefing",
+    )
+    if not any(marker in stripped for marker in markers):
+        return stripped
+
+    lines = [line.strip() for line in stripped.splitlines()]
+    kept: List[str] = []
+    skipping = True
+    for line in lines:
+        if skipping:
+            if (
+                line.startswith("The ")
+                or line.startswith("Here ")
+                or line.startswith("I ")
+                or line.startswith("No ")
+                or line.startswith("Matched ")
+            ):
+                skipping = False
+                kept.append(line)
+        else:
+            kept.append(line)
+
+    cleaned = " ".join(part for part in kept if part).strip()
+    return cleaned or stripped
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -654,7 +696,9 @@ def generate_message(
                 log_prefix,
             )
         else:
-            validated = _validate_llm_response(raw_text, data_summary)
+            validated = _validate_llm_response(
+                _strip_prompt_echo(raw_text), data_summary
+            )
 
             if validated:
                 logger.debug(

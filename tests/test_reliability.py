@@ -192,7 +192,7 @@ class TestReliability(unittest.TestCase):
     def test_disqualified_lookup_backend_outage_is_graceful(self, mock_call_dotnet):
         mock_call_dotnet.return_value = (
             None,
-            "Backend returned HTTP 503: Service Unavailable",
+            "Cannot connect to .NET backend at https://example/api/AiCommand/execute. (timeout)",
         )
 
         payload = execute_admin_query("Show disqualified agniveers from Platoon 2.", {})
@@ -201,6 +201,41 @@ class TestReliability(unittest.TestCase):
         response_payload = payload["response_payload"]
         self.assertTrue(response_payload["status"])
         self.assertIn("cannot reach the backend", response_payload["message"].lower())
+
+    @patch("admin_pipeline._call_dotnet")
+    def test_disqualified_lookup_does_not_carry_forward_stale_batch(self, mock_call_dotnet):
+        mock_call_dotnet.return_value = ({"records": []}, None)
+
+        with patch("admin_pipeline.context_engine.resolve") as mock_resolve:
+            mock_resolve.return_value = type(
+                "Resolved",
+                (),
+                {
+                    "needs_clarification": False,
+                    "clarification_question": None,
+                    "context_source": "fresh",
+                    "resolved_query": "Show all disqualified agniveers.",
+                    "carry_forward_filters": {"batchId": 99},
+                    "resolved_entities": {},
+                },
+            )()
+            execute_admin_query("Show all disqualified agniveers.", {})
+
+        payload = mock_call_dotnet.call_args[0][0]
+        self.assertNotIn("batchId", payload)
+
+    @patch("admin_pipeline._call_dotnet")
+    def test_disqualified_lookup_http_400_is_reported_as_error(self, mock_call_dotnet):
+        mock_call_dotnet.return_value = (
+            None,
+            "Backend returned HTTP 400: Bad Request",
+        )
+
+        payload = execute_admin_query("Show all disqualified agniveers.", {})
+
+        self.assertEqual(payload["type"], "error")
+        self.assertEqual(payload["error_type"], "dotnet_error")
+        self.assertIn("Backend returned HTTP 400", payload["error_message"])
 
     def test_progress_callback_protection(self):
         # Custom progress callback that raises an exception

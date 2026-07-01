@@ -102,6 +102,48 @@ class TestFallbackReport(unittest.TestCase):
             "The cross-filter search is complete and the 3 matching records are ready for review.",
         )
 
+    def test_generate_message_strips_prompt_echo(self):
+        from message_engine import generate_message
+
+        class _Resp:
+            status_code = 200
+            text = "{}"
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "message": {
+                        "content": (
+                            "Officer's query: \"Who ranks number 1 overall?\"\n"
+                            "Query type: data lookup\n"
+                            "Module: Overall — OverallPerformance\n\n"
+                            "The top-ranked agniveer overall is Sagar from PL-03."
+                        )
+                    },
+                    "done_reason": "stop",
+                }
+
+        with patch("config.ollama_session.post", return_value=_Resp()):
+            msg = generate_message(
+                user_query="Who ranks number 1 overall?",
+                combined_result={
+                    "records": [
+                        {
+                            "fullName": "Sagar",
+                            "platoonName": "PL-03",
+                            "compositeScore": 100,
+                        }
+                    ]
+                },
+                query_type="simple",
+                intent={"category": "Overall", "subcategory": "OverallPerformance"},
+            )
+
+        self.assertNotIn("Officer's query", msg)
+        self.assertTrue(msg.startswith("The top-ranked agniveer overall is Sagar"))
+
 
 class TestResponseBuilder(unittest.TestCase):
     def test_build_combined_message(self):
