@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+from normalized_models import humanize_category
 from utils import extract_records as _extract_records
 
 # ---------------------------------------------------------------------------
@@ -92,7 +93,7 @@ def _intent_context(intent: Dict[str, Any]) -> Dict[str, str]:
     """Extract human-readable context strings from intent."""
     ctx: Dict[str, str] = {}
 
-    category = intent.get("category") or ""
+    category = humanize_category(intent.get("category") or "")
     subcategory = intent.get("subcategory") or ""
     section = intent.get("section") or intent.get("sub_section") or ""
 
@@ -393,7 +394,7 @@ def _static_fallback(
     """
     qtype = data_summary.get("type", "simple")
     ctx = data_summary.get("context") or {}
-    module = ctx.get("module") or intent.get("category") or "records"
+    module = ctx.get("module") or humanize_category(intent.get("category") or "records")
     section = ctx.get("section") or ctx.get("sub_module") or ""
     scope = f"{module} — {section}" if section else module
 

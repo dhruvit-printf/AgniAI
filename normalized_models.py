@@ -84,6 +84,34 @@ def normalize_intent_confidence(
     return normalized
 
 
+def humanize_category(category: Optional[str]) -> str:
+    """
+    Convert internal category keys into display-friendly labels.
+
+    Examples:
+      - "DisqualifiedAgniveer" -> "Disqualified Agniveer"
+      - "personalDetails" -> "Personal Details"
+      - "Medical" -> "Medical"
+    """
+    raw = str(category or "").strip()
+    if not raw:
+        return "Agniveer"
+
+    special_cases = {
+        "personaldetails": "Personal Details",
+        "disqualifiedagniveer": "Disqualified Agniveer",
+    }
+    lowered = raw.lower()
+    if lowered in special_cases:
+        return special_cases[lowered]
+
+    import re
+
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", raw)
+    spaced = re.sub(r"\s+", " ", spaced).strip()
+    return spaced[:1].upper() + spaced[1:] if spaced else "Agniveer"
+
+
 def normalize_prediction(
     prediction: Optional[Dict[str, Any]],
 ) -> Optional[Dict[str, Any]]:
@@ -122,7 +150,7 @@ def build_intro_message(
     return {
         "title": title,
         "description": intro_message
-        or f"I have prepared a summary of the matching {category.lower()} records.",
+        or f"I have prepared a summary of the matching {humanize_category(category).lower()} records.",
     }
 
 
@@ -192,7 +220,7 @@ def _infer_simple_section_label(combined_result: Any, intent: Dict[str, Any]) ->
 
 
 def _derive_title(query_type: str, intent: Dict[str, Any]) -> str:
-    category = intent.get("category") or "Agniveer"
+    category = humanize_category(intent.get("category") or "Agniveer")
     subcategory = intent.get("subcategory") or ""
 
     if query_type == "compare":

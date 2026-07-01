@@ -646,3 +646,10 @@ def test_disqualified_agniveer_classification():
     assert r2["agniveer_no"] == "A0701515Y"
     p2 = format_admin_payload(r2)
     assert p2.get("operation") is None
+
+
+def test_noise_like_query_is_not_forced_into_performance():
+    r = classify_admin_intent("tan tana tan tan tan tara bpet")
+    assert r["category"] is None
+    assert r["operation"] is None
+    assert r["confidence"] == "low"

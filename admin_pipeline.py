@@ -1616,6 +1616,39 @@ def execute_admin_query(
                             error_type="dotnet_error",
                         )
 
+                        # For direct lookup-style categories, return a graceful
+                        # availability message instead of a hard failure. This
+                        # keeps the UX useful when the backend is temporarily
+                        # unreachable while preserving the existing hard-error
+                        # behavior for other query types.
+                        if primary_intent.get("category") in {
+                            "DisqualifiedAgniveer",
+                            "personalDetails",
+                        }:
+                            unavailable_msg = (
+                                f"I cannot reach the backend right now, so I cannot "
+                                f"fetch {primary_intent.get('category')} records."
+                            )
+                            availability_payload = build_conversation_payload(
+                                unavailable_msg,
+                                session_id=session_id,
+                                query_type="service_unavailable",
+                            )
+                            availability_payload.setdefault("metadata", {})
+                            availability_payload["metadata"].setdefault("timings", {})
+                            availability_payload["metadata"]["timings"][
+                                "dotnetDurationMs"
+                            ] = round(dotnet_duration * 1000, 2)
+                            availability_payload["metadata"]["executionTimeMs"] = round(
+                                total_duration * 1000
+                            )
+                            return {
+                                "type": "service_unavailable",
+                                "response_payload": availability_payload,
+                                "combined_message": unavailable_msg,
+                                "execution_time_ms": round(total_duration * 1000),
+                            }
+
                         return {
                             "type": "error",
                             "error_type": "dotnet_error",

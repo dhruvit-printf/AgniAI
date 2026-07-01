@@ -26,6 +26,45 @@ from .intent_schema import (
 
 logger = logging.getLogger(__name__)
 
+_ACTION_HINTS = (
+    "show",
+    "list",
+    "give",
+    "find",
+    "tell",
+    "compare",
+    "what",
+    "who",
+    "which",
+    "how",
+    "count",
+    "top",
+    "highest",
+    "lowest",
+    "best",
+    "worst",
+    "average",
+    "summary",
+    "report",
+    "details",
+    "status",
+    "trend",
+    "distribution",
+    "performance",
+    "score",
+    "marks",
+    "leave",
+    "medical",
+    "attendance",
+    "verification",
+    "equipment",
+    "skills",
+    "overall",
+    "schedule",
+    "disqualified",
+    "personal",
+)
+
 
 def _canonical_text(query: str) -> str:
     return clean_query(query).lower()
@@ -51,6 +90,60 @@ def _semantic_score(candidate: str, semantic_value: Optional[str]) -> int:
     if not semantic_value:
         return 0
     return 8 if candidate == semantic_value else 0
+
+
+def _has_action_signal(query_text: str) -> bool:
+    return any(
+        _phrase_score(query_text, hint) for hint in _ACTION_HINTS
+    ) or any(
+        phrase in query_text
+        for phrase in (
+            "vs",
+            "versus",
+            "compare",
+            "comparison",
+            "difference between",
+            "who plays",
+            "who is on leave",
+            "currently on leave",
+            "currently absent",
+            "with medical",
+            "on leave",
+            "medical leave",
+            "trend",
+            "distribution",
+        )
+    )
+
+
+def _looks_like_noise_query(
+    query_text: str,
+    category: Optional[str],
+    operation: Optional[str],
+    entities: Optional[Dict[str, Any]],
+) -> bool:
+    tokens = re.findall(r"[a-z0-9']+", query_text)
+    if len(tokens) < 5:
+        return False
+    if _has_action_signal(query_text):
+        return False
+
+    filled_entities = [
+        key
+        for key, value in (entities or {}).items()
+        if value not in (None, "", [], {})
+    ]
+
+    if category and operation:
+        return False
+
+    # Long strings made up mostly of filler words and one stray domain token
+    # should be treated as unclear instead of being forced into a category.
+    if category and len(filled_entities) <= 1:
+        return True
+    if not category and len(filled_entities) <= 1:
+        return True
+    return False
 
 
 def _entity_present(entities: Optional[Dict[str, Any]], *keys: str) -> bool:
@@ -453,6 +546,16 @@ def classify_intent(
     operation, operation_score = _choose_operation(
         query_text, category, semantic, entities
     )
+
+    if _looks_like_noise_query(query_text, category, operation, entities):
+        return {
+            "category": None,
+            "operation": None,
+            "responseType": _detect_response_type(query_text),
+            "raw_query": query,
+            "confidence_score": 0.0,
+            "confidence": "low",
+        }
 
     confidence_score = _compute_confidence(
         category, category_score, operation, operation_score, semantic, entities

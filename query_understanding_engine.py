@@ -156,6 +156,34 @@ def _has_phrase(text: str, phrase: str) -> bool:
 
 
 def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
+    if any(
+        token in text
+        for token in (
+            "disqualified",
+            "disqualification",
+            "disqualified agniveer",
+            "disqualified agniveers",
+            "removed agniveer",
+            "expelled agniveer",
+        )
+    ):
+        return "DisqualifiedAgniveer"
+    if any(
+        token in text
+        for token in (
+            "personal details",
+            "personal info",
+            "profile",
+            "biodata",
+            "bio data",
+            "contact",
+            "education",
+            "qualification",
+            "family details",
+            "next of kin",
+        )
+    ):
+        return "personalDetails"
     if entities.get("grading"):
         return "Performance"
     if entities.get("bmi_category") or entities.get("blood_group"):

@@ -188,6 +188,20 @@ class TestReliability(unittest.TestCase):
         self.assertEqual(response_payload["status"], True)
         self.assertIn("partial", response_payload["message"].lower())
 
+    @patch("admin_pipeline._call_dotnet")
+    def test_disqualified_lookup_backend_outage_is_graceful(self, mock_call_dotnet):
+        mock_call_dotnet.return_value = (
+            None,
+            "Backend returned HTTP 503: Service Unavailable",
+        )
+
+        payload = execute_admin_query("Show disqualified agniveers from Platoon 2.", {})
+
+        self.assertEqual(payload["type"], "service_unavailable")
+        response_payload = payload["response_payload"]
+        self.assertTrue(response_payload["status"])
+        self.assertIn("cannot reach the backend", response_payload["message"].lower())
+
     def test_progress_callback_protection(self):
         # Custom progress callback that raises an exception
         def bad_progress(stage):

@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 from grounding_utils import ground_and_sanitize as _ground_and_sanitize
+from normalized_models import humanize_category
 from utils import get_score as _get_score
 from utils import safe_float as _safe_float
 
@@ -231,7 +232,7 @@ def _score_insights(scores: List[float], category: str, stats: Dict[str, Any]) -
     p75 = stats["p75_score"]
 
     insights.append(
-        f"{pct_above}% of {category.lower()} records scored above the average of {avg}."
+        f"{pct_above}% of {humanize_category(category).lower()} records scored above the average of {avg}."
     )
     insights.append(
         f"The middle 50% of scores fall between {p25} and {p75} (IQR: {round(p75 - p25, 2)})."
@@ -493,8 +494,9 @@ def generate_analysis(
                 min_score    = score_stats["min_score"]
                 max_score    = score_stats["max_score"]
                 median_score = score_stats["median_score"]
+                category_label = humanize_category(category).lower()
                 summary = (
-                    f"Matched {len(all_records)} {category.lower()} records with an average score "
+                    f"Matched {len(all_records)} {category_label} records with an average score "
                     f"of {avg_score}, median {median_score}, ranging from {min_score} to {max_score}."
                 )
                 insights = [
@@ -535,8 +537,9 @@ def generate_analysis(
                     )
                     stats["group_breakdown"] = groups
             else:
-                summary  = f"Matched {len(all_records)} {category.lower()} records."
-                insights = [f"The query returned {len(all_records)} {category.lower()} records."]
+                category_label = humanize_category(category).lower()
+                summary  = f"Matched {len(all_records)} {category_label} records."
+                insights = [f"The query returned {len(all_records)} {category_label} records."]
 
         return _analysis_payload(summary, insights, stats)
 
@@ -544,7 +547,7 @@ def generate_analysis(
         logger.error("analysis_engine.generate_analysis failed: %s", exc, exc_info=True)
         category = intent.get("category") or "Agniveer"
         return _analysis_payload(
-            f"Analysis of {category.lower()} records completed with limited metrics.",
+            f"Analysis of {humanize_category(category).lower()} records completed with limited metrics.",
             ["Dataset matches the specified parameters."],
             {"record_count": 0},
         )

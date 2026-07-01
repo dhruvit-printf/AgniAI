@@ -231,6 +231,26 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "composite",
         "allcriteria",
     ],
+    "personalDetails": [
+        "personal details",
+        "personal info",
+        "profile",
+        "biodata",
+        "bio data",
+        "contact",
+        "education",
+        "qualification",
+        "family details",
+        "next of kin",
+    ],
+    "DisqualifiedAgniveer": [
+        "disqualified",
+        "disqualification",
+        "disqualified agniveer",
+        "disqualified agniveers",
+        "removed agniveer",
+        "expelled agniveer",
+    ],
 }
 
 

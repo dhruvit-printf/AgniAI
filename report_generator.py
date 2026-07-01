@@ -14,6 +14,7 @@ from conclusion_engine import generate_conclusion
 from grounding_utils import extract_numbers_from_text as _extract_numbers_from_text
 from grounding_utils import ground_and_sanitize as _strip_ungrounded_numbers
 from prediction_engine import generate_predictions
+from normalized_models import humanize_category
 from utils import extract_records as _extract_records
 from utils import get_score as _get_score
 from utils import has_any_data as _has_any_data
@@ -45,6 +46,7 @@ def _build_data_grounded_report(
     records = _extract_records(combined_result)
 
     category = intent.get("category") or "Agniveer"
+    category_label = humanize_category(category).lower()
     cnt = len(records)
     scores = [_get_score(record) for record in records if isinstance(record, dict)]
     scores = [score for score in scores if score is not None]
@@ -211,19 +213,19 @@ def _build_data_grounded_report(
             "conclusion": {"summary": conclusion},
         }
 
-    message = f"The {category.lower()} query completed successfully and returned {cnt} matched records."
+    message = f"The {category_label} query completed successfully and returned {cnt} matched records."
     if cnt == 0:
-        message = f"The {category.lower()} query completed successfully but returned no records."
+        message = f"The {category_label} query completed successfully but returned no records."
 
-    analysis_summary = f"Matched {cnt} {category.lower()} records."
+    analysis_summary = f"Matched {cnt} {category_label} records."
     if scores:
         avg_score = round(sum(scores) / len(scores), 2)
         analysis_summary = (
-            f"Matched {cnt} {category.lower()} records with an average score of {avg_score}, "
+            f"Matched {cnt} {category_label} records with an average score of {avg_score}, "
             f"ranging from {round(min(scores), 2)} to {round(max(scores), 2)}."
         )
 
-    observations = [f"The query returned {cnt} {category.lower()} records."]
+    observations = [f"The query returned {cnt} {category_label} records."]
     if scores:
         observations.append(f"Average score: {round(sum(scores) / len(scores), 2)}.")
         observations.append(
@@ -263,7 +265,7 @@ def _build_data_grounded_report(
             "futureTrends": [projection],
         },
         "conclusion": {
-            "summary": f"The {category.lower()} search returned {cnt} records and the result set is ready for review.",
+            "summary": f"The {category_label} search returned {cnt} records and the result set is ready for review.",
         },
     }
 
@@ -389,24 +391,24 @@ def get_fallback_report(
             conclusion = "The consolidated report is empty because no matching records were found."
     else:
         if cnt > 0:
-            message = f"I found {cnt} matching {category.lower()} records."
+            message = f"I found {cnt} matching {category_label} records."
             key = (category, subcategory)
             if key in _INTRO_TEMPLATES:
                 message = _INTRO_TEMPLATES[key]
-            summary = f"The search returned exactly {cnt} matching {category.lower()} records."
-            obs = [f"Found {cnt} matching {category.lower()} records."]
+            summary = f"The search returned exactly {cnt} matching {category_label} records."
+            obs = [f"Found {cnt} matching {category_label} records."]
             insights = ["The returned records match the selected criteria."]
-            conclusion = f"The search is complete and the {cnt} matching {category.lower()} records are ready for review."
+            conclusion = f"The search is complete and the {cnt} matching {category_label} records are ready for review."
         else:
-            message = f"I could not find any matching {category.lower()} records."
-            summary = f"No matching records were found for the selected {category.lower()} criteria."
+            message = f"I could not find any matching {category_label} records."
+            summary = f"No matching records were found for the selected {category_label} criteria."
             obs = [
-                f"The search returned 0 records for the {category.lower()} category."
+                f"The search returned 0 records for the {category_label} category."
             ]
             insights = [
                 "The selected criteria may be too narrow for the available records."
             ]
-            conclusion = f"No matching {category.lower()} records were found. Try broadening the criteria and search again."
+            conclusion = f"No matching {category_label} records were found. Try broadening the criteria and search again."
 
     return {
         "message": message,
@@ -544,9 +546,10 @@ def generate_report(
     except Exception as exc:
         logger.warning("report_generator: message_engine failed: %s", exc)
         category = intent.get("category") or "Agniveer"
+        category_label = humanize_category(category).lower()
         message = (analysis or {}).get(
             "summary"
-        ) or f"The {category.lower()} query returned {len(records)} records."
+        ) or f"The {category_label} query returned {len(records)} records."
 
     analysis_summary_text = (analysis or {}).get("summary", "")
     conclusion_text = (
