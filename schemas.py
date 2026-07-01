@@ -58,6 +58,7 @@ class IntentModel(BaseModel):
     filters: Optional[Dict[str, Any]] = None
     widget_hint: Optional[str] = None
     widgetHint: Optional[str] = None
+    days: Optional[int] = None
 
 
 class DotNetPayloadModel(BaseModel):
@@ -89,6 +90,7 @@ class DotNetPayloadModel(BaseModel):
     bmiCategory: Optional[str] = None
     medicalStatus: Optional[str] = None
     diagnose: Optional[str] = None
+    days: Optional[int] = None
     fullName: Optional[str] = None
     groupBy: Optional[str] = None
     analyticsHint: Optional[str] = None

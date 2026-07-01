@@ -120,8 +120,18 @@ def _build_data_grounded_report(
         ]
         if len(labels) < 2:
             labels = [left.get("label", "Side 1"), right.get("label", "Side 2")]
-        left_cnt = len(left.get("data", [])) if isinstance(left, dict) else 0
-        right_cnt = len(right.get("data", [])) if isinstance(right, dict) else 0
+        left_metrics = left.get("metrics") or {}
+        right_metrics = right.get("metrics") or {}
+        left_cnt = left_metrics.get("recordCount")
+        if left_cnt is None:
+            left_cnt = len(left.get("data", [])) if isinstance(left, dict) else 0
+        else:
+            left_cnt = int(left_cnt)
+        right_cnt = right_metrics.get("recordCount")
+        if right_cnt is None:
+            right_cnt = len(right.get("data", [])) if isinstance(right, dict) else 0
+        else:
+            right_cnt = int(right_cnt)
         comparison = (
             combined_result.get("comparison")
             if isinstance(combined_result, dict)
@@ -332,7 +342,9 @@ def get_fallback_report(
         labels = [s.get("label", "Section") for s in sides]
         labels_str = " and ".join(labels) if labels else "selected categories"
         has_data = (
-            any(len(s.get("data", [])) > 0 for s in sides) if sides else (cnt > 0)
+            any(len(s.get("data", [])) > 0 or s.get("metrics", {}).get("recordCount", 0) > 0 for s in sides)
+            if sides
+            else (cnt > 0)
         )
         if has_data:
             message = f"I completed a side-by-side comparison between {labels_str}."
@@ -420,7 +432,13 @@ def generate_report(
     """
     records = _extract_records(combined_result)
 
-    if not _has_any_data(records):
+    has_valid_data = _has_any_data(records)
+    if not has_valid_data and query_type in ("compare", "comparison") and isinstance(combined_result, dict):
+        sides = combined_result.get("sides", [])
+        if any(len(s.get("data", [])) > 0 or s.get("metrics", {}).get("recordCount", 0) > 0 for s in sides):
+            has_valid_data = True
+
+    if not has_valid_data:
         fallback = get_fallback_report(combined_result, query_type, intent)
         return {
             "message": "No matching records found.",

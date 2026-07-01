@@ -305,7 +305,7 @@ def generate_analysis(
         # ── Empty check ───────────────────────────────────────────────────
         is_empty = True
         if query_type in ("compare", "comparison"):
-            if (left.get("data") or []) or (right.get("data") or []):
+            if (left.get("data") or []) or (right.get("data") or []) or left.get("metrics", {}).get("recordCount", 0) > 0 or right.get("metrics", {}).get("recordCount", 0) > 0:
                 is_empty = False
         else:
             for sec in sections:
@@ -342,9 +342,22 @@ def generate_analysis(
             left_avg  = left_stats.get("average_score")
             right_avg = right_stats.get("average_score")
 
+            left_metrics = left.get("metrics") or {}
+            right_metrics = right.get("metrics") or {}
+            left_cnt = left_metrics.get("recordCount")
+            if left_cnt is None:
+                left_cnt = len(left_data)
+            else:
+                left_cnt = int(left_cnt)
+            right_cnt = right_metrics.get("recordCount")
+            if right_cnt is None:
+                right_cnt = len(right_data)
+            else:
+                right_cnt = int(right_cnt)
+
             summary = (
-                f"Comparison completed between {left_label} ({len(left_data)} records) "
-                f"and {right_label} ({len(right_data)} records)."
+                f"Comparison completed between {left_label} ({left_cnt} records) "
+                f"and {right_label} ({right_cnt} records)."
             )
             insights: List[str] = []
 
@@ -378,13 +391,13 @@ def generate_analysis(
                 insights.append("Comparison highlights metric variances across categories.")
 
             stats: Dict[str, Any] = {
-                "left_count":    len(left_data),
-                "right_count":   len(right_data),
+                "left_count":    left_cnt,
+                "right_count":   right_cnt,
                 "left_average":  left_avg,
                 "right_average": right_avg,
                 "left_stats":    left_stats,
                 "right_stats":   right_stats,
-                "record_count":  len(left_data) + len(right_data),
+                "record_count":  left_cnt + right_cnt,
             }
 
         # ── CROSS-FILTER ──────────────────────────────────────────────────

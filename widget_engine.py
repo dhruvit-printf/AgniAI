@@ -1145,6 +1145,11 @@ def build_formatted_data(
         primary_wt = infer_supported_type(
             source_result, query_type, intent, visualization_intent
         )
+        chart_override = (
+            visualization_intent.get("comparison_chart_override")
+            if isinstance(visualization_intent, dict)
+            else None
+        )
         selector = WidgetSelector()
         specs = selector.select(
             query_type=query_type,
@@ -1152,6 +1157,7 @@ def build_formatted_data(
             combined_result=source_result,
             primary_widget_type=primary_wt,
             analysis=analysis,
+            comparison_chart_override=chart_override,
         )
         if specs:
             spec = specs[0]
@@ -1655,12 +1661,13 @@ _COMPARE_TYPE_ALIASES: Dict[str, str] = {
 def build_comparison_widgets(
     combined_result: Dict[str, Any],
     base_title: str = "",
+    visualization_intent: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Entry point for comparison visualization assembly.
 
     Returns an ordered list:
-      [COMPARE_CARD, <primary_viz>, COMPARE_TABLE?]
+      [<primary_viz>, COMPARE_TABLE?]
 
     All widgets follow {type, title, data} with left/right structure.
     No internal fields (intent, dotnetPayload, metadata, endpoint) are included.
@@ -1671,21 +1678,30 @@ def build_comparison_widgets(
     right_label = str(right_side.get("label") or "Right")
     vs_title = f"{left_label} vs {right_label}"
 
-    raw_viz = combined_result.get("visualizationType") or "COMPARE_CARD"
+    raw_viz = combined_result.get("visualizationType") or "COMPARE_TABLE"
     viz_type = _COMPARE_TYPE_ALIASES.get(raw_viz, raw_viz)
+    if viz_type == "COMPARE_CARD":
+        viz_type = "COMPARE_TABLE"
+
+    # Honor user's explicit chart type request (e.g. "compare in line chart")
+    _CHART_TYPE_TO_COMPARE = {
+        "line": "COMPARE_LINE_CHART",
+        "bar": "COMPARE_BAR_CHART",
+        "pie": "COMPARE_PIE_CHART",
+        "donut": "COMPARE_PIE_CHART",
+        "radial": "COMPARE_PIE_CHART",
+        "area": "COMPARE_LINE_CHART",
+    }
+    if isinstance(visualization_intent, dict):
+        override = visualization_intent.get("comparison_chart_override")
+        if override and isinstance(override, str):
+            mapped = _CHART_TYPE_TO_COMPARE.get(override.lower())
+            if mapped:
+                viz_type = mapped
 
     widgets: List[Dict[str, Any]] = []
 
-    # 1. Summary card — always first
-    widgets.append(
-        {
-            "type": "COMPARE_CARD",
-            "title": f"{vs_title} — Summary",
-            "data": _build_compare_card(combined_result),
-        }
-    )
-
-    # 2. Primary visualization
+    # Primary visualization first; no always-on summary card.
     if viz_type == "COMPARE_TABLE":
         widgets.append(
             {
@@ -1725,8 +1741,6 @@ def build_comparison_widgets(
                 "data": _build_compare_pie(combined_result),
             }
         )
-    # COMPARE_CARD already added above — no second widget needed
-
     return widgets
 
 
@@ -1828,7 +1842,9 @@ def build_widget_list(
         from normalized_models import _derive_title
 
         base_title = _derive_title(query_type, intent) or ""
-        widgets = build_comparison_widgets(combined_result, base_title)
+        widgets = build_comparison_widgets(
+            combined_result, base_title, visualization_intent=visualization_intent
+        )
         for w in widgets:
             if isinstance(w, dict) and isinstance(w.get("data"), dict):
                 for key in ("degraded", "failedFilters", "matchCount"):

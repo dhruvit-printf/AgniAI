@@ -56,6 +56,7 @@ def build_ai_command_request_dto(
         "medicalStatus": "medicalStatus",
         "diagnose": "diagnose",
         "isExceptional": "isExceptional",
+        "days": "days",
     }
 
     for source_key, dest_key in entity_mappings.items():

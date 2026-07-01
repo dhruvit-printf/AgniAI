@@ -474,6 +474,20 @@ def _extract_medical_status(query: str) -> Optional[str]:
     return None
 
 
+def _extract_days(query: str) -> Optional[int]:
+    query_lower = _normalise(query)
+    match = re.search(r"\b(?:for|last|in|days?:?)\s+(\d+)\s+days?\b", query_lower)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"\bdays?\s+(\d+)\b", query_lower)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"\b(\d+)\s+days?\b", query_lower)
+    if match:
+        return int(match.group(1))
+    return None
+
+
 CANONICAL_ENTITY_KEYS = frozenset(
     {
         "batchId",
@@ -499,6 +513,7 @@ CANONICAL_ENTITY_KEYS = frozenset(
         "toDate",
         "medicalStatus",
         "diagnose",
+        "days",
     }
 )
 
@@ -646,6 +661,7 @@ def extract_entities(
         "toDate": None,
         "medicalStatus": None,
         "diagnose": None,
+        "days": None,
     }
 
     result["n"] = _extract_number(raw_query)
@@ -667,6 +683,7 @@ def extract_entities(
     result["fromDate"], result["toDate"] = _extract_date_range(raw_query)
     result["medicalStatus"] = _extract_medical_status(raw_query)
     result["diagnose"] = _extract_diagnose(raw_query)
+    result["days"] = _extract_days(raw_query)
 
     result["companyId"] = (
         resolved_entities.get("company_id")

@@ -554,6 +554,44 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         )
         self.assertIn("returned 1 records", report["conclusion"]["summary"])
 
+    def test_generate_report_comparison_with_metrics_only(self):
+        combined = {
+            "queryType": "comparison",
+            "sides": [
+                {
+                    "id": "dataset_1",
+                    "label": "Pending",
+                    "data": [],
+                    "metrics": {"recordCount": 545}
+                },
+                {
+                    "id": "dataset_2",
+                    "label": "Completed",
+                    "data": [],
+                    "metrics": {"recordCount": 21}
+                }
+            ],
+            "left": {
+                "id": "dataset_1",
+                "label": "Pending",
+                "data": [],
+                "metrics": {"recordCount": 545}
+            },
+            "right": {
+                "id": "dataset_2",
+                "label": "Completed",
+                "data": [],
+                "metrics": {"recordCount": 21}
+            }
+        }
+        intent = {"category": "Verification", "subcategory": "PendingVerification"}
+        report = generate_report(combined, "compare", intent, "compare pending vs verified count")
+        
+        self.assertNotEqual(report["message"], "No matching records found.")
+        self.assertIn("Pending (545 records)", report["analysis"]["summary"])
+        self.assertIn("Completed (21 records)", report["analysis"]["summary"])
+        self.assertEqual(report["conclusion"]["bullets"][0], "Evaluated 545 Pending record(s) and 21 Completed record(s).")
+
 
 if __name__ == "__main__":
     unittest.main()

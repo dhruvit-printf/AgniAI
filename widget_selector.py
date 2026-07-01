@@ -77,6 +77,7 @@ class WidgetSelector:
         primary_widget_type: str,
         analysis: Optional[Dict[str, Any]] = None,
         frontend_override_type: Optional[str] = None,
+        comparison_chart_override: Optional[str] = None,
     ) -> List[WidgetSpec]:
         qt = (query_type or "simple").strip().lower()
         category = (intent.get("category") or "").strip()
@@ -92,7 +93,7 @@ class WidgetSelector:
             )
 
         if qt in ("compare", "comparison"):
-            return self._comparison(combined_result, cat_slug)
+            return self._comparison(combined_result, cat_slug, comparison_chart_override)
         if qt == "cross_filter":
             return self._cross_filter(category, cat_slug)
         if qt == "multi_independent":
@@ -191,18 +192,39 @@ class WidgetSelector:
 
         return specs
 
-    def _comparison(self, combined_result: Any, cat_slug: str) -> List[WidgetSpec]:
+    def _comparison(
+        self,
+        combined_result: Any,
+        cat_slug: str,
+        comparison_chart_override: Optional[str] = None,
+    ) -> List[WidgetSpec]:
         _ALIASES = {
             "COMPARE_CHART_BAR": "COMPARE_BAR_CHART",
             "COMPARE_CHART_LINE": "COMPARE_LINE_CHART",
             "COMPARE_CHART_PIE": "COMPARE_PIE_CHART",
         }
-        raw_viz = "COMPARE_CARD"
+        raw_viz = "COMPARE_TABLE"
         if isinstance(combined_result, dict) and combined_result.get(
             "visualizationType"
         ):
             raw_viz = combined_result["visualizationType"]
         viz_type = _ALIASES.get(raw_viz, raw_viz)
+        if viz_type == "COMPARE_CARD":
+            viz_type = "COMPARE_TABLE"
+
+        # Honor user's explicit chart type request
+        _CHART_TYPE_TO_COMPARE = {
+            "line": "COMPARE_LINE_CHART",
+            "bar": "COMPARE_BAR_CHART",
+            "pie": "COMPARE_PIE_CHART",
+            "donut": "COMPARE_PIE_CHART",
+            "radial": "COMPARE_PIE_CHART",
+            "area": "COMPARE_LINE_CHART",
+        }
+        if comparison_chart_override and isinstance(comparison_chart_override, str):
+            mapped = _CHART_TYPE_TO_COMPARE.get(comparison_chart_override.lower())
+            if mapped:
+                viz_type = mapped
 
         left_label = ""
         right_label = ""
@@ -217,11 +239,7 @@ class WidgetSelector:
             else "Comparison"
         )
 
-        specs = [
-            WidgetSpec(
-                "COMPARE_CARD", "compare_card", f"{vs_title} — Summary", "primary"
-            ),
-        ]
+        specs: List[WidgetSpec] = []
         if viz_type == "COMPARE_TABLE":
             specs.append(
                 WidgetSpec(

@@ -88,10 +88,28 @@ def build_visualization_intent(
     if explicit_presentation:
         presentation = explicit_presentation["presentation"]
         chart_type = explicit_presentation.get("chart_type")
-        if chart_type == "bar":
-            comparison = "compare" in text or " vs " in text or "versus" in text
+        # Detect comparison indicators for ALL chart types, not just bar
+        if "compare" in text or " vs " in text or "versus" in text:
+            comparison = True
         if chart_type == "line":
             trend = "trend" in text or "timeline" in text or "growth" in text
+        # If user explicitly requested a chart type AND it's a comparison,
+        # keep the chart_type so the comparison widget engine can honor it.
+        if comparison and chart_type:
+            # Mark as comparison_chart_override so comparison widgets can use it
+            result = {
+                "presentation": "chart",
+                "chart_type": chart_type,
+                "comparison": comparison,
+                "comparison_chart_override": chart_type,
+                "trend": trend,
+                "group_by": group_by,
+                "metric": metric,
+                "record_count": len(records),
+                "numeric_data": numeric_data,
+                "frontend_override": True,
+            }
+            return result
         if comparison:
             presentation = None
             chart_type = None

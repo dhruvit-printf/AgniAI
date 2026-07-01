@@ -622,32 +622,32 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
 
     if is_compare:
         components = _extract_comparison_components(raw_query)
-        ops = []
-        comparison_execution_plan = []
-        combined_filters = {}
-        for idx, (label, fragment) in enumerate(components):
-            op = _build_sub_operation(fragment)
-            ops.append(op)
-            combined_filters.update(
-                build_filters_from_entities(op.intent_result.get("filters", {}))
-            )
-            comparison_execution_plan.append(
-                {
-                    "id": f"dataset_{idx + 1}",
-                    "label": label,
-                    "intent": op.intent_result,
-                    "filters": build_filters_from_entities(
-                        op.intent_result.get("filters", {})
-                    ),
-                    "payloadContext": {
-                        "endpoint": "api/AiCommand/execute",
-                        "category": op.intent_result.get("category"),
-                        "operation": op.intent_result.get("operation"),
-                    },
-                }
-            )
+        if len(components) >= 2:
+            ops = []
+            comparison_execution_plan = []
+            combined_filters = {}
+            for idx, (label, fragment) in enumerate(components):
+                op = _build_sub_operation(fragment)
+                ops.append(op)
+                combined_filters.update(
+                    build_filters_from_entities(op.intent_result.get("filters", {}))
+                )
+                comparison_execution_plan.append(
+                    {
+                        "id": f"dataset_{idx + 1}",
+                        "label": label,
+                        "intent": op.intent_result,
+                        "filters": build_filters_from_entities(
+                            op.intent_result.get("filters", {})
+                        ),
+                        "payloadContext": {
+                            "endpoint": "api/AiCommand/execute",
+                            "category": op.intent_result.get("category"),
+                            "operation": op.intent_result.get("operation"),
+                        },
+                    }
+                )
 
-        if len(ops) >= 2:
             logger.info(
                 "plan_query: COMPARE plan | query_type=compare | operation_count=%d | "
                 "operations=%s",
@@ -678,7 +678,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 "falling through to semantic analysis. "
                 "Note: 'Compare' operation will NOT be sent to .NET.",
                 raw_query,
-                len(ops),
+                len(components),
             )
 
     qtype = (semantic.get("query_type") or "simple").strip().lower()

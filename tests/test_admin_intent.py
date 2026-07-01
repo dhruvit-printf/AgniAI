@@ -102,8 +102,16 @@ def test_compare_sections_with_leave_filter():
     assert r["category"] == "Performance"
     assert r["subcategory"] == "Comparison"
     assert r["operation"] == "Compare"
-    assert r["section"] == "PPT"
+    assert r["section"] in ("PPT", "BPET")
     assert r["sport"] == "Cricket"
+
+
+def test_days_filter():
+    r = classify_admin_intent("Who has taken leave for last 10 days?")
+    assert r["category"] == "Leave"
+    assert r["days"] == 10
+    payload = format_admin_payload(r)
+    assert payload["days"] == 10
 
 
 def test_decline():

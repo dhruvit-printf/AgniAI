@@ -397,7 +397,7 @@ def generate_predictions(
         # ── Empty check ───────────────────────────────────────────────────
         is_empty = True
         if query_type in ("compare", "comparison"):
-            if (left.get("data") or []) or (right.get("data") or []):
+            if (left.get("data") or []) or (right.get("data") or []) or left.get("metrics", {}).get("recordCount", 0) > 0 or right.get("metrics", {}).get("recordCount", 0) > 0:
                 is_empty = False
         else:
             for sec in sections:

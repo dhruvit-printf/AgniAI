@@ -69,20 +69,15 @@ def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
     return metrics
 
 
-def select_visualization_type(sides: List[Dict[str, Any]]) -> str:
-    all_records = []
-    for side in sides:
-        r = side.get("data") or []
-        if r:
-            all_records.append(r)
-
-    if not all_records:
+def _infer_side_visualization_type(side: Dict[str, Any]) -> str:
+    records = side.get("data") or []
+    if not records:
         return "COMPARE_CARD"
 
-    sample_records = all_records[0]
-    if not sample_records:
-        return "COMPARE_CARD"
-    sample = sample_records[0]
+    sample = records[0]
+    if not isinstance(sample, dict):
+        return "COMPARE_TABLE"
+
     sample_keys = {k.lower() for k in sample.keys()}
 
     table_keys = {"fullname", "agniveerno", "rollno", "personnel", "name", "agniveerid"}
@@ -123,7 +118,7 @@ def select_visualization_type(sides: List[Dict[str, Any]]) -> str:
     if any(bk in sample_keys for bk in bar_keys):
         return "COMPARE_BAR_CHART"
 
-    if len(sample_records) == 1:
+    if len(records) == 1:
         if len(sample.keys()) <= 3:
             return "COMPARE_CARD"
         return "COMPARE_TABLE"
@@ -132,6 +127,25 @@ def select_visualization_type(sides: List[Dict[str, Any]]) -> str:
         return "COMPARE_TABLE"
 
     return "COMPARE_BAR_CHART"
+
+
+def select_visualization_type(sides: List[Dict[str, Any]]) -> str:
+    inferred = [
+        _infer_side_visualization_type(side)
+        for side in sides
+        if isinstance(side, dict)
+    ]
+    inferred = [viz for viz in inferred if viz]
+
+    if not inferred:
+        return "COMPARE_CARD"
+
+    unique = set(inferred)
+    if len(unique) == 1:
+        return unique.pop()
+
+    # Mixed visualization shapes should not be forced into a chart.
+    return "COMPARE_TABLE"
 
 
 def compare_datasets(
@@ -178,6 +192,36 @@ def compare_datasets(
         if is_unavailable:
             side["unavailable"] = True
         sides.append(side)
+
+    # Auto-resolve recordCount from summary counts metrics if not present
+    for ds, side in zip(comparison_context["datasets"], sides):
+        if side.get("unavailable"):
+            continue
+        if "recordCount" not in side["metrics"]:
+            intent = ds.get("intent") or {}
+            operation = intent.get("operation")
+            subcategory = intent.get("subcategory")
+
+            candidates = []
+            if operation:
+                candidates.extend([operation.lower(), f"{operation.lower()}count", f"{operation.lower()}s", f"{operation.lower()}scount"])
+            if subcategory:
+                candidates.extend([subcategory.lower(), f"{subcategory.lower()}count", f"{subcategory.lower()}s", f"{subcategory.lower()}scount"])
+
+            # Alias mappings for Completed / Verified
+            if operation in ("Completed", "Verified") or subcategory in ("CompletedVerification", "VerifiedVerification"):
+                candidates.extend(["verified", "verifiedcount", "completed", "completedcount"])
+
+            found_val = None
+            for key, val in side["metrics"].items():
+                k_lower = key.lower()
+                if k_lower in candidates:
+                    found_val = val
+                    break
+
+            if found_val is not None:
+                side["metrics"]["recordCount"] = found_val
+                all_metric_keys.add("recordCount")
 
     visualization_type = select_visualization_type(sides)
 

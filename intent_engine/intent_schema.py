@@ -1176,6 +1176,7 @@ COMMON_ENTITY_TYPES: Set[str] = {
     "date",
     "fromDate",
     "toDate",
+    "days",
 }
 
 CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {

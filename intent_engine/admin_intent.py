@@ -138,7 +138,7 @@ def classify_admin_intent(
 
     # ── Comparison short-circuit ─────────────────────────────────────────────
     # "BPET vs PPT", "BPET versus PPT scores", "compare BPET and PPT"
-    _VS_PATTERNS = (" vs ", " versus ")
+    _VS_PATTERNS = (" vs ", " versus ", "compare ")
     if any(pat in lowered_query for pat in _VS_PATTERNS):
         entities = extract_entities(raw_query, resolved_entities)
         semantic = understand_query(raw_query)
@@ -153,8 +153,60 @@ def classify_admin_intent(
                 "query_type": "comparison",
                 "confidence": intent_result.get("confidence", "medium"),
                 "confidence_score": intent_result.get("confidence_score", 0.7),
+                "number": entities.get("n"),
+                "section": entities.get("section"),
+                "sub_section": entities.get("subSection"),
+                "grading": entities.get("grading"),
+                "leave_type": entities.get("leaveType"),
+                "sport": entities.get("sport"),
+                "class": entities.get("class"),
+                "unit_name": entities.get("unitName"),
+                "attempt_no": entities.get("attemptNo"),
+                "from_attempt": entities.get("fromAttempt"),
+                "to_attempt": entities.get("toAttempt"),
+                "date": entities.get("date"),
+                "item_name": entities.get("equipmentName"),
+                "item_category": _item_category(entities.get("equipmentName")),
+                "company_id": entities.get("companyId"),
+                "platoon_id": entities.get("platoonId"),
+                "batch_id": entities.get("batchId"),
+                "from_date": entities.get("fromDate"),
+                "to_date": entities.get("toDate"),
+                "agniveer_no": entities.get("agniveerNo"),
+                "bmi_category": entities.get("bmiCategory"),
+                "blood_group": entities.get("bloodGroup"),
+                "medical_status": entities.get("medicalStatus"),
+                "diagnose": entities.get("diagnose"),
+                "days": entities.get("days"),
             }
         )
+        base["filters"] = {
+            key: value
+            for key, value in (
+                ("section", base["section"]),
+                ("subSection", base["sub_section"]),
+                ("grading", base["grading"]),
+                ("leaveType", base["leave_type"]),
+                ("sport", base["sport"]),
+                ("class", base["class"]),
+                ("unitName", base["unit_name"]),
+                ("attemptNo", base["attempt_no"]),
+                ("fromAttempt", base["from_attempt"]),
+                ("toAttempt", base["to_attempt"]),
+                ("date", base["date"]),
+                ("companyId", base["company_id"]),
+                ("platoonId", base["platoon_id"]),
+                ("batchId", base["batch_id"]),
+                ("agniveerNo", base["agniveer_no"]),
+                ("bmiCategory", base["bmi_category"]),
+                ("bloodGroup", base["blood_group"]),
+                ("equipmentName", base["item_name"]),
+                ("medicalStatus", base["medical_status"]),
+                ("diagnose", base["diagnose"]),
+                ("days", base["days"]),
+            )
+            if value is not None
+        }
         return base
 
     # ── Stage 1: Extract entities ────────────────────────────────────────────
@@ -250,6 +302,7 @@ def classify_admin_intent(
         "type": legacy_type,
         "medical_status": entities.get("medicalStatus"),
         "diagnose": entities.get("diagnose"),
+        "days": entities.get("days"),
         "responseType": intent_result.get("responseType", "Summary"),
         "raw_query": raw_query,
         "confidence_score": confidence_score,
@@ -345,6 +398,7 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
         "agniveerNo": intent_result.get("agniveer_no"),
         "medicalStatus": intent_result.get("medical_status"),
         "diagnose": intent_result.get("diagnose"),
+        "days": intent_result.get("days"),
     }
 
     is_valid, errors = validate_payload(category, operation, entities)

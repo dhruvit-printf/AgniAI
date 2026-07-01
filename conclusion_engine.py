@@ -331,7 +331,7 @@ def generate_conclusion(
         if query_type in ("compare", "comparison"):
             left_data = left.get("data") or []
             right_data = right.get("data") or []
-            if left_data or right_data:
+            if left_data or right_data or left.get("metrics", {}).get("recordCount", 0) > 0 or right.get("metrics", {}).get("recordCount", 0) > 0:
                 is_empty = False
         else:
             for sec in sections:
@@ -362,12 +362,25 @@ def generate_conclusion(
             left_avg = round(sum(left_scores) / len(left_scores), 2) if left_scores else None
             right_avg = round(sum(right_scores) / len(right_scores), 2) if right_scores else None
 
+            left_metrics = left.get("metrics") or {}
+            right_metrics = right.get("metrics") or {}
+            left_cnt = left_metrics.get("recordCount")
+            if left_cnt is None:
+                left_cnt = len(left_data)
+            else:
+                left_cnt = int(left_cnt)
+            right_cnt = right_metrics.get("recordCount")
+            if right_cnt is None:
+                right_cnt = len(right_data)
+            else:
+                right_cnt = int(right_cnt)
+
             summary = f"Comparative review of {left_label} and {right_label} is complete."
 
             # Bullet 1: record counts
             bullets.append(
-                f"Evaluated {len(left_data)} {left_label} record(s) and "
-                f"{len(right_data)} {right_label} record(s)."
+                f"Evaluated {left_cnt} {left_label} record(s) and "
+                f"{right_cnt} {right_label} record(s)."
             )
 
             # Bullet 2: avg delta + leader + trend signal
