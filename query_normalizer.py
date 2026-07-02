@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from functools import lru_cache
 from typing import Dict, Iterable
 
 from intent_engine.intent_schema import FUZZY_VOCAB
@@ -55,7 +54,6 @@ def _strip_banner_text(text: str) -> str:
     return stripped
 
 
-@lru_cache(maxsize=128)
 def clean_query(query: str) -> str:
     """Normalize query text before intent classification."""
     if not query:

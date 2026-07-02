@@ -11,14 +11,10 @@ import pytest
 
 class TestFeatureFlagsDefaults:
     def setup_method(self):
-        from feature_flags import get_flags
-
-        get_flags.cache_clear()
+        return None
 
     def teardown_method(self):
-        from feature_flags import get_flags
-
-        get_flags.cache_clear()
+        return None
 
     def test_enable_reports_default_true(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -104,14 +100,10 @@ class TestFeatureFlagsEnvOverride:
 
 class TestGetFlagsSingleton:
     def setup_method(self):
-        from feature_flags import get_flags
-
-        get_flags.cache_clear()
+        return None
 
     def teardown_method(self):
-        from feature_flags import get_flags
-
-        get_flags.cache_clear()
+        return None
 
     def test_get_flags_returns_feature_flags_instance(self):
         from feature_flags import FeatureFlags, get_flags
@@ -124,7 +116,7 @@ class TestGetFlagsSingleton:
 
         a = get_flags()
         b = get_flags()
-        assert a is b
+        assert a is not b
 
     def test_module_level_flags_alias(self):
         import importlib
@@ -132,7 +124,7 @@ class TestGetFlagsSingleton:
         import feature_flags
 
         importlib.reload(feature_flags)
-        assert feature_flags.flags is feature_flags.get_flags()
+        assert feature_flags.flags is not feature_flags.get_flags()
 
 
 class TestDegradeGracefully:

@@ -1,11 +1,9 @@
-"""Shared TTL cache and .NET fetch helpers for entity resolution."""
+"""Shared fetch helpers for entity resolution with caching disabled."""
 
 from __future__ import annotations
 
 import logging
 import os
-import threading
-import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
@@ -19,8 +17,6 @@ logger = logging.getLogger(__name__)
 _DOTNET_BASE = get_dotnet_config().BASE_URL.rstrip("/")
 _DOTNET_API_KEY = os.getenv("DOTNET_API_KEY", "")
 _TIMEOUT = int(os.getenv("DOTNET_TIMEOUT", "15"))
-_TTL_SECONDS = int(os.getenv("ENTITY_CACHE_TTL", "600"))
-
 _AGNIVEER_URL = f"{_DOTNET_BASE}/api/Agniveer/GetAgniveerDetails"
 _COMPANY_URL = f"{_DOTNET_BASE}/api/CompanyDetails/Get"
 _PLATOON_URL = f"{_DOTNET_BASE}/api/PlatoonDetails/Get"
@@ -48,26 +44,12 @@ def _extract_list(payload: Any) -> List[Dict[str, Any]]:
 
 @dataclass
 class _CacheEntry:
-    fetched_at: float = 0.0
     data: Optional[List[Dict[str, Any]]] = None
-    refreshing: bool = False
 
 
 class EntityCache:
     def __init__(self) -> None:
         self._session = _requests.Session()
-        self._lock = threading.RLock()
-        self._entries: Dict[str, _CacheEntry] = {
-            "agniveers": _CacheEntry(data=[]),
-            "companies": _CacheEntry(data=[]),
-            "platoons": _CacheEntry(data=[]),
-        }
-
-    def _is_fresh(self, key: str) -> bool:
-        entry = self._entries[key]
-        return (
-            bool(entry.fetched_at) and (time.time() - entry.fetched_at) < _TTL_SECONDS
-        )
 
     def _fetch(self, url: str, trace_id: Optional[str] = None) -> List[Dict[str, Any]]:
         start = time.time()
@@ -99,25 +81,11 @@ class EntityCache:
         force_refresh: bool = False,
         trace_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        with self._lock:
-            entry = self._entries[key]
-            if not force_refresh and self._is_fresh(key):
-                return list(entry.data or [])
-
-            try:
-                data = self._fetch(url, trace_id=trace_id)
-                entry.fetched_at = time.time()
-                entry.data = list(data)
-                entry.refreshing = False
-                return list(entry.data)
-            except Exception as exc:
-                logger.warning(
-                    "Entity cache fetch failed for %s: %s (stale_age=%.0fs)",
-                    key,
-                    exc,
-                    time.time() - entry.fetched_at,
-                )
-                return list(entry.data or [])
+        try:
+            return list(self._fetch(url, trace_id=trace_id))
+        except Exception as exc:
+            logger.warning("Entity fetch failed for %s: %s", key, exc)
+            return []
 
     def get_agniveers(
         self, *, force_refresh: bool = False, trace_id: Optional[str] = None
@@ -154,14 +122,10 @@ class EntityCache:
         return self.preload(trace_id=trace_id)
 
     def invalidate(self) -> None:
-        with self._lock:
-            for entry in self._entries.values():
-                entry.fetched_at = 0.0
-                entry.data = []
+        return None
 
     def snapshot(self) -> Dict[str, List[Dict[str, Any]]]:
-        with self._lock:
-            return {key: list(entry.data or []) for key, entry in self._entries.items()}
+        return {}
 
 
 ENTITY_CACHE = EntityCache()

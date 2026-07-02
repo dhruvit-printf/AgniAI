@@ -97,6 +97,16 @@ def test_improvement_with_attempts():
     assert r["to_attempt"] == 3
 
 
+def test_improvement_with_attempts_does_not_infer_date_range():
+    r = classify_admin_intent("give me improvement from attempt 1 to attempt 3 in firing section")
+    assert r["category"] == "Performance"
+    assert r["subcategory"] == "Improvement"
+    assert r["from_attempt"] == 1
+    assert r["to_attempt"] == 3
+    assert r["from_date"] is None
+    assert r["to_date"] is None
+
+
 def test_compare_sections_with_leave_filter():
     r = classify_admin_intent("Compare PPT and BEPT among cricket players currently on leave")
     assert r["category"] == "Performance"

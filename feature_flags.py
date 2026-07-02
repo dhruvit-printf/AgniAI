@@ -18,8 +18,6 @@ a feature at runtime — no code changes required.
 
 from __future__ import annotations
 
-from functools import lru_cache
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -83,9 +81,8 @@ class FeatureFlags(BaseSettings):
         return val
 
 
-@lru_cache(maxsize=1)
 def get_flags() -> FeatureFlags:
-    """Singleton accessor — one load per process."""
+    """Return a fresh feature flag snapshot."""
     return FeatureFlags()
 
 

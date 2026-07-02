@@ -118,14 +118,12 @@ def test_app_settings_loads_with_minimal_env():
 def test_get_settings_is_cached():
     from settings import get_settings
 
-    get_settings.cache_clear()
     with patch.dict(
         os.environ, {"DOTNET_API_BASE_URL": "http://localhost:5001"}, clear=True
     ):
         a = get_settings()
         b = get_settings()
-    assert a is b
-    get_settings.cache_clear()
+    assert a is not b
 
 
 def test_critical_vars_contains_only_dotnet():

@@ -19,7 +19,6 @@ from __future__ import annotations
 import re
 import sys
 from enum import Enum
-from functools import lru_cache
 from typing import Any, List, Optional
 from urllib.parse import urlparse
 
@@ -243,41 +242,33 @@ def validate_critical_env(env_map: dict[str, str | None]) -> None:
 # ── Cached singletons ─────────────────────────────────────────────────────
 
 
-@lru_cache(maxsize=1)
 def get_settings() -> AppSettings:
     return AppSettings()
 
 
-@lru_cache(maxsize=1)
 def get_dotnet_config() -> DotNetAPIConfig:
     return DotNetAPIConfig()
 
 
-@lru_cache(maxsize=1)
 def get_api_keys() -> APIKeysConfig:
     return APIKeysConfig()
 
 
-@lru_cache(maxsize=1)
 def get_timeouts() -> TimeoutConfig:
     return TimeoutConfig()
 
 
-@lru_cache(maxsize=1)
 def get_feature_flags() -> FeatureFlagConfig:
     return FeatureFlagConfig()
 
 
-@lru_cache(maxsize=1)
 def get_prometheus_config() -> PrometheusConfig:
     return PrometheusConfig()
 
 
-@lru_cache(maxsize=1)
 def get_sentry_config() -> SentryConfig:
     return SentryConfig()
 
 
-@lru_cache(maxsize=1)
 def get_otel_config() -> OtelConfig:
     return OtelConfig()

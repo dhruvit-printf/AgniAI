@@ -11,10 +11,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
+from ipaddress import ip_address
 from queue import Empty, Queue
+from urllib.parse import urlparse
 
 import requests as _requests
 from flask import Flask, Response, g, jsonify, request, stream_with_context
@@ -123,13 +126,58 @@ else:
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # ── CORS ───────────────────────────────────────────────────────────────────
+
+
+def _build_allowed_origins(raw_origins: str):
+    """Allow exact production origins and any port on trusted local/private hosts."""
+    if not raw_origins or raw_origins.strip() == "*":
+        return "*"
+
+    allowed = []
+    seen = set()
+
+    def _add(item):
+        if item not in seen:
+            seen.add(item)
+            allowed.append(item)
+
+    for origin in raw_origins.split(","):
+        origin = origin.strip()
+        if not origin:
+            continue
+        _add(origin)
+
+        parsed = urlparse(origin)
+        host = parsed.hostname
+        scheme = parsed.scheme
+        if not host or not scheme:
+            continue
+
+        try:
+            ip = ip_address(host)
+        except ValueError:
+            ip = None
+
+        if host in {"localhost", "127.0.0.1", "::1"} or (
+            ip is not None and (ip.is_private or ip.is_loopback)
+        ):
+            # If any trusted local/private origin is configured, allow other
+            # LAN/dev-server hosts on arbitrary ports too.
+            _add(re.compile(r"^http://localhost:\d+$"))
+            _add(re.compile(r"^http://127\.0\.0\.1:\d+$"))
+            _add(re.compile(r"^http://\[::1\]:\d+$"))
+            _add(re.compile(r"^http://10(?:\.\d{1,3}){3}:\d+$"))
+            _add(re.compile(r"^http://192\.168(?:\.\d{1,3}){2}:\d+$"))
+            _add(re.compile(r"^http://172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}:\d+$"))
+
+    return allowed
+
+
+_allowed_origins = _build_allowed_origins(ALLOWED_ORIGINS)
+
 CORS(
     app,
-    origins=(
-        [o.strip() for o in ALLOWED_ORIGINS.split(",")]
-        if ALLOWED_ORIGINS and ALLOWED_ORIGINS != "*"
-        else "*"
-    ),
+    origins=_allowed_origins,
     allow_headers=[
         "Content-Type",
         "X-Api-Key",
@@ -147,7 +195,7 @@ app.register_blueprint(swagger_bp)
 # ── Socket.IO (WebSocket) ──────────────────────────────────────────────────
 socketio = SocketIO(
     app,
-    cors_allowed_origins="*",
+    cors_allowed_origins=_allowed_origins,
     async_mode="threading",
     logger=False,
     engineio_logger=False,

@@ -360,6 +360,34 @@ def _extract_date_patterns(query: str) -> Optional[str]:
 
 def _extract_date_range(query: str) -> Tuple[Optional[str], Optional[str]]:
     query_lower = _normalise(query)
+
+    def _looks_like_date_fragment(fragment: str) -> bool:
+        fragment = fragment.strip()
+        if not fragment:
+            return False
+        if re.search(_ISO_DATE_PATTERN, fragment):
+            return True
+        if re.search(_SLASH_DATE_PATTERN, fragment):
+            return True
+        if re.search(_MONTH_PATTERN, fragment, re.IGNORECASE):
+            return True
+        if any(
+            phrase in fragment
+            for phrase in (
+                "today",
+                "yesterday",
+                "tomorrow",
+                "this week",
+                "last week",
+                "this month",
+                "last month",
+                "this year",
+                "last year",
+            )
+        ):
+            return True
+        return False
+
     match = re.search(
         r"\bfrom\s+(.+?)\s+(?:to|until)\s+(.+?)(?:$|[,.?])",
         query_lower,
@@ -367,7 +395,12 @@ def _extract_date_range(query: str) -> Tuple[Optional[str], Optional[str]]:
     )
     if not match:
         return None, None
-    return match.group(1).strip(), match.group(2).strip()
+
+    from_part = match.group(1).strip()
+    to_part = match.group(2).strip()
+    if not (_looks_like_date_fragment(from_part) or _looks_like_date_fragment(to_part)):
+        return None, None
+    return from_part, to_part
 
 
 def _extract_attempt_no(query: str) -> Optional[int]:
