@@ -547,7 +547,15 @@ def _extract_sub_requests(
             for idx, p in enumerate(final_parts)
         ]
     if any(marker in text for marker in _MULTI_INDEPENDENT_MARKERS) or " and " in text:
-        parts = _split_on_connectors(text, list(_MULTI_INDEPENDENT_MARKERS))
+        parts = []
+        if "," in text:
+            parts = [
+                part.strip(" ,")
+                for part in re.split(r"\s*,\s*|\s+\band\b\s+", text)
+                if part.strip(" ,")
+            ]
+        if len(parts) < 2:
+            parts = _split_on_connectors(text, list(_MULTI_INDEPENDENT_MARKERS))
         if len(parts) == 1 and " and " in text:
             parts = [
                 part.strip(" ,") for part in text.split(" and ") if part.strip(" ,")
