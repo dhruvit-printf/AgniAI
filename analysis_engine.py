@@ -26,13 +26,13 @@ from normalized_models import humanize_category
 from utils import get_score as _get_score
 from utils import safe_float as _safe_float
 
-
 # ── Tunable thresholds ─────────────────────────────────────────────────────────
 LOW_SCORE_THRESHOLD: float = 50.0
 HIGH_SCORE_THRESHOLD: float = 75.0
 
 
 # ── Statistical helpers ────────────────────────────────────────────────────────
+
 
 def _percentile(sorted_data: List[float], pct: float) -> float:
     """Return the pct-th percentile (0–100) of a pre-sorted list."""
@@ -48,7 +48,9 @@ def _score_distribution(scores: List[float]) -> Dict[str, int]:
     """Bucket scores into low / mid / high using module thresholds."""
     return {
         "low_count": sum(1 for s in scores if s < LOW_SCORE_THRESHOLD),
-        "mid_count": sum(1 for s in scores if LOW_SCORE_THRESHOLD <= s <= HIGH_SCORE_THRESHOLD),
+        "mid_count": sum(
+            1 for s in scores if LOW_SCORE_THRESHOLD <= s <= HIGH_SCORE_THRESHOLD
+        ),
         "high_count": sum(1 for s in scores if s > HIGH_SCORE_THRESHOLD),
     }
 
@@ -170,7 +172,9 @@ def _group_breakdown(records: List[Any], limit: int = 5) -> List[Dict[str, Any]]
     return breakdown[:limit]
 
 
-def _normalise_sections(combined_result: Any, records: List[Any]) -> List[Dict[str, Any]]:
+def _normalise_sections(
+    combined_result: Any, records: List[Any]
+) -> List[Dict[str, Any]]:
     """
     Build a canonical sections list from whatever shape the .NET response uses:
       - combined_result["sections"]  (existing AgniAI format)
@@ -217,7 +221,9 @@ def _rich_score_stats(scores: List[float]) -> Dict[str, Any]:
     }
 
 
-def _score_insights(scores: List[float], category: str, stats: Dict[str, Any]) -> List[str]:
+def _score_insights(
+    scores: List[float], category: str, stats: Dict[str, Any]
+) -> List[str]:
     """Generate data-grounded insight sentences from score stats."""
     if not scores or not stats:
         return []
@@ -258,6 +264,7 @@ def _score_insights(scores: List[float], category: str, stats: Dict[str, Any]) -
 
 # ── Payload builder ────────────────────────────────────────────────────────────
 
+
 def _analysis_payload(
     summary: str,
     insights: List[str],
@@ -271,6 +278,7 @@ def _analysis_payload(
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
+
 
 def generate_analysis(
     combined_result: Any,
@@ -293,20 +301,25 @@ def generate_analysis(
         records = _extract_records(combined_result)
 
         if isinstance(combined_result, dict):
-            left  = combined_result.get("left")  or {}
+            left = combined_result.get("left") or {}
             right = combined_result.get("right") or {}
-            comp  = combined_result.get("comparison") or {}
+            comp = combined_result.get("comparison") or {}
         else:
-            left  = {}
+            left = {}
             right = {}
-            comp  = {}
+            comp = {}
 
         sections = _normalise_sections(combined_result, records)
 
         # ── Empty check ───────────────────────────────────────────────────
         is_empty = True
         if query_type in ("compare", "comparison"):
-            if (left.get("data") or []) or (right.get("data") or []) or left.get("metrics", {}).get("recordCount", 0) > 0 or right.get("metrics", {}).get("recordCount", 0) > 0:
+            if (
+                (left.get("data") or [])
+                or (right.get("data") or [])
+                or left.get("metrics", {}).get("recordCount", 0) > 0
+                or right.get("metrics", {}).get("recordCount", 0) > 0
+            ):
                 is_empty = False
         else:
             for sec in sections:
@@ -330,17 +343,17 @@ def generate_analysis(
 
         # ── COMPARE ──────────────────────────────────────────────────────
         if query_type in ("compare", "comparison"):
-            left_data  = left.get("data")  or []
+            left_data = left.get("data") or []
             right_data = right.get("data") or []
-            left_label  = left.get("label",  "Side 1")
+            left_label = left.get("label", "Side 1")
             right_label = right.get("label", "Side 2")
 
-            left_scores  = _extract_scores(left_data,  preserve_order=False)
+            left_scores = _extract_scores(left_data, preserve_order=False)
             right_scores = _extract_scores(right_data, preserve_order=False)
-            left_stats   = _rich_score_stats(left_scores)
-            right_stats  = _rich_score_stats(right_scores)
+            left_stats = _rich_score_stats(left_scores)
+            right_stats = _rich_score_stats(right_scores)
 
-            left_avg  = left_stats.get("average_score")
+            left_avg = left_stats.get("average_score")
             right_avg = right_stats.get("average_score")
 
             left_metrics = left.get("metrics") or {}
@@ -363,48 +376,59 @@ def generate_analysis(
             insights: List[str] = []
 
             if left_avg is not None and right_avg is not None:
-                diff   = round(left_avg - right_avg, 2)
+                diff = round(left_avg - right_avg, 2)
                 winner = left_label if diff > 0 else right_label
                 insights.append(
                     f"{left_label} average: {left_avg}, {right_label} average: {right_avg} "
                     f"(difference: {abs(diff)}). {winner} leads on average score."
                 )
 
-            if left_stats.get("high_count") is not None and right_stats.get("high_count") is not None:
+            if (
+                left_stats.get("high_count") is not None
+                and right_stats.get("high_count") is not None
+            ):
                 insights.append(
                     f"High scorers (>{HIGH_SCORE_THRESHOLD}): {left_label} has "
                     f"{left_stats['high_count']}, {right_label} has {right_stats['high_count']}."
                 )
 
-            if left_stats.get("p25_score") is not None and right_stats.get("p25_score") is not None:
+            if (
+                left_stats.get("p25_score") is not None
+                and right_stats.get("p25_score") is not None
+            ):
                 insights.append(
                     f"P25–P75 range: {left_label} [{left_stats['p25_score']}–{left_stats['p75_score']}], "
                     f"{right_label} [{right_stats['p25_score']}–{right_stats['p75_score']}]."
                 )
 
-            if left_stats.get("std_dev") is not None and right_stats.get("std_dev") is not None:
+            if (
+                left_stats.get("std_dev") is not None
+                and right_stats.get("std_dev") is not None
+            ):
                 insights.append(
                     f"Score variability — {left_label}: std dev {left_stats['std_dev']}, "
                     f"{right_label}: std dev {right_stats['std_dev']}."
                 )
 
             if not insights:
-                insights.append("Comparison highlights metric variances across categories.")
+                insights.append(
+                    "Comparison highlights metric variances across categories."
+                )
 
             stats: Dict[str, Any] = {
-                "left_count":    left_cnt,
-                "right_count":   right_cnt,
-                "left_average":  left_avg,
+                "left_count": left_cnt,
+                "right_count": right_cnt,
+                "left_average": left_avg,
                 "right_average": right_avg,
-                "left_stats":    left_stats,
-                "right_stats":   right_stats,
-                "record_count":  left_cnt + right_cnt,
+                "left_stats": left_stats,
+                "right_stats": right_stats,
+                "record_count": left_cnt + right_cnt,
             }
 
         # ── CROSS-FILTER ──────────────────────────────────────────────────
         elif query_type == "cross_filter":
             match_records = sections[0].get("data") if sections else []
-            scores      = _extract_scores(match_records, preserve_order=False)
+            scores = _extract_scores(match_records, preserve_order=False)
             score_stats = _rich_score_stats(scores)
 
             summary = (
@@ -424,10 +448,12 @@ def generate_analysis(
 
             named = _named_score_records(match_records)
             weak = sorted(
-                [n for n in named if n["score"] < LOW_SCORE_THRESHOLD], key=lambda x: x["score"]
+                [n for n in named if n["score"] < LOW_SCORE_THRESHOLD],
+                key=lambda x: x["score"],
             )[:3]
             strong = sorted(
-                [n for n in named if n["score"] > HIGH_SCORE_THRESHOLD], key=lambda x: -x["score"]
+                [n for n in named if n["score"] > HIGH_SCORE_THRESHOLD],
+                key=lambda x: -x["score"],
             )[:3]
             if weak:
                 insights.append(
@@ -443,28 +469,28 @@ def generate_analysis(
                 )
 
             stats = {
-                "match_count":  len(match_records),
+                "match_count": len(match_records),
                 "record_count": len(match_records),
                 **score_stats,
             }
 
         # ── MULTI-INDEPENDENT ─────────────────────────────────────────────
         elif query_type == "multi_independent":
-            summary  = f"Consolidated data from {len(sections)} independent sections."
+            summary = f"Consolidated data from {len(sections)} independent sections."
             insights = ["Sections are presented independently without correlation."]
             section_details: Dict[str, Any] = {}
             total_recs = 0
 
             for sec in sections:
-                label       = sec.get("label", "Section")
+                label = sec.get("label", "Section")
                 sec_records = sec.get("data") or []
-                sec_scores  = _extract_scores(sec_records, preserve_order=False)
-                sec_stats   = _rich_score_stats(sec_scores)
-                sec_avg     = sec_stats.get("average_score")
+                sec_scores = _extract_scores(sec_records, preserve_order=False)
+                sec_stats = _rich_score_stats(sec_scores)
+                sec_avg = sec_stats.get("average_score")
                 section_details[label] = {
-                    "count":         len(sec_records),
+                    "count": len(sec_records),
                     "average_score": sec_avg,
-                    "stats":         sec_stats,           # full stats per section
+                    "stats": sec_stats,  # full stats per section
                 }
                 total_recs += len(sec_records)
                 if sec_avg is not None:
@@ -474,8 +500,8 @@ def generate_analysis(
 
             stats = {
                 "section_count": len(sections),
-                "sections":      section_details,
-                "record_count":  total_recs,
+                "sections": section_details,
+                "record_count": total_recs,
             }
 
         # ── SIMPLE / TREND / DISTRIBUTION ────────────────────────────────
@@ -485,14 +511,14 @@ def generate_analysis(
             for sec in sections:
                 all_records.extend(sec.get("data") or [])
 
-            scores      = _extract_scores(all_records, preserve_order=False)
+            scores = _extract_scores(all_records, preserve_order=False)
             score_stats = _rich_score_stats(scores)
-            stats       = {"record_count": len(all_records), **score_stats}
+            stats = {"record_count": len(all_records), **score_stats}
 
             if scores:
-                avg_score    = score_stats["average_score"]
-                min_score    = score_stats["min_score"]
-                max_score    = score_stats["max_score"]
+                avg_score = score_stats["average_score"]
+                min_score = score_stats["min_score"]
+                max_score = score_stats["max_score"]
                 median_score = score_stats["median_score"]
                 category_label = humanize_category(category).lower()
                 summary = (
@@ -507,10 +533,12 @@ def generate_analysis(
 
                 named = _named_score_records(all_records)
                 weak = sorted(
-                    [n for n in named if n["score"] < LOW_SCORE_THRESHOLD], key=lambda x: x["score"]
+                    [n for n in named if n["score"] < LOW_SCORE_THRESHOLD],
+                    key=lambda x: x["score"],
                 )[:3]
                 strong = sorted(
-                    [n for n in named if n["score"] > HIGH_SCORE_THRESHOLD], key=lambda x: -x["score"]
+                    [n for n in named if n["score"] > HIGH_SCORE_THRESHOLD],
+                    key=lambda x: -x["score"],
                 )[:3]
 
                 if weak:
@@ -538,8 +566,10 @@ def generate_analysis(
                     stats["group_breakdown"] = groups
             else:
                 category_label = humanize_category(category).lower()
-                summary  = f"Matched {len(all_records)} {category_label} records."
-                insights = [f"The query returned {len(all_records)} {category_label} records."]
+                summary = f"Matched {len(all_records)} {category_label} records."
+                insights = [
+                    f"The query returned {len(all_records)} {category_label} records."
+                ]
 
         return _analysis_payload(summary, insights, stats)
 

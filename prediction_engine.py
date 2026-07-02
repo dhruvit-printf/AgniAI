@@ -28,15 +28,15 @@ from grounding_utils import ground_and_sanitize as _ground_and_sanitize
 from utils import get_score as _get_score
 from utils import safe_float as _safe_float
 
-
 # ── Tunable thresholds ─────────────────────────────────────────────────────────
-LOW_SCORE_THRESHOLD:  float = 50.0
+LOW_SCORE_THRESHOLD: float = 50.0
 HIGH_SCORE_THRESHOLD: float = 75.0
-MOMENTUM_SIGNAL:      float = 2.0    # abs momentum above this = meaningful trend
-MOMENTUM_STRONG:      float = 5.0    # abs momentum above this = strong trend
+MOMENTUM_SIGNAL: float = 2.0  # abs momentum above this = meaningful trend
+MOMENTUM_STRONG: float = 5.0  # abs momentum above this = strong trend
 
 
 # ── Statistical helpers ────────────────────────────────────────────────────────
+
 
 def _extract_nested_scores(record: Dict[str, Any]) -> List[float]:
     """
@@ -160,7 +160,9 @@ def _recommendation_for(category: str, section: str = "") -> str:
     return _DEFAULT_RECOMMENDATION
 
 
-def _normalise_sections(combined_result: Any, records: List[Any]) -> List[Dict[str, Any]]:
+def _normalise_sections(
+    combined_result: Any, records: List[Any]
+) -> List[Dict[str, Any]]:
     """Canonical sections list from .NET or AgniAI shaped response."""
     if not isinstance(combined_result, dict):
         return [{"label": "Result", "data": records}]
@@ -182,7 +184,7 @@ def _momentum(scores: List[float]) -> float:
     if len(scores) < 2:
         return 0.0
     mid = len(scores) // 2
-    first_half_avg  = sum(scores[:mid]) / mid
+    first_half_avg = sum(scores[:mid]) / mid
     second_half_avg = sum(scores[mid:]) / (len(scores) - mid)
     return round(second_half_avg - first_half_avg, 2)
 
@@ -228,7 +230,9 @@ def _normalise_trend_val(short_term: str) -> str:
     return "Stable"
 
 
-def _heuristic_estimate(category: str, avg: Optional[float], trend_val: str, momentum: float) -> str:
+def _heuristic_estimate(
+    category: str, avg: Optional[float], trend_val: str, momentum: float
+) -> str:
     """
     Distinct narrative for heuristicEstimate — describes likely next-cycle
     score band and momentum direction rather than repeating the projection.
@@ -237,9 +241,9 @@ def _heuristic_estimate(category: str, avg: Optional[float], trend_val: str, mom
         return f"Insufficient data to estimate next-cycle performance for {category.lower()}."
     band = _score_band(avg)
     direction = (
-        "continue improving" if momentum > MOMENTUM_SIGNAL
-        else "show slight decline" if momentum < -MOMENTUM_SIGNAL
-        else "remain steady"
+        "continue improving"
+        if momentum > MOMENTUM_SIGNAL
+        else "show slight decline" if momentum < -MOMENTUM_SIGNAL else "remain steady"
     )
     next_est = round(avg + (momentum * 0.5), 2)
     return (
@@ -250,25 +254,32 @@ def _heuristic_estimate(category: str, avg: Optional[float], trend_val: str, mom
 
 # ── Grounding text builder ─────────────────────────────────────────────────────
 
+
 def _build_prediction_grounding_text(combined_result: Any, query_type: str) -> str:
     lines: List[str] = []
     if not isinstance(combined_result, dict):
         return ""
 
     from normalized_models import extract_records as _extract_records
+
     records = _extract_records(combined_result)
 
     sections = _normalise_sections(combined_result, records)
-    left  = combined_result.get("left")  or {}
+    left = combined_result.get("left") or {}
     right = combined_result.get("right") or {}
 
     if query_type in ("compare", "comparison"):
-        for side_label, side in ((left.get("label", "Left"), left), (right.get("label", "Right"), right)):
-            side_data   = side.get("data") or []
+        for side_label, side in (
+            (left.get("label", "Left"), left),
+            (right.get("label", "Right"), right),
+        ):
+            side_data = side.get("data") or []
             side_scores = _extract_scores(side_data)
             if side_scores:
                 lines.append(f"{side_label} Count: {len(side_data)}")
-                lines.append(f"{side_label} Average: {round(sum(side_scores)/len(side_scores), 2)}")
+                lines.append(
+                    f"{side_label} Average: {round(sum(side_scores) / len(side_scores), 2)}"
+                )
                 lines.append(f"{side_label} Top: {max(side_scores)}")
                 lines.append(f"{side_label} Bottom: {min(side_scores)}")
     else:
@@ -276,7 +287,7 @@ def _build_prediction_grounding_text(combined_result: Any, query_type: str) -> s
         scores = _extract_scores(target_records)
         lines.append(f"Record Count: {len(target_records)}")
         if scores:
-            lines.append(f"Average Score: {round(sum(scores)/len(scores), 2)}")
+            lines.append(f"Average Score: {round(sum(scores) / len(scores), 2)}")
             lines.append(f"Top Score: {max(scores)}")
             lines.append(f"Bottom Score: {min(scores)}")
             # Individual scores must be grounded too, otherwise named
@@ -291,30 +302,32 @@ def _build_prediction_grounding_text(combined_result: Any, query_type: str) -> s
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
 
+
 def _build_fallback_prediction(
     combined_result: Any, query_type: str, intent: Dict[str, Any]
 ) -> Dict[str, Any]:
     category = intent.get("category") or "Agniveer"
     from normalized_models import extract_records as _extract_records
-    records      = _extract_records(combined_result)
+
+    records = _extract_records(combined_result)
     record_count = len(records)
 
     if record_count <= 0:
         return {
-            "trend":           "Stable",
+            "trend": "Stable",
             "trendConfidence": "Low",
-            "momentum":        0.0,
-            "projection":      f"Future projection is unavailable — no {category.lower()} records returned.",
+            "momentum": 0.0,
+            "projection": f"Future projection is unavailable — no {category.lower()} records returned.",
             "heuristicEstimate": f"Insufficient data to estimate next-cycle performance for {category.lower()}.",
-            "shortTerm":       "stable",
-            "futureTrends":    [],
+            "shortTerm": "stable",
+            "futureTrends": [],
         }
 
     return {
-        "trend":           "Stable",
+        "trend": "Stable",
         "trendConfidence": "Low",
-        "momentum":        0.0,
-        "projection":      (
+        "momentum": 0.0,
+        "projection": (
             f"Performance metrics for {category.lower()} are projected to remain "
             f"stable and consistent with current baselines."
         ),
@@ -322,12 +335,13 @@ def _build_fallback_prediction(
             f"With {record_count} {category.lower()} records available, next-cycle "
             f"performance is expected to align with the current stable baseline."
         ),
-        "shortTerm":    "stable",
+        "shortTerm": "stable",
         "futureTrends": [],
     }
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
+
 
 def _has_sufficient_history(records: List[Any]) -> bool:
     if not records:
@@ -337,7 +351,18 @@ def _has_sufficient_history(records: List[Any]) -> bool:
     for r in records:
         if not isinstance(r, dict):
             continue
-        for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp", "month", "Month", "year", "Year"):
+        for k in (
+            "date",
+            "Date",
+            "createdDate",
+            "CreatedDate",
+            "timestamp",
+            "Timestamp",
+            "month",
+            "Month",
+            "year",
+            "Year",
+        ):
             val = r.get(k)
             if val is not None:
                 timestamps.add(str(val))
@@ -346,7 +371,9 @@ def _has_sufficient_history(records: List[Any]) -> bool:
             if val is not None:
                 attempts.add(str(val))
         for attempt in r.get("attempts") or []:
-            attempts.add(str(attempt.get("attemptNo") or attempt.get("AttemptNo") or ""))
+            attempts.add(
+                str(attempt.get("attemptNo") or attempt.get("AttemptNo") or "")
+            )
     attempts.discard("")
     return len(timestamps) >= 3 or len(attempts) >= 3
 
@@ -364,6 +391,7 @@ def generate_predictions(
             combined_result = {}
 
         from normalized_models import extract_records as _extract_records
+
         records = _extract_records(combined_result)
 
         # Momentum/trend-over-time forecasting genuinely needs multiple data
@@ -378,18 +406,20 @@ def generate_predictions(
                 "projection": "Prediction unavailable due to insufficient historical data.",
                 "heuristicEstimate": "Prediction unavailable due to insufficient historical data.",
                 "shortTerm": "stable",
-                "futureTrends": ["Prediction unavailable due to insufficient historical data."],
+                "futureTrends": [
+                    "Prediction unavailable due to insufficient historical data."
+                ],
             }
 
         if isinstance(combined_result, dict):
-            left           = combined_result.get("left")          or {}
-            right          = combined_result.get("right")         or {}
-            comp           = combined_result.get("comparison")    or {}
+            left = combined_result.get("left") or {}
+            right = combined_result.get("right") or {}
+            comp = combined_result.get("comparison") or {}
             trend_direction = combined_result.get("trendDirection")
         else:
-            left            = {}
-            right           = {}
-            comp            = {}
+            left = {}
+            right = {}
+            comp = {}
             trend_direction = None
 
         sections = _normalise_sections(combined_result, records)
@@ -397,7 +427,12 @@ def generate_predictions(
         # ── Empty check ───────────────────────────────────────────────────
         is_empty = True
         if query_type in ("compare", "comparison"):
-            if (left.get("data") or []) or (right.get("data") or []) or left.get("metrics", {}).get("recordCount", 0) > 0 or right.get("metrics", {}).get("recordCount", 0) > 0:
+            if (
+                (left.get("data") or [])
+                or (right.get("data") or [])
+                or left.get("metrics", {}).get("recordCount", 0) > 0
+                or right.get("metrics", {}).get("recordCount", 0) > 0
+            ):
                 is_empty = False
         else:
             for sec in sections:
@@ -411,12 +446,12 @@ def generate_predictions(
             return _build_fallback_prediction(combined_result, query_type, intent)
 
         grounding_text = _build_prediction_grounding_text(combined_result, query_type)
-        total_points   = len(records)
+        total_points = len(records)
 
-        short_term:    str        = "stable"
+        short_term: str = "stable"
         future_trends: List[str] = []
-        momentum_val:  float     = 0.0
-        confidence:    str       = "Low"
+        momentum_val: float = 0.0
+        confidence: str = "Low"
         avg_for_heuristic: Optional[float] = None
 
         # ── Branch by query type ──────────────────────────────────────────
@@ -424,9 +459,9 @@ def generate_predictions(
         # ── TREND ────────────────────────────────────────────────────────
         if query_type == "trend":
             target_records = sections[0].get("data") if sections else []
-            scores         = _extract_scores(target_records)   # encounter order
-            momentum_val   = _momentum(scores)
-            confidence     = _trend_confidence(scores)
+            scores = _extract_scores(target_records)  # encounter order
+            momentum_val = _momentum(scores)
+            confidence = _trend_confidence(scores)
 
             if trend_direction:
                 short_term = trend_direction
@@ -461,20 +496,26 @@ def generate_predictions(
 
         # ── COMPARE ──────────────────────────────────────────────────────
         elif query_type in ("compare", "comparison"):
-            left_label  = left.get("label",  "Side 1")
+            left_label = left.get("label", "Side 1")
             right_label = right.get("label", "Side 2")
-            left_data   = left.get("data")  or []
-            right_data  = right.get("data") or []
+            left_data = left.get("data") or []
+            right_data = right.get("data") or []
 
             # Encounter-order scores for momentum
-            left_scores  = _extract_scores(left_data)
+            left_scores = _extract_scores(left_data)
             right_scores = _extract_scores(right_data)
-            left_avg     = round(sum(left_scores) / len(left_scores),   2) if left_scores  else None
-            right_avg    = round(sum(right_scores) / len(right_scores), 2) if right_scores else None
-            left_momentum  = _momentum(left_scores)
+            left_avg = (
+                round(sum(left_scores) / len(left_scores), 2) if left_scores else None
+            )
+            right_avg = (
+                round(sum(right_scores) / len(right_scores), 2)
+                if right_scores
+                else None
+            )
+            left_momentum = _momentum(left_scores)
             right_momentum = _momentum(right_scores)
-            momentum_val   = round(left_momentum - right_momentum, 2)
-            confidence     = _trend_confidence(left_scores + right_scores)
+            momentum_val = round(left_momentum - right_momentum, 2)
+            confidence = _trend_confidence(left_scores + right_scores)
             avg_for_heuristic = left_avg  # use the "primary" side
 
             # Derive short_term from direct score comparison (not fragile comp dict)
@@ -492,14 +533,17 @@ def generate_predictions(
                 f"to persist in future training cycles."
             )
             if left_avg is not None and right_avg is not None:
-                gap    = round(abs(left_avg - right_avg), 2)
-                leader  = left_label  if left_avg  > right_avg else right_label
-                trailer = right_label if leader == left_label  else left_label
+                gap = round(abs(left_avg - right_avg), 2)
+                leader = left_label if left_avg > right_avg else right_label
+                trailer = right_label if leader == left_label else left_label
                 future_trends.append(
                     f"{leader} currently leads by {gap} points on average; "
                     f"{trailer} would need sustained improvement to close this gap."
                 )
-            if abs(left_momentum) > MOMENTUM_SIGNAL or abs(right_momentum) > MOMENTUM_SIGNAL:
+            if (
+                abs(left_momentum) > MOMENTUM_SIGNAL
+                or abs(right_momentum) > MOMENTUM_SIGNAL
+            ):
                 converging = left_momentum * right_momentum < 0
                 future_trends.append(
                     f"Momentum signals — {left_label}: {left_momentum:+.2f}, "
@@ -510,17 +554,17 @@ def generate_predictions(
         # ── CROSS-FILTER ──────────────────────────────────────────────────
         elif query_type == "cross_filter":
             target_records = sections[0].get("data") if sections else []
-            scores         = _extract_scores(target_records)
-            momentum_val   = _momentum(scores)
-            confidence     = _trend_confidence(scores)
-            short_term     = "stable"
+            scores = _extract_scores(target_records)
+            momentum_val = _momentum(scores)
+            confidence = _trend_confidence(scores)
+            short_term = "stable"
 
             future_trends.append(
                 f"Subsequent runs of this cross-filter query are highly likely to return "
                 f"approximately {total_points} matching records."
             )
             if scores:
-                avg  = round(sum(scores) / len(scores), 2)
+                avg = round(sum(scores) / len(scores), 2)
                 band = _score_band(avg)
                 avg_for_heuristic = avg
                 future_trends.append(
@@ -541,11 +585,13 @@ def generate_predictions(
 
                 named = _named_score_records(target_records)
                 weak = sorted(
-                    [n for n in named if n["score"] < LOW_SCORE_THRESHOLD], key=lambda x: x["score"]
+                    [n for n in named if n["score"] < LOW_SCORE_THRESHOLD],
+                    key=lambda x: x["score"],
                 )[:2]
                 if weak:
                     rec_text = _recommendation_for(
-                        category, intent.get("section") or intent.get("sub_section") or ""
+                        category,
+                        intent.get("section") or intent.get("sub_section") or "",
                     )
                     names_str = ", ".join(f"{n['label']} ({n['score']})" for n in weak)
                     future_trends.append(
@@ -567,12 +613,12 @@ def generate_predictions(
                 "with no immediate correlation expected between independent categories."
             )
             for sec in sections[:2]:
-                label      = sec.get("label", "Section")
+                label = sec.get("label", "Section")
                 sec_scores = _extract_scores(sec.get("data") or [])
                 if sec_scores:
-                    sec_avg  = round(sum(sec_scores) / len(sec_scores), 2)
+                    sec_avg = round(sum(sec_scores) / len(sec_scores), 2)
                     sec_band = _score_band(sec_avg)
-                    sec_mom  = _momentum(sec_scores)
+                    sec_mom = _momentum(sec_scores)
                     future_trends.append(
                         f"{label} is performing at a {sec_band} level (avg: {sec_avg}, "
                         f"momentum: {sec_mom:+.2f}) and is projected to stay on this trajectory."
@@ -581,13 +627,13 @@ def generate_predictions(
         # ── SIMPLE / DISTRIBUTION / OTHER ────────────────────────────────
         else:
             target_records = sections[0].get("data") if sections else []
-            scores         = _extract_scores(target_records)   # encounter order
-            momentum_val   = _momentum(scores)
-            confidence     = _trend_confidence(scores)
+            scores = _extract_scores(target_records)  # encounter order
+            momentum_val = _momentum(scores)
+            confidence = _trend_confidence(scores)
 
             if scores:
                 avg_score = round(sum(scores) / len(scores), 2)
-                band      = _score_band(avg_score)
+                band = _score_band(avg_score)
                 avg_for_heuristic = avg_score
 
                 if avg_score > HIGH_SCORE_THRESHOLD:
@@ -625,10 +671,12 @@ def generate_predictions(
 
                 named = _named_score_records(target_records)
                 weak = sorted(
-                    [n for n in named if n["score"] < LOW_SCORE_THRESHOLD], key=lambda x: x["score"]
+                    [n for n in named if n["score"] < LOW_SCORE_THRESHOLD],
+                    key=lambda x: x["score"],
                 )[:3]
                 strong = sorted(
-                    [n for n in named if n["score"] > HIGH_SCORE_THRESHOLD], key=lambda x: -x["score"]
+                    [n for n in named if n["score"] > HIGH_SCORE_THRESHOLD],
+                    key=lambda x: -x["score"],
                 )[:2]
                 rec_text = _recommendation_for(
                     category, intent.get("section") or intent.get("sub_section") or ""
@@ -643,7 +691,9 @@ def generate_predictions(
                         f"re-assessed at the next training cycle."
                     )
                 elif strong:
-                    names_str = ", ".join(f"{n['label']} ({n['score']})" for n in strong)
+                    names_str = ", ".join(
+                        f"{n['label']} ({n['score']})" for n in strong
+                    )
                     verb = "is" if len(strong) == 1 else "are"
                     future_trends.append(
                         f"{names_str} {verb} performing at peak level. Sustaining this requires "
@@ -676,15 +726,17 @@ def generate_predictions(
         )
 
         return {
-            "trend":           trend_val,
+            "trend": trend_val,
             "trendConfidence": confidence,
-            "momentum":        momentum_val,
-            "projection":      projection_text,
+            "momentum": momentum_val,
+            "projection": projection_text,
             "heuristicEstimate": heuristic_text,
-            "shortTerm":       trend_val.lower(),
-            "futureTrends":    sanitized_trends,
+            "shortTerm": trend_val.lower(),
+            "futureTrends": sanitized_trends,
         }
 
     except Exception as exc:
-        logger.error("prediction_engine.generate_predictions failed: %s", exc, exc_info=True)
+        logger.error(
+            "prediction_engine.generate_predictions failed: %s", exc, exc_info=True
+        )
         return _build_fallback_prediction(combined_result or {}, query_type, intent)

@@ -98,6 +98,7 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
 
 # ── API Security ───────────────────────────────────────────────────────────
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "")
+PORT = int(os.getenv("PORT", "5000"))
 
 # ── Context char budgets ───────────────────────────────────────────────────
 MAX_CONTEXT_CHARS = {

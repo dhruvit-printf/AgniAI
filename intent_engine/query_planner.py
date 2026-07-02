@@ -97,7 +97,6 @@ _COMPARISON_KEYWORDS: List[str] = [
 ]
 
 
-
 _CATEGORY_SIGNALS: Dict[str, List[str]] = {
     "Performance": [
         "performance",
@@ -254,8 +253,6 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
 }
 
 
-
-
 def _detect_categories(text_lower: str) -> List[str]:
     scores: Dict[str, int] = {}
     for category, signals in _CATEGORY_SIGNALS.items():
@@ -281,9 +278,6 @@ def _detect_categories(text_lower: str) -> List[str]:
         if score > 0:
             scores[category] = score
     return sorted(scores.keys(), key=lambda c: scores[c], reverse=True)
-
-
-
 
 
 def _build_sub_operation(
@@ -604,7 +598,7 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
         if sep in text_lower:
             idx = text_lower.find(sep)
             left_part = query_text[:idx].strip()
-            right_part = query_text[idx + len(sep):].strip()
+            right_part = query_text[idx + len(sep) :].strip()
             left_clean = re.sub(
                 r"^(?:compare|comparison\s+of|comparison\s+between|comparison)\b\s*",
                 "",
@@ -612,7 +606,10 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
                 flags=re.IGNORECASE,
             ).strip()
             if left_clean and right_part:
-                return [(left_clean, left_clean), (right_part, f"{left_clean} for {right_part}")]
+                return [
+                    (left_clean, left_clean),
+                    (right_part, f"{left_clean} for {right_part}"),
+                ]
 
     return [(query_text, query_text)]
 

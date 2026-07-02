@@ -27,6 +27,7 @@ _ID_FIELD_PRIORITY = (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _extract_records(data: Any) -> List[Dict]:
     """Pull the list of records out of any .NET wrapper shape."""
     return _normalize_records(data)
@@ -67,6 +68,7 @@ def _build_lookup(records: List[Dict]) -> Dict[str, Dict]:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def cross_filter_datasets(
     result_sets: List[Any],
@@ -121,7 +123,9 @@ def cross_filter_datasets(
         return _no_match_result(filter_depth=filter_depth, total_before=total_before)
 
     # Build lookup dicts once — O(N * M) total, not O(N * M * K)
-    all_lookups: List[Dict[str, Dict]] = [_build_lookup(recs) for recs in all_record_sets]
+    all_lookups: List[Dict[str, Dict]] = [
+        _build_lookup(recs) for recs in all_record_sets
+    ]
 
     # Iterate primary records, keep only those in the intersection,
     # and merge in fields from every other dataset
@@ -165,6 +169,7 @@ def cross_filter_datasets(
 # ---------------------------------------------------------------------------
 # Private result constructors
 # ---------------------------------------------------------------------------
+
 
 def _empty_result(*, filter_depth: int, total_before: int) -> Dict[str, Any]:
     return {

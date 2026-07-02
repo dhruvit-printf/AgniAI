@@ -19,13 +19,17 @@ logger = logging.getLogger(__name__)
 
 from utils import get_score as _get_score
 
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Statistical helpers
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 def _extract_scores(records: List[Any]) -> List[float]:
-    return [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
+    return [
+        s
+        for s in (_get_score(r) for r in records if isinstance(r, dict))
+        if s is not None
+    ]
 
 
 # ── Named record helpers (who to call out in the conclusion) ──────────────────
@@ -150,7 +154,9 @@ def _predict_future(
             f"projected avg in {n_steps} records: {projected}."
         )
         if projected < 50:
-            parts.append("Intervention recommended before scores fall below passing threshold.")
+            parts.append(
+                "Intervention recommended before scores fall below passing threshold."
+            )
     else:
         parts.append(f"Scores are stable; projected avg remains near {projected}.")
 
@@ -180,9 +186,13 @@ def _distribution_bullet(scores: List[float]) -> Optional[str]:
 
     parts = []
     if skew > 0.5:
-        parts.append(f"Distribution is right-skewed ({skew}) — most scores cluster below mean.")
+        parts.append(
+            f"Distribution is right-skewed ({skew}) — most scores cluster below mean."
+        )
     elif skew < -0.5:
-        parts.append(f"Distribution is left-skewed ({skew}) — most scores cluster above mean.")
+        parts.append(
+            f"Distribution is left-skewed ({skew}) — most scores cluster above mean."
+        )
     else:
         parts.append(f"Score distribution is approximately symmetric (skew: {skew}).")
     if std:
@@ -242,6 +252,7 @@ def _build_conclusion_grounding_text(answer: Dict[str, Any], query_type: str) ->
 # Analytics helpers
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 def _analytics_conclusion(
     records: List[Any],
     intent: Dict[str, Any],
@@ -257,7 +268,9 @@ def _analytics_conclusion(
     bullets: List[str] = []
 
     if not scores:
-        bullets.append(f"Found {cnt} record(s); no numeric scores available for analysis.")
+        bullets.append(
+            f"Found {cnt} record(s); no numeric scores available for analysis."
+        )
         return {"summary": summary, "bullets": bullets[:3]}
 
     avg = round(sum(scores) / len(scores), 2)
@@ -289,6 +302,7 @@ def _analytics_conclusion(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Public API
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 def generate_conclusion(
     combined_result: Any,
@@ -331,7 +345,12 @@ def generate_conclusion(
         if query_type in ("compare", "comparison"):
             left_data = left.get("data") or []
             right_data = right.get("data") or []
-            if left_data or right_data or left.get("metrics", {}).get("recordCount", 0) > 0 or right.get("metrics", {}).get("recordCount", 0) > 0:
+            if (
+                left_data
+                or right_data
+                or left.get("metrics", {}).get("recordCount", 0) > 0
+                or right.get("metrics", {}).get("recordCount", 0) > 0
+            ):
                 is_empty = False
         else:
             for sec in sections:
@@ -359,8 +378,14 @@ def generate_conclusion(
             right_data = right.get("data") or []
             left_scores = _extract_scores(left_data)
             right_scores = _extract_scores(right_data)
-            left_avg = round(sum(left_scores) / len(left_scores), 2) if left_scores else None
-            right_avg = round(sum(right_scores) / len(right_scores), 2) if right_scores else None
+            left_avg = (
+                round(sum(left_scores) / len(left_scores), 2) if left_scores else None
+            )
+            right_avg = (
+                round(sum(right_scores) / len(right_scores), 2)
+                if right_scores
+                else None
+            )
 
             left_metrics = left.get("metrics") or {}
             right_metrics = right.get("metrics") or {}
@@ -375,7 +400,9 @@ def generate_conclusion(
             else:
                 right_cnt = int(right_cnt)
 
-            summary = f"Comparative review of {left_label} and {right_label} is complete."
+            summary = (
+                f"Comparative review of {left_label} and {right_label} is complete."
+            )
 
             # Bullet 1: record counts
             bullets.append(
@@ -388,7 +415,11 @@ def generate_conclusion(
                 diff = round(abs(left_avg - right_avg), 2)
                 leader = left_label if left_avg > right_avg else right_label
                 laggard = right_label if leader == left_label else left_label
-                pct_gap = round((diff / max(left_avg, right_avg)) * 100, 1) if max(left_avg, right_avg) else 0
+                pct_gap = (
+                    round((diff / max(left_avg, right_avg)) * 100, 1)
+                    if max(left_avg, right_avg)
+                    else 0
+                )
                 bullets.append(
                     f"Avg scores — {left_label}: {left_avg}, {right_label}: {right_avg}. "
                     f"{leader} leads by {diff} pts ({pct_gap}%). "
@@ -477,7 +508,10 @@ def generate_conclusion(
                 if named:
                     best = max(named, key=lambda n: n["score"])
                     worst = min(named, key=lambda n: n["score"])
-                    if best["label"] != worst["label"] or best["score"] != worst["score"]:
+                    if (
+                        best["label"] != worst["label"]
+                        or best["score"] != worst["score"]
+                    ):
                         bullets.append(
                             f"Top performer: {best['label']} ({best['score']}). "
                             f"Lowest recorded: {worst['label']} ({worst['score']})"

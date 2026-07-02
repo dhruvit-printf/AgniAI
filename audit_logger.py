@@ -35,12 +35,16 @@ from typing import Any, Dict, Optional
 
 # ── Config ──────────────────────────────────────────────────────────────────
 AUDIT_LOG_FILE = os.getenv("AUDIT_LOG_FILE", "audit.log")
-AUDIT_LOG_MAX_BYTES = int(os.getenv("AUDIT_LOG_MAX_BYTES", str(10 * 1024 * 1024)))  # 10 MB
+AUDIT_LOG_MAX_BYTES = int(
+    os.getenv("AUDIT_LOG_MAX_BYTES", str(10 * 1024 * 1024))
+)  # 10 MB
 AUDIT_LOG_BACKUP_COUNT = int(os.getenv("AUDIT_LOG_BACKUP_COUNT", "30"))
 AUDIT_LOG_RETENTION_DAYS = int(os.getenv("AUDIT_LOG_RETENTION_DAYS", "90"))
 
 # Only these query types are audited — anything else is ignored
-AUDITED_QUERY_TYPES = frozenset({"simple", "multi_independent", "cross_filter", "comparison"})
+AUDITED_QUERY_TYPES = frozenset(
+    {"simple", "multi_independent", "cross_filter", "comparison"}
+)
 
 # ── Internal logger instance ─────────────────────────────────────────────────
 _audit_logger: Optional[logging.Logger] = None
@@ -71,6 +75,7 @@ def _get_audit_logger() -> logging.Logger:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
+
 def write_audit_log(
     *,
     trace_id: str = "",
@@ -90,7 +95,7 @@ def write_audit_log(
     Never raises — failures are logged as warnings to the root logger.
     """
     ctx = _audit_context.get()
-    
+
     # Merge context if present
     trace_id = trace_id or ctx.get("trace_id") or ""
     query_type = query_type or ctx.get("query_type") or "simple"
@@ -103,6 +108,7 @@ def write_audit_log(
 
     try:
         from feature_flags import flags
+
         if not flags.ENABLE_AUDIT_LOGGING:
             return
     except ImportError:
@@ -117,12 +123,12 @@ def write_audit_log(
             "dotnet_payload": dotnet_payload,
             "visualization_type": visualization_type or "",
         }
-        
+
         # 1. Merge extra keys from arguments (high priority)
         for k, v in kwargs.items():
             if k not in entry or entry[k] in (None, "", [], {}):
                 entry[k] = v
-                
+
         # 2. Merge extra keys from context (lower priority)
         for k, v in ctx.items():
             if k not in entry or entry[k] in (None, "", [], {}):
@@ -137,10 +143,13 @@ def write_audit_log(
         _get_audit_logger().info(json.dumps(entry, ensure_ascii=False, default=str))
 
     except Exception as exc:
-        logging.getLogger(__name__).warning("Audit log write failed (trace=%s): %s", trace_id, exc)
+        logging.getLogger(__name__).warning(
+            "Audit log write failed (trace=%s): %s", trace_id, exc
+        )
 
 
 # ── Retention cleanup ────────────────────────────────────────────────────────
+
 
 def purge_old_audit_logs() -> int:
     """
@@ -160,7 +169,9 @@ def purge_old_audit_logs() -> int:
                 os.remove(path)
                 deleted += 1
         except OSError as exc:
-            logging.getLogger(__name__).warning("Failed to delete audit log %s: %s", path, exc)
+            logging.getLogger(__name__).warning(
+                "Failed to delete audit log %s: %s", path, exc
+            )
 
     return deleted
 

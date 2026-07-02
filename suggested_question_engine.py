@@ -18,13 +18,17 @@ Key upgrades vs v1:
 from typing import Any, Dict, List, Optional
 from utils import get_score as _get_score
 
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Internal helpers — extract context from combined_result
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 def _extract_scores(records: List[Any]) -> List[float]:
-    return [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
+    return [
+        s
+        for s in (_get_score(r) for r in records if isinstance(r, dict))
+        if s is not None
+    ]
 
 
 def _get_records(combined_result: Any) -> List[Dict]:
@@ -55,10 +59,10 @@ def _extract_context(
     # From intent
     ctx["batch_id"] = intent.get("batch_id") or intent.get("batch") or ""
     ctx["platoon_id"] = intent.get("platoon_id") or intent.get("platoon") or ""
-    ctx["agniveer_no"] = intent.get("agniveer_no") or intent.get("agniveer_number") or ""
-    ctx["section_name"] = (
-        intent.get("section") or intent.get("sub_section") or ""
+    ctx["agniveer_no"] = (
+        intent.get("agniveer_no") or intent.get("agniveer_number") or ""
     )
+    ctx["section_name"] = intent.get("section") or intent.get("sub_section") or ""
     ctx["sport_name"] = intent.get("sport") or ""
 
     if not isinstance(combined_result, dict):
@@ -91,8 +95,8 @@ def _extract_context(
         # Simple trend hint from first vs last quartile averages
         n = len(scores)
         if n >= 6:
-            first_half = scores[:n // 2]
-            second_half = scores[n // 2:]
+            first_half = scores[: n // 2]
+            second_half = scores[n // 2 :]
             first_avg = sum(first_half) / len(first_half)
             second_avg = sum(second_half) / len(second_half)
             if second_avg > first_avg + 2:
@@ -129,6 +133,7 @@ def _fmt_section(ctx: Dict[str, Any], fallback: str = "this section") -> str:
 # Query-type level overrides (context-enriched)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 def _questions_for_compare(ctx: Dict[str, Any]) -> List[str]:
     left = ctx.get("left_label") or "Side A"
     right = ctx.get("right_label") or "Side B"
@@ -142,9 +147,7 @@ def _questions_for_compare(ctx: Dict[str, Any]) -> List[str]:
     ]
     # If one side's avg was lower, surface that
     if ctx.get("avg_score") is not None:
-        questions.append(
-            f"Which agniveers in {left} are below the {right} average?"
-        )
+        questions.append(f"Which agniveers in {left} are below the {right} average?")
     return questions[:4]
 
 
@@ -160,7 +163,9 @@ def _questions_for_cross_filter(ctx: Dict[str, Any]) -> List[str]:
         f"How many matching records from {batch} are currently on leave?",
     ]
     if at_risk:
-        questions.insert(0, f"Show the {at_risk} at-risk agniveer(s) below 50 in {section}.")
+        questions.insert(
+            0, f"Show the {at_risk} at-risk agniveer(s) below 50 in {section}."
+        )
     return questions[:4]
 
 
@@ -188,9 +193,14 @@ def _questions_for_analytics(ctx: Dict[str, Any], category: str) -> List[str]:
         f"Show score distribution for {category} across all batches.",
     ]
     if trend == "falling":
-        questions.insert(0, f"Which agniveers in {batch} show a declining {category} trend?")
+        questions.insert(
+            0, f"Which agniveers in {batch} show a declining {category} trend?"
+        )
     if at_risk:
-        questions.insert(0, f"Show the {at_risk} at-risk agniveer(s) in {batch} below passing threshold.")
+        questions.insert(
+            0,
+            f"Show the {at_risk} at-risk agniveer(s) in {batch} below passing threshold.",
+        )
     if high:
         questions.append(f"Show the top {high} high-performer(s) (>75) in {section}.")
     return questions[:4]
@@ -199,6 +209,7 @@ def _questions_for_analytics(ctx: Dict[str, Any], category: str) -> List[str]:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Category-level question banks (context-enriched)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 def _questions_performance(
     ctx: Dict[str, Any],
@@ -232,7 +243,10 @@ def _questions_performance(
             f"Compare {section}'s lowest performers with another section.",
         ]
         if at_risk:
-            base.insert(0, f"Show {at_risk} below-passing agniveer(s) in {batch} who need intervention.")
+            base.insert(
+                0,
+                f"Show {at_risk} below-passing agniveer(s) in {batch} who need intervention.",
+            )
 
     else:
         base = [
@@ -347,6 +361,7 @@ def _questions_overall(ctx: Dict[str, Any]) -> List[str]:
 # Public API
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 def generate_suggested_questions(
     query_type: str,
     intent: Dict[str, Any],
@@ -421,7 +436,9 @@ def generate_suggested_questions(
         f"Show section-wise distribution for {category}.",
     ]
     if avg is not None:
-        fallback.append(f"Which agniveers in {batch} are above the {category} average of {avg}?")
+        fallback.append(
+            f"Which agniveers in {batch} are above the {category} average of {avg}?"
+        )
     if ctx.get("at_risk_count"):
         fallback.insert(
             0,

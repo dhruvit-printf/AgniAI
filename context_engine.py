@@ -674,14 +674,22 @@ class ConversationContextEngine:
         # Step 5 — collect carry-forward filters (do not override explicit values)
         carry_filters: Dict[str, Any] = {}
         for key, val in {**best_record.entities, **best_record.filters}.items():
-            if key not in ("raw_query", "query_type", "user_message", "timestamp", "payload_summary"):
+            if key not in (
+                "raw_query",
+                "query_type",
+                "user_message",
+                "timestamp",
+                "payload_summary",
+            ):
                 # Normalize keys to camelCase for backend payload mapping
-                camel_key = "".join(part[0].upper() + part[1:] if idx > 0 else part for idx, part in enumerate(key.split("_")))
+                camel_key = "".join(
+                    part[0].upper() + part[1:] if idx > 0 else part
+                    for idx, part in enumerate(key.split("_"))
+                )
                 if camel_key == "class":
                     camel_key = "class_"
                 if val is not None:
                     carry_filters[camel_key] = val
-
 
         source_label = f"interaction_{best_idx + 1}"
         return ContextResolution(

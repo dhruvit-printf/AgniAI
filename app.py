@@ -26,7 +26,7 @@ from werkzeug.utils import secure_filename
 try:
     from flask_limiter import Limiter
     from flask_limiter.util import get_remote_address
-except Exception:  
+except Exception:
     Limiter = None
     get_remote_address = None
 
@@ -125,7 +125,11 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # ── CORS ───────────────────────────────────────────────────────────────────
 CORS(
     app,
-    origins=[o.strip() for o in ALLOWED_ORIGINS.split(",")] if ALLOWED_ORIGINS and ALLOWED_ORIGINS != "*" else "*",
+    origins=(
+        [o.strip() for o in ALLOWED_ORIGINS.split(",")]
+        if ALLOWED_ORIGINS and ALLOWED_ORIGINS != "*"
+        else "*"
+    ),
     allow_headers=[
         "Content-Type",
         "X-Api-Key",

@@ -116,7 +116,7 @@ class TestFallbackReport(unittest.TestCase):
                 return {
                     "message": {
                         "content": (
-                            "Officer's query: \"Who ranks number 1 overall?\"\n"
+                            'Officer\'s query: "Who ranks number 1 overall?"\n'
                             "Query type: data lookup\n"
                             "Module: Overall — OverallPerformance\n\n"
                             "The top-ranked agniveer overall is Sagar from PL-03."
@@ -607,35 +607,40 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
                     "id": "dataset_1",
                     "label": "Pending",
                     "data": [],
-                    "metrics": {"recordCount": 545}
+                    "metrics": {"recordCount": 545},
                 },
                 {
                     "id": "dataset_2",
                     "label": "Completed",
                     "data": [],
-                    "metrics": {"recordCount": 21}
-                }
+                    "metrics": {"recordCount": 21},
+                },
             ],
             "left": {
                 "id": "dataset_1",
                 "label": "Pending",
                 "data": [],
-                "metrics": {"recordCount": 545}
+                "metrics": {"recordCount": 545},
             },
             "right": {
                 "id": "dataset_2",
                 "label": "Completed",
                 "data": [],
-                "metrics": {"recordCount": 21}
-            }
+                "metrics": {"recordCount": 21},
+            },
         }
         intent = {"category": "Verification", "subcategory": "PendingVerification"}
-        report = generate_report(combined, "compare", intent, "compare pending vs verified count")
-        
+        report = generate_report(
+            combined, "compare", intent, "compare pending vs verified count"
+        )
+
         self.assertNotEqual(report["message"], "No matching records found.")
         self.assertIn("Pending (545 records)", report["analysis"]["summary"])
         self.assertIn("Completed (21 records)", report["analysis"]["summary"])
-        self.assertEqual(report["conclusion"]["bullets"][0], "Evaluated 545 Pending record(s) and 21 Completed record(s).")
+        self.assertEqual(
+            report["conclusion"]["bullets"][0],
+            "Evaluated 545 Pending record(s) and 21 Completed record(s).",
+        )
 
 
 if __name__ == "__main__":
