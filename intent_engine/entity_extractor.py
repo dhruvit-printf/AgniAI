@@ -417,7 +417,6 @@ def _extract_unit_name(query: str) -> Optional[str]:
             return UNIT_ALIASES[token]
         if len(token) == 1:
             return f"Unit {token.upper()}"
-        return f"{token.capitalize()} Unit"
     for token, canonical in UNIT_ALIASES.items():
         if re.search(rf"\b{re.escape(token)}\b", query_lower):
             return canonical

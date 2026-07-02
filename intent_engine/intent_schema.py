@@ -78,6 +78,7 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "BloodGroup",
             "Disease",
             "Individual",
+            "Active",
         ]
     ),
     "Attendance": frozenset(

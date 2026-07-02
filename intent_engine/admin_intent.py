@@ -22,8 +22,10 @@ from .intent_classifier import classify_intent
 from .intent_schema import (
     CATEGORY_OPERATION_TO_SUBCATEGORY,
     INTENT_TYPE_DEFAULTS,
+    OPERATIONS_BY_CATEGORY,
     ISSUED_EQUIPMENT_ITEMS,
     PROCURED_EQUIPMENT_ITEMS,
+    get_allowed_entities_for_category,
     SUBCATEGORY_TO_OPERATION,
 )
 from .payload_builder import build_ai_command_request_dto
@@ -63,6 +65,43 @@ def _legacy_type(
         return None
     op_key = operation or SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory)
     return INTENT_TYPE_DEFAULTS.get((category, op_key))
+
+
+def _comparison_fallback_operation(category: Optional[str]) -> str:
+    """Choose a category-safe fallback for planner compare fallthroughs."""
+    fallback_by_category = {
+        # Category-specific overview/list style defaults that already exist in schema.
+        "Performance": "Summary",
+        "Leave": "Current",
+        "Medical": "Individual",
+        "Attendance": "Summary",
+        "Verification": "Pending",
+        "Equipment": "Stats",
+        "Distribution": "Latest",
+        "Skills": "BySport",
+        "Overall": "OverallPerformance",
+        "Schedule": "Date",
+        "personalDetails": "Summary",
+        "DisqualifiedAgniveer": "Summary",
+    }
+    if category in fallback_by_category:
+        return fallback_by_category[category]
+    if category and "Summary" in OPERATIONS_BY_CATEGORY.get(category, frozenset()):
+        return "Summary"
+    return next(iter(OPERATIONS_BY_CATEGORY.get(category, ("Summary",))), "Summary")
+
+
+def _filter_entities_for_category(
+    category: Optional[str], entities: Dict[str, Any]
+) -> Dict[str, Any]:
+    if not category:
+        return dict(entities)
+    allowed = get_allowed_entities_for_category(category)
+    return {
+        key: value
+        for key, value in entities.items()
+        if key in allowed or value is None
+    }
 
 
 def _build_base_intent(
@@ -371,8 +410,8 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
             operation,
             category,
         )
-        operation = "Summary"
-        intent_result = {**intent_result, "operation": "Summary"}
+        operation = _comparison_fallback_operation(category)
+        intent_result = {**intent_result, "operation": operation}
 
     entities: Dict[str, Any] = {
         "n": intent_result.get("number"),
@@ -400,6 +439,10 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
         "diagnose": intent_result.get("diagnose"),
         "days": intent_result.get("days"),
     }
+
+    # Assumption: after category is finalized, only category-safe entities should
+    # reach payload validation and .NET DTO construction.
+    entities = _filter_entities_for_category(category, entities)
 
     is_valid, errors = validate_payload(category, operation, entities)
     if not is_valid:

@@ -312,9 +312,9 @@ def resolve_entities_from_query(
     session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     result: Dict[str, Any] = {
-        "companyId": existing_company_id,
-        "platoonId": existing_platoon_id,
-        "batchId": existing_batch_id,
+        "companyId": None,
+        "platoonId": None,
+        "batchId": None,
         "agniveerNo": None,
         "companyName": None,
         "platoonName": None,
@@ -331,24 +331,29 @@ def resolve_entities_from_query(
     result["batchName"] = batch_mention
     result["agniveerNo"] = agniveer_mention
 
-    if company_mention and result["companyId"] is None:
+    if company_mention:
         result["companyId"] = resolve_company_id(
             company_mention, trace_id=trace_id, session_id=session_id
         )
+    elif result["companyId"] is None:
+        result["companyId"] = existing_company_id
 
-    if platoon_mention and result["platoonId"] is None:
+    if platoon_mention:
         result["platoonId"] = resolve_platoon_id(
             platoon_mention,
             company_id=result["companyId"],
             trace_id=trace_id,
             session_id=session_id,
         )
+    elif result["platoonId"] is None:
+        result["platoonId"] = existing_platoon_id
 
-    if batch_mention and result["batchId"] is None:
+    if batch_mention:
         result["batchId"] = resolve_batch_id(
             batch_mention, trace_id=trace_id, session_id=session_id
         )
-
+    elif result["batchId"] is None:
+        result["batchId"] = existing_batch_id
     # ── Helper for whole-word / phrase matching with boundary checks ──
     from query_normalizer import clean_query
 

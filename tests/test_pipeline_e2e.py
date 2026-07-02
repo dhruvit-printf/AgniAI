@@ -218,9 +218,9 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         # Check comparison results — verify correct COMPARE widget is built
         widgets = response_payload["formattedData"]
-        self.assertEqual(widgets[0]["type"], "COMPARE_CARD")
-        self.assertEqual(widgets[1]["type"], "COMPARE_TABLE")
-        widget = widgets[1]
+        self.assertEqual(widgets[0]["type"], "COMPARE_TABLE")
+        self.assertEqual(len(widgets), 1)
+        widget = widgets[0]
         self.assertIn("comparisonMetrics", response_payload["metadata"])
         self.assertIn("left", widget["data"])
         self.assertIn("right", widget["data"])

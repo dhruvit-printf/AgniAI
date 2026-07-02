@@ -390,6 +390,7 @@ def get_fallback_report(
             ]
             conclusion = "The consolidated report is empty because no matching records were found."
     else:
+        category_label = humanize_category(category).lower()
         if cnt > 0:
             message = f"I found {cnt} matching {category_label} records."
             key = (category, subcategory)

@@ -265,6 +265,9 @@ class TestResponseBuilder(unittest.TestCase):
                 "conclusion",
                 "suggestedQuestions",
                 "dotnetPayload",
+                "overallConfidence",
+                "partialFailure",
+                "failedSections",
                 "metadata",
             },
         )

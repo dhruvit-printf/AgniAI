@@ -36,11 +36,11 @@ class TestParallelExecution(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         widgets = response_payload["formattedData"]
-        self.assertEqual(widgets[0]["type"], "COMPARE_CARD")
-        self.assertEqual(widgets[1]["type"], "COMPARE_TABLE")
+        self.assertEqual(widgets[0]["type"], "COMPARE_TABLE")
+        self.assertEqual(len(widgets), 1)
 
         # In the new widget structure, COMPARE_TABLE data has left and right sides
-        table_data = widgets[1]["data"]
+        table_data = widgets[0]["data"]
         left = table_data["left"]
         right = table_data["right"]
 

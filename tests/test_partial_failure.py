@@ -72,15 +72,15 @@ class TestPartialFailure(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         widgets = response_payload["formattedData"]
-        self.assertEqual(widgets[0]["type"], "COMPARE_CARD")
-        self.assertEqual(widgets[1]["type"], "COMPARE_TABLE")
+        self.assertEqual(widgets[0]["type"], "COMPARE_TABLE")
+        self.assertEqual(len(widgets), 1)
 
         # PPT (left side) succeeds and has 1 row
-        left_table = widgets[1]["data"]["left"]
+        left_table = widgets[0]["data"]["left"]
         self.assertEqual(len(left_table["rows"]), 1)
 
         # BEPT (right side) failed and has 0 rows
-        right_table = widgets[1]["data"]["right"]
+        right_table = widgets[0]["data"]["right"]
         self.assertEqual(len(right_table["rows"]), 0)
 
         # Failed sections metadata is populated

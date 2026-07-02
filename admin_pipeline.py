@@ -929,26 +929,27 @@ def execute_admin_query(
             existing_pl = id_filters.get("platoonId")
             existing_ba = id_filters.get("batchId")
 
-            # Load conversation carryover context if not provided by frontend (Rule 8)
-            with _session_context._lock:
-                prev_history = _session_context._history.get(session_id)
-                if prev_history:
-                    prev_intent = prev_history.get("intent") or {}
-                    if existing_co is None:
-                        existing_co = prev_intent.get("company_id") or prev_intent.get(
-                            "companyId"
-                        )
-                    if existing_pl is None:
-                        existing_pl = prev_intent.get("platoon_id") or prev_intent.get(
-                            "platoonId"
-                        )
-                    if existing_ba is None:
-                        existing_ba = prev_intent.get("batch_id") or prev_intent.get(
-                            "batchId"
-                        )
-                    resolved_agniveer_no = prev_intent.get(
-                        "agniveer_no"
-                    ) or prev_intent.get("agniveerNo")
+            # Load conversation carryover context only for follow-up turns.
+            if _ctx_resolution.context_source != "fresh":
+                with _session_context._lock:
+                    prev_history = _session_context._history.get(session_id)
+                    if prev_history:
+                        prev_intent = prev_history.get("intent") or {}
+                        if existing_co is None:
+                            existing_co = prev_intent.get("company_id") or prev_intent.get(
+                                "companyId"
+                            )
+                        if existing_pl is None:
+                            existing_pl = prev_intent.get("platoon_id") or prev_intent.get(
+                                "platoonId"
+                            )
+                        if existing_ba is None:
+                            existing_ba = prev_intent.get("batch_id") or prev_intent.get(
+                                "batchId"
+                            )
+                        resolved_agniveer_no = prev_intent.get(
+                            "agniveer_no"
+                        ) or prev_intent.get("agniveerNo")
 
             new_resolved = resolve_entities_from_query(
                 message,
@@ -1071,15 +1072,9 @@ def execute_admin_query(
                     def run_op(idx, op):
                         payload = dict(op.dotnet_payload)
                         payload.update(id_filters)
-                        if query_plan.query_type == QueryType.COMPARISON:
-                            if idx == 0:
-                                for k, v in carry_forward_filters.items():
-                                    if payload.get(k) in (None, ""):
-                                        payload[k] = v
-                        else:
-                            for k, v in carry_forward_filters.items():
-                                if payload.get(k) in (None, ""):
-                                    payload[k] = v
+                        for k, v in carry_forward_filters.items():
+                            if payload.get(k) in (None, ""):
+                                payload[k] = v
                         if resolved_agniveer_no and not payload.get("agniveerNo"):
                             payload["agniveerNo"] = resolved_agniveer_no
                         if full_name:
