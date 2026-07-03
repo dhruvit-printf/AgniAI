@@ -254,7 +254,9 @@ class TestResponseBuilder(unittest.TestCase):
 
         public = public_response_view(internal)
 
-        # Contract keys — analysis/prediction/conclusion at root, dotnetPayload included
+        # Contract keys — analysis/prediction/conclusion at root, dotnetPayload included.
+        # Internal-only fields (metadata, overallConfidence, partialFailure,
+        # failedSections) are never exposed to the frontend.
         self.assertEqual(
             set(public.keys()),
             {
@@ -267,33 +269,25 @@ class TestResponseBuilder(unittest.TestCase):
                 "conclusion",
                 "suggestedQuestions",
                 "dotnetPayload",
-                "overallConfidence",
-                "partialFailure",
-                "failedSections",
-                "metadata",
+                "sessionId",
             },
         )
         self.assertNotIn("result", public)
         self.assertNotIn("intent", public)
         self.assertNotIn("answer", public)
+        self.assertNotIn("metadata", public)
+        self.assertNotIn("overallConfidence", public)
+        self.assertNotIn("partialFailure", public)
+        self.assertNotIn("failedSections", public)
         # dotnetPayload passes through exactly as supplied
         self.assertEqual(public["dotnetPayload"], {})
-        self.assertNotIn("sessionId", public)
+        self.assertEqual(public["sessionId"], "admin-default")
         self.assertEqual(public["message"], "Intro")
 
         # Root-level narrative strings
         self.assertIsInstance(public["analysis"], str)
         self.assertIsInstance(public["prediction"], str)
         self.assertIsInstance(public["conclusion"], str)
-
-        # Flat metadata — no nested "metrics" object
-        metadata = public["metadata"]
-        self.assertNotIn("requestId", metadata)
-        self.assertNotIn("traceId", metadata)
-        self.assertNotIn("timings", metadata)
-        self.assertNotIn("metrics", metadata)
-        self.assertEqual(metadata["confidence"], 0.95)
-        self.assertEqual(metadata["sessionId"], "admin-default")
 
         # formattedData preserves the single-widget object shape
         self.assertIsInstance(public["formattedData"], dict)

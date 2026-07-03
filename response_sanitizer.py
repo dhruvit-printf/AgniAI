@@ -12,18 +12,12 @@ Universal response contract (all fields mandatory, no extras):
     "conclusion":         str,
     "suggestedQuestions": [ str ],
     "dotnetPayload":      list | dict | null,
-    "comparisonMetrics":  dict,
-    "overallConfidence":  float,
-    "partialFailure":     bool,
-    "failedSections":     [ str ],
-    "metadata": {
-        "sessionId":       str,
-        "confidence":      float,
-        "queryType":       str,
-        "operationCount":  int,
-        "executionTimeMs": float
-    }
+    "sessionId":          str
 }
+
+Internal-only fields (metadata, overallConfidence, partialFailure,
+failedSections, comparisonMetrics) stay on the pipeline's internal payload
+for telemetry/validation but are never exposed to the frontend.
 """
 
 from __future__ import annotations
@@ -61,15 +55,7 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
     raw_meta = (
         payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     )
-
-    # Flat metadata — no nested "metrics" object
-    clean_meta = {
-        "sessionId": raw_meta.get("sessionId") or payload.get("sessionId") or "",
-        "confidence": round(float(raw_meta.get("confidence") or 0.0), 2),
-        "queryType": raw_meta.get("queryType") or "",
-        "operationCount": int(raw_meta.get("operationCount") or 0),
-        "executionTimeMs": round(float(raw_meta.get("executionTimeMs") or 0.0), 2),
-    }
+    session_id = raw_meta.get("sessionId") or payload.get("sessionId") or ""
 
     return {
         "status": bool(payload.get("status", True)),
@@ -81,8 +67,5 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
         "conclusion": (payload.get("conclusion") or ""),
         "suggestedQuestions": list(payload.get("suggestedQuestions") or []),
         "dotnetPayload": payload.get("dotnetPayload"),
-        "overallConfidence": round(float(payload.get("overallConfidence") or 0.0), 2),
-        "partialFailure": bool(payload.get("partialFailure", False)),
-        "failedSections": list(payload.get("failedSections") or []),
-        "metadata": clean_meta,
+        "sessionId": session_id,
     }

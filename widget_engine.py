@@ -664,7 +664,7 @@ def build_bar_chart_data(
     for r in records:
         x_val = r.get(x_key) or r.get("fullName") or "Category"
         y_val = r.get(y_key) if r.get(y_key) is not None else 0
-        rows.append({x_key: x_val, y_key: y_val, "xValue": x_val, "yValue": y_val})
+        rows.append({x_key: x_val, y_key: y_val})
 
     return {"xKey": x_key, "yKey": y_key, "rows": rows}
 
