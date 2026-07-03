@@ -140,7 +140,7 @@ def _build_base_intent(
         "type": None,
         "medical_status": None,
         "diagnose": None,
-        "responseType": "Summary",
+        "responseType": None,
         "raw_query": raw_query,
         "confidence": "low",
         "confidence_score": 0.0,
@@ -342,7 +342,7 @@ def classify_admin_intent(
         "medical_status": entities.get("medicalStatus"),
         "diagnose": entities.get("diagnose"),
         "days": entities.get("days"),
-        "responseType": intent_result.get("responseType", "Summary"),
+        "responseType": intent_result.get("responseType"),
         "raw_query": raw_query,
         "confidence_score": confidence_score,
         "confidence": confidence,
@@ -395,7 +395,7 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     category = intent_result.get("category")
     operation = intent_result.get("operation")
     subcategory = intent_result.get("subcategory")
-    response_type = intent_result.get("responseType", "Summary")
+    response_type = intent_result.get("responseType")
 
     # "Compare" is an application-layer aggregation, never a .NET backend operation.
     # The planner decomposes comparison queries into independent retrieval operations

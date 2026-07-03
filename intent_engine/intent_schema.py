@@ -152,7 +152,7 @@ RESPONSE_TYPES: FrozenSet[str] = frozenset(
     ]
 )
 
-RESPONSE_TYPE_DEFAULT: str = "Summary"
+RESPONSE_TYPE_DEFAULT: Optional[str] = None
 
 # Keywords that trigger Detailed response type
 DETAILED_KEYWORDS: FrozenSet[str] = frozenset(

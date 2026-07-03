@@ -296,6 +296,10 @@ def _score_operation(
 
 
 def _detect_response_type(query_text: str) -> str:
+    if _phrase_score(query_text, "summary") or _phrase_score(
+        query_text, "summarize"
+    ) or _phrase_score(query_text, "summarise"):
+        return "Summary"
     for keyword in DETAILED_KEYWORDS:
         if _phrase_score(query_text, keyword):
             return "Detailed"

@@ -1489,10 +1489,16 @@ def _build_compare_table(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
 
+    def _side_heading(side: Dict[str, Any]) -> str:
+        return str(side.get("label") or "")
+
     def _side_table(side: Dict[str, Any]) -> Dict[str, Any]:
         records = side.get("data") or []
         flat = flatten_records(records, deep_flatten=True)
-        return build_table_data(flat)
+        table = build_table_data(flat)
+        table["heading"] = _side_heading(side)
+        table["row"] = table.get("rows") or []
+        return table
 
     return {
         "left": _side_table(left_side),
@@ -1505,10 +1511,18 @@ def _build_compare_bar(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
 
+    def _side_heading(side: Dict[str, Any]) -> str:
+        return str(side.get("label") or "")
+
     def _side_bar(side: Dict[str, Any]) -> Dict[str, Any]:
         records = side.get("data") or []
         if not records:
-            return {"xKey": "label", "yKey": "value", "rows": []}
+            return {
+                "heading": _side_heading(side),
+                "xKey": "label",
+                "yKey": "value",
+                "rows": [],
+            }
         x_key = (
             _find_key(
                 records,
@@ -1545,8 +1559,32 @@ def _build_compare_bar(combined_result: Dict[str, Any]) -> Dict[str, Any]:
             or _find_numeric_key(records, ["id"])
             or "value"
         )
-        rows = [{x_key: r.get(x_key), y_key: r.get(y_key)} for r in records]
-        return {"xKey": x_key, "yKey": y_key, "rows": rows}
+        if x_key == "label":
+            sample = records[0] if records else {}
+            for candidate_key, candidate_value in sample.items():
+                if candidate_key == y_key or candidate_key.lower() == "id":
+                    continue
+                if isinstance(candidate_value, str) and candidate_value.strip():
+                    x_key = candidate_key
+                    break
+        rows = []
+        for r in records:
+            x_val = r.get(x_key)
+            y_val = r.get(y_key)
+            rows.append(
+                {
+                    x_key: x_val,
+                    y_key: y_val,
+                    "xValue": x_val,
+                    "yValue": y_val,
+                }
+            )
+        return {
+            "heading": _side_heading(side),
+            "xKey": x_key,
+            "yKey": y_key,
+            "rows": rows,
+        }
 
     return {
         "left": _side_bar(left_side),
@@ -1561,10 +1599,18 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
 
     _TIME_KEYS = ["date", "month", "year", "attemptNo", "attempt", "time", "day"]
 
+    def _side_heading(side: Dict[str, Any]) -> str:
+        return str(side.get("label") or "")
+
     def _side_line(side: Dict[str, Any]) -> Dict[str, Any]:
         records = side.get("data") or []
         if not records:
-            return {"xKey": "date", "series": [], "rows": []}
+            return {
+                "heading": _side_heading(side),
+                "xKey": "date",
+                "series": [],
+                "rows": [],
+            }
         x_key = _find_key(records, _TIME_KEYS) or "date"
         numeric_keys = [
             k
@@ -1573,13 +1619,25 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(v, (int, float))
             and k.lower() not in {t.lower() for t in _TIME_KEYS + ["id"]}
         ] or ["value"]
+        series = [
+            {"key": key, "label": str(key).replace("_", " ").title()}
+            for key in numeric_keys
+        ]
         rows = []
         for r in records:
-            row: Dict[str, Any] = {x_key: r.get(x_key)}
-            for sk in numeric_keys:
-                row[sk] = r.get(sk)
+            row: Dict[str, Any] = {x_key: r.get(x_key), "xValue": r.get(x_key)}
+            for idx, sk in enumerate(numeric_keys):
+                value = r.get(sk)
+                row[sk] = value
+                row[f"series{idx}"] = value
+                row[f"series{idx}:value"] = value
             rows.append(row)
-        return {"xKey": x_key, "series": numeric_keys, "rows": rows}
+        return {
+            "heading": _side_heading(side),
+            "xKey": x_key,
+            "series": series,
+            "rows": rows,
+        }
 
     return {
         "left": _side_line(left_side),
@@ -1591,6 +1649,9 @@ def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     """COMPARE_PIE_CHART: {left: {rows: [{label, value}]}, right: {rows: [{label, value}]}}"""
     left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
+
+    def _side_heading(side: Dict[str, Any]) -> str:
+        return str(side.get("label") or "")
 
     _PIE_LABEL_CANDIDATES = [
         "label",
@@ -1611,7 +1672,7 @@ def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     def _side_pie(side: Dict[str, Any]) -> Dict[str, Any]:
         records = side.get("data") or []
         if not records:
-            return {"rows": []}
+            return {"heading": _side_heading(side), "rows": []}
         label_key = _find_key(records, _PIE_LABEL_CANDIDATES)
         if not label_key:
             for r in records[:1]:
@@ -1642,7 +1703,7 @@ def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
             }
             for r in records
         ]
-        return {"rows": rows}
+        return {"heading": _side_heading(side), "rows": rows}
 
     return {
         "left": _side_pie(left_side),

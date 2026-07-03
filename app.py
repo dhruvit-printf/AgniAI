@@ -124,6 +124,7 @@ if hasattr(app, "json"):
 else:
     app.config["JSON_SORT_KEYS"] = False
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+CHAT_HISTORY_WINDOW = 10
 
 # ── CORS ───────────────────────────────────────────────────────────────────
 
@@ -447,7 +448,7 @@ def _build_rag_messages(
 
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
     if history:
-        for msg in history[-6:]:
+        for msg in history[-CHAT_HISTORY_WINDOW:]:
             role = msg.get("role")
             content = (msg.get("content") or "").strip()
             if role in {"user", "assistant"} and content:
@@ -549,7 +550,7 @@ def _build_general_messages(
 
     messages: list[dict] = [{"role": "system", "content": system_content}]
     if history:
-        for msg in (history or [])[-6:]:
+        for msg in (history or [])[-CHAT_HISTORY_WINDOW:]:
             role = msg.get("role")
             content = (msg.get("content") or "").strip()
             if role in {"user", "assistant"} and content:
@@ -571,7 +572,7 @@ def _build_chat_messages(
         }
     ]
     if history:
-        for msg in (history or [])[-6:]:
+        for msg in (history or [])[-CHAT_HISTORY_WINDOW:]:
             role = msg.get("role")
             content = (msg.get("content") or "").strip()
             if role in {"user", "assistant"} and content:
@@ -773,7 +774,7 @@ def chat():
         gen_messages = _build_general_messages(
             query=message,
             style=style_name,
-            history=history[-6:] if history else None,
+            history=history[-CHAT_HISTORY_WINDOW:] if history else None,
         )
         response_key = make_response_cache_key(
             message,
@@ -985,7 +986,7 @@ def chat():
 
     # ── RAG answer generation ──────────────────────────────────────────────
     if use_rag:
-        structured_history = history[-6:] if history else None
+        structured_history = history[-CHAT_HISTORY_WINDOW:] if history else None
         docs = bundle.get("docs", []) if isinstance(bundle, dict) else []
 
         use_general_fallback = not context.strip()
@@ -1107,7 +1108,7 @@ def chat():
     messages = _build_chat_messages(
         query=message,
         style=style_name,
-        history=history[-6:] if history else None,
+        history=history[-CHAT_HISTORY_WINDOW:] if history else None,
     )
 
     if stream:

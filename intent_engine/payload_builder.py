@@ -21,10 +21,12 @@ def _get_operation_for_payload(operation: Optional[str]) -> Optional[str]:
 def build_ai_command_request_dto(
     category: Optional[str],
     operation: Optional[str],
-    response_type: str,
+    response_type: Optional[str],
     entities: Dict[str, Any],
 ) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {"commandId": 0, "responseType": response_type}
+    payload: Dict[str, Any] = {"commandId": 0}
+    if response_type is not None:
+        payload["responseType"] = response_type
 
     if category:
         payload["category"] = category
