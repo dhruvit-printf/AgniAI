@@ -461,7 +461,8 @@ def _log_combination_summary(
         json.dumps(
             {
                 "question": question,
-                "intent": intent,
+                "category": intent.get("category"),
+                "subcategory": intent.get("subcategory"),
                 "type": intent.get("type") or qtype,
                 "input": input_counts,
                 "outputCount": output_count,
@@ -2227,18 +2228,28 @@ def execute_admin_query(
         else:
             report_strategy = "fallback"
 
-        # Log all 10 required audit metrics
+        # Full intent (including the per-operation breakdown) goes to the
+        # dedicated audit.log file via set_audit_context; the console line
+        # only carries question / queryType / dotnetPayload / responseType /
+        # visualizationType / sessionId to keep stdout readable.
         set_audit_context(question=user_query, intent=primary_intent)
         logger.info(
             json.dumps(
                 {
                     "message": "Admin query audit",
                     "question": user_query,
-                    "intent": primary_intent,
-                    "type": primary_intent.get("type") or "",
-                    "intentFormed": bool(primary_intent.get("category")),
+                    "queryType": qtype_str,
+                    "dotnetPayload": response_dotnet_payload,
+                    "responseType": primary_intent.get("responseType") or "",
+                    "visualizationType": (
+                        _widget_types[0]
+                        if "_widget_types" in locals() and _widget_types
+                        else ""
+                    ),
+                    "sessionId": session_id,
                 },
                 ensure_ascii=False,
+                default=str,
             )
         )
 
