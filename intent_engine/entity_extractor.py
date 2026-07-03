@@ -494,15 +494,12 @@ def _extract_medical_status(query: str) -> Optional[str]:
     if any(
         token in query_lower
         for token in (
-            "active medical",
-            "active case",
-            "active cases",
             "under treatment",
             "in hospital",
             "admitted",
         )
     ):
-        return "Active"
+        return None
     return None
 
 

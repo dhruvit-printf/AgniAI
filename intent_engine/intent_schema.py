@@ -36,8 +36,8 @@ OFFICIAL_CATEGORIES: FrozenSet[str] = frozenset(
         "Skills",
         "Overall",
         "Schedule",
-        "personalDetails",
-        "DisqualifiedAgniveer",
+        "personaldetail",
+        "disqualified",
     ]
 )
 
@@ -78,7 +78,6 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "BloodGroup",
             "Disease",
             "Individual",
-            "Active",
         ]
     ),
     "Attendance": frozenset(
@@ -137,8 +136,8 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Date",
         ]
     ),
-    "personalDetails": frozenset(["Summary"]),
-    "DisqualifiedAgniveer": frozenset(["Summary"]),
+    "personaldetail": frozenset(["info"]),
+    "disqualified": frozenset(["removed"]),
 }
 
 # =============================================================================
@@ -213,7 +212,6 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "weight",
         "fitness",
         "disease",
-        "active cases",
         "admitted",
         "hospital",
         "sick",
@@ -281,8 +279,10 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "composite",
         "all criteria",
     ),
-    "personalDetails": (
+    "personaldetail": (
+        "personal detail",
         "personal details",
+        "personaldetail",
         "personal info",
         "profile",
         "biography",
@@ -298,7 +298,7 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "next of kin",
         "kin details",
     ),
-    "DisqualifiedAgniveer": (
+    "disqualified": (
         "disqualified",
         "disqualification",
         "disqualified agniveer",
@@ -756,6 +756,36 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "date wise schedule",
         ),
     },
+    "personaldetail": {
+        "info": (
+            "info",
+            "information",
+            "details",
+            "personal details",
+            "personal info",
+            "profile",
+            "biodata",
+            "bio data",
+            "contact",
+            "education",
+            "qualification",
+            "family details",
+            "next of kin",
+            "kin details",
+        ),
+    },
+    "disqualified": {
+        "removed": (
+            "removed",
+            "disqualified",
+            "disqualification",
+            "disqualified agniveer",
+            "disqualified agniveers",
+            "removed agniveer",
+            "expelled agniveer",
+            "disqualification reason",
+        ),
+    },
     "Overall": {
         "OverallPerformance": (
             "overall performance",
@@ -1162,8 +1192,8 @@ CATEGORY_ENTITY_COMPATIBILITY: Dict[str, Set[str]] = {
     "Skills": {"sport", "class", "section", "subSection"},
     "Overall": {"sport", "class"},
     "Schedule": {"date", "sport", "class"},
-    "personalDetails": {"sport", "class"},
-    "DisqualifiedAgniveer": {"sport", "class"},
+    "personaldetail": {"sport", "class"},
+    "disqualified": {"sport", "class"},
 }
 
 # Common entities allowed in ALL categories
@@ -1191,15 +1221,16 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
     "Skills": ("skills", "sport", "class", "roster", "who plays"),
     "Overall": ("overall", "composite", "all criteria"),
     "Schedule": ("schedule", "company", "agniveer", "date"),
-    "personalDetails": (
+    "personaldetail": (
         "profile",
         "contact",
         "address",
         "education",
         "family",
         "details",
+        "personal detail",
     ),
-    "DisqualifiedAgniveer": ("disqualified", "removed", "expelled"),
+    "disqualified": ("disqualified", "removed", "expelled"),
 }
 
 # Named unit aliases that should normalize to canonical unit labels.
@@ -1463,7 +1494,6 @@ SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "CurrentLeaveStatus": "Current",
     "AbscondedPerson": "Absconded",
     "LeaveType": "LeaveType",
-    "ActiveCases": "Active",
     "BMIAnalysis": "BMI",
     "DiseaseStatistics": "Disease",
     "BloodGroup": "BloodGroup",
@@ -1496,6 +1526,8 @@ SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "CompanySchedule": "Company",
     "AgniveerSchedule": "Agniveer",
     "DateSchedule": "Date",
+    "PersonalDetailInfo": "info",
+    "DisqualifiedRemoved": "removed",
 }
 
 OPERATION_TO_PAYLOAD_FIELD: Dict[str, str] = {
@@ -1517,7 +1549,6 @@ OPERATION_TO_PAYLOAD_FIELD: Dict[str, str] = {
     "Least": "Least",
     "Current": "Current",
     "Absconded": "Absconded",
-    "Active": "Active",
     "BMI": "BMI",
     "BloodGroup": "BloodGroup",
     "Disease": "Disease",
@@ -1569,7 +1600,6 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Leave", "Current"): "CurrentLeaveStatus",
     ("Leave", "Absconded"): "AbscondedPerson",
     ("Leave", "LeaveType"): "LeaveType",
-    ("Medical", "Active"): "ActiveCases",
     ("Medical", "BMI"): "BMIAnalysis",
     ("Medical", "Disease"): "DiseaseStatistics",
     ("Medical", "BloodGroup"): "BloodGroup",

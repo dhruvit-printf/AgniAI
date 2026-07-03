@@ -89,8 +89,8 @@ def humanize_category(category: Optional[str]) -> str:
     Convert internal category keys into display-friendly labels.
 
     Examples:
-      - "DisqualifiedAgniveer" -> "Disqualified Agniveer"
-      - "personalDetails" -> "Personal Details"
+      - "disqualified" -> "Disqualified Agniveer"
+      - "personaldetail" -> "Personal Details"
       - "Medical" -> "Medical"
     """
     raw = str(category or "").strip()
@@ -98,6 +98,8 @@ def humanize_category(category: Optional[str]) -> str:
         return "Agniveer"
 
     special_cases = {
+        "personaldetail": "Personal Details",
+        "disqualified": "Disqualified Agniveer",
         "personaldetails": "Personal Details",
         "disqualifiedagniveer": "Disqualified Agniveer",
     }

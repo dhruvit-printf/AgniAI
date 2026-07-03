@@ -40,7 +40,6 @@ _CROSS_FILTER_MARKERS = (
     "currently on leave",
     "currently absent",
     "with medical",
-    "with active medical",
     "on leave",
     "medical leave",
     "on medical leave",
@@ -167,11 +166,13 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
             "expelled agniveer",
         )
     ):
-        return "DisqualifiedAgniveer"
+        return "disqualified"
     if any(
         token in text
         for token in (
+            "personal detail",
             "personal details",
+            "personaldetail",
             "personal info",
             "profile",
             "biodata",
@@ -183,7 +184,7 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
             "next of kin",
         )
     ):
-        return "personalDetails"
+        return "personaldetail"
     if entities.get("grading"):
         return "Performance"
     if entities.get("bmi_category") or entities.get("blood_group"):
@@ -727,7 +728,6 @@ def understand_query(query: str) -> Dict[str, Any]:
             "currently on leave",
             "currently absent",
             "with medical",
-            "with active medical",
             "on leave",
             "medical leave",
             "on medical leave",

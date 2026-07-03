@@ -165,7 +165,7 @@ def _category_entity_bonus(category: str, entities: Optional[Dict[str, Any]]) ->
         "Leave": [
             ("leaveType", 30),
         ],
-        "Medical": [
+    "Medical": [
             ("bmiCategory", 25),
             ("bloodGroup", 25),
             ("medicalStatus", 20),
@@ -490,8 +490,6 @@ def _should_entity_override_operation(
             and classified_operation != "BloodGroup"
         ):
             return True, "BloodGroup", "bloodGroup entity present"
-        if not classified_operation and _entity_present(entities, "medicalStatus"):
-            return True, "Active", "medicalStatus entity present without operation"
 
     if (
         category == "Leave"
@@ -527,8 +525,10 @@ def _should_entity_override_operation(
     if category == "Overall" and not classified_operation:
         return True, "OverallPerformance", "Overall query default operation"
 
-    if category in {"personalDetails", "DisqualifiedAgniveer"} and not classified_operation:
-        return True, "Summary", f"{category} query default operation"
+    if category == "personaldetail" and not classified_operation:
+        return True, "info", f"{category} query default operation"
+    if category == "disqualified" and not classified_operation:
+        return True, "removed", f"{category} query default operation"
 
     if (
         category == "Distribution"

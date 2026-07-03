@@ -174,8 +174,8 @@ _ID_FIELDS: frozenset = frozenset({"companyId", "platoonId", "batchId", "agnivee
 
 _NO_CARRY_FORWARD_CATEGORIES = frozenset(
     {
-        "DisqualifiedAgniveer",
-        "personalDetails",
+        "disqualified",
+        "personaldetail",
     }
 )
 
@@ -1628,8 +1628,8 @@ def execute_admin_query(
                         # actual error instead of mislabeling it as outage.
                         if "cannot connect to .net backend" in sanitized_error.lower():
                             if primary_intent.get("category") in {
-                                "DisqualifiedAgniveer",
-                                "personalDetails",
+                                "disqualified",
+                                "personaldetail",
                             }:
                                 unavailable_msg = (
                                     f"I cannot reach the backend right now, so I cannot "

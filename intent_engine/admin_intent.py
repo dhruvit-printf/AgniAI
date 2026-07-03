@@ -81,8 +81,8 @@ def _comparison_fallback_operation(category: Optional[str]) -> str:
         "Skills": "BySport",
         "Overall": "OverallPerformance",
         "Schedule": "Date",
-        "personalDetails": "Summary",
-        "DisqualifiedAgniveer": "Summary",
+        "personaldetail": "info",
+        "disqualified": "removed",
     }
     if category in fallback_by_category:
         return fallback_by_category[category]

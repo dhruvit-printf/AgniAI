@@ -59,14 +59,14 @@ class TestQueryPlanner(unittest.TestCase):
         plan = plan_query("Show disqualified agniveers list")
         self.assertEqual(plan.query_type, QueryType.FILTER_QUERY)
         self.assertEqual(len(plan.operations), 1)
-        self.assertEqual(plan.operations[0].intent_result["category"], "DisqualifiedAgniveer")
+        self.assertEqual(plan.operations[0].intent_result["category"], "disqualified")
 
     def test_disqualified_and_personal_details_split(self):
         plan = plan_query("Show disqualified agniveers and personal details for A0701515Y")
         self.assertEqual(plan.query_type, QueryType.MULTI_OPERATION)
         self.assertEqual(len(plan.operations), 2)
-        self.assertEqual(plan.operations[0].intent_result["category"], "DisqualifiedAgniveer")
-        self.assertEqual(plan.operations[1].intent_result["category"], "personalDetails")
+        self.assertEqual(plan.operations[0].intent_result["category"], "disqualified")
+        self.assertEqual(plan.operations[1].intent_result["category"], "personaldetail")
 
 
 if __name__ == "__main__":

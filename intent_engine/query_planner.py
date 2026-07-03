@@ -143,7 +143,6 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "patient",
         "ward",
         "illness",
-        "active medical",
         "with medical",
         "fever",
         "injury",
@@ -230,8 +229,10 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "composite",
         "allcriteria",
     ],
-    "personalDetails": [
+    "personaldetail": [
+        "personal detail",
         "personal details",
+        "personaldetail",
         "personal info",
         "profile",
         "biodata",
@@ -242,7 +243,7 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "family details",
         "next of kin",
     ],
-    "DisqualifiedAgniveer": [
+    "disqualified": [
         "disqualified",
         "disqualification",
         "disqualified agniveer",

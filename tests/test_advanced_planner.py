@@ -435,7 +435,7 @@ class TestUnifiedConfidence(unittest.TestCase):
     def test_combined_intent_and_plan(self):
         intent = {
             "category": "Medical",
-            "subcategory": "ActiveCases",
+            "subcategory": "BMIAnalysis",
             "confidence": "high",
         }
 
