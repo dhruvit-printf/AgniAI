@@ -63,3 +63,55 @@ If there is no frontend override:
 - `trend` questions default to line charts.
 - `distribution` questions default to pie charts.
 - `compare` questions default to a shared compare chart only when both sides match; otherwise they default to a compare table.
+
+## Category / Operation Defaults
+
+The backend also applies summary-response defaults per operation. Detailed responses continue to fall back to the detailed widget path unless a more specific override exists.
+
+| Category | Operation | Summary default |
+| --- | --- | --- |
+| Performance | Top | TABLE |
+| Performance | Bottom | TABLE |
+| Performance | Improvement | LINE_CHART |
+| Performance | Drop | LINE_CHART |
+| Performance | Grading | TABLE |
+| Performance | GradingSummary | BAR_CHART |
+| Performance | Average | PIE_CHART |
+| Performance | AttemptWise | TABLE |
+| Performance | BestAttempt | TABLE |
+| Performance | Trend | LINE_CHART |
+| Leave | Most / Highest | TABLE |
+| Leave | Least | TABLE |
+| Leave | Current | CARD |
+| Leave | Absconded | CARD |
+| Medical | BMI | DONUT_CHART |
+| Medical | BloodGroup | PIE_CHART |
+| Medical | Disease | BAR_CHART |
+| Medical | Individual | CARD |
+| Attendance | Monthly | BAR_CHART |
+| Attendance | Weekly | BAR_CHART |
+| Attendance | Daily | TABLE |
+| Attendance | Present / On-Campus | PIE_CHART |
+| Attendance | Summary | RADIAL_CHART |
+| Verification | Pending | CARD |
+| Verification | Sent | CARD |
+| Verification | Not Responded | CARD |
+| Verification | Completed / Verified | CARD |
+| Verification | Rejected | CARD |
+| Equipment | Stats / Summary | BAR_CHART |
+| Equipment | Search | TABLE |
+| Equipment | Returned / Poor Condition | CARD |
+| Equipment | Holding / Currently Issued | CARD |
+| Equipment | Agniveer-Wise | TABLE |
+| Distribution | Latest | TABLE |
+| Distribution | By Unit | BAR_CHART |
+| Distribution | Unassigned | TABLE |
+| Distribution | Top Unit | BAR_CHART |
+| Skills | By Sport | TABLE |
+| Skills | By Class | BAR_CHART |
+| Strength | Strength Breakdown | RADIAL_CHART |
+| Schedule | Today / Company Schedule | TABLE |
+| Schedule | Agniveer Schedule | TABLE |
+| Personal Details | Info | CARD |
+| Disqualified | Removed | CARD |
+| Overall | OverallPerformance | CARD |

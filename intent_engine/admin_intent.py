@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def _item_category(item_name: Optional[str]) -> Optional[str]:
-    """Return 'IssuedItems' or 'ProcuredItems' for a known equipment item name."""
+    """Return the legacy item bucket for a known equipment item name."""
     if not item_name:
         return None
     if not isinstance(item_name, str):
@@ -71,7 +71,7 @@ def _comparison_fallback_operation(category: Optional[str]) -> str:
     """Choose a category-safe fallback for planner compare fallthroughs."""
     fallback_by_category = {
         # Category-specific overview/list style defaults that already exist in schema.
-        "Performance": "Summary",
+        "Performance": "Top",
         "Leave": "Current",
         "Medical": "Individual",
         "Attendance": "Summary",
@@ -79,8 +79,9 @@ def _comparison_fallback_operation(category: Optional[str]) -> str:
         "Equipment": "Stats",
         "Distribution": "Latest",
         "Skills": "BySport",
+        "Strength": "StrengthBreakdown",
         "Overall": "OverallPerformance",
-        "Schedule": "Date",
+        "Schedule": "Today",
         "personaldetail": "info",
         "disqualified": "removed",
     }
@@ -140,7 +141,7 @@ def _build_base_intent(
         "type": None,
         "medical_status": None,
         "diagnose": None,
-        "responseType": None,
+        "responseType": "Summary",
         "raw_query": raw_query,
         "confidence": "low",
         "confidence_score": 0.0,
@@ -265,38 +266,34 @@ def classify_admin_intent(
     # ── Stage 4: Subcategory — pure table lookup, no inference ───────────────
     subcategory: Optional[str] = _subcategory_from_table(category, operation)
 
-    # Equipment item-list override: when the user names a specific item and an
-    # explicitly-contextual operation keyword is present (overdue, poor condition,
-    # holding, stats, etc.), the item's list membership (IssuedItems / ProcuredItems)
-    # is authoritative. Otherwise, preserve classifier inference.
+    # Equipment item override: prefer the canonical Search / Returned / Holding /
+    # Stats operations even when the query includes a specific equipment item name.
     if category == "Equipment" and entities.get("equipmentName"):
-        item_cat = _item_category(entities.get("equipmentName"))
-        if item_cat:
-            _nq = _normalise(raw_query)
-            if "issued" in _nq or "issue" in _nq:
-                subcategory = "IssuedItems"
-                operation = "Issued"
-            elif "procured" in _nq or "procure" in _nq:
-                subcategory = "ProcuredItems"
-                operation = "Procured"
-            elif any(
-                kw in _nq
-                for kw in {
-                    "overdue",
-                    "poor condition",
-                    "returned",
-                    "holding",
-                    "stats",
-                    "summary",
-                    "agniveer wise",
-                }
-            ):
-                # An explicit operational keyword is present. Keep the classifier/table lookup.
-                pass
-            else:
-                # Fallback: no explicit keywords, use item category.
-                subcategory = item_cat
-                operation = SUBCATEGORY_TO_OPERATION.get(subcategory, operation)
+        _nq = _normalise(raw_query)
+        if any(kw in _nq for kw in {"issued", "issue", "currently issued"}):
+            subcategory = "HoldingEquipment"
+            operation = "Holding"
+        elif any(
+            kw in _nq
+            for kw in {
+                "currently holding",
+                "holding",
+            }
+        ):
+            subcategory = "HoldingEquipment"
+            operation = "Holding"
+        elif any(
+            kw in _nq
+            for kw in {"poor condition", "returned", "damaged", "broken"}
+        ):
+            subcategory = "PoorConditionEquipment"
+            operation = "Returned"
+        elif any(kw in _nq for kw in {"stats", "summary", "overview"}):
+            subcategory = "EquipmentSummary"
+            operation = "Stats"
+        else:
+            subcategory = "EquipmentSearch"
+            operation = "Search"
 
     # ── Stage 5: Legacy visualization hint — pure lookup ────────────────────
     legacy_type: Optional[str] = _legacy_type(category, operation, subcategory)
@@ -349,15 +346,6 @@ def classify_admin_intent(
         "query_type": "simple",
     }
 
-    # Equipment subcategory → operation consistency (IssuedItems ↔ Issued)
-    if result["category"] == "Equipment" and result["subcategory"] in {
-        "IssuedItems",
-        "ProcuredItems",
-    }:
-        result["operation"] = SUBCATEGORY_TO_OPERATION.get(
-            result["subcategory"], result["operation"]
-        )
-
     result["filters"] = {
         key: value
         for key, value in (
@@ -400,12 +388,12 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     # "Compare" is an application-layer aggregation, never a .NET backend operation.
     # The planner decomposes comparison queries into independent retrieval operations
     # before they reach this layer. If "Compare" arrives here, it means the planner
-    # fell through (could not extract >= 2 components); remap to "Summary" so the
-    # .NET call is valid rather than returning HTTP 400.
+    # fell through (could not extract >= 2 components); remap to a safe
+    # Performance operation so the .NET call is valid rather than returning HTTP 400.
     if operation in _INVALID_DOTNET_OPERATIONS:
         logger.warning(
             "format_admin_payload: blocked operation=%r from reaching .NET "
-            "(category=%r) — remapping to 'Summary'. "
+            "(category=%r) — remapping to 'Top'. "
             "Indicates planner fallthrough on a comparison query.",
             operation,
             category,

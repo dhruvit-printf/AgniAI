@@ -253,12 +253,7 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
     ("Performance", "Average"): "PIE_CHART",
     ("Performance", "AttemptWise"): "TABLE",
     ("Performance", "BestAttempt"): "TABLE",
-    ("Performance", "Compare"): "AREA_CHART",
     ("Performance", "Comparison"): "AREA_CHART",
-    ("Performance", "Summary"): "TABLE",
-    ("Performance", "PassPercentage"): "PIE_CHART",
-    ("Performance", "FailPercentage"): "PIE_CHART",
-    ("Performance", "Overall"): "TABLE",
     # ── Leave ─────────────────────────────────────────────────────────────────
     ("Leave", "Most"): "TABLE",
     ("Leave", "Least"): "TABLE",
@@ -281,9 +276,7 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
     ("Attendance", "Summary"): "TABLE",
     ("Attendance", "AttendanceSummary"): "TABLE",
     # ── Strength ─────────────────────────────────────────────────────────────
-    ("Strength", "Strength"): "RADIAL_CHART",
     ("Strength", "StrengthBreakdown"): "RADIAL_CHART",
-    ("Strength", "Overall"): "RADIAL_CHART",
     # ── Verification ─────────────────────────────────────────────────────────
     ("Verification", "Pending"): "TABLE",
     ("Verification", "Completed"): "TABLE",
@@ -294,19 +287,15 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
     ("Verification", "Sent"): "TABLE",
     ("Verification", "SentVerification"): "TABLE",
     # ── Equipment ────────────────────────────────────────────────────────────
-    ("Equipment", "Stats"): "CARD",
-    ("Equipment", "EquipmentSummary"): "CARD",
-    ("Equipment", "Overdue"): "TABLE",
+    ("Equipment", "Stats"): "TABLE",
+    ("Equipment", "EquipmentSummary"): "TABLE",
     ("Equipment", "Returned"): "TABLE",
-    ("Equipment", "Returend"): "TABLE",  # typo in original, keep for compat
-    ("Equipment", "Issued"): "TABLE",
-    ("Equipment", "IssuedItems"): "TABLE",
-    ("Equipment", "Procured"): "TABLE",
-    ("Equipment", "ProcuredItems"): "TABLE",
     ("Equipment", "Holding"): "TABLE",
     ("Equipment", "HoldingEquipment"): "TABLE",
     ("Equipment", "AgniveerWise"): "TABLE",
     ("Equipment", "AgniveerWiseEquipment"): "TABLE",
+    ("Equipment", "Search"): "TABLE",
+    ("Equipment", "EquipmentSearch"): "TABLE",
     # ── Skills / Roster ──────────────────────────────────────────────────────
     ("Skills", "BySport"): "TABLE",
     ("Skills", "ByClass"): "TABLE",
@@ -324,14 +313,16 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
     ("Overall", "OverallPerformance"): "TABLE",
     # ── Schedule ─────────────────────────────────────────────────────────────
     # Keyed by both .NET operation string AND subcategory name
-    ("schedule", "Date"): "TABLE",
-    ("schedule", "date"): "TABLE",
-    ("schedule", "company"): "TABLE",
-    ("schedule", "agniveer"): "TABLE",
-    ("schedule", "CompanySchedule"): "TABLE",
+    ("Schedule", "Today"): "TABLE",
+    ("Schedule", "Agniveer"): "TABLE",
+    ("Schedule", "TodaySchedule"): "TABLE",
+    ("Schedule", "AgniveerSchedule"): "TABLE",
+    ("schedule", "Today"): "TABLE",
+    ("schedule", "Agniveer"): "TABLE",
+    ("schedule", "TodaySchedule"): "TABLE",
     ("schedule", "AgniveerSchedule"): "TABLE",
+    ("schedule", "CompanySchedule"): "TABLE",
     ("schedule", "DateSchedule"): "TABLE",
-    ("Schedule", "Date"): "TABLE",
     # ── Medical extras ───────────────────────────────────────────────────────
     ("Medical", "Individual"): "TABLE",
     ("Medical", "IndividualMedical"): "TABLE",
@@ -342,8 +333,34 @@ WIDGET_MAP: Dict[Tuple[str, str], str] = {
     # ── Performance subcategory-keyed (direct lookup without alias) ───────────
     ("Performance", "GradeDistribution"): "TABLE",
     ("Performance", "AverageScore"): "PIE_CHART",
-    ("Performance", "SectionSummary"): "TABLE",
-    ("Performance", "OverallPerformance"): "TABLE",
+}
+
+# Summary-response overrides for operations whose summary visualization differs
+# from the detailed/default widget type.
+SUMMARY_WIDGET_OVERRIDES: Dict[Tuple[str, str], str] = {
+    ("Leave", "Current"): "CARD",
+    ("Leave", "Absconded"): "CARD",
+    ("Medical", "BMI"): "DONUT_CHART",
+    ("Medical", "BloodGroup"): "PIE_CHART",
+    ("Medical", "Disease"): "BAR_CHART",
+    ("Medical", "Individual"): "CARD",
+    ("Attendance", "Summary"): "RADIAL_CHART",
+    ("Attendance", "Present"): "PIE_CHART",
+    ("Verification", "Pending"): "CARD",
+    ("Verification", "Sent"): "CARD",
+    ("Verification", "NotResponded"): "CARD",
+    ("Verification", "Completed"): "CARD",
+    ("Verification", "Verified"): "CARD",
+    ("Verification", "Rejected"): "CARD",
+    ("Equipment", "Stats"): "BAR_CHART",
+    ("Equipment", "Returned"): "CARD",
+    ("Equipment", "Holding"): "CARD",
+    ("Distribution", "ByUnit"): "BAR_CHART",
+    ("Distribution", "TopUnit"): "BAR_CHART",
+    ("Skills", "ByClass"): "BAR_CHART",
+    ("personaldetail", "info"): "CARD",
+    ("disqualified", "removed"): "CARD",
+    ("Overall", "OverallPerformance"): "CARD",
 }
 
 # ---------------------------------------------------------------------------
@@ -357,11 +374,9 @@ _OPERATION_ALIASES: Dict[str, str] = {
     "WeeklyAttendance": "Weekly",
     "YearlyAttendance": "Yearly",
     "PresentToday": "Present",
-    "StrengthBreakdown": "Strength",
+    "StrengthBreakdown": "StrengthBreakdown",
     "BMIAnalysis": "BMI",
     "EquipmentSummary": "Stats",
-    "IssuedItems": "Issued",
-    "ProcuredItems": "Procured",
     "CompletedVerification": "Verified",
     "SentVerification": "Sent",
     "HoldingEquipment": "Holding",
@@ -373,18 +388,15 @@ _OPERATION_ALIASES: Dict[str, str] = {
     "GradingSummary": "GradingSummary",
     "BestAttempt": "BestAttempt",
     "AttemptWise": "AttemptWise",
-    "PassPercentage": "PassPercentage",
-    "FailPercentage": "FailPercentage",
+    "TrendAnalysis": "Trend",
     # admin_intent subcategory names → WIDGET_MAP keys
     "GradeDistribution": "Grading",  # → ("Performance","Grading") TABLE
     "AverageScore": "Average",  # → ("Performance","Average") CHART_PIE
-    "SectionSummary": "Summary",  # → ("Performance","Summary") TABLE
-    "OverallPerformance": "Overall",  # → ("Performance","Overall") TABLE
+    "OverallPerformance": "OverallPerformance",
     "MostLeaveTaken": "Most",
     "LeastLeaveTaken": "Least",
     "CurrentLeaveStatus": "Current",
     "AbscondedPerson": "Absconded",
-    "ActiveCases": "Active",
     "DiseaseStatistics": "Disease",
     "BloodGroup": "BloodGroup",  # → ("Medical","BloodGroup") TABLE
     "DailyAttendance": "Daily",
@@ -392,14 +404,16 @@ _OPERATION_ALIASES: Dict[str, str] = {
     "NotRespondedVerification": "NotResponded",
     "VerifiedVerification": "Verified",
     "RejectedVerification": "Rejected",
-    "OverdueEquipment": "Overdue",
     "PoorConditionEquipment": "Returned",
+    "EquipmentSearch": "Search",
+    "Search": "Search",
     "LatestDistribution": "Latest",
     "DistributionByUnit": "ByUnit",
     "UnassignedItems": "Unassigned",
-    "CompanySchedule": "company",
-    "AgniveerSchedule": "agniveer",
-    "DateSchedule": "date",
+    "TodaySchedule": "Today",
+    "AgniveerSchedule": "Agniveer",
+    "CompanySchedule": "Today",
+    "DateSchedule": "Today",
     # Direct subcategory → map key (for cases where alias = key itself)
     "Top": "Top",
     "Bottom": "Bottom",
@@ -413,20 +427,18 @@ _OPERATION_ALIASES: Dict[str, str] = {
     "Current": "Current",
     "Absconded": "Absconded",
     "LeaveType": "LeaveType",
-    "Active": "Active",
     "Disease": "Disease",
     "Monthly": "Monthly",
     "Weekly": "Weekly",
     "Daily": "Daily",
     "Present": "Present",
+    "StrengthBreakdown": "StrengthBreakdown",
     "Pending": "Pending",
     "Completed": "Completed",
     "NotResponded": "NotResponded",
     "Verified": "Verified",
     "Rejected": "Rejected",
-    "Overdue": "Overdue",
     "Returned": "Returned",
-    "Returend": "Returend",
     "BySport": "BySport",
     "ByClass": "ByClass",
     "Latest": "Latest",
@@ -434,6 +446,7 @@ _OPERATION_ALIASES: Dict[str, str] = {
     "Unassigned": "Unassigned",
     "TopUnit": "TopUnit",
     "Schedule": "Schedule",
+    "Today": "Today",
 }
 
 
@@ -502,8 +515,6 @@ def _normalize_requested_widget_type(value: Any) -> Optional[str]:
         "pie": "PIE_CHART",
         "average pie chart": "PIE_CHART",
         "present pie chart": "PIE_CHART",
-        "passpercentage pie chart": "PIE_CHART",
-        "failpercentage pie chart": "PIE_CHART",
         # ── Donut Chart ───────────────────────────────────────────────────────
         "donut chart": "DONUT_CHART",
         "donut": "DONUT_CHART",
@@ -630,6 +641,18 @@ def infer_supported_type(
             category, operation, query_type
         )
     if default_widget:
+        if intent.get("responseType") == "Summary":
+            summary_widget = SUMMARY_WIDGET_OVERRIDES.get((category, operation))
+            if not summary_widget and subcategory:
+                summary_widget = SUMMARY_WIDGET_OVERRIDES.get((category, subcategory))
+            if summary_widget:
+                return summary_widget
+        # Summary-shaped responses that resolve to a thin (0-1 record) result
+        # should render as a CARD, not the category's default TABLE.
+        if default_widget == "TABLE" and intent.get("responseType") == "Summary":
+            records = _extract_records(combined_result, deep_flatten=False)
+            if len(records) <= 1:
+                return "CARD"
         return default_widget
 
     # ── Priority 2: Presentation/chart_type hints (non-override soft hints) ──

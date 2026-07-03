@@ -180,6 +180,9 @@ def _category_entity_bonus(category: str, entities: Optional[Dict[str, Any]]) ->
         "Equipment": [
             ("equipmentName", 28),
         ],
+        "Strength": [
+            ("section", 10),
+        ],
         "Distribution": [
             ("unitName", 18),
         ],
@@ -191,14 +194,10 @@ def _category_entity_bonus(category: str, entities: Optional[Dict[str, Any]]) ->
             ("sport", 20),
             ("class", 20),
         ],
-        "Strength": [
-            ("section", 5),
-        ],
         "Overall": [
             ("section", 10),
         ],
         "Schedule": [
-            ("date", 12),
         ],
     }
 
@@ -271,18 +270,22 @@ def _score_operation(
         score += 20 if _phrase_score(query_text, "who scored highest") else 0
     if category == "Distribution" and operation == "TopUnit":
         score += 25 if _phrase_score(query_text, "most agniveers") else 0
-    if category == "Equipment" and operation in {
-        "Issued",
-        "Procured",
-        "Holding",
-        "Overdue",
-        "Returned",
-    }:
+    if category == "Equipment" and operation == "Search":
+        score += 8 if _phrase_score(query_text, "search") else 0
+    if category == "Equipment" and operation == "Returned":
+        score += 8 if _phrase_score(query_text, "poor condition") else 0
+    if category == "Equipment" and operation == "Holding":
+        score += 8 if _phrase_score(query_text, "currently holding") else 0
+    if category == "Equipment" and operation == "AgniveerWise":
         score += 8 if _entity_present(entities, "equipmentName") else 0
     if category == "Medical" and operation == "BMI":
         score += 10 if _entity_present(entities, "bmiCategory") else 0
     if category == "Medical" and operation == "BloodGroup":
         score += 10 if _entity_present(entities, "bloodGroup") else 0
+    if category == "Strength" and operation == "StrengthBreakdown":
+        score += 10 if _entity_present(entities, "section") else 0
+    if category == "Schedule" and operation == "Today":
+        score += 10 if _phrase_score(query_text, "schedule") else 0
     if category == "Attendance" and operation in {
         "Monthly",
         "Weekly",
@@ -296,13 +299,13 @@ def _score_operation(
 
 
 def _detect_response_type(query_text: str) -> str:
+    for keyword in DETAILED_KEYWORDS:
+        if _phrase_score(query_text, keyword):
+            return "Detailed"
     if _phrase_score(query_text, "summary") or _phrase_score(
         query_text, "summarize"
     ) or _phrase_score(query_text, "summarise"):
         return "Summary"
-    for keyword in DETAILED_KEYWORDS:
-        if _phrase_score(query_text, keyword):
-            return "Detailed"
     return RESPONSE_TYPE_DEFAULT
 
 
@@ -413,8 +416,10 @@ def _should_entity_override_category(
         return True, "Performance", "performance entity present"
     if (
         _entity_present(entities, "section", "subSection")
-        and classified_category not in ("Performance", "Skills")
+        and classified_category not in ("Performance", "Skills", "Strength")
     ):
+        if _phrase_score(query_text, "strength") or _phrase_score(query_text, "headcount"):
+            return True, "Strength", "strength entity with section present"
         return True, "Performance", "section entity present"
 
     if confidence_score >= 0.45:
@@ -470,6 +475,7 @@ def _should_entity_override_operation(
     classified_operation: Optional[str],
     category: Optional[str],
     confidence_score: float,
+    query_text: str,
 ) -> Tuple[bool, Optional[str], str]:
     if not entities or not category:
         return False, None, "no entities or category"
@@ -515,6 +521,17 @@ def _should_entity_override_operation(
         ):
             return True, "Monthly", "date value indicates Month-Year"
 
+    if category == "Schedule" and not classified_operation:
+        return True, "Today", "Schedule query default operation"
+
+    if category == "Equipment" and not classified_operation:
+        if _entity_present(entities, "equipmentName"):
+            return True, "Search", "equipmentName entity present without operation"
+        if _phrase_score(query_text, "overdue"):
+            return True, "Holding", "equipment overdue phrase present"
+        if _phrase_score(query_text, "search") or _phrase_score(query_text, "find"):
+            return True, "Search", "equipment search phrase present"
+
     if category in ("Roster", "Skills"):
         if not classified_operation and _entity_present(entities, "sport"):
             return True, "BySport", "sport entity present without operation"
@@ -522,13 +539,15 @@ def _should_entity_override_operation(
             return True, "ByClass", "class entity present without operation"
 
     if category == "Strength" and not classified_operation:
-        return True, "Summary", "Strength query default operation"
+        return True, "StrengthBreakdown", "Strength query default operation"
 
     if category == "Overall" and not classified_operation:
         return True, "OverallPerformance", "Overall query default operation"
 
-    if category in {"personalDetails", "DisqualifiedAgniveer"} and not classified_operation:
-        return True, "Summary", f"{category} query default operation"
+    if category == "personaldetail" and not classified_operation:
+        return True, "info", f"{category} query default operation"
+    if category == "disqualified" and not classified_operation:
+        return True, "removed", f"{category} query default operation"
 
     if (
         category == "Distribution"
@@ -597,7 +616,7 @@ def classify_intent(
         operation = operation or "Present"
 
     should_override_op, override_op, op_reason = _should_entity_override_operation(
-        entities, operation, category, confidence_score
+        entities, operation, category, confidence_score, query_text
     )
     if should_override_op:
         logger.info(

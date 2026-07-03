@@ -141,6 +141,13 @@ def extract_records(data: Any) -> List[Dict]:
             if nested:
                 return nested
 
+    # Flat aggregate/summary dict — no nested list/dict found anywhere in
+    # this object, but it carries real scalar content (e.g. a Summary-shaped
+    # .NET response like {"totalRecords": 42, "averageScore": 71.3}).
+    # Treat it as a single record instead of silently returning [].
+    if has_any_data([data]):
+        return [data]
+
     return []
 
 

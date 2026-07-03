@@ -231,6 +231,38 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
     if any(
         token in text
         for token in (
+            "schedule",
+            "training schedule",
+            "company schedule",
+            "today's schedule",
+            "today schedule",
+            "current schedule",
+            "today's training",
+            "training",
+        )
+    ):
+        return "Schedule"
+    if any(
+        token in text
+        for token in (
+            "equipment",
+            "equipment search",
+            "search equipment",
+            "find equipment",
+            "lookup equipment",
+            "item name",
+            "category",
+            "returned",
+            "poor condition",
+            "damaged",
+            "broken",
+            "holding",
+        )
+    ):
+        return "Equipment"
+    if any(
+        token in text
+        for token in (
             "attendance",
             "present",
             "absent",
@@ -313,20 +345,36 @@ def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
         return "bmi"
     if entities.get("blood_group"):
         return "bloodgroup"
-    if "pass percentage" in text or "pass rate" in text:
-        return "passpercentage"
-    if "fail percentage" in text or "fail rate" in text:
-        return "failpercentage"
     if "attempt" in text:
         return "attemptwise"
     if "best attempt" in text:
         return "bestattempt"
+    if any(token in text for token in ("strength breakdown", "headcount", "current strength", "strength")):
+        return "strengthbreakdown"
+    if any(
+        token in text
+        for token in (
+            "search equipment",
+            "find equipment",
+            "lookup equipment",
+            "search by category",
+            "search by name",
+            "equipment search",
+        )
+    ):
+        return "search"
+    if any(token in text for token in ("returned", "poor condition", "damaged", "broken")):
+        return "returned"
+    if any(token in text for token in ("overdue", "currently issued", "currently holding", "holding", "issued")):
+        return "holding"
     if "current leave" in text or "leave today" in text or "on leave" in text:
         return "current"
     if "absconded" in text:
         return "absconded"
     if any(marker in text for marker in _TREND_MARKERS):
         return "trend"
+    if any(token in text for token in ("today's schedule", "today schedule", "current schedule", "training schedule", "company schedule")):
+        return "today"
     if any(marker in text for marker in _DISTRIBUTION_MARKERS):
         return "distribution"
     if "average" in text or "mean" in text or "avg" in text:
@@ -352,14 +400,14 @@ def _infer_sort(operation: str, text: str) -> Optional[str]:
 
 
 def _infer_metric(category: Optional[str], operation: str) -> Optional[str]:
-    if operation in {"passpercentage", "failpercentage"}:
-        return "percentage"
     if operation == "count":
         return "count"
     if operation == "average":
         return "average_score" if category == "Performance" else "average"
     if operation == "trend":
         return "trend_value"
+    if operation == "search":
+        return "search_term"
     if operation == "compare":
         return "average_score" if category == "Performance" else "count"
     return None
@@ -387,14 +435,22 @@ def _build_user_goal(
         return "compare the requested entities"
     if operation == "grading":
         return "review grading results"
-    if operation in {"passpercentage", "failpercentage"}:
-        return "calculate percentage results"
     if operation == "attemptwise":
         return "analyze attempts"
     if operation == "bmi":
         return "review medical BMI records"
     if operation == "bloodgroup":
         return "review blood group records"
+    if operation == "strengthbreakdown":
+        return "review strength breakdown"
+    if operation == "search":
+        return "search equipment records"
+    if operation == "returned":
+        return "review returned equipment"
+    if operation == "holding":
+        return "review holding equipment"
+    if operation == "today":
+        return "review schedule for today"
     if operation == "current":
         return "show current leave status"
     if operation == "absconded":

@@ -51,14 +51,17 @@ def test_average_score():
 
 def test_pass_percentage():
     r = classify_admin_intent("What is the pass percentage?")
-    assert r["category"] == "Performance"
-    assert r["subcategory"] == "PassPercentage"
+    assert r["category"] is None
+    assert r["subcategory"] is None
+    assert r["operation"] is None
 
 
 def test_fail_percentage():
     r = classify_admin_intent("Show the fail percentage")
     assert r["category"] == "Performance"
-    assert r["subcategory"] == "FailPercentage"
+    assert r["subcategory"] == "GradeDistribution"
+    assert r["operation"] == "Grading"
+    assert r["grading"] == "Fail"
 
 
 def test_grade_distribution():
@@ -292,7 +295,7 @@ def test_present_today():
 
 def test_strength_breakdown():
     r = classify_admin_intent("Give me the strength breakdown")
-    assert r["category"] == "Attendance"
+    assert r["category"] == "Strength"
     assert r["subcategory"] == "StrengthBreakdown"
     assert r["type"] == "Radial Chart"
 
@@ -329,7 +332,7 @@ def test_equipment_summary():
 def test_overdue_equipment():
     r = classify_admin_intent("What equipment is overdue?")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "OverdueEquipment"
+    assert r["subcategory"] == "HoldingEquipment"
 
 
 def test_poor_condition():
@@ -526,7 +529,7 @@ def test_synonyms():
     assert r4["subcategory"] == "Comparison"
     assert r4["operation"] == "Compare"
     p4 = format_admin_payload(r4)
-    assert p4["operation"] == "Summary"
+    assert p4["operation"] == "Top"
 
     # football -> BySport (Skills, since Roster merged into Skills)
     r6 = classify_admin_intent("Show roster for football")
@@ -631,14 +634,14 @@ def test_subcategory_override_canonical_names():
 def test_personal_details_classification():
     r1 = classify_admin_intent("Show contact info for agniveer A0701515Y")
     assert r1["category"] == "personaldetail"
-    assert r1["subcategory"] is None
+    assert r1["subcategory"] == "PersonalDetailInfo"
     assert r1["agniveer_no"] == "A0701515Y"
     p1 = format_admin_payload(r1)
     assert p1.get("operation") == "info"
 
     r2 = classify_admin_intent("Show education details of agniveer 12345")
     assert r2["category"] == "personaldetail"
-    assert r2["subcategory"] is None
+    assert r2["subcategory"] == "PersonalDetailInfo"
     p2 = format_admin_payload(r2)
     assert p2.get("operation") == "info"
 
@@ -646,13 +649,13 @@ def test_personal_details_classification():
 def test_disqualified_agniveer_classification():
     r1 = classify_admin_intent("Show disqualified agniveers list")
     assert r1["category"] == "disqualified"
-    assert r1["subcategory"] is None
+    assert r1["subcategory"] == "DisqualifiedRemoved"
     p1 = format_admin_payload(r1)
     assert p1.get("operation") == "removed"
 
     r2 = classify_admin_intent("Show disqualification reason for A0701515Y")
     assert r2["category"] == "disqualified"
-    assert r2["subcategory"] is None
+    assert r2["subcategory"] == "DisqualifiedRemoved"
     assert r2["agniveer_no"] == "A0701515Y"
     p2 = format_admin_payload(r2)
     assert p2.get("operation") == "removed"

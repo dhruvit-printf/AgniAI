@@ -42,6 +42,47 @@ class TestVisualizationQueryAware(unittest.TestCase):
         )
         self.assertEqual(res["type"], "DONUT_CHART")
 
+    def test_summary_override_for_equipment_stats(self):
+        combined = {"sections": [{"label": "Result", "data": [{"count": 12}]}]}
+        res = build_formatted_data(
+            combined,
+            query_type="simple",
+            intent={
+                "category": "Equipment",
+                "operation": "Stats",
+                "responseType": "Summary",
+            },
+        )
+        self.assertEqual(res["type"], "BAR_CHART")
+
+    def test_detailed_equipment_stats_stays_table(self):
+        combined = {
+            "sections": [{"label": "Result", "data": [{"count": 12}, {"count": 8}]}]
+        }
+        res = build_formatted_data(
+            combined,
+            query_type="simple",
+            intent={
+                "category": "Equipment",
+                "operation": "Stats",
+                "responseType": "Detailed",
+            },
+        )
+        self.assertEqual(res["type"], "TABLE")
+
+    def test_summary_override_for_overall_performance(self):
+        combined = {"sections": [{"label": "Result", "data": [{"score": 91}]}]}
+        res = build_formatted_data(
+            combined,
+            query_type="simple",
+            intent={
+                "category": "Overall",
+                "operation": "OverallPerformance",
+                "responseType": "Summary",
+            },
+        )
+        self.assertEqual(res["type"], "CARD")
+
 
 if __name__ == "__main__":
     unittest.main()
