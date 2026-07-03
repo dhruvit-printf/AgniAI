@@ -19,6 +19,15 @@ def _extract_records(data: Any) -> List[Dict]:
     return _normalize_records(data)
 
 
+def _is_flat_summary_dict(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    for value in data.values():
+        if isinstance(value, (dict, list)):
+            return False
+    return True
+
+
 def _extract_chronological_key(record: Dict) -> Any:
     for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp"):
         val = record.get(k)
@@ -56,7 +65,7 @@ def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
                     pass
 
     records = _extract_records(data)
-    if records:
+    if records and not _is_flat_summary_dict(inner):
         metrics["recordCount"] = len(records)
         scores = [s for s in (_get_score(r) for r in records) if s is not None]
         if scores:

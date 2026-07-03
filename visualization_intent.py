@@ -61,10 +61,175 @@ def _detect_explicit_presentation(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _widget_list(*widget_types: str) -> List[Dict[str, Any]]:
+    return [{"type": widget_type} for widget_type in widget_types if widget_type]
+
+
+_SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
+    ("Performance", "Top"): ["TABLE"],
+    ("Performance", "Bottom"): ["TABLE"],
+    ("Performance", "Improvement"): ["LINE_CHART"],
+    ("Performance", "Drop"): ["LINE_CHART"],
+    ("Performance", "Grading"): ["TABLE"],
+    ("Performance", "GradingSummary"): ["BAR_CHART"],
+    ("Performance", "Average"): ["PIE_CHART"],
+    ("Performance", "AttemptWise"): ["TABLE"],
+    ("Performance", "BestAttempt"): ["TABLE"],
+    ("Performance", "Trend"): ["LINE_CHART"],
+    ("Leave", "Most"): ["TABLE"],
+    ("Leave", "Least"): ["TABLE"],
+    ("Leave", "Current"): ["CARD"],
+    ("Leave", "Absconded"): ["CARD"],
+    ("Medical", "BMI"): ["DONUT_CHART"],
+    ("Medical", "BloodGroup"): ["PIE_CHART"],
+    ("Medical", "Disease"): ["BAR_CHART"],
+    ("Medical", "Individual"): ["CARD"],
+    ("Attendance", "Monthly"): ["BAR_CHART"],
+    ("Attendance", "Weekly"): ["BAR_CHART"],
+    ("Attendance", "Daily"): ["TABLE"],
+    ("Attendance", "Present"): ["PIE_CHART"],
+    ("Attendance", "Summary"): ["RADIAL_CHART"],
+    ("Strength", "StrengthBreakdown"): ["RADIAL_CHART"],
+    ("Verification", "Pending"): ["CARD"],
+    ("Verification", "Sent"): ["CARD"],
+    ("Verification", "NotResponded"): ["CARD"],
+    ("Verification", "Completed"): ["CARD"],
+    ("Verification", "Verified"): ["CARD"],
+    ("Verification", "Rejected"): ["CARD"],
+    ("Equipment", "Stats"): ["BAR_CHART"],
+    ("Equipment", "Search"): ["TABLE"],
+    ("Equipment", "Returned"): ["CARD"],
+    ("Equipment", "Holding"): ["CARD"],
+    ("Equipment", "AgniveerWise"): ["TABLE"],
+    ("Distribution", "Latest"): ["TABLE"],
+    ("Distribution", "ByUnit"): ["BAR_CHART"],
+    ("Distribution", "Unassigned"): ["TABLE"],
+    ("Distribution", "TopUnit"): ["BAR_CHART"],
+    ("Skills", "BySport"): ["TABLE"],
+    ("Skills", "ByClass"): ["BAR_CHART"],
+    ("Schedule", "Today"): ["TABLE"],
+    ("Schedule", "Agniveer"): ["TABLE"],
+    ("personaldetail", "info"): ["CARD"],
+    ("disqualified", "removed"): ["CARD"],
+    ("Overall", "OverallPerformance"): ["CARD"],
+}
+
+
+def _detail_widgets_for(summary_widgets: List[str]) -> List[str]:
+    return ["TABLE"]
+
+
+def _comparison_widgets(override: Optional[str]) -> List[Dict[str, Any]]:
+    if not override:
+        return _widget_list("COMPARE_TABLE")
+
+    normalized = override.strip().lower()
+    if normalized == "bar":
+        return _widget_list("COMPARE_BAR_CHART", "COMPARE_TABLE")
+    if normalized in {"line", "area"}:
+        return _widget_list("COMPARE_LINE_CHART")
+    if normalized in {"pie", "donut", "radial"}:
+        return _widget_list("COMPARE_PIE_CHART")
+    return _widget_list("COMPARE_TABLE")
+
+
+def _plan_widgets(
+    *,
+    text: str,
+    intent: Dict[str, Any],
+    records: List[Dict[str, Any]],
+    explicit_override: Optional[Dict[str, Any]],
+    comparison: bool,
+    trend: bool,
+    group_by: Optional[str],
+    metric: str,
+    query_type: str,
+) -> List[Dict[str, Any]]:
+    category = (intent.get("category") or "").strip()
+    operation = (
+        intent.get("operation")
+        or intent.get("subcategory")
+        or intent.get("query_type")
+        or ""
+    ).strip()
+    response_type = (intent.get("responseType") or "Summary").strip()
+
+    if explicit_override:
+        presentation = explicit_override.get("presentation")
+        chart_type = explicit_override.get("chart_type")
+        if presentation == "cards":
+            return _widget_list("CARD")
+        if presentation == "table":
+            return _widget_list("TABLE")
+        if presentation == "chart":
+            if comparison:
+                override = explicit_override.get("comparison_chart_override") or chart_type
+                return _comparison_widgets(override)
+            chart_map = {
+                "line": "LINE_CHART",
+                "bar": "BAR_CHART",
+                "pie": "PIE_CHART",
+                "donut": "DONUT_CHART",
+                "radial": "RADIAL_CHART",
+                "area": "AREA_CHART",
+            }
+            return _widget_list(chart_map.get(chart_type or "", "BAR_CHART"))
+
+    if comparison or query_type in {"compare", "comparison"}:
+        override = intent.get("comparison_chart_override")
+        if isinstance(override, str) and override.strip():
+            return _comparison_widgets(override)
+        return _widget_list("AREA_CHART")
+
+    if trend or query_type == "trend" or any(
+        token in text for token in ("trend", "timeline", "over months", "over time", "growth")
+    ):
+        return _widget_list(*(["LINE_CHART", "TABLE"] if response_type == "Detailed" else ["LINE_CHART"]))
+
+    if query_type == "distribution" or any(
+        token in text for token in ("distribution", "breakdown", "percentage", "share")
+    ):
+        return _widget_list(*(["PIE_CHART", "TABLE"] if response_type == "Detailed" else ["PIE_CHART"]))
+
+    if query_type == "cross_filter":
+        return _widget_list("TABLE")
+
+    if query_type == "multi_independent":
+        widgets: List[Dict[str, Any]] = []
+        sections = []
+        if isinstance(intent.get("combined_result"), dict):
+            sections = intent["combined_result"].get("sections") or []
+        for section in sections:
+            if isinstance(section, dict):
+                label = section.get("label") or "Section"
+                widgets.append(
+                    {
+                        "type": "TABLE",
+                        "title": label,
+                        "section_label": label,
+                        "source_hint": "section",
+                    }
+                )
+        return widgets or _widget_list("TABLE")
+
+    summary_widgets = _SUMMARY_WIDGET_PLANS.get((category, operation))
+    if not summary_widgets:
+        # Fallbacks for queries that are clearly summary-oriented but whose
+        # canonical operation name does not have an explicit row above.
+        if response_type == "Detailed":
+            return _widget_list("TABLE")
+        return _widget_list("TABLE")
+
+    if response_type == "Detailed":
+        return _widget_list(*_detail_widgets_for(summary_widgets))
+    return _widget_list(*summary_widgets)
+
+
 def build_visualization_intent(
     question: str,
     intent: Dict[str, Any],
     combined_result: Any = None,
+    query_type_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     text = (question or "").strip().lower()
     operation = (
@@ -73,7 +238,7 @@ def build_visualization_intent(
         or intent.get("query_type")
         or ""
     ).lower()
-    query_type = (intent.get("query_type") or "").lower()
+    query_type = (query_type_override or intent.get("query_type") or "").lower()
     records = _flatten_records(combined_result)
     numeric_data = _has_numeric_signal(records)
 
@@ -85,6 +250,18 @@ def build_visualization_intent(
     metric = intent.get("metric") or ("average_score" if numeric_data else "count")
 
     explicit_presentation = _detect_explicit_presentation(text)
+    intent_with_result = {**intent, "combined_result": combined_result}
+    widgets = _plan_widgets(
+        text=text,
+        intent=intent_with_result,
+        records=records,
+        explicit_override=explicit_presentation,
+        comparison=False,
+        trend=False,
+        group_by=group_by,
+        metric=metric,
+        query_type=query_type,
+    )
     if explicit_presentation:
         presentation = explicit_presentation["presentation"]
         chart_type = explicit_presentation.get("chart_type")
@@ -96,7 +273,7 @@ def build_visualization_intent(
         # If user explicitly requested a chart type AND it's a comparison,
         # keep the chart_type so the comparison widget engine can honor it.
         if comparison and chart_type:
-            # Mark as comparison_chart_override so comparison widgets can use it
+            widgets = _comparison_widgets(chart_type)
             result = {
                 "presentation": "chart",
                 "chart_type": chart_type,
@@ -108,6 +285,7 @@ def build_visualization_intent(
                 "record_count": len(records),
                 "numeric_data": numeric_data,
                 "frontend_override": True,
+                "widgets": widgets,
             }
             return result
         if comparison:
@@ -123,6 +301,7 @@ def build_visualization_intent(
             "record_count": len(records),
             "numeric_data": numeric_data,
             "frontend_override": True,
+            "widgets": widgets,
         }
         return result
 
@@ -164,6 +343,18 @@ def build_visualization_intent(
     if not chart_type and presentation == "chart":
         chart_type = "bar" if comparison else ("line" if trend else "pie")
 
+    widgets = _plan_widgets(
+        text=text,
+        intent=intent_with_result,
+        records=records,
+        explicit_override=None,
+        comparison=comparison,
+        trend=trend,
+        group_by=group_by,
+        metric=metric,
+        query_type=query_type,
+    )
+
     return {
         "presentation": presentation,
         "chart_type": chart_type,
@@ -173,4 +364,5 @@ def build_visualization_intent(
         "metric": metric,
         "record_count": len(records),
         "numeric_data": numeric_data,
+        "widgets": widgets,
     }

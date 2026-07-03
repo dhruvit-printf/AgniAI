@@ -5,12 +5,8 @@ Widget / Schema Inference Engine for the AgniAI admin pipeline.
 
 Converts CombinedResult into a single deterministic FormattedData structure.
 
-Widget selection priority:
-  1. visualization_intent["requested_widget_type"]  — frontend override (user chose a view)
-  2. WIDGET_MAP[(category, operation)]              — intent-keyed defaults
-  3. query_type heuristic                           — comparison/trend/distribution
-  4. record count heuristic                        — 1 record → CARD
-  5. TABLE                                         — last resort
+Widget selection is owned by visualization_intent.py and routed by
+widget_selector.py. This module only builds the requested widget data.
 """
 
 from __future__ import annotations
@@ -211,6 +207,60 @@ def _extract_records(
     )
 
 
+def _planned_widget_types(
+    visualization_intent: Optional[Dict[str, Any]],
+) -> List[str]:
+    if not isinstance(visualization_intent, dict):
+        return []
+    widgets = visualization_intent.get("widgets")
+    if not isinstance(widgets, list):
+        return []
+    planned: List[str] = []
+    for widget in widgets:
+        if isinstance(widget, dict) and widget.get("type"):
+            planned.append(str(widget["type"]).upper())
+    return planned
+
+
+def _effective_visualization_intent(
+    query_type: str,
+    intent: Dict[str, Any],
+    combined_result: Any,
+    visualization_intent: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    if isinstance(visualization_intent, dict):
+        planned = _planned_widget_types(visualization_intent)
+        if planned:
+            return visualization_intent
+        override = (
+            visualization_intent.get("requested_widget_type")
+            or visualization_intent.get("widget_type")
+        )
+        if override:
+            from visualization_intent import build_visualization_intent
+
+            resolved = build_visualization_intent(
+                "",
+                {**intent, "query_type": query_type},
+                combined_result,
+                query_type_override=query_type,
+            )
+            resolved["widgets"] = [{"type": str(override).upper()}]
+            return {**resolved, **visualization_intent}
+
+    from visualization_intent import build_visualization_intent
+
+    resolved = build_visualization_intent(
+        "",
+        {**intent, "query_type": query_type},
+        combined_result,
+        query_type_override=query_type,
+    )
+    if isinstance(visualization_intent, dict):
+        resolved = {**resolved, **visualization_intent}
+    return resolved
+
+
 from schemas import (
     BarChartData,
     CardData,
@@ -223,232 +273,6 @@ from schemas import (
     TableColumn,
     TableData,
 )
-
-# ---------------------------------------------------------------------------
-# WIDGET_MAP — (category, operation) → widget type constant
-#
-# Keys must match exactly what classify_admin_intent() returns for
-# intent["category"] and intent["operation"] / intent["subcategory"].
-#
-# Widget type constants:
-#   TABLE        — tabular grid
-#   CARD         — stat cards
-#   BAR_CHART    — vertical bar chart
-#   LINE_CHART   — line / trend chart
-#   AREA_CHART   — area chart (comparison)
-#   PIE_CHART    — pie chart
-#   DONUT_CHART  — donut chart
-#   RADIAL_CHART — radial / gauge chart
-# ---------------------------------------------------------------------------
-WIDGET_MAP: Dict[Tuple[str, str], str] = {
-    # ── Performance ──────────────────────────────────────────────────────────
-    ("Performance", "Top"): "TABLE",
-    ("Performance", "Bottom"): "TABLE",
-    ("Performance", "Improvement"): "LINE_CHART",
-    ("Performance", "ImprovementTrend"): "LINE_CHART",
-    ("Performance", "Drop"): "LINE_CHART",
-    ("Performance", "DropTrend"): "LINE_CHART",
-    ("Performance", "Grading"): "TABLE",
-    ("Performance", "GradingSummary"): "BAR_CHART",
-    ("Performance", "Average"): "PIE_CHART",
-    ("Performance", "AttemptWise"): "TABLE",
-    ("Performance", "BestAttempt"): "TABLE",
-    ("Performance", "Comparison"): "AREA_CHART",
-    # ── Leave ─────────────────────────────────────────────────────────────────
-    ("Leave", "Most"): "TABLE",
-    ("Leave", "Least"): "TABLE",
-    ("Leave", "Current"): "TABLE",
-    ("Leave", "Absconded"): "TABLE",
-    ("Leave", "LeaveType"): "TABLE",
-    # ── Medical ──────────────────────────────────────────────────────────────
-    ("Medical", "Active"): "TABLE",
-    ("Medical", "BMI"): "DONUT_CHART",
-    ("Medical", "BMIAnalysis"): "DONUT_CHART",  # already correct name
-    ("Medical", "Disease"): "TABLE",
-    # ── Attendance ───────────────────────────────────────────────────────────
-    ("Attendance", "Monthly"): "BAR_CHART",
-    ("Attendance", "MonthlyAttendance"): "BAR_CHART",
-    ("Attendance", "Weekly"): "BAR_CHART",
-    ("Attendance", "WeeklyAttendance"): "BAR_CHART",
-    ("Attendance", "Daily"): "TABLE",
-    ("Attendance", "Present"): "PIE_CHART",
-    ("Attendance", "PresentToday"): "PIE_CHART",
-    ("Attendance", "Summary"): "TABLE",
-    ("Attendance", "AttendanceSummary"): "TABLE",
-    # ── Strength ─────────────────────────────────────────────────────────────
-    ("Strength", "StrengthBreakdown"): "RADIAL_CHART",
-    # ── Verification ─────────────────────────────────────────────────────────
-    ("Verification", "Pending"): "TABLE",
-    ("Verification", "Completed"): "TABLE",
-    ("Verification", "CompletedVerification"): "TABLE",
-    ("Verification", "NotResponded"): "TABLE",
-    ("Verification", "Verified"): "TABLE",
-    ("Verification", "Rejected"): "TABLE",
-    ("Verification", "Sent"): "TABLE",
-    ("Verification", "SentVerification"): "TABLE",
-    # ── Equipment ────────────────────────────────────────────────────────────
-    ("Equipment", "Stats"): "TABLE",
-    ("Equipment", "EquipmentSummary"): "TABLE",
-    ("Equipment", "Returned"): "TABLE",
-    ("Equipment", "Holding"): "TABLE",
-    ("Equipment", "HoldingEquipment"): "TABLE",
-    ("Equipment", "AgniveerWise"): "TABLE",
-    ("Equipment", "AgniveerWiseEquipment"): "TABLE",
-    ("Equipment", "Search"): "TABLE",
-    ("Equipment", "EquipmentSearch"): "TABLE",
-    # ── Skills / Roster ──────────────────────────────────────────────────────
-    ("Skills", "BySport"): "TABLE",
-    ("Skills", "ByClass"): "TABLE",
-    ("Roster", "BySport"): "TABLE",
-    ("Roster", "ByClass"): "TABLE",
-    # ── Distribution ─────────────────────────────────────────────────────────
-    ("Distribution", "Latest"): "TABLE",
-    ("Distribution", "ByUnit"): "TABLE",
-    ("Distribution", "Unassigned"): "TABLE",
-    ("Distribution", "TopUnit"): "CARD",
-    ("Distribution", "Overall"): "TABLE",
-    ("Distribution", "Schedule"): "TABLE",
-    # ── Overall (top-level) ──────────────────────────────────────────────────
-    ("Overall", "Overall"): "TABLE",
-    ("Overall", "OverallPerformance"): "TABLE",
-    # ── Schedule ─────────────────────────────────────────────────────────────
-    # Keyed by both .NET operation string AND subcategory name
-    ("Schedule", "Today"): "TABLE",
-    ("Schedule", "Agniveer"): "TABLE",
-    ("Schedule", "TodaySchedule"): "TABLE",
-    ("Schedule", "AgniveerSchedule"): "TABLE",
-    ("schedule", "Today"): "TABLE",
-    ("schedule", "Agniveer"): "TABLE",
-    ("schedule", "TodaySchedule"): "TABLE",
-    ("schedule", "AgniveerSchedule"): "TABLE",
-    ("schedule", "CompanySchedule"): "TABLE",
-    ("schedule", "DateSchedule"): "TABLE",
-    # ── Medical extras ───────────────────────────────────────────────────────
-    ("Medical", "Individual"): "TABLE",
-    ("Medical", "IndividualMedical"): "TABLE",
-    ("Medical", "BloodGroup"): "TABLE",
-    # ── Attendance extras ────────────────────────────────────────────────────
-    ("Attendance", "Yearly"): "BAR_CHART",
-    ("Attendance", "YearlyAttendance"): "BAR_CHART",
-    # ── Performance subcategory-keyed (direct lookup without alias) ───────────
-    ("Performance", "GradeDistribution"): "TABLE",
-    ("Performance", "AverageScore"): "PIE_CHART",
-}
-
-# Summary-response overrides for operations whose summary visualization differs
-# from the detailed/default widget type.
-SUMMARY_WIDGET_OVERRIDES: Dict[Tuple[str, str], str] = {
-    ("Leave", "Current"): "CARD",
-    ("Leave", "Absconded"): "CARD",
-    ("Medical", "BMI"): "DONUT_CHART",
-    ("Medical", "BloodGroup"): "PIE_CHART",
-    ("Medical", "Disease"): "BAR_CHART",
-    ("Medical", "Individual"): "CARD",
-    ("Attendance", "Summary"): "RADIAL_CHART",
-    ("Attendance", "Present"): "PIE_CHART",
-    ("Verification", "Pending"): "CARD",
-    ("Verification", "Sent"): "CARD",
-    ("Verification", "NotResponded"): "CARD",
-    ("Verification", "Completed"): "CARD",
-    ("Verification", "Verified"): "CARD",
-    ("Verification", "Rejected"): "CARD",
-    ("Equipment", "Stats"): "BAR_CHART",
-    ("Equipment", "Returned"): "CARD",
-    ("Equipment", "Holding"): "CARD",
-    ("Distribution", "ByUnit"): "BAR_CHART",
-    ("Distribution", "TopUnit"): "BAR_CHART",
-    ("Skills", "ByClass"): "BAR_CHART",
-    ("personaldetail", "info"): "CARD",
-    ("disqualified", "removed"): "CARD",
-    ("Overall", "OverallPerformance"): "CARD",
-}
-
-# ---------------------------------------------------------------------------
-# Operation aliases — maps .NET command names → canonical operation keys
-# ---------------------------------------------------------------------------
-_OPERATION_ALIASES: Dict[str, str] = {
-    "TopPerformers": "Top",
-    "LowestPerformers": "Bottom",
-    "Comparison": "Compare",
-    "MonthlyAttendance": "Monthly",
-    "WeeklyAttendance": "Weekly",
-    "YearlyAttendance": "Yearly",
-    "PresentToday": "Present",
-    "StrengthBreakdown": "StrengthBreakdown",
-    "BMIAnalysis": "BMI",
-    "EquipmentSummary": "Stats",
-    "CompletedVerification": "Verified",
-    "SentVerification": "Sent",
-    "HoldingEquipment": "Holding",
-    "AgniveerWiseEquipment": "AgniveerWise",
-    "IndividualMedical": "Individual",
-    "AttendanceSummary": "Summary",
-    "ImprovementTrend": "Improvement",
-    "DropTrend": "Drop",
-    "GradingSummary": "GradingSummary",
-    "BestAttempt": "BestAttempt",
-    "AttemptWise": "AttemptWise",
-    "TrendAnalysis": "Trend",
-    # admin_intent subcategory names → WIDGET_MAP keys
-    "GradeDistribution": "Grading",  # → ("Performance","Grading") TABLE
-    "AverageScore": "Average",  # → ("Performance","Average") CHART_PIE
-    "OverallPerformance": "OverallPerformance",
-    "MostLeaveTaken": "Most",
-    "LeastLeaveTaken": "Least",
-    "CurrentLeaveStatus": "Current",
-    "AbscondedPerson": "Absconded",
-    "DiseaseStatistics": "Disease",
-    "BloodGroup": "BloodGroup",  # → ("Medical","BloodGroup") TABLE
-    "DailyAttendance": "Daily",
-    "PendingVerification": "Pending",
-    "NotRespondedVerification": "NotResponded",
-    "VerifiedVerification": "Verified",
-    "RejectedVerification": "Rejected",
-    "PoorConditionEquipment": "Returned",
-    "EquipmentSearch": "Search",
-    "Search": "Search",
-    "LatestDistribution": "Latest",
-    "DistributionByUnit": "ByUnit",
-    "UnassignedItems": "Unassigned",
-    "TodaySchedule": "Today",
-    "AgniveerSchedule": "Agniveer",
-    "CompanySchedule": "Today",
-    "DateSchedule": "Today",
-    # Direct subcategory → map key (for cases where alias = key itself)
-    "Top": "Top",
-    "Bottom": "Bottom",
-    "Grading": "Grading",
-    "Average": "Average",
-    "Summary": "Summary",
-    "Compare": "Compare",
-    "Overall": "Overall",
-    "Most": "Most",
-    "Least": "Least",
-    "Current": "Current",
-    "Absconded": "Absconded",
-    "LeaveType": "LeaveType",
-    "Disease": "Disease",
-    "Monthly": "Monthly",
-    "Weekly": "Weekly",
-    "Daily": "Daily",
-    "Present": "Present",
-    "StrengthBreakdown": "StrengthBreakdown",
-    "Pending": "Pending",
-    "Completed": "Completed",
-    "NotResponded": "NotResponded",
-    "Verified": "Verified",
-    "Rejected": "Rejected",
-    "Returned": "Returned",
-    "BySport": "BySport",
-    "ByClass": "ByClass",
-    "Latest": "Latest",
-    "ByUnit": "ByUnit",
-    "Unassigned": "Unassigned",
-    "TopUnit": "TopUnit",
-    "Schedule": "Schedule",
-    "Today": "Today",
-}
-
 
 # ---------------------------------------------------------------------------
 # _normalize_requested_widget_type
@@ -566,140 +390,14 @@ def _map_to_supported_type(inferred: str) -> str:
     return mapped.get(inferred, "TABLE")
 
 
-def _default_widget_type_for_intent(
-    category: str,
-    operation: str,
-    query_type: str,
-) -> Optional[str]:
-    category_key = (category or "").strip()
-    operation_key = _OPERATION_ALIASES.get(
-        (operation or "").strip(), (operation or "").strip()
-    )
-
-    # Try exact (category, operation) lookup first
-    if category_key and operation_key:
-        widget_type = WIDGET_MAP.get((category_key, operation_key))
-        if widget_type:
-            return widget_type
-        # Also try the raw operation without alias resolution
-        widget_type = WIDGET_MAP.get((category_key, (operation or "").strip()))
-        if widget_type:
-            return widget_type
-
-    # Query-type heuristics when no map entry matches
-    qtype = (query_type or "").strip().lower()
-    if qtype in ("compare", "comparison"):
-        return "AREA_CHART"
-    if qtype == "trend":
-        return "LINE_CHART"
-    if qtype == "distribution":
-        return "PIE_CHART"
-    if qtype == "cross_filter":
-        return "TABLE"
-    return None
-
-
 def infer_supported_type(
     combined_result: Any,
     query_type: str,
     intent: Dict[str, Any],
     visualization_intent: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """
-    Resolve the widget type using priority order:
-      1. Explicit frontend override in visualization_intent
-      2. WIDGET_MAP[(category, operation/subcategory)]
-      3. Soft presentation/chart_type hints
-      4. query_type heuristics (compare/trend/distribution)
-      5. Record count heuristics (1 record -> CARD unless responseType is Detail)
-      6. Fallback TABLE
-    """
-    qtype = (query_type or "").strip().lower()
-
-    # ── Priority 1: Explicit frontend override ──
-    if isinstance(visualization_intent, dict):
-        if (
-            visualization_intent.get("frontend_override")
-            or visualization_intent.get("requested_widget_type")
-            or visualization_intent.get("widget_type")
-        ):
-            raw_requested = visualization_intent.get(
-                "requested_widget_type"
-            ) or visualization_intent.get("widget_type")
-            normalized = _normalize_requested_widget_type(raw_requested)
-            if normalized:
-                return normalized
-
-    # ── Priority 3: WIDGET_MAP ──
-    category = (intent.get("category") or "").strip()
-    subcategory = (intent.get("subcategory") or "").strip()
-    operation = (intent.get("operation") or "").strip()
-
-    default_widget = _default_widget_type_for_intent(category, subcategory, query_type)
-    if not default_widget and operation:
-        default_widget = _default_widget_type_for_intent(
-            category, operation, query_type
-        )
-    if default_widget:
-        if intent.get("responseType") == "Summary":
-            summary_widget = SUMMARY_WIDGET_OVERRIDES.get((category, operation))
-            if not summary_widget and subcategory:
-                summary_widget = SUMMARY_WIDGET_OVERRIDES.get((category, subcategory))
-            if summary_widget:
-                return summary_widget
-        # Summary-shaped responses that resolve to a thin (0-1 record) result
-        # should render as a CARD, not the category's default TABLE.
-        if default_widget == "TABLE" and intent.get("responseType") == "Summary":
-            records = _extract_records(combined_result, deep_flatten=False)
-            if len(records) <= 1:
-                return "CARD"
-        return default_widget
-
-    # ── Priority 2: Presentation/chart_type hints (non-override soft hints) ──
-    if isinstance(visualization_intent, dict):
-        presentation = (visualization_intent.get("presentation") or "").strip().lower()
-        chart_type = (visualization_intent.get("chart_type") or "").strip().lower()
-
-        if presentation == "cards":
-            return "CARD"
-        if presentation == "table":
-            return "TABLE"
-        if presentation == "chart":
-            if chart_type == "line":
-                return "LINE_CHART"
-            if chart_type == "pie":
-                return "PIE_CHART"
-            if chart_type == "bar":
-                return "BAR_CHART"
-            if chart_type == "area":
-                return "AREA_CHART"
-            if chart_type == "donut":
-                return "DONUT_CHART"
-            if chart_type == "radial":
-                return "RADIAL_CHART"
-
-    # ── Priority 4: query_type heuristic ──
-    if qtype in ("compare", "comparison"):
-        return "AREA_CHART"
-    if qtype == "trend":
-        return "LINE_CHART"
-    if qtype == "distribution":
-        return "PIE_CHART"
-    if qtype == "cross_filter":
-        return "TABLE"
-
-    # ── Priority 5: Record-count heuristic ──
-    records = _extract_records(combined_result, deep_flatten=False)
-    has_sections = isinstance(combined_result, dict) and "sections" in combined_result
-    if (
-        len(records) == 1
-        and intent.get("responseType") != "Detail"
-        and not has_sections
-    ):
-        return "CARD"
-
-    # ── Priority 6: Fallback ──
-    return "TABLE"
+    planned = _planned_widget_types(visualization_intent)
+    return planned[0] if planned else "TABLE"
 
 
 def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]:
@@ -1146,12 +844,15 @@ def build_formatted_data(
     visualization_intent: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     source_result = combined_result
+    effective_visualization_intent = _effective_visualization_intent(
+        query_type, intent, source_result, visualization_intent
+    )
 
     inferred_type = infer_supported_type(
         source_result,
         query_type,
         intent,
-        visualization_intent=visualization_intent,
+        visualization_intent=effective_visualization_intent,
     )
 
     from normalized_models import _derive_title
@@ -1165,22 +866,21 @@ def build_formatted_data(
     ):
         from widget_selector import WidgetSelector
 
-        primary_wt = infer_supported_type(
-            source_result, query_type, intent, visualization_intent
-        )
-        chart_override = (
-            visualization_intent.get("comparison_chart_override")
-            if isinstance(visualization_intent, dict)
-            else None
-        )
         selector = WidgetSelector()
         specs = selector.select(
             query_type=query_type,
             intent=intent,
             combined_result=source_result,
-            primary_widget_type=primary_wt,
+            primary_widget_type=infer_supported_type(
+                source_result, query_type, intent, effective_visualization_intent
+            ),
             analysis=analysis,
-            comparison_chart_override=chart_override,
+            comparison_chart_override=(
+                effective_visualization_intent.get("comparison_chart_override")
+                if isinstance(effective_visualization_intent, dict)
+                else None
+            ),
+            visualization_intent=effective_visualization_intent,
         )
         if specs:
             spec = specs[0]
@@ -1762,26 +1462,32 @@ def build_comparison_widgets(
     right_label = str(right_side.get("label") or "Right")
     vs_title = f"{left_label} vs {right_label}"
 
-    raw_viz = combined_result.get("visualizationType") or "COMPARE_TABLE"
-    viz_type = _COMPARE_TYPE_ALIASES.get(raw_viz, raw_viz)
+    planned = _planned_widget_types(visualization_intent)
+    viz_type = planned[0] if planned else "COMPARE_TABLE"
+    if viz_type in _COMPARE_TYPE_ALIASES:
+        viz_type = _COMPARE_TYPE_ALIASES[viz_type]
     if viz_type == "COMPARE_CARD":
         viz_type = "COMPARE_TABLE"
 
-    # Honor user's explicit chart type request (e.g. "compare in line chart")
-    _CHART_TYPE_TO_COMPARE = {
-        "line": "COMPARE_LINE_CHART",
-        "bar": "COMPARE_BAR_CHART",
-        "pie": "COMPARE_PIE_CHART",
-        "donut": "COMPARE_PIE_CHART",
-        "radial": "COMPARE_PIE_CHART",
-        "area": "COMPARE_LINE_CHART",
-    }
-    if isinstance(visualization_intent, dict):
-        override = visualization_intent.get("comparison_chart_override")
-        if override and isinstance(override, str):
-            mapped = _CHART_TYPE_TO_COMPARE.get(override.lower())
-            if mapped:
-                viz_type = mapped
+    # Preserve legacy fallback when no visualization plan is available.
+    if not planned:
+        raw_viz = combined_result.get("visualizationType") or "COMPARE_TABLE"
+        viz_type = _COMPARE_TYPE_ALIASES.get(raw_viz, raw_viz)
+        if viz_type == "COMPARE_CARD":
+            viz_type = "COMPARE_TABLE"
+        if isinstance(visualization_intent, dict):
+            override = visualization_intent.get("comparison_chart_override")
+            if override and isinstance(override, str):
+                mapped = {
+                    "line": "COMPARE_LINE_CHART",
+                    "bar": "COMPARE_BAR_CHART",
+                    "pie": "COMPARE_PIE_CHART",
+                    "donut": "COMPARE_PIE_CHART",
+                    "radial": "COMPARE_PIE_CHART",
+                    "area": "COMPARE_LINE_CHART",
+                }.get(override.lower())
+                if mapped:
+                    viz_type = mapped
 
     widgets: List[Dict[str, Any]] = []
 
@@ -1918,42 +1624,11 @@ def build_widget_list(
 
     Always returns at least one widget — never an empty list.
     """
-    if (
-        query_type in ("compare", "comparison")
-        and isinstance(combined_result, dict)
-        and "sides" in combined_result
-    ):
-        from normalized_models import _derive_title
-
-        base_title = _derive_title(query_type, intent) or ""
-        widgets = build_comparison_widgets(
-            combined_result, base_title, visualization_intent=visualization_intent
-        )
-        for w in widgets:
-            if isinstance(w, dict) and isinstance(w.get("data"), dict):
-                for key in ("degraded", "failedFilters", "matchCount"):
-                    if key in combined_result:
-                        w["data"][key] = combined_result[key]
-        return widgets
-
-    from widget_selector import WidgetSelector
-
-    # Determine the primary widget type (reuses existing priority logic)
-    primary_wt = infer_supported_type(
-        combined_result, query_type, intent, visualization_intent
+    effective_visualization_intent = _effective_visualization_intent(
+        query_type, intent, combined_result, visualization_intent
     )
 
-    # Extract frontend override (if user explicitly picked a different view)
-    frontend_override: Optional[str] = None
-    if isinstance(visualization_intent, dict):
-        if visualization_intent.get("frontend_override") or visualization_intent.get(
-            "requested_widget_type"
-        ):
-            raw = visualization_intent.get(
-                "requested_widget_type"
-            ) or visualization_intent.get("widget_type")
-            if raw:
-                frontend_override = _normalize_requested_widget_type(raw)
+    from widget_selector import WidgetSelector
 
     # Ask the selector for the ordered spec list
     selector = WidgetSelector()
@@ -1961,9 +1636,11 @@ def build_widget_list(
         query_type=query_type,
         intent=intent,
         combined_result=combined_result,
-        primary_widget_type=primary_wt,
+        primary_widget_type=infer_supported_type(
+            combined_result, query_type, intent, effective_visualization_intent
+        ),
         analysis=analysis,
-        frontend_override_type=frontend_override,
+        visualization_intent=effective_visualization_intent,
     )
 
     widgets: List[Dict[str, Any]] = []
@@ -2045,3 +1722,4 @@ def build_widget_list(
             validated.append(w)
 
     return validated
+
