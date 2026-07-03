@@ -48,6 +48,7 @@ def _extract_chronological_key(record: Dict) -> Any:
 
 def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
     metrics: Dict[str, Any] = {}
+    inner: Dict[str, Any] = {}
     if isinstance(data, dict):
         inner = data
         for key in ("data", "Data", "result", "Result"):
@@ -65,7 +66,7 @@ def _extract_summary_metrics(data: Any) -> Dict[str, Any]:
                     pass
 
     records = _extract_records(data)
-    if records and not _is_flat_summary_dict(inner):
+    if records and not (isinstance(data, dict) and _is_flat_summary_dict(inner)):
         metrics["recordCount"] = len(records)
         scores = [s for s in (_get_score(r) for r in records) if s is not None]
         if scores:

@@ -145,7 +145,7 @@ def extract_records(data: Any) -> List[Dict]:
     # this object, but it carries real scalar content (e.g. a Summary-shaped
     # .NET response like {"totalRecords": 42, "averageScore": 71.3}).
     # Treat it as a single record instead of silently returning [].
-    if has_any_data([data]):
+    if not any(isinstance(value, (dict, list)) for value in data.values()) and has_any_data([data]):
         return [data]
 
     return []

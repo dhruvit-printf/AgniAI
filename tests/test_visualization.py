@@ -56,9 +56,9 @@ class TestWidgetEngine(unittest.TestCase):
         }
         res = build_formatted_data(answer, query_type="distribution", intent={})
         self.assertEqual(res["type"], "PIE_CHART")
-        series_data = res["data"]["series"][0]["data"]
-        self.assertEqual(series_data[0]["value"], 0)
-        self.assertEqual(series_data[1]["value"], 5)
+        rows = res["data"]["rows"]
+        self.assertEqual(rows[0]["value"], 0)
+        self.assertEqual(rows[1]["value"], 5)
 
     def test_trend_widgets_yield_line_chart(self):
         answer = {
@@ -127,7 +127,7 @@ class TestWidgetEngine(unittest.TestCase):
 
         res = build_formatted_data(answer, query_type="simple", intent={})
         self.assertEqual(res["type"], "TABLE")
-        row = res["data"]["rows"][0]
+        row = res["data"]["row"][0]
         self.assertIn("fullName", row)  # camelCase after normalisation
         self.assertIn("agniveerNo", row)  # camelCase after normalisation
         self.assertNotIn("attempts", row)

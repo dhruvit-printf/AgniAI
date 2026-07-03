@@ -3,7 +3,8 @@ response_builder.py
 ===================
 Final response assembly layer.
 
-formattedData   — always a list of widget dicts {type, title, data}.
+formattedData   — a single widget dict when one widget exists, otherwise a list.
+summary         — unified root-level narrative string.
 analysis        — root-level narrative string (not inside widgets).
 prediction      — root-level prediction string (not inside widgets).
 conclusion      — root-level conclusion string (not inside widgets).
@@ -78,20 +79,29 @@ def build_response(
     if "sessionId" not in meta:
         meta["sessionId"] = session_id
 
+    summary = " ".join(
+        part for part in (_to_str(analysis), _to_str(prediction), _to_str(conclusion)) if part
+    ).strip()
+
+    def _normalize_formatted_data(value: Any) -> Any:
+        if isinstance(value, list):
+            if len(value) == 1:
+                return value[0]
+            return value
+        if isinstance(value, dict):
+            return value
+        return value
+
     # If it is a COMPARISON query:
     if meta.get("queryType") == "COMPARISON":
         # formattedData is a list of comparison widgets from build_comparison_widgets()
-        if isinstance(formatted_data, list):
-            fd = formatted_data
-        elif isinstance(formatted_data, dict) and formatted_data:
-            fd = [formatted_data]
-        else:
-            fd = []
+        fd = _normalize_formatted_data(formatted_data)
 
         return {
             "status": True,
             "message": message or "",
             "formattedData": fd,
+            "summary": summary,
             "analysis": _to_str(analysis),
             "prediction": _to_str(prediction),
             "conclusion": _to_str(conclusion),
@@ -106,12 +116,7 @@ def build_response(
         }
 
     # For other query types
-    if isinstance(formatted_data, list):
-        fd: List[Any] = formatted_data
-    elif isinstance(formatted_data, dict) and formatted_data:
-        fd = [formatted_data]
-    else:
-        fd = []
+    fd = _normalize_formatted_data(formatted_data)
 
     # Preserve dotnetPayload exactly as passed:
     #   - None   → no .NET query was executed (conversational / greeting)
@@ -122,6 +127,7 @@ def build_response(
         "status": True,
         "message": message or "",
         "formattedData": fd,
+        "summary": summary,
         # Root-level narrative — plain strings, never inside individual widgets
         "analysis": _to_str(analysis),
         "prediction": _to_str(prediction),

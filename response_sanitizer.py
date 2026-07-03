@@ -5,7 +5,8 @@ Universal response contract (all fields mandatory, no extras):
 {
     "status":             bool,
     "message":            str,
-    "formattedData":      [ { "type": str, "title": str, "data": dict } ],
+    "formattedData":      { "type": str, "title": str, "data": dict } | [ ... ],
+    "summary":            str,
     "analysis":           str,
     "prediction":         str,
     "conclusion":         str,
@@ -27,7 +28,7 @@ Universal response contract (all fields mandatory, no extras):
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 # Only these three keys are exposed per widget.
 # id, analysis, prediction, conclusion are internal — never sent to frontend.
@@ -40,13 +41,15 @@ def _clean_widget(widget: Any) -> Dict[str, Any]:
     return {key: widget[key] for key in _ALLOWED_WIDGET_KEYS if key in widget}
 
 
-def _clean_formatted_data(formatted: Any) -> List[Dict[str, Any]]:
-    """Always returns a list of cleaned widget dicts."""
+def _clean_formatted_data(formatted: Any) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+    """Preserve single-widget objects and lists of widgets."""
     if isinstance(formatted, list):
-        return [_clean_widget(w) for w in formatted if isinstance(w, dict)]
+        cleaned = [_clean_widget(w) for w in formatted if isinstance(w, dict)]
+        if len(cleaned) == 1:
+            return cleaned[0]
+        return cleaned
     if isinstance(formatted, dict) and formatted:
-        # Legacy single-widget shape — wrap in list
-        return [_clean_widget(formatted)]
+        return _clean_widget(formatted)
     return []
 
 
@@ -72,6 +75,7 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
         "status": bool(payload.get("status", True)),
         "message": (payload.get("message") or "").strip(),
         "formattedData": formatted,
+        "summary": (payload.get("summary") or ""),
         "analysis": (payload.get("analysis") or ""),
         "prediction": (payload.get("prediction") or ""),
         "conclusion": (payload.get("conclusion") or ""),

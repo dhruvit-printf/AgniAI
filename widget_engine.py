@@ -401,13 +401,20 @@ def infer_supported_type(
 
 
 def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]:
-    """CARD schema: { cards: [{title, value}] }"""
+    """CARD schema: { cards: [{title, subtitle, value, description}] }"""
     cards = []
     for r in records:
         card_title = (
             r.get("fullName")
             or r.get("name")
             or (f"Record {r.get('id', '')}" if "id" in r else "Details")
+        )
+        subtitle = (
+            r.get("subtitle")
+            or r.get("subTitle")
+            or r.get("label")
+            or r.get("grade")
+            or ""
         )
         card_value = (
             r.get("bestTotal")
@@ -418,9 +425,24 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
             or r.get("leaveStatus")
             or ""
         )
-        cards.append({"title": str(card_title), "value": str(card_value)})
+        description = r.get("description") or r.get("details") or ""
+        cards.append(
+            {
+                "title": str(card_title),
+                "subtitle": str(subtitle),
+                "value": str(card_value),
+                "description": str(description),
+            }
+        )
     if not cards:
-        cards.append({"title": title, "value": "No records found."})
+        cards.append(
+            {
+                "title": title,
+                "subtitle": "",
+                "value": "No records found.",
+                "description": "",
+            }
+        )
     return {"cards": cards}
 
 
@@ -501,7 +523,7 @@ def make_readable_label(k: str) -> str:
 
 def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not records:
-        return {"columns": [], "rows": []}
+        return {"columns": [], "row": []}
 
     # Collect all keys, preserving insertion order across all records.
     keys_seen: List[str] = []
@@ -553,7 +575,7 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
                 row[camel_k] = val
         rows.append(row)
 
-    return {"columns": columns, "rows": rows}
+    return {"columns": columns, "row": rows}
 
 
 def _find_key(records: List[Dict], candidates: List[str]) -> Optional[str]:
@@ -582,18 +604,18 @@ def build_bar_chart_data(
     """
     BAR_CHART schema:
     {
-        "xAxis": "Label",
-        "yAxis": "Score",
-        "series": [{ "label": "...", "data": [{"x": ..., "y": ...}] }]
+        "xKey": "section",
+        "yKey": "count",
+        "rows": [{ "section": "...", "count": 0 }]
     }
     """
     records = _extract_records(combined_result, deep_flatten=False)
     records = _dedupe_records(records)
     if not records:
         return {
-            "xAxis": "",
-            "yAxis": "",
-            "series": [{"label": series_label or "Value", "data": []}],
+            "xKey": "",
+            "yKey": "",
+            "rows": [],
         }
 
     x_key = _find_key(
@@ -638,33 +660,30 @@ def build_bar_chart_data(
         or "value"
     )
 
-    data = [
-        {"x": r.get(x_key) or r.get("fullName") or "Category", "y": r.get(y_key) or 0}
-        for r in records
-    ]
+    rows = []
+    for r in records:
+        x_val = r.get(x_key) or r.get("fullName") or "Category"
+        y_val = r.get(y_key) if r.get(y_key) is not None else 0
+        rows.append({x_key: x_val, y_key: y_val, "xValue": x_val, "yValue": y_val})
 
-    return {
-        "xAxis": make_readable_label(x_key),
-        "yAxis": make_readable_label(y_key),
-        "series": [{"label": series_label or make_readable_label(y_key), "data": data}],
-    }
+    return {"xKey": x_key, "yKey": y_key, "rows": rows}
 
 
 def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
     """
     LINE_CHART / AREA_CHART schema:
     {
-        "xAxis": "Month",
-        "yAxis": "Score",
-        "series": [{ "label": "...", "data": [{"x": ..., "y": ...}] }]
+        "xKey": "date",
+        "series": [{ "key": "series0", "label": "Score" }],
+        "rows": [{ "date": "...", "series0": 0 }]
     }
     """
     records = _extract_records(combined_result, deep_flatten=False)
     if not records:
         return {
-            "xAxis": "Time",
-            "yAxis": "Value",
-            "series": [{"label": "Value", "data": []}],
+            "xKey": "time",
+            "series": [],
+            "rows": [],
         }
 
     time_keys = ["date", "month", "year", "attemptNo", "attempt", "time", "day"]
@@ -680,22 +699,19 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
     if not numeric_keys:
         numeric_keys = ["value"]
 
-    import re as _re
+    series = [
+        {"key": f"series{idx}", "label": make_readable_label(sk)}
+        for idx, sk in enumerate(numeric_keys)
+    ]
 
-    series = []
-    for sk in numeric_keys:
-        series.append(
-            {
-                "label": make_readable_label(sk),
-                "data": [{"x": r.get(x_key, ""), "y": r.get(sk, 0)} for r in records],
-            }
-        )
+    rows = []
+    for r in records:
+        row: Dict[str, Any] = {x_key: r.get(x_key, "")}
+        for idx, sk in enumerate(numeric_keys):
+            row[f"series{idx}"] = r.get(sk, 0)
+        rows.append(row)
 
-    return {
-        "xAxis": make_readable_label(x_key),
-        "yAxis": make_readable_label(numeric_keys[0]),
-        "series": series,
-    }
+    return {"xKey": x_key, "series": series, "rows": rows}
 
 
 def build_pie_chart_data(
@@ -704,12 +720,12 @@ def build_pie_chart_data(
     """
     PIE_CHART / DONUT_CHART schema:
     {
-        "series": [{ "label": "...", "data": [{"label": ..., "value": ...}] }]
+        "rows": [{ "label": "", "value": 0 }]
     }
     """
     records = _extract_records(combined_result, deep_flatten=False)
     if not records:
-        return {"series": [{"label": series_label, "data": []}]}
+        return {"rows": []}
 
     label_key = _find_key(
         records,
@@ -749,7 +765,7 @@ def build_pie_chart_data(
         or "value"
     )
 
-    data = [
+    rows = [
         {
             "label": str(r.get(label_key) or r.get("fullName") or "Category"),
             "value": r.get(value_key) if r.get(value_key) is not None else 1,
@@ -757,7 +773,7 @@ def build_pie_chart_data(
         for r in records
     ]
 
-    return {"series": [{"label": series_label, "data": data}]}
+    return {"rows": rows}
 
 
 def build_radial_chart_data(combined_result: Any) -> Dict[str, Any]:
@@ -808,7 +824,7 @@ def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
         if "left" in data and "right" in data:
             return
         cols = {c["key"] for c in data.get("columns", [])}
-        for row in data.get("rows", []):
+        for row in data.get("row", []):
             for col in cols:
                 if col not in row:
                     row[col] = None
@@ -819,15 +835,17 @@ def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
         "CHART_BAR",
         "CHART_LINE",
     }:  # legacy aliases
-        for s in data.get("series", []):
-            for pt in s.get("data", []):
-                pt.setdefault("x", "")
-                pt.setdefault("y", 0)
+        rows = data.get("rows", [])
+        if isinstance(rows, list):
+            for row in rows:
+                if isinstance(row, dict):
+                    if not row:
+                        row.setdefault("xKey", "")
     elif inferred_type in {"PIE_CHART", "DONUT_CHART", "CHART_PIE"}:  # legacy alias
-        for s in data.get("series", []):
-            for pt in s.get("data", []):
-                pt.setdefault("label", "Category")
-                pt.setdefault("value", 0)
+        for row in data.get("rows", []):
+            if isinstance(row, dict):
+                row.setdefault("label", "Category")
+                row.setdefault("value", 0)
     elif inferred_type == "RADIAL_CHART":
         data.setdefault("value", 0)
         data.setdefault("maximum", 100)
@@ -888,7 +906,7 @@ def build_formatted_data(
             if isinstance(source_result, dict):
                 for k, v in source_result.items():
                     if (
-                        k not in ("records", "data", "sections", "columns", "rows")
+                        k not in ("records", "data", "sections", "columns", "row")
                         and k not in data
                     ):
                         data[k] = v
@@ -916,10 +934,10 @@ def build_formatted_data(
                 sec_payload = {
                     "label": label,
                     "columns": sec_table.get("columns", []),
-                    "rows": sec_table.get("rows", []),
+                    "row": sec_table.get("row", []),
                 }
                 for k, v in sec.items():
-                    if k not in ("label", "data", "columns", "rows"):
+                    if k not in ("label", "data", "columns", "row"):
                         sec_payload[k] = v
                 sections_list.append(sec_payload)
         data_payload = {"sections": sections_list}
@@ -943,7 +961,7 @@ def build_formatted_data(
                 left_data = [left_data] if left_data else []
             left_flat_records = flatten_records(left_data, deep_flatten=True)
             for k, v in left_section.items():
-                if k not in ("label", "data", "columns", "rows"):
+                if k not in ("label", "data", "columns", "row"):
                     left_extra[k] = v
         else:
             left_data = left_section if isinstance(left_section, list) else []
@@ -953,7 +971,7 @@ def build_formatted_data(
         left_payload = {
             "label": left_label,
             "columns": left_table.get("columns", []),
-            "rows": left_table.get("rows", []),
+            "row": left_table.get("row", []),
             **left_extra,
         }
 
@@ -968,7 +986,7 @@ def build_formatted_data(
                 right_data = [right_data] if right_data else []
             right_flat_records = flatten_records(right_data, deep_flatten=True)
             for k, v in right_section.items():
-                if k not in ("label", "data", "columns", "rows"):
+                if k not in ("label", "data", "columns", "row"):
                     right_extra[k] = v
         else:
             right_data = right_section if isinstance(right_section, list) else []
@@ -978,7 +996,7 @@ def build_formatted_data(
         right_payload = {
             "label": right_label,
             "columns": right_table.get("columns", []),
-            "rows": right_table.get("rows", []),
+            "row": right_table.get("row", []),
             **right_extra,
         }
 
@@ -1044,14 +1062,11 @@ def build_formatted_data(
         elif "sections" in data_payload:
             pass
         else:
-            series = data_payload.get("series")
-            if not series or not isinstance(series, list):
+            rows = data_payload.get("rows")
+            if not rows or not isinstance(rows, list):
                 is_invalid_chart = True
-            else:
-                for s in series:
-                    if not isinstance(s, dict) or not s.get("data"):
-                        is_invalid_chart = True
-                        break
+            elif not any(isinstance(row, dict) and row for row in rows):
+                is_invalid_chart = True
     elif inferred_type == "RADIAL_CHART":
         if data_payload.get("value") is None:
             is_invalid_chart = True
@@ -1096,7 +1111,12 @@ def build_summary_card_from_analysis(
     cards: List[Dict[str, Any]] = []
 
     def _card(title: str, value: Any) -> Dict[str, Any]:
-        return {"title": title, "value": str(value)}
+        return {
+            "title": title,
+            "subtitle": "",
+            "value": str(value),
+            "description": "",
+        }
 
     rc = stats.get("record_count")
     if rc is not None:
@@ -1208,7 +1228,7 @@ def _build_compare_card(combined_result: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_compare_table(combined_result: Dict[str, Any]) -> Dict[str, Any]:
-    """COMPARE_TABLE: {left: {columns, rows}, right: {columns, rows}}"""
+    """COMPARE_TABLE: {left: {columns, row}, right: {columns, row}}"""
     left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
 
@@ -1220,7 +1240,6 @@ def _build_compare_table(combined_result: Dict[str, Any]) -> Dict[str, Any]:
         flat = flatten_records(records, deep_flatten=True)
         table = build_table_data(flat)
         table["heading"] = _side_heading(side)
-        table["row"] = table.get("rows") or []
         return table
 
     return {
@@ -1294,14 +1313,7 @@ def _build_compare_bar(combined_result: Dict[str, Any]) -> Dict[str, Any]:
         for r in records:
             x_val = r.get(x_key)
             y_val = r.get(y_key)
-            rows.append(
-                {
-                    x_key: x_val,
-                    y_key: y_val,
-                    "xValue": x_val,
-                    "yValue": y_val,
-                }
-            )
+            rows.append({x_key: x_val, y_key: y_val})
         return {
             "heading": _side_heading(side),
             "xKey": x_key,
@@ -1348,12 +1360,10 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
         ]
         rows = []
         for r in records:
-            row: Dict[str, Any] = {x_key: r.get(x_key), "xValue": r.get(x_key)}
+            row: Dict[str, Any] = {x_key: r.get(x_key)}
             for idx, sk in enumerate(numeric_keys):
                 value = r.get(sk)
-                row[sk] = value
                 row[f"series{idx}"] = value
-                row[f"series{idx}:value"] = value
             rows.append(row)
         return {
             "heading": _side_heading(side),
@@ -1652,11 +1662,11 @@ def build_widget_list(
             if (
                 spec.widget_type == "TABLE"
                 and isinstance(data, dict)
-                and "rows" not in data
+                and "row" not in data
             ):
                 flat = _extract_records(combined_result, deep_flatten=True)
                 table_data = build_table_data(flat)
-                data["rows"] = table_data.get("rows") or []
+                data["row"] = table_data.get("row") or []
                 data["columns"] = table_data.get("columns") or []
             if isinstance(combined_result, dict) and isinstance(data, dict):
                 for key in ("degraded", "failedFilters", "matchCount"):

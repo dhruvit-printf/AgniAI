@@ -167,7 +167,7 @@ class TestResponseBuilder(unittest.TestCase):
     def test_build_response_schema(self):
         resp = build_response(
             message="Intro",
-            formatted_data={"type": "TABLE", "data": {"columns": [], "rows": []}},
+            formatted_data={"type": "TABLE", "data": {"columns": [], "row": []}},
             metadata={
                 "sessionId": "session-123",
                 "confidence": 0.95,
@@ -182,7 +182,8 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertTrue(resp["status"])
         self.assertEqual(resp["metadata"]["sessionId"], "session-123")
         self.assertEqual(resp["message"], "Intro")
-        self.assertEqual(resp["formattedData"][0]["type"], "TABLE")
+        self.assertEqual(resp["formattedData"]["type"], "TABLE")
+        self.assertEqual(resp["summary"], "")
         self.assertEqual(resp["dotnetPayload"], {"res": "val"})
         self.assertEqual(resp["suggestedQuestions"], ["Q1"])
         self.assertEqual(resp["metadata"]["operationCount"], 1)
@@ -235,7 +236,7 @@ class TestResponseBuilder(unittest.TestCase):
             formatted_data={
                 "type": "TABLE",
                 "title": "Top Performers",
-                "data": {"columns": [], "rows": []},
+                "data": {"columns": [], "row": []},
             },
             metadata={
                 "sessionId": "admin-default",
@@ -260,6 +261,7 @@ class TestResponseBuilder(unittest.TestCase):
                 "status",
                 "message",
                 "formattedData",
+                "summary",
                 "analysis",
                 "prediction",
                 "conclusion",
@@ -293,10 +295,9 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertEqual(metadata["confidence"], 0.95)
         self.assertEqual(metadata["sessionId"], "admin-default")
 
-        # formattedData widgets only have type/title/data
-        self.assertIsInstance(public["formattedData"], list)
-        self.assertTrue(len(public["formattedData"]) > 0)
-        first_widget = public["formattedData"][0]
+        # formattedData preserves the single-widget object shape
+        self.assertIsInstance(public["formattedData"], dict)
+        first_widget = public["formattedData"]
         self.assertNotIn("id", first_widget)
         self.assertNotIn("analysis", first_widget)
         self.assertNotIn("prediction", first_widget)
@@ -306,11 +307,8 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertNotIn("message", first_widget)
         self.assertEqual(public["message"], internal["message"])
 
-        if (
-            isinstance(first_widget.get("data"), dict)
-            and "rows" in first_widget["data"]
-        ):
-            for row in first_widget["data"]["rows"]:
+        if isinstance(first_widget.get("data"), dict) and "row" in first_widget["data"]:
+            for row in first_widget["data"]["row"]:
                 self.assertNotIn("dotnetPayload", row)
 
     def test_extract_primary_widget_title_handles_list_and_dict(self):
@@ -345,7 +343,7 @@ class TestBuildResponseSecurity:
         }
         resp = build_response(
             message="Intro",
-            formatted_data={"type": "TABLE", "data": {"columns": [], "rows": []}},
+            formatted_data={"type": "TABLE", "data": {"columns": [], "row": []}},
             metadata={
                 "sessionId": "session-123",
                 "confidence": 0.9,
@@ -483,12 +481,15 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         # Verify that response_payload contains the record John Doe
-        # formattedData is multi-widget; find the TABLE widget
-        table_widget = next(
-            (w for w in response_payload["formattedData"] if w["type"] == "TABLE"), None
-        )
+        formatted = response_payload["formattedData"]
+        if isinstance(formatted, dict):
+            table_widget = formatted if formatted.get("type") == "TABLE" else None
+        else:
+            table_widget = next(
+                (w for w in formatted if w["type"] == "TABLE"), None
+            )
         self.assertIsNotNone(table_widget, "TABLE widget not found")
-        rows = table_widget["data"]["rows"]
+        rows = table_widget["data"]["row"]
         found_john = any(
             row.get("fullName") == "John Doe" or row.get("FullName") == "John Doe"
             for row in rows

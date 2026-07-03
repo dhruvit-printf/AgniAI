@@ -34,9 +34,9 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertEqual(resp["prediction"], "Up.")
         self.assertEqual(resp["conclusion"], "Done.")
 
-        # formattedData is always a list
-        self.assertIsInstance(resp["formattedData"], list)
-        fd = resp["formattedData"][0]
+        # single-widget responses now return a bare object
+        self.assertIsInstance(resp["formattedData"], dict)
+        fd = resp["formattedData"]
         self.assertEqual(fd["type"], "TABLE")
         self.assertEqual(fd["title"], "Test Title")
         self.assertEqual(fd["data"], {"key": "val"})
@@ -68,12 +68,12 @@ class TestResponseLayerRefactor(unittest.TestCase):
         sec1 = data["sections"][0]
         self.assertEqual(sec1["label"], "Top Performers")
         self.assertEqual(len(sec1["columns"]), 2)  # name and score
-        self.assertEqual(sec1["rows"][0]["name"], "Amit")  # camelCase key
+        self.assertEqual(sec1["row"][0]["name"], "Amit")  # camelCase key
 
         sec2 = data["sections"][1]
         self.assertEqual(sec2["label"], "Leave Takers")
         self.assertEqual(len(sec2["columns"]), 2)  # name and days
-        self.assertEqual(sec2["rows"][0]["name"], "Kapil")  # camelCase key
+        self.assertEqual(sec2["row"][0]["name"], "Kapil")  # camelCase key
 
     def test_comparison_preserves_left_right(self):
         # Verify comparison tables preserve left/right sides without flattening (Issue 2)
@@ -95,9 +95,9 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertIn("comparison", data)
 
         self.assertEqual(data["left"]["label"], "Company A")
-        self.assertEqual(data["left"]["rows"][0]["name"], "A")  # camelCase
+        self.assertEqual(data["left"]["row"][0]["name"], "A")  # camelCase
         self.assertEqual(data["right"]["label"], "Company B")
-        self.assertEqual(data["right"]["rows"][0]["name"], "B")  # camelCase
+        self.assertEqual(data["right"]["row"][0]["name"], "B")  # camelCase
         self.assertEqual(data["comparison"], {"diff": 10})
 
     def test_cross_filter_metadata_propagates(self):
@@ -139,7 +139,7 @@ class TestResponseLayerRefactor(unittest.TestCase):
         from widget_engine import build_table_data
 
         res = build_table_data(records)
-        rows = res["rows"]
+        rows = res["row"]
         self.assertEqual(rows[0]["name"], "Amit")
         # should be JSON strings of the nested dict/list
         self.assertEqual(json.loads(rows[0]["attempts"]), [{"attempt": 1, "score": 90}])
@@ -165,10 +165,10 @@ class TestResponseLayerRefactor(unittest.TestCase):
             },
         )
         # Verify that nested_info keys are flattened (now camelCase: nested_info_Sport -> nested_info_Sport first char lowered)
-        self.assertIn("nested_info_Sport", fd_table["data"]["rows"][0])
-        self.assertIn("nested_info_Detail_Level", fd_table["data"]["rows"][0])
+        self.assertIn("nested_info_Sport", fd_table["data"]["row"][0])
+        self.assertIn("nested_info_Detail_Level", fd_table["data"]["row"][0])
 
-        # 2. BAR_CHART widget -> deep flatten should NOT happen; new schema uses series
+        # 2. BAR_CHART widget -> deep flatten should NOT happen; new schema uses rows
         fd_bar = build_formatted_data(
             combined,
             query_type="simple",
@@ -178,11 +178,11 @@ class TestResponseLayerRefactor(unittest.TestCase):
                 "frontend_override": True,
             },
         )
-        # New BAR_CHART schema has series, not rows
-        self.assertIn("series", fd_bar["data"])
-        # Flattened nested keys should NOT appear as x values in the series data
-        x_values = [pt.get("x", "") for pt in fd_bar["data"]["series"][0]["data"]]
-        self.assertFalse(any("nested_info_Sport" in str(x) for x in x_values))
+        # New BAR_CHART schema has rows, not series
+        self.assertIn("rows", fd_bar["data"])
+        row = fd_bar["data"]["rows"][0]
+        self.assertIn("name", row)
+        self.assertNotIn("nested_info", row)
 
     def test_preserve_dotnet_keys(self):
         # Verify unknown keys pass through to data_payload (Issue 6)
@@ -221,7 +221,7 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertIn("name", col_keys)
         self.assertIn("attempts_section1_marks", col_keys)
 
-        rows = fd["data"]["rows"]
+        rows = fd["data"]["row"]
         self.assertEqual(rows[0]["name"], "A")
         self.assertIsNone(rows[0]["attempts_section1_marks"])
         self.assertEqual(rows[1]["name"], "B")

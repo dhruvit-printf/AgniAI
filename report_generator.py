@@ -62,6 +62,24 @@ def _build_data_grounded_report(
             if isinstance(combined_result, dict)
             else match_count
         )
+        if match_count <= 0:
+            return {
+                "message": "No matching records found.",
+                "analysis": {
+                    "summary": "No matching records found.",
+                    "observations": [],
+                    "insights": [],
+                    "predictions": [],
+                },
+                "prediction": {
+                    "trend": "Insufficient Data",
+                    "projection": "No future projection is available because no matching records were returned.",
+                    "heuristicEstimate": "No future projection is available because no matching records were returned.",
+                    "shortTerm": "stable",
+                    "futureTrends": [],
+                },
+                "conclusion": {"summary": "No matching records found."},
+            }
         message = (
             f"The cross-filter query completed successfully and returned {match_count} matching records "
             f"out of {total_before} candidates."
@@ -77,23 +95,17 @@ def _build_data_grounded_report(
         ]
         conclusion = f"The cross-filter result set is complete with {match_count} matching records and is ready for review."
         prediction = {
-            "trend": "Stable" if match_count > 0 else "Insufficient Data",
+            "trend": "Stable",
             "projection": (
                 f"Future cross-filter runs are expected to remain near {match_count} matches if the same criteria are reused."
-                if match_count > 0
-                else "Future projections are unavailable because no matches were returned."
             ),
             "heuristicEstimate": (
                 f"Future cross-filter runs are expected to remain near {match_count} matches if the same criteria are reused."
-                if match_count > 0
-                else "Future projections are unavailable because no matches were returned."
             ),
             "shortTerm": "stable",
             "futureTrends": [
                 (
                     f"Cross-filter match counts should remain close to {match_count} when criteria and source data stay unchanged."
-                    if match_count > 0
-                    else "No stable trend can be estimated without matching records."
                 )
             ],
         }

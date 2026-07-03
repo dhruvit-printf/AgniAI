@@ -73,14 +73,14 @@ class TestArchitecturalFixes(unittest.TestCase):
     def test_response_builder_answer_key(self):
         resp = build_response(
             message="Intro text",
-            formatted_data={"type": "TABLE", "data": {"columns": [], "rows": []}},
+            formatted_data={"type": "TABLE", "data": {"columns": [], "row": []}},
             metadata={"sessionId": "session-123"},
             session_id="session-123",
             suggested_questions=[],
             dotnet_payload={},
         )
         self.assertIn("formattedData", resp)
-        self.assertIsInstance(resp["formattedData"], list)
+        self.assertIsInstance(resp["formattedData"], dict)
         self.assertEqual(resp["metadata"]["sessionId"], "session-123")
 
     def test_widgets_selection_step_12(self):
