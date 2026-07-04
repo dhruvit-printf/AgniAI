@@ -450,7 +450,7 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
             card_value = r[k]
             used_keys.add(k)
 
-        # 4. Description + Leftovers
+        # 4. Description
         desc_key = _find_key([r], ["description", "details"])
         description = str(r.get(desc_key, "") or "") if desc_key else ""
         if desc_key:
@@ -458,23 +458,17 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
         if id_key:
             used_keys.add(id_key)
 
-        leftovers = []
+        card_obj = {
+            "title": str(card_title),
+            "subtitle": str(subtitle),
+            "value": str(card_value),
+            "description": str(description),
+        }
         for k, v in r.items():
             if k not in used_keys and not str(k).lower().endswith("id"):
-                leftovers.append(f"{make_readable_label(k)}: {v}")
-        
-        if leftovers:
-            extra = " | ".join(leftovers)
-            description = f"{description}\n{extra}".strip()
-
-        cards.append(
-            {
-                "title": str(card_title),
-                "subtitle": str(subtitle),
-                "value": str(card_value),
-                "description": str(description),
-            }
-        )
+                card_obj[k] = v
+                
+        cards.append(card_obj)
     if not cards:
         cards.append(
             {

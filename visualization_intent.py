@@ -78,12 +78,12 @@ _SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
     ("Performance", "trend"): ["CHART_LINE"],
     ("Leave", "most"): ["TABLE"],
     ("Leave", "least"): ["TABLE"],
-    ("Leave", "current"): ["CARD"],
-    ("Leave", "absconded"): ["CARD"],
+    ("Leave", "current"): ["TABLE"],
+    ("Leave", "absconded"): ["TABLE"],
     ("Medical", "bmi"): ["CHART_PIE"],
     ("Medical", "bloodgroup"): ["CHART_PIE"],
     ("Medical", "disease"): ["CHART_BAR"],
-    ("Medical", "individual"): ["CARD"],
+    ("Medical", "individual"): ["TABLE"],
     ("Attendance", "monthly"): ["CHART_BAR"],
     ("Attendance", "weekly"): ["CHART_BAR"],
     ("Attendance", "daily"): ["ATTENDANCE_CALENDAR"],
@@ -111,9 +111,9 @@ _SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
     ("Schedule", "company"): ["TABLE"],
     ("Schedule", "date"): ["TABLE"],
     ("Schedule", "agniveer"): ["TABLE"],
-    ("personaldetail", "info"): ["CARD"],
-    ("disqualified", "removed"): ["CARD"],
-    ("Overall", "overallperformance"): ["CARD"],
+    ("personaldetail", "info"): ["TABLE"],
+    ("disqualified", "removed"): ["TABLE"],
+    ("Overall", "overallperformance"): ["TABLE"],
 }
 
 
