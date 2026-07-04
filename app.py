@@ -1443,4 +1443,4 @@ if __name__ == "__main__":
     else:
         logger.info("Knowledge base ready: %s vectors.", stats_data["vectors"])
 
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)

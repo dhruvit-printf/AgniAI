@@ -588,8 +588,20 @@ def generate_report(
 
     return {
         "message": message,
-        "analysis": analysis_str,
-        "prediction": prediction_str,
+        "analysis": {
+            "summary": analysis_str,
+            "insights": [],
+            "statistics": {},
+            "observations": [],
+            "predictions": [],
+        },
+        "prediction": {
+            "trend": "Stable",
+            "projection": prediction_str,
+            "heuristicEstimate": prediction_str,
+            "shortTerm": "stable",
+            "futureTrends": [prediction_str] if prediction_str else [],
+        },
         "conclusion": {
             "summary": conclusion_str,
             "bullets": (

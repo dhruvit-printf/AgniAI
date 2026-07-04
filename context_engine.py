@@ -165,14 +165,6 @@ _DOMAIN_KEYWORDS = frozenset(
 
 # Phrases that are unambiguously continuations regardless of domain keywords
 _EXPLICIT_FOLLOWUP_PHRASES = (
-    "top 5",
-    "top 10",
-    "top 3",
-    "top 20",
-    "top 50",
-    "bottom 5",
-    "bottom 10",
-    "bottom 3",
     "only these",
     "list them",
     "show them",
@@ -289,7 +281,11 @@ def _compute_follow_up_score(msg: str) -> float:
 
     # Pronoun references
     if _has_pronoun(tokens):
-        score += 0.4
+        pronoun_idx = next((i for i, t in enumerate(tokens) if t in _PRONOUN_TOKENS), -1)
+        if 0 <= pronoun_idx <= 3:
+            score += 0.4
+        else:
+            score += 0.1
 
     # Continuation tokens at the start
     for tok in _CONTINUATION_TOKENS:
@@ -613,16 +609,22 @@ class ConversationContextEngine:
 
         # Step 1 — decide if this is a follow-up
         follow_up_score = _compute_follow_up_score(raw_message)
-        if follow_up_score < 0.35:
+        if follow_up_score < 0.40:
             return _fresh
 
         # Step 2 — score each past interaction for relevance
         # Note: for strong follow-ups the message intentionally omits domain keywords,
         # so we treat recency (most recent = index 0) as the default match.
         scored: List[Tuple[float, int, InteractionRecord]] = []
+        current_time = time.time()
         for idx, record in enumerate(reversed(history)):  # idx=0 is most recent
+            if current_time - record.timestamp > 600:
+                continue  # TTL: ignore interactions older than 10 minutes
             rel = _compute_relevance(raw_message, record)
             scored.append((rel, idx, record))
+            
+        if not scored:
+            return _fresh
 
         scored.sort(key=lambda x: x[0], reverse=True)
         best_score, best_idx, best_record = scored[0]

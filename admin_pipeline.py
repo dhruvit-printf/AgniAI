@@ -763,8 +763,9 @@ def execute_admin_query(
     response_dotnet_payload: Any = []
 
     request_id = uuid.uuid4().hex
-    if session_id is None:
-        session_id = _get_session_id(body)
+    if not session_id or session_id == "admin-default":
+        session_id = uuid.uuid4().hex
+        logger.warning(f"No persistent sessionId provided. Assigned random session ID: {session_id}. Conversational memory disabled for this request.")
 
     token_req = request_id_var.set(request_id)
     token_trace = trace_id_var.set(trace_id)
@@ -890,21 +891,29 @@ def execute_admin_query(
                     prev_history = _session_context._history.get(session_id)
                     if prev_history:
                         prev_intent = prev_history.get("intent") or {}
-                        if existing_co is None:
-                            existing_co = prev_intent.get("company_id") or prev_intent.get(
-                                "companyId"
-                            )
-                        if existing_pl is None:
-                            existing_pl = prev_intent.get("platoon_id") or prev_intent.get(
-                                "platoonId"
-                            )
-                        if existing_ba is None:
-                            existing_ba = prev_intent.get("batch_id") or prev_intent.get(
-                                "batchId"
-                            )
-                        resolved_agniveer_no = prev_intent.get(
-                            "agniveer_no"
-                        ) or prev_intent.get("agniveerNo")
+                        
+                        new_cat = semantic_understanding.get("intent", {}).get("category")
+                        old_cat = prev_intent.get("category")
+                        
+                        if new_cat and old_cat and new_cat != old_cat and new_cat != "Unknown":
+                            logger.info(f"Category shift ({old_cat} -> {new_cat}). Dropping conversational filters.")
+                            carry_forward_filters.clear()
+                        else:
+                            if existing_co is None:
+                                existing_co = prev_intent.get("company_id") or prev_intent.get(
+                                    "companyId"
+                                )
+                            if existing_pl is None:
+                                existing_pl = prev_intent.get("platoon_id") or prev_intent.get(
+                                    "platoonId"
+                                )
+                            if existing_ba is None:
+                                existing_ba = prev_intent.get("batch_id") or prev_intent.get(
+                                    "batchId"
+                                )
+                            resolved_agniveer_no = prev_intent.get(
+                                "agniveer_no"
+                            ) or prev_intent.get("agniveerNo")
 
             new_resolved = resolve_entities_from_query(
                 message,
