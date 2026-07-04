@@ -96,7 +96,7 @@ def _infer_side_visualization_type(side: Dict[str, Any]) -> str:
 
     time_keys = {"date", "month", "year", "attempt", "timestamp", "week", "createddate"}
     if any(tk in sample_keys for tk in time_keys):
-        return "COMPARE_LINE_CHART"
+        return "COMPARE_CHART_LINE"
 
     pie_keys = {
         "leavetype",
@@ -112,7 +112,7 @@ def _infer_side_visualization_type(side: Dict[str, Any]) -> str:
         "grade",
     }
     if any(pk in sample_keys for pk in pie_keys):
-        return "COMPARE_PIE_CHART"
+        return "COMPARE_CHART_PIE"
 
     bar_keys = {
         "company",
@@ -126,7 +126,7 @@ def _infer_side_visualization_type(side: Dict[str, Any]) -> str:
         "sport",
     }
     if any(bk in sample_keys for bk in bar_keys):
-        return "COMPARE_BAR_CHART"
+        return "COMPARE_CHART_BAR"
 
     if len(records) == 1:
         if len(sample.keys()) <= 3:
@@ -136,7 +136,7 @@ def _infer_side_visualization_type(side: Dict[str, Any]) -> str:
     if len(sample.keys()) > 3:
         return "COMPARE_TABLE"
 
-    return "COMPARE_BAR_CHART"
+    return "COMPARE_CHART_BAR"
 
 
 def select_visualization_type(sides: List[Dict[str, Any]]) -> str:
@@ -324,7 +324,7 @@ def compare_datasets(
             comparison_metrics_payload["variance"][metric] = 0.0
 
     trend_diff = {}
-    if visualization_type == "COMPARE_LINE_CHART":
+    if visualization_type == "COMPARE_CHART_LINE":
         for s in sides:
             recs = s.get("data") or []
             if len(recs) >= 2:

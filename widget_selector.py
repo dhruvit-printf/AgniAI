@@ -31,14 +31,17 @@ def _title(category: str, operation: str = "") -> str:
 
 
 def _canonical(wt: str) -> str:
-    """Normalise alias widget types to canonical constants."""
+    """Normalise legacy/alias widget type names to canonical constants."""
     _ALIASES: Dict[str, str] = {
-        "CHART_BAR": "BAR_CHART",  # legacy alias
-        "CHART_LINE": "LINE_CHART",  # legacy alias
-        "CHART_PIE": "PIE_CHART",  # legacy alias
-        "AREA_CHART": "AREA_CHART",
-        "DONUT_CHART": "DONUT_CHART",
-        "RADIAL_CHART": "RADIAL_CHART",
+        "BAR_CHART": "CHART_BAR",  # legacy alias
+        "LINE_CHART": "CHART_LINE",  # legacy alias
+        "AREA_CHART": "CHART_LINE",  # folded into line
+        "RADIAL_CHART": "CHART_LINE",  # folded into line
+        "PIE_CHART": "CHART_PIE",  # legacy alias
+        "DONUT_CHART": "CHART_PIE",  # folded into pie
+        "COMPARE_BAR_CHART": "COMPARE_CHART_BAR",  # legacy alias
+        "COMPARE_LINE_CHART": "COMPARE_CHART_LINE",  # legacy alias
+        "COMPARE_PIE_CHART": "COMPARE_CHART_PIE",  # legacy alias
     }
     return _ALIASES.get((wt or "").upper(), (wt or "TABLE").upper())
 
@@ -50,7 +53,7 @@ def _canonical(wt: str) -> str:
 class WidgetSpec:
     """Blueprint for one widget.  No data — only build instructions."""
 
-    widget_type: str  # "TABLE" | "CARD" | "BAR_CHART" | "LINE_CHART" | "AREA_CHART" | "PIE_CHART" | "DONUT_CHART" | "RADIAL_CHART"
+    widget_type: str  # "TABLE" | "CARD" | "CHART_BAR" | "CHART_LINE" | "CHART_PIE" | "COMPARE_TABLE" | "COMPARE_CARD" | "COMPARE_CHART_BAR" | "COMPARE_CHART_LINE" | "COMPARE_CHART_PIE"
     widget_id: str  # Deterministic, unique within this response
     title: str  # Human-readable title rendered on the widget
     source_hint: str = "primary"  # "primary"|"summary"|"left"|"right"|"section"
@@ -93,12 +96,12 @@ class WidgetSelector:
             if qt in ("compare", "comparison"):
                 override = comparison_chart_override.strip().lower()
                 mapped = {
-                    "line": "COMPARE_LINE_CHART",
-                    "bar": "COMPARE_BAR_CHART",
-                    "pie": "COMPARE_PIE_CHART",
-                    "donut": "COMPARE_PIE_CHART",
-                    "radial": "COMPARE_PIE_CHART",
-                    "area": "COMPARE_LINE_CHART",
+                    "line": "COMPARE_CHART_LINE",
+                    "bar": "COMPARE_CHART_BAR",
+                    "pie": "COMPARE_CHART_PIE",
+                    "donut": "COMPARE_CHART_PIE",
+                    "radial": "COMPARE_CHART_LINE",
+                    "area": "COMPARE_CHART_LINE",
                 }.get(override, "COMPARE_TABLE")
                 plan = [{"type": mapped}]
 

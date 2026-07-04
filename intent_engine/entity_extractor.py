@@ -35,6 +35,14 @@ _MONTH_PATTERN = (
     r"\b(January|February|March|April|May|June|July|August|September|October|"
     r"November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b"
 )
+# Bare month name with no year (e.g. "in June", "for March") — only recognised
+# when preceded by a date preposition, so plain English "may" (modal verb) etc.
+# isn't misread as a date reference.
+_BARE_MONTH_PATTERN = (
+    r"\b(?:in|for|during|of|on)\s+"
+    r"(January|February|March|April|May|June|July|August|September|October|"
+    r"November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b"
+)
 _ISO_DATE_PATTERN = r"\b\d{4}-\d{2}-\d{2}\b"
 _SLASH_DATE_PATTERN = r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b"
 _EQUIPMENT_CONTEXT_PHRASES = (
@@ -351,6 +359,10 @@ def _extract_date_patterns(query: str) -> Optional[str]:
     if match:
         return match.group(0)
 
+    match = re.search(_BARE_MONTH_PATTERN, query, re.IGNORECASE)
+    if match:
+        return match.group(1)
+
     match = re.search(r"\bdate\s+(\d{1,2})\b", query, re.IGNORECASE)
     if match:
         return match.group(1)
@@ -361,32 +373,46 @@ def _extract_date_patterns(query: str) -> Optional[str]:
 def _extract_date_range(query: str) -> Tuple[Optional[str], Optional[str]]:
     query_lower = _normalise(query)
 
-    def _looks_like_date_fragment(fragment: str) -> bool:
+    def _extract_date_fragment(fragment: str) -> Optional[str]:
+        """Pull just the date-like substring out of a captured "from X to Y"
+        fragment, discarding trailing words the outer regex over-captured
+        (e.g. "june for company 2" -> "june")."""
         fragment = fragment.strip()
         if not fragment:
-            return False
-        if re.search(_ISO_DATE_PATTERN, fragment):
-            return True
-        if re.search(_SLASH_DATE_PATTERN, fragment):
-            return True
-        if re.search(_MONTH_PATTERN, fragment, re.IGNORECASE):
-            return True
-        if any(
-            phrase in fragment
-            for phrase in (
-                "today",
-                "yesterday",
-                "tomorrow",
-                "this week",
-                "last week",
-                "this month",
-                "last month",
-                "this year",
-                "last year",
-            )
+            return None
+        match = re.search(_ISO_DATE_PATTERN, fragment)
+        if match:
+            return match.group(0)
+        match = re.search(_SLASH_DATE_PATTERN, fragment)
+        if match:
+            return match.group(0)
+        match = re.search(_MONTH_PATTERN, fragment, re.IGNORECASE)
+        if match:
+            return match.group(0)
+        match = re.search(
+            r"\b(January|February|March|April|May|June|July|August|September|"
+            r"October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b",
+            fragment,
+            re.IGNORECASE,
+        )
+        if match:
+            # Bare month name — safe to accept here since it's already inside
+            # a "from X to Y" fragment, i.e. date context is established.
+            return match.group(0)
+        for phrase in (
+            "today",
+            "yesterday",
+            "tomorrow",
+            "this week",
+            "last week",
+            "this month",
+            "last month",
+            "this year",
+            "last year",
         ):
-            return True
-        return False
+            if phrase in fragment:
+                return phrase
+        return None
 
     match = re.search(
         r"\bfrom\s+(.+?)\s+(?:to|until)\s+(.+?)(?:$|[,.?])",
@@ -396,11 +422,11 @@ def _extract_date_range(query: str) -> Tuple[Optional[str], Optional[str]]:
     if not match:
         return None, None
 
-    from_part = match.group(1).strip()
-    to_part = match.group(2).strip()
-    if not (_looks_like_date_fragment(from_part) or _looks_like_date_fragment(to_part)):
+    from_fragment = _extract_date_fragment(match.group(1))
+    to_fragment = _extract_date_fragment(match.group(2))
+    if not (from_fragment or to_fragment):
         return None, None
-    return from_part, to_part
+    return from_fragment, to_fragment
 
 
 def _extract_attempt_no(query: str) -> Optional[int]:

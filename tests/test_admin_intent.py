@@ -212,7 +212,7 @@ def test_bmi_analysis():
     r = classify_admin_intent("Show BMI analysis of trainees")
     assert r["category"] == "Medical"
     assert r["subcategory"] == "BMIAnalysis"
-    assert r["type"] == "Donut Chart"
+    assert r["type"] == "Pie Chart"
 
 
 def test_disease_stats():
@@ -297,7 +297,7 @@ def test_strength_breakdown():
     r = classify_admin_intent("Give me the strength breakdown")
     assert r["category"] == "Strength"
     assert r["subcategory"] == "StrengthBreakdown"
-    assert r["type"] == "Radial Chart"
+    assert r["type"] == "Line Chart"
 
 
 # =============================================================================

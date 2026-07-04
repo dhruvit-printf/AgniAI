@@ -40,21 +40,21 @@ def test_dynamic_visualization_selection():
         {"data": [{"date": "2026-01-01", "score": 80}]},
         {"data": [{"date": "2026-01-02", "score": 85}]},
     ]
-    assert select_visualization_type(sides_line) == "COMPARE_LINE_CHART"
+    assert select_visualization_type(sides_line) == "COMPARE_CHART_LINE"
 
     # Pie chart shape (contain leave/medical category)
     sides_pie = [
         {"data": [{"leaveType": "Sick", "count": 2}]},
         {"data": [{"leaveType": "Sick", "count": 3}]},
     ]
-    assert select_visualization_type(sides_pie) == "COMPARE_PIE_CHART"
+    assert select_visualization_type(sides_pie) == "COMPARE_CHART_PIE"
 
     # Bar chart shape (contain platoon/company)
     sides_bar = [
         {"data": [{"platoon": "Platoon 1", "score": 75}]},
         {"data": [{"platoon": "Platoon 2", "score": 80}]},
     ]
-    assert select_visualization_type(sides_bar) == "COMPARE_BAR_CHART"
+    assert select_visualization_type(sides_bar) == "COMPARE_CHART_BAR"
 
     # Card shape (1 record, 2 keys)
     sides_card = [{"data": [{"score": 90}]}, {"data": [{"score": 95}]}]
@@ -260,7 +260,7 @@ def test_widget_selector_comparison_chart_override_line():
         comparison_chart_override="line",
     )
     types = [s.widget_type for s in specs]
-    assert "COMPARE_LINE_CHART" in types
+    assert "COMPARE_CHART_LINE" in types
 
 
 def test_widget_selector_comparison_chart_override_pie():
@@ -280,11 +280,11 @@ def test_widget_selector_comparison_chart_override_pie():
         comparison_chart_override="pie",
     )
     types = [s.widget_type for s in specs]
-    assert "COMPARE_PIE_CHART" in types
+    assert "COMPARE_CHART_PIE" in types
 
 
 def test_build_comparison_widgets_with_override():
-    """build_comparison_widgets should produce COMPARE_LINE_CHART when override is set."""
+    """build_comparison_widgets should produce COMPARE_CHART_LINE when override is set."""
     from widget_engine import build_comparison_widgets
 
     combined_result = {
@@ -298,7 +298,7 @@ def test_build_comparison_widgets_with_override():
         visualization_intent={"comparison_chart_override": "line"},
     )
     types = [w["type"] for w in widgets]
-    assert "COMPARE_LINE_CHART" in types
+    assert "COMPARE_CHART_LINE" in types
 
 
 def test_build_comparison_widgets_without_override_uses_autodetected():
@@ -308,11 +308,11 @@ def test_build_comparison_widgets_without_override_uses_autodetected():
     combined_result = {
         "left": {"label": "A", "data": [{"score": 80}]},
         "right": {"label": "B", "data": [{"score": 85}]},
-        "visualizationType": "COMPARE_BAR_CHART",
+        "visualizationType": "COMPARE_BAR_CHART",  # legacy alias, still accepted as input
     }
     widgets = build_comparison_widgets(combined_result, "Test Compare")
     types = [w["type"] for w in widgets]
-    assert "COMPARE_BAR_CHART" in types
+    assert "COMPARE_CHART_BAR" in types
 
 
 def test_build_comparison_widgets_maps_compare_card_to_table():

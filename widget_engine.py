@@ -207,6 +207,29 @@ def _extract_records(
     )
 
 
+# Legacy/alias widget type names accepted as input, normalised to the new
+# canonical names (CHART_BAR / CHART_LINE / CHART_PIE / COMPARE_CHART_*).
+# DONUT_CHART and RADIAL_CHART are folded — donut into pie, radial into line —
+# and AREA_CHART is folded into line as well.
+_CHART_TYPE_ALIASES: Dict[str, str] = {
+    "BAR_CHART": "CHART_BAR",
+    "LINE_CHART": "CHART_LINE",
+    "AREA_CHART": "CHART_LINE",
+    "RADIAL_CHART": "CHART_LINE",
+    "PIE_CHART": "CHART_PIE",
+    "DONUT_CHART": "CHART_PIE",
+    "COMPARE_BAR_CHART": "COMPARE_CHART_BAR",
+    "COMPARE_LINE_CHART": "COMPARE_CHART_LINE",
+    "COMPARE_PIE_CHART": "COMPARE_CHART_PIE",
+}
+
+
+def _canonical_widget_type(value: Any) -> str:
+    """Normalise any accepted widget type name (new or legacy) to canonical form."""
+    text = str(value or "TABLE").upper()
+    return _CHART_TYPE_ALIASES.get(text, text)
+
+
 def _planned_widget_types(
     visualization_intent: Optional[Dict[str, Any]],
 ) -> List[str]:
@@ -218,7 +241,7 @@ def _planned_widget_types(
     planned: List[str] = []
     for widget in widgets:
         if isinstance(widget, dict) and widget.get("type"):
-            planned.append(str(widget["type"]).upper())
+            planned.append(_canonical_widget_type(widget["type"]))
     return planned
 
 
@@ -245,7 +268,9 @@ def _effective_visualization_intent(
                 combined_result,
                 query_type_override=query_type,
             )
-            resolved["widgets"] = [{"type": str(override).upper()}]
+            resolved["widgets"] = [
+                {"type": _normalize_requested_widget_type(override) or _canonical_widget_type(override)}
+            ]
             return {**resolved, **visualization_intent}
 
     from visualization_intent import build_visualization_intent
@@ -293,10 +318,14 @@ def _normalize_requested_widget_type(value: Any) -> Optional[str]:
     if not text:
         return None
 
-    # Direct canonical match (frontend already sending internal constant)
+    # Direct match: canonical constants, plus legacy constants accepted as
+    # input aliases (BAR_CHART, DONUT_CHART, RADIAL_CHART, AREA_CHART, ...).
     _CANONICAL = {
         "TABLE",
         "CARD",
+        "CHART_BAR",
+        "CHART_LINE",
+        "CHART_PIE",
         "BAR_CHART",
         "LINE_CHART",
         "AREA_CHART",
@@ -304,8 +333,8 @@ def _normalize_requested_widget_type(value: Any) -> Optional[str]:
         "DONUT_CHART",
         "RADIAL_CHART",
     }
-    if text in _CANONICAL:
-        return text
+    if text.upper() in _CANONICAL:
+        return _canonical_widget_type(text.upper())
 
     # Case-insensitive label lookup covering all labels from the widget menu
     _LABEL_MAP: Dict[str, str] = {
@@ -318,35 +347,35 @@ def _normalize_requested_widget_type(value: Any) -> Optional[str]:
         "cards": "CARD",
         "stats card": "CARD",
         # ── Bar Chart ─────────────────────────────────────────────────────────
-        "bar chart": "BAR_CHART",
-        "bar": "BAR_CHART",
-        "monthly bar chart": "BAR_CHART",
-        "weekly bar chart": "BAR_CHART",
-        "gradingsummary bar chart": "BAR_CHART",
+        "bar chart": "CHART_BAR",
+        "bar": "CHART_BAR",
+        "monthly bar chart": "CHART_BAR",
+        "weekly bar chart": "CHART_BAR",
+        "gradingsummary bar chart": "CHART_BAR",
         # ── Line / Trend Chart ────────────────────────────────────────────────
-        "line chart": "LINE_CHART",
-        "line": "LINE_CHART",
-        "trend chart": "LINE_CHART",
-        "trend": "LINE_CHART",
-        "improvement trend chart": "LINE_CHART",
-        "drop trend chart": "LINE_CHART",
-        # ── Area Chart ────────────────────────────────────────────────────────
-        "area chart": "AREA_CHART",
-        "area": "AREA_CHART",
-        "compare area chart": "AREA_CHART",
+        "line chart": "CHART_LINE",
+        "line": "CHART_LINE",
+        "trend chart": "CHART_LINE",
+        "trend": "CHART_LINE",
+        "improvement trend chart": "CHART_LINE",
+        "drop trend chart": "CHART_LINE",
+        # ── Area Chart (folded into line) ───────────────────────────────────────
+        "area chart": "CHART_LINE",
+        "area": "CHART_LINE",
+        "compare area chart": "CHART_LINE",
         # ── Pie Chart ─────────────────────────────────────────────────────────
-        "pie chart": "PIE_CHART",
-        "pie": "PIE_CHART",
-        "average pie chart": "PIE_CHART",
-        "present pie chart": "PIE_CHART",
-        # ── Donut Chart ───────────────────────────────────────────────────────
-        "donut chart": "DONUT_CHART",
-        "donut": "DONUT_CHART",
-        "bmi donut chart": "DONUT_CHART",
-        # ── Radial Chart ──────────────────────────────────────────────────────
-        "radial chart": "RADIAL_CHART",
-        "radial": "RADIAL_CHART",
-        "strength radial chart": "RADIAL_CHART",
+        "pie chart": "CHART_PIE",
+        "pie": "CHART_PIE",
+        "average pie chart": "CHART_PIE",
+        "present pie chart": "CHART_PIE",
+        # ── Donut Chart (folded into pie) ───────────────────────────────────────
+        "donut chart": "CHART_PIE",
+        "donut": "CHART_PIE",
+        "bmi donut chart": "CHART_PIE",
+        # ── Radial Chart (folded into line) ─────────────────────────────────────
+        "radial chart": "CHART_LINE",
+        "radial": "CHART_LINE",
+        "strength radial chart": "CHART_LINE",
     }
 
     lower = text.lower()
@@ -372,22 +401,12 @@ def _collect_keys(data: Any) -> Set[str]:
 
 
 def _map_to_supported_type(inferred: str) -> str:
-    mapped = {
-        "TABLE": "TABLE",
-        "CARD": "CARD",
-        "METRIC_CARD": "CARD",
-        "BAR_CHART": "BAR_CHART",
-        "CHART_BAR": "BAR_CHART",  # legacy alias
-        "LINE_CHART": "LINE_CHART",
-        "CHART_LINE": "LINE_CHART",  # legacy alias
-        "AREA_CHART": "AREA_CHART",
-        "PIE_CHART": "PIE_CHART",
-        "CHART_PIE": "PIE_CHART",  # legacy alias
-        "DONUT_CHART": "DONUT_CHART",
-        "RADIAL_CHART": "RADIAL_CHART",
-        "CALENDAR_UI": "TABLE",
-    }
-    return mapped.get(inferred, "TABLE")
+    text = str(inferred or "").upper()
+    if text in ("TABLE", "CARD", "METRIC_CARD", "CALENDAR_UI"):
+        return "TABLE" if text in ("TABLE", "CALENDAR_UI") else "CARD"
+    if text in ("CHART_BAR", "CHART_LINE", "CHART_PIE"):
+        return text
+    return _CHART_TYPE_ALIASES.get(text, "TABLE")
 
 
 def infer_supported_type(
@@ -776,47 +795,6 @@ def build_pie_chart_data(
     return {"rows": rows}
 
 
-def build_radial_chart_data(combined_result: Any) -> Dict[str, Any]:
-    """
-    RADIAL_CHART schema: { "value": float, "maximum": float, "label": str }
-    """
-    records = _extract_records(combined_result, deep_flatten=False)
-    if not records:
-        return {"value": 0, "maximum": 100, "label": ""}
-
-    # Prefer explicit percentage/rate field
-    pct_key = _find_key(
-        records, ["percentage", "rate", "readiness", "completion", "strength"]
-    )
-    if pct_key:
-        val = records[0].get(pct_key)
-        if isinstance(val, (int, float)):
-            return {
-                "value": round(float(val), 1),
-                "maximum": 100,
-                "label": make_readable_label(pct_key),
-            }
-
-    # Compute from present/total pair
-    present_key = _find_key(records, ["present", "presentCount"])
-    total_key = _find_key(records, ["total", "totalCount", "strength"])
-    if present_key and total_key:
-        p = records[0].get(present_key, 0)
-        t = records[0].get(total_key, 0)
-        if isinstance(p, (int, float)) and isinstance(t, (int, float)) and t > 0:
-            return {
-                "value": round(float(p) / float(t) * 100, 1),
-                "maximum": 100,
-                "label": "Attendance",
-            }
-
-    return {
-        "value": len(records),
-        "maximum": max(len(records), 100),
-        "label": "Records",
-    }
-
-
 def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
     if inferred_type == "TABLE":
         if "sides" in data or "sections" in data:
@@ -829,27 +807,24 @@ def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
                 if col not in row:
                     row[col] = None
     elif inferred_type in {
+        "CHART_BAR",
+        "CHART_LINE",
         "BAR_CHART",
         "LINE_CHART",
         "AREA_CHART",
-        "CHART_BAR",
-        "CHART_LINE",
-    }:  # legacy aliases
+        "RADIAL_CHART",
+    }:  # includes legacy aliases (RADIAL_CHART folded into line)
         rows = data.get("rows", [])
         if isinstance(rows, list):
             for row in rows:
                 if isinstance(row, dict):
                     if not row:
                         row.setdefault("xKey", "")
-    elif inferred_type in {"PIE_CHART", "DONUT_CHART", "CHART_PIE"}:  # legacy alias
+    elif inferred_type in {"CHART_PIE", "PIE_CHART", "DONUT_CHART"}:  # legacy aliases
         for row in data.get("rows", []):
             if isinstance(row, dict):
                 row.setdefault("label", "Category")
                 row.setdefault("value", 0)
-    elif inferred_type == "RADIAL_CHART":
-        data.setdefault("value", 0)
-        data.setdefault("maximum", 100)
-        data.setdefault("label", "")
 
 
 def build_formatted_data(
@@ -1013,9 +988,9 @@ def build_formatted_data(
         data_payload = build_card_data(records, title)
     elif inferred_type in {"CHART_BAR", "BAR_CHART"}:
         data_payload = build_bar_chart_data(source_result)
-    elif inferred_type in {"CHART_LINE", "LINE_CHART", "AREA_CHART"}:
+    elif inferred_type in {"CHART_LINE", "LINE_CHART", "AREA_CHART", "RADIAL_CHART"}:
         data_payload = build_line_chart_data(source_result)
-    elif inferred_type in {"CHART_PIE", "PIE_CHART", "DONUT_CHART", "RADIAL_CHART"}:
+    elif inferred_type in {"CHART_PIE", "PIE_CHART", "DONUT_CHART"}:
         data_payload = build_pie_chart_data(source_result)
     else:
         if isinstance(source_result, dict) and "sides" in source_result:
@@ -1051,11 +1026,15 @@ def build_formatted_data(
     # Fallback to TABLE if invalid chart fields are detected (FIX 30)
     is_invalid_chart = False
     if inferred_type in (
+        "CHART_BAR",
+        "CHART_LINE",
+        "CHART_PIE",
         "BAR_CHART",
         "LINE_CHART",
         "AREA_CHART",
         "PIE_CHART",
         "DONUT_CHART",
+        "RADIAL_CHART",
     ):
         if "left" in data_payload and "right" in data_payload:
             pass
@@ -1067,9 +1046,6 @@ def build_formatted_data(
                 is_invalid_chart = True
             elif not any(isinstance(row, dict) and row for row in rows):
                 is_invalid_chart = True
-    elif inferred_type == "RADIAL_CHART":
-        if data_payload.get("value") is None:
-            is_invalid_chart = True
 
     if is_invalid_chart:
         inferred_type = "TABLE"
@@ -1446,9 +1422,9 @@ def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
 
 # Canonical type names coming from compare_engine — handle any legacy aliases.
 _COMPARE_TYPE_ALIASES: Dict[str, str] = {
-    "COMPARE_CHART_BAR": "COMPARE_BAR_CHART",
-    "COMPARE_CHART_LINE": "COMPARE_LINE_CHART",
-    "COMPARE_CHART_PIE": "COMPARE_PIE_CHART",
+    "COMPARE_BAR_CHART": "COMPARE_CHART_BAR",
+    "COMPARE_LINE_CHART": "COMPARE_CHART_LINE",
+    "COMPARE_PIE_CHART": "COMPARE_CHART_PIE",
 }
 
 
@@ -1489,12 +1465,12 @@ def build_comparison_widgets(
             override = visualization_intent.get("comparison_chart_override")
             if override and isinstance(override, str):
                 mapped = {
-                    "line": "COMPARE_LINE_CHART",
-                    "bar": "COMPARE_BAR_CHART",
-                    "pie": "COMPARE_PIE_CHART",
-                    "donut": "COMPARE_PIE_CHART",
-                    "radial": "COMPARE_PIE_CHART",
-                    "area": "COMPARE_LINE_CHART",
+                    "line": "COMPARE_CHART_LINE",
+                    "bar": "COMPARE_CHART_BAR",
+                    "pie": "COMPARE_CHART_PIE",
+                    "donut": "COMPARE_CHART_PIE",
+                    "radial": "COMPARE_CHART_LINE",
+                    "area": "COMPARE_CHART_LINE",
                 }.get(override.lower())
                 if mapped:
                     viz_type = mapped
@@ -1510,10 +1486,10 @@ def build_comparison_widgets(
                 "data": _build_compare_table(combined_result),
             }
         )
-    elif viz_type == "COMPARE_BAR_CHART":
+    elif viz_type == "COMPARE_CHART_BAR":
         widgets.append(
             {
-                "type": "COMPARE_BAR_CHART",
+                "type": "COMPARE_CHART_BAR",
                 "title": f"{vs_title} — Score Comparison",
                 "data": _build_compare_bar(combined_result),
             }
@@ -1525,18 +1501,18 @@ def build_comparison_widgets(
                 "data": _build_compare_table(combined_result),
             }
         )
-    elif viz_type == "COMPARE_LINE_CHART":
+    elif viz_type == "COMPARE_CHART_LINE":
         widgets.append(
             {
-                "type": "COMPARE_LINE_CHART",
+                "type": "COMPARE_CHART_LINE",
                 "title": f"{vs_title} — Trend",
                 "data": _build_compare_line(combined_result),
             }
         )
-    elif viz_type == "COMPARE_PIE_CHART":
+    elif viz_type == "COMPARE_CHART_PIE":
         widgets.append(
             {
-                "type": "COMPARE_PIE_CHART",
+                "type": "COMPARE_CHART_PIE",
                 "title": f"{vs_title} — Distribution",
                 "data": _build_compare_pie(combined_result),
             }
@@ -1602,17 +1578,13 @@ def _build_widget_data(
             return _build_compare_bar(combined_result)
         return build_bar_chart_data(combined_result)
 
-    # ── LINE_CHART / AREA_CHART ───────────────────────────────────────────────
-    if wt in ("LINE_CHART", "AREA_CHART", "CHART_LINE"):
+    # ── LINE_CHART / AREA_CHART / RADIAL_CHART (folded into line) ────────────
+    if wt in ("LINE_CHART", "AREA_CHART", "RADIAL_CHART", "CHART_LINE"):
         return build_line_chart_data(combined_result)
 
-    # ── PIE_CHART / DONUT_CHART ───────────────────────────────────────────────
+    # ── PIE_CHART / DONUT_CHART (folded into pie) ─────────────────────────────
     if wt in ("PIE_CHART", "DONUT_CHART", "CHART_PIE"):
         return build_pie_chart_data(combined_result)
-
-    # ── RADIAL_CHART ─────────────────────────────────────────────────────────
-    if wt == "RADIAL_CHART":
-        return build_radial_chart_data(combined_result)
 
     # Fallback — unknown type becomes a TABLE
     flat = _extract_records(combined_result, deep_flatten=True)

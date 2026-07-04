@@ -515,11 +515,11 @@ def _should_entity_override_operation(
         date_val = str(entities.get("date") or "")
         if re.search(
             r"\b(January|February|March|April|May|June|July|August|September|October|"
-            r"November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b",
+            r"November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b",
             date_val,
             re.IGNORECASE,
         ):
-            return True, "Monthly", "date value indicates Month-Year"
+            return True, "Monthly", "date value indicates a month"
 
     if category == "Schedule" and not classified_operation:
         return True, "Today", "Schedule query default operation"

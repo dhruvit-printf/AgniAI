@@ -39,9 +39,9 @@ _EXPLICIT_PRESENTATION_PATTERNS = (
     (r"\bpie chart\b", "chart", "pie"),
     (r"\bbar chart\b", "chart", "bar"),
     (r"\bline chart\b", "chart", "line"),
-    (r"\bdonut chart\b", "chart", "donut"),
-    (r"\bradial chart\b", "chart", "radial"),
-    (r"\barea chart\b", "chart", "area"),
+    (r"\bdonut chart\b", "chart", "pie"),  # donut folded into pie
+    (r"\bradial chart\b", "chart", "line"),  # radial folded into line
+    (r"\barea chart\b", "chart", "line"),  # area folded into line
     (r"\btabular\b", "table", None),
     (r"\btable\b", "table", None),
     (r"\bcards?\b", "cards", None),
@@ -68,45 +68,45 @@ def _widget_list(*widget_types: str) -> List[Dict[str, Any]]:
 _SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
     ("Performance", "Top"): ["TABLE"],
     ("Performance", "Bottom"): ["TABLE"],
-    ("Performance", "Improvement"): ["LINE_CHART"],
-    ("Performance", "Drop"): ["LINE_CHART"],
+    ("Performance", "Improvement"): ["CHART_LINE"],
+    ("Performance", "Drop"): ["CHART_LINE"],
     ("Performance", "Grading"): ["TABLE"],
-    ("Performance", "GradingSummary"): ["BAR_CHART"],
-    ("Performance", "Average"): ["PIE_CHART"],
+    ("Performance", "GradingSummary"): ["CHART_BAR"],
+    ("Performance", "Average"): ["CHART_PIE"],
     ("Performance", "AttemptWise"): ["TABLE"],
     ("Performance", "BestAttempt"): ["TABLE"],
-    ("Performance", "Trend"): ["LINE_CHART"],
+    ("Performance", "Trend"): ["CHART_LINE"],
     ("Leave", "Most"): ["TABLE"],
     ("Leave", "Least"): ["TABLE"],
     ("Leave", "Current"): ["CARD"],
     ("Leave", "Absconded"): ["CARD"],
-    ("Medical", "BMI"): ["DONUT_CHART"],
-    ("Medical", "BloodGroup"): ["PIE_CHART"],
-    ("Medical", "Disease"): ["BAR_CHART"],
+    ("Medical", "BMI"): ["CHART_PIE"],
+    ("Medical", "BloodGroup"): ["CHART_PIE"],
+    ("Medical", "Disease"): ["CHART_BAR"],
     ("Medical", "Individual"): ["CARD"],
-    ("Attendance", "Monthly"): ["BAR_CHART"],
-    ("Attendance", "Weekly"): ["BAR_CHART"],
+    ("Attendance", "Monthly"): ["CHART_BAR"],
+    ("Attendance", "Weekly"): ["CHART_BAR"],
     ("Attendance", "Daily"): ["TABLE"],
-    ("Attendance", "Present"): ["PIE_CHART"],
-    ("Attendance", "Summary"): ["RADIAL_CHART"],
-    ("Strength", "StrengthBreakdown"): ["RADIAL_CHART"],
+    ("Attendance", "Present"): ["CHART_PIE"],
+    ("Attendance", "Summary"): ["CHART_LINE"],
+    ("Strength", "StrengthBreakdown"): ["CHART_LINE"],
     ("Verification", "Pending"): ["CARD"],
     ("Verification", "Sent"): ["CARD"],
     ("Verification", "NotResponded"): ["CARD"],
     ("Verification", "Completed"): ["CARD"],
     ("Verification", "Verified"): ["CARD"],
     ("Verification", "Rejected"): ["CARD"],
-    ("Equipment", "Stats"): ["BAR_CHART"],
+    ("Equipment", "Stats"): ["CHART_BAR"],
     ("Equipment", "Search"): ["TABLE"],
     ("Equipment", "Returned"): ["CARD"],
     ("Equipment", "Holding"): ["CARD"],
     ("Equipment", "AgniveerWise"): ["TABLE"],
     ("Distribution", "Latest"): ["TABLE"],
-    ("Distribution", "ByUnit"): ["BAR_CHART"],
+    ("Distribution", "ByUnit"): ["CHART_BAR"],
     ("Distribution", "Unassigned"): ["TABLE"],
-    ("Distribution", "TopUnit"): ["BAR_CHART"],
+    ("Distribution", "TopUnit"): ["CHART_BAR"],
     ("Skills", "BySport"): ["TABLE"],
-    ("Skills", "ByClass"): ["BAR_CHART"],
+    ("Skills", "ByClass"): ["CHART_BAR"],
     ("Schedule", "Today"): ["TABLE"],
     ("Schedule", "Agniveer"): ["TABLE"],
     ("personaldetail", "info"): ["CARD"],
@@ -125,11 +125,11 @@ def _comparison_widgets(override: Optional[str]) -> List[Dict[str, Any]]:
 
     normalized = override.strip().lower()
     if normalized == "bar":
-        return _widget_list("COMPARE_BAR_CHART", "COMPARE_TABLE")
-    if normalized in {"line", "area"}:
-        return _widget_list("COMPARE_LINE_CHART")
-    if normalized in {"pie", "donut", "radial"}:
-        return _widget_list("COMPARE_PIE_CHART")
+        return _widget_list("COMPARE_CHART_BAR", "COMPARE_TABLE")
+    if normalized in {"line", "area", "radial"}:
+        return _widget_list("COMPARE_CHART_LINE")
+    if normalized in {"pie", "donut"}:
+        return _widget_list("COMPARE_CHART_PIE")
     return _widget_list("COMPARE_TABLE")
 
 
@@ -166,30 +166,30 @@ def _plan_widgets(
                 override = explicit_override.get("comparison_chart_override") or chart_type
                 return _comparison_widgets(override)
             chart_map = {
-                "line": "LINE_CHART",
-                "bar": "BAR_CHART",
-                "pie": "PIE_CHART",
-                "donut": "DONUT_CHART",
-                "radial": "RADIAL_CHART",
-                "area": "AREA_CHART",
+                "line": "CHART_LINE",
+                "bar": "CHART_BAR",
+                "pie": "CHART_PIE",
+                "donut": "CHART_PIE",
+                "radial": "CHART_LINE",
+                "area": "CHART_LINE",
             }
-            return _widget_list(chart_map.get(chart_type or "", "BAR_CHART"))
+            return _widget_list(chart_map.get(chart_type or "", "CHART_BAR"))
 
     if comparison or query_type in {"compare", "comparison"}:
         override = intent.get("comparison_chart_override")
         if isinstance(override, str) and override.strip():
             return _comparison_widgets(override)
-        return _widget_list("AREA_CHART")
+        return _widget_list("CHART_LINE")
 
     if trend or query_type == "trend" or any(
         token in text for token in ("trend", "timeline", "over months", "over time", "growth")
     ):
-        return _widget_list(*(["LINE_CHART", "TABLE"] if response_type == "Detailed" else ["LINE_CHART"]))
+        return _widget_list(*(["CHART_LINE", "TABLE"] if response_type == "Detailed" else ["CHART_LINE"]))
 
     if query_type == "distribution" or any(
         token in text for token in ("distribution", "breakdown", "percentage", "share")
     ):
-        return _widget_list(*(["PIE_CHART", "TABLE"] if response_type == "Detailed" else ["PIE_CHART"]))
+        return _widget_list(*(["CHART_PIE", "TABLE"] if response_type == "Detailed" else ["CHART_PIE"]))
 
     if query_type == "cross_filter":
         return _widget_list("TABLE")

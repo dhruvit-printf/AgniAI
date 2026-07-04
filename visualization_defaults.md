@@ -7,14 +7,22 @@ The backend behavior is split into two layers:
 1. `visualization_intent.py` decides the intent shape.
 2. `widget_selector.py` / `widget_engine.py` decide the actual widget(s) to show.
 
+## Widget Type Names
+
+The canonical widget `type` values emitted by the backend are:
+
+`TABLE` | `CARD` | `CHART_BAR` | `CHART_LINE` | `CHART_PIE` | `COMPARE_TABLE` | `COMPARE_CARD` | `COMPARE_CHART_BAR` | `COMPARE_CHART_LINE` | `COMPARE_CHART_PIE`
+
+Legacy names (`BAR_CHART`, `LINE_CHART`, `PIE_CHART`, `AREA_CHART`, `DONUT_CHART`, `RADIAL_CHART`, `COMPARE_BAR_CHART`, `COMPARE_LINE_CHART`, `COMPARE_PIE_CHART`) are still accepted as **input** aliases (e.g. a frontend override), but are never emitted as output. Donut charts are folded into `CHART_PIE` / `COMPARE_CHART_PIE`; radial and area charts are folded into `CHART_LINE` / `COMPARE_CHART_LINE`.
+
 ## Query Type To Default Visualization
 
 | Query type | Default visualization | Notes |
 | --- | --- | --- |
 | `simple` | `TABLE` | Default fallback for most questions. |
 | `compare` / `comparison` | auto-selected compare widget | If both sides infer the same chart type, use that compare chart. If the two sides differ, fall back to `COMPARE_TABLE`. `COMPARE_CARD` is treated as a legacy/internal shape and is rendered as a table. |
-| `trend` | `LINE_CHART` | Used for time-based or growth-based questions. |
-| `distribution` | `PIE_CHART` | Used for percentage, share, or breakdown questions. |
+| `trend` | `CHART_LINE` | Used for time-based or growth-based questions. |
+| `distribution` | `CHART_PIE` | Used for percentage, share, or breakdown questions. |
 | `cross_filter` | `CARD` + `TABLE` | Summary card first, then matching records. |
 | `multi_independent` | `TABLE` per section | One table per independent result section. |
 
@@ -27,9 +35,9 @@ When the user explicitly asks for a visual format, the frontend override wins.
 | `pie chart` | `presentation = chart`, `chart_type = pie` |
 | `bar chart` | `presentation = chart`, `chart_type = bar` |
 | `line chart` | `presentation = chart`, `chart_type = line` |
-| `donut chart` | `presentation = chart`, `chart_type = donut` |
-| `radial chart` | `presentation = chart`, `chart_type = radial` |
-| `area chart` | `presentation = chart`, `chart_type = area` |
+| `donut chart` | `presentation = chart`, `chart_type = pie` (folded into pie) |
+| `radial chart` | `presentation = chart`, `chart_type = line` (folded into line) |
+| `area chart` | `presentation = chart`, `chart_type = line` (folded into line) |
 | `table` / `tabular` | `presentation = table` |
 | `cards` | `presentation = cards` |
 
@@ -43,16 +51,16 @@ Supported comparison overrides:
 - `bar`
 - `pie`
 - `donut` -> treated as `pie`
-- `radial` -> treated as `pie`
+- `radial` -> treated as `line`
 - `area` -> treated as `line`
 
 ## Comparison Shape Rule
 
 When there is no frontend override:
 
-- `bar + bar` -> `COMPARE_BAR_CHART`
-- `line + line` -> `COMPARE_LINE_CHART`
-- `pie + pie` -> `COMPARE_PIE_CHART`
+- `bar + bar` -> `COMPARE_CHART_BAR`
+- `line + line` -> `COMPARE_CHART_LINE`
+- `pie + pie` -> `COMPARE_CHART_PIE`
 - any mixed pair, like `bar + line` -> `COMPARE_TABLE`
 
 ## Practical Rule
@@ -72,44 +80,44 @@ The backend also applies summary-response defaults per operation. Detailed respo
 | --- | --- | --- |
 | Performance | Top | TABLE |
 | Performance | Bottom | TABLE |
-| Performance | Improvement | LINE_CHART |
-| Performance | Drop | LINE_CHART |
+| Performance | Improvement | CHART_LINE |
+| Performance | Drop | CHART_LINE |
 | Performance | Grading | TABLE |
-| Performance | GradingSummary | BAR_CHART |
-| Performance | Average | PIE_CHART |
+| Performance | GradingSummary | CHART_BAR |
+| Performance | Average | CHART_PIE |
 | Performance | AttemptWise | TABLE |
 | Performance | BestAttempt | TABLE |
-| Performance | Trend | LINE_CHART |
+| Performance | Trend | CHART_LINE |
 | Leave | Most / Highest | TABLE |
 | Leave | Least | TABLE |
 | Leave | Current | CARD |
 | Leave | Absconded | CARD |
-| Medical | BMI | DONUT_CHART |
-| Medical | BloodGroup | PIE_CHART |
-| Medical | Disease | BAR_CHART |
+| Medical | BMI | CHART_PIE |
+| Medical | BloodGroup | CHART_PIE |
+| Medical | Disease | CHART_BAR |
 | Medical | Individual | CARD |
-| Attendance | Monthly | BAR_CHART |
-| Attendance | Weekly | BAR_CHART |
+| Attendance | Monthly | CHART_BAR |
+| Attendance | Weekly | CHART_BAR |
 | Attendance | Daily | TABLE |
-| Attendance | Present / On-Campus | PIE_CHART |
-| Attendance | Summary | RADIAL_CHART |
+| Attendance | Present / On-Campus | CHART_PIE |
+| Attendance | Summary | CHART_LINE |
 | Verification | Pending | CARD |
 | Verification | Sent | CARD |
 | Verification | Not Responded | CARD |
 | Verification | Completed / Verified | CARD |
 | Verification | Rejected | CARD |
-| Equipment | Stats / Summary | BAR_CHART |
+| Equipment | Stats / Summary | CHART_BAR |
 | Equipment | Search | TABLE |
 | Equipment | Returned / Poor Condition | CARD |
 | Equipment | Holding / Currently Issued | CARD |
 | Equipment | Agniveer-Wise | TABLE |
 | Distribution | Latest | TABLE |
-| Distribution | By Unit | BAR_CHART |
+| Distribution | By Unit | CHART_BAR |
 | Distribution | Unassigned | TABLE |
-| Distribution | Top Unit | BAR_CHART |
+| Distribution | Top Unit | CHART_BAR |
 | Skills | By Sport | TABLE |
-| Skills | By Class | BAR_CHART |
-| Strength | Strength Breakdown | RADIAL_CHART |
+| Skills | By Class | CHART_BAR |
+| Strength | Strength Breakdown | CHART_LINE |
 | Schedule | Today / Company Schedule | TABLE |
 | Schedule | Agniveer Schedule | TABLE |
 | Personal Details | Info | CARD |

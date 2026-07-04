@@ -16,7 +16,7 @@ class TestVisualizationQueryAware(unittest.TestCase):
             "comparison": {"averageScore": {"higher": "A", "lower": "B"}},
         }
         res = build_formatted_data(combined, query_type="compare", intent={})
-        self.assertEqual(res["type"], "AREA_CHART")
+        self.assertEqual(res["type"], "CHART_LINE")
 
     def test_cross_filter_guarantee(self):
         combined = {
@@ -38,9 +38,10 @@ class TestVisualizationQueryAware(unittest.TestCase):
             combined,
             query_type="simple",
             intent={},
+            # DONUT_CHART is a legacy input alias; it folds to CHART_PIE on output.
             visualization_intent={"requested_widget_type": "DONUT_CHART"},
         )
-        self.assertEqual(res["type"], "DONUT_CHART")
+        self.assertEqual(res["type"], "CHART_PIE")
 
     def test_summary_override_for_equipment_stats(self):
         combined = {"sections": [{"label": "Result", "data": [{"count": 12}]}]}
@@ -53,7 +54,7 @@ class TestVisualizationQueryAware(unittest.TestCase):
                 "responseType": "Summary",
             },
         )
-        self.assertEqual(res["type"], "BAR_CHART")
+        self.assertEqual(res["type"], "CHART_BAR")
 
     def test_detailed_equipment_stats_stays_table(self):
         combined = {

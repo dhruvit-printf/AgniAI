@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 from query_normalizer import clean_query as _normalise
 from query_understanding_engine import understand_query
 
+from .date_resolver import resolve_date_range
 from .entity_extractor import assert_canonical_entity_keys, extract_entities
 from .intent_classifier import classify_intent
 from .intent_schema import (
@@ -294,6 +295,22 @@ def classify_admin_intent(
         else:
             subcategory = "EquipmentSearch"
             operation = "Search"
+
+    # ── Attendance date resolution ────────────────────────────────────────────
+    # .NET expects date / fromDate / toDate as ISO 8601 date-times, never raw
+    # phrases like "current month" or "June". Resolve whatever was extracted
+    # into concrete dates, and default Monthly/Weekly/Daily to the current
+    # period when the query didn't mention one at all.
+    if category == "Attendance":
+        resolved_date, resolved_from_date, resolved_to_date = resolve_date_range(
+            operation=operation,
+            date=entities.get("date"),
+            from_date=entities.get("fromDate"),
+            to_date=entities.get("toDate"),
+        )
+        entities["date"] = resolved_date
+        entities["fromDate"] = resolved_from_date
+        entities["toDate"] = resolved_to_date
 
     # ── Stage 5: Legacy visualization hint — pure lookup ────────────────────
     legacy_type: Optional[str] = _legacy_type(category, operation, subcategory)
