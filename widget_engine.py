@@ -934,6 +934,10 @@ def build_pie_chart_data(
                 "bestTotal",
                 "marksObtained",
                 "absent",
+                "totalLeave",
+                "totalLeaves",
+                "leaveTaken",
+                "days",
             ],
         )
         or _find_numeric_key(records, ["id"])
