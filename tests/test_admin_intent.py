@@ -277,7 +277,11 @@ def test_month_year_attendance_defaults_to_monthly():
     assert r["category"] == "Attendance"
     assert r["subcategory"] == "MonthlyAttendance"
     assert r["type"] == "Bar Chart"
-    assert r["date"] == "June 2026"
+    # "June 2026" resolves to an ISO date-time range (.NET expects date-time,
+    # not a raw phrase) rather than a single `date` value.
+    assert r["date"] is None
+    assert r["from_date"] == "2026-06-01T00:00:00"
+    assert r["to_date"] == "2026-06-30T00:00:00"
 
 
 def test_weekly_attendance():

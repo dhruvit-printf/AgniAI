@@ -86,7 +86,7 @@ _SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
     ("Medical", "Individual"): ["CARD"],
     ("Attendance", "Monthly"): ["CHART_BAR"],
     ("Attendance", "Weekly"): ["CHART_BAR"],
-    ("Attendance", "Daily"): ["TABLE"],
+    ("Attendance", "Daily"): ["ATTENDANCE_CALENDAR"],
     ("Attendance", "Present"): ["CHART_PIE"],
     ("Attendance", "Summary"): ["CHART_LINE"],
     ("Strength", "StrengthBreakdown"): ["CHART_LINE"],

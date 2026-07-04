@@ -607,14 +607,69 @@ def _find_key(records: List[Dict], candidates: List[str]) -> Optional[str]:
     return None
 
 
+def _is_identity_key(key: str) -> bool:
+    """True for ID-like fields (agniveerId, companyId, batchId, ...) that must
+    never be auto-picked as a chart's numeric value — they identify a record,
+    they aren't a metric."""
+    return key.lower().endswith("id")
+
+
 def _find_numeric_key(records: List[Dict], exclude: List[str]) -> Optional[str]:
+    exclude_lower = {e.lower() for e in exclude}
     for r in records[:1]:
         for k, v in r.items():
-            if isinstance(v, (int, float)) and k.lower() not in {
-                e.lower() for e in exclude
-            }:
-                return k
+            if not isinstance(v, (int, float)):
+                continue
+            if k.lower() in exclude_lower or _is_identity_key(k):
+                continue
+            return k
     return None
+
+
+# Attendance-style responses often nest a per-period breakdown inside a list
+# field, e.g. "months": [{"month": "06-2026", "present": 30, "absent": 0}].
+_PERIOD_LIST_FIELDS = ("months", "weeks", "days")
+_PERIOD_LABEL_FIELDS = ("month", "week", "date")
+
+
+def _expand_period_records(
+    records: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """
+    Explode a nested per-period list (months/weeks/days) into flat rows so
+    charts can plot the real metrics inside it (present/absent/...) instead
+    of falling back to an identity field like agniveerId.
+
+    Returns (records, period_label_key) — period_label_key is the field that
+    labels each exploded period (e.g. "month"), or None if nothing to explode.
+    """
+    period_list_key = None
+    for candidate in _PERIOD_LIST_FIELDS:
+        if records and all(isinstance(r.get(candidate), list) for r in records):
+            period_list_key = candidate
+            break
+    if not period_list_key:
+        return records, None
+
+    exploded: List[Dict[str, Any]] = []
+    period_label_key: Optional[str] = None
+    for r in records:
+        identity = {k: v for k, v in r.items() if k != period_list_key}
+        periods = r.get(period_list_key) or []
+        if not periods:
+            exploded.append(identity)
+            continue
+        for period in periods:
+            if isinstance(period, dict):
+                exploded.append({**identity, **period})
+                if period_label_key is None:
+                    for label_field in _PERIOD_LABEL_FIELDS:
+                        if label_field in period:
+                            period_label_key = label_field
+                            break
+            else:
+                exploded.append(identity)
+    return exploded, period_label_key
 
 
 def build_bar_chart_data(
@@ -629,7 +684,11 @@ def build_bar_chart_data(
     }
     """
     records = _extract_records(combined_result, deep_flatten=False)
-    records = _dedupe_records(records)
+    records, period_key = _expand_period_records(records)
+    if not period_key:
+        # Dedup keys off identity fields (agniveerId/id/...), which would
+        # wrongly collapse multiple exploded periods for the same subject.
+        records = _dedupe_records(records)
     if not records:
         return {
             "xKey": "",
@@ -637,29 +696,38 @@ def build_bar_chart_data(
             "rows": [],
         }
 
-    x_key = _find_key(
-        records,
-        [
-            "fullName",
-            "name",
-            "month",
-            "date",
-            "year",
-            "sport",
-            "grade",
-            "leaveType",
-            "label",
-            "category",
-            "sectionName",
-        ],
-    )
-    if not x_key:
-        for r in records[:1]:
-            for k, v in r.items():
-                if isinstance(v, str) and k.lower() not in ("id",):
-                    x_key = k
-                    break
-    x_key = x_key or "label"
+    identity_key = _find_key(records, ["agniveerName", "fullName", "name"])
+
+    if period_key and identity_key:
+        distinct_identities = {r.get(identity_key) for r in records}
+        # One subject across multiple periods -> chart across time.
+        # Multiple subjects -> chart across subjects (one bar per subject),
+        # since a single flat bar chart can't show both dimensions at once.
+        x_key = period_key if len(distinct_identities) <= 1 else identity_key
+    else:
+        x_key = _find_key(
+            records,
+            [
+                "fullName",
+                "name",
+                "month",
+                "date",
+                "year",
+                "sport",
+                "grade",
+                "leaveType",
+                "label",
+                "category",
+                "sectionName",
+            ],
+        )
+        if not x_key:
+            for r in records[:1]:
+                for k, v in r.items():
+                    if isinstance(v, str) and k.lower() not in ("id",):
+                        x_key = k
+                        break
+        x_key = x_key or "label"
 
     y_key = (
         _find_key(
@@ -669,10 +737,12 @@ def build_bar_chart_data(
                 "totalMarks",
                 "score",
                 "marksObtained",
+                "present",
                 "count",
                 "value",
                 "percentage",
                 "averageScore",
+                "absent",
             ],
         )
         or _find_numeric_key(records, ["id"])
@@ -698,6 +768,7 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
     }
     """
     records = _extract_records(combined_result, deep_flatten=False)
+    records, _period_key = _expand_period_records(records)
     if not records:
         return {
             "xKey": "time",
@@ -714,6 +785,7 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
         for k, v in r.items()
         if isinstance(v, (int, float))
         and k.lower() not in {t.lower() for t in time_keys + ["id"]}
+        and not _is_identity_key(k)
     ]
     if not numeric_keys:
         numeric_keys = ["value"]
@@ -743,6 +815,7 @@ def build_pie_chart_data(
     }
     """
     records = _extract_records(combined_result, deep_flatten=False)
+    records, _period_key = _expand_period_records(records)
     if not records:
         return {"rows": []}
 
@@ -773,11 +846,13 @@ def build_pie_chart_data(
             records,
             [
                 "value",
+                "present",
                 "count",
                 "score",
                 "percentage",
                 "bestTotal",
                 "marksObtained",
+                "absent",
             ],
         )
         or _find_numeric_key(records, ["id"])
@@ -793,6 +868,125 @@ def build_pie_chart_data(
     ]
 
     return {"rows": rows}
+
+
+_PRESENT_TRUE_VALUES = {"present", "p", "yes", "true", "1", "attended"}
+_PRESENT_FALSE_VALUES = {"absent", "a", "no", "false", "0", "missed"}
+
+
+def _coerce_is_present(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value or "").strip().lower()
+    if text in _PRESENT_TRUE_VALUES:
+        return True
+    if text in _PRESENT_FALSE_VALUES:
+        return False
+    return False
+
+
+def _parse_calendar_date(value: Any) -> Optional["datetime"]:
+    from datetime import datetime as _datetime
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    # Accept "YYYY-MM-DD", full ISO date-times, and trailing "Z" (UTC marker).
+    try:
+        return _datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return _datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _calendar_period_from_intent(intent: Dict[str, Any]) -> Tuple[int, int]:
+    from datetime import datetime as _datetime
+
+    for field in ("date", "from_date", "fromDate", "to_date", "toDate"):
+        parsed = _parse_calendar_date(intent.get(field))
+        if parsed:
+            return parsed.year, parsed.month
+    now = _datetime.now()
+    return now.year, now.month
+
+
+def _find_first_value(records: List[Dict], candidates: List[str]) -> Optional[Any]:
+    for r in records[:1]:
+        for c in candidates:
+            for k in r.keys():
+                if k.lower() == c.lower() and r.get(k) not in (None, ""):
+                    return r.get(k)
+    return None
+
+
+def build_attendance_calendar_data(
+    combined_result: Any, intent: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    ATTENDANCE_CALENDAR schema:
+    {
+        "year": int, "month": int,
+        "agniveerNo": str, "agniveerName": str, "photoPath": str,
+        "days": [{"date": str, "isPresent": bool}, ...]
+    }
+    """
+    intent = intent or {}
+    records = _extract_records(combined_result, deep_flatten=False)
+
+    date_key = _find_key(records, ["date", "attendanceDate", "day"])
+    present_key = _find_key(
+        records, ["isPresent", "present", "attended", "attendanceStatus", "status"]
+    )
+
+    year: Optional[int] = None
+    month: Optional[int] = None
+    days: List[Dict[str, Any]] = []
+
+    for r in records:
+        raw_date = r.get(date_key) if date_key else None
+        parsed = _parse_calendar_date(raw_date)
+        if parsed and year is None:
+            year, month = parsed.year, parsed.month
+
+        raw_present = r.get(present_key) if present_key else None
+        days.append(
+            {
+                "date": str(raw_date) if raw_date is not None else "",
+                "isPresent": _coerce_is_present(raw_present),
+            }
+        )
+
+    if year is None or month is None:
+        year, month = _calendar_period_from_intent(intent)
+
+    agniveer_no = (
+        _find_first_value(records, ["agniveerNo", "AgniveerNo", "AgniVeerNo"])
+        or intent.get("agniveer_no")
+        or intent.get("agniveerNo")
+        or ""
+    )
+    agniveer_name = (
+        _find_first_value(records, ["agniveerName", "fullName", "name"]) or ""
+    )
+    photo_path = (
+        _find_first_value(records, ["photoPath", "photoUrl", "photo"]) or ""
+    )
+
+    return {
+        "year": year,
+        "month": month,
+        "agniveerNo": str(agniveer_no),
+        "agniveerName": str(agniveer_name),
+        "photoPath": str(photo_path),
+        "days": days,
+    }
 
 
 def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
@@ -825,6 +1019,13 @@ def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
             if isinstance(row, dict):
                 row.setdefault("label", "Category")
                 row.setdefault("value", 0)
+    elif inferred_type == "ATTENDANCE_CALENDAR":
+        data.setdefault("year", None)
+        data.setdefault("month", None)
+        data.setdefault("agniveerNo", "")
+        data.setdefault("agniveerName", "")
+        data.setdefault("photoPath", "")
+        data.setdefault("days", [])
 
 
 def build_formatted_data(
@@ -992,6 +1193,8 @@ def build_formatted_data(
         data_payload = build_line_chart_data(source_result)
     elif inferred_type in {"CHART_PIE", "PIE_CHART", "DONUT_CHART"}:
         data_payload = build_pie_chart_data(source_result)
+    elif inferred_type == "ATTENDANCE_CALENDAR":
+        data_payload = build_attendance_calendar_data(source_result, intent)
     else:
         if isinstance(source_result, dict) and "sides" in source_result:
             sides_data = []
@@ -1013,9 +1216,11 @@ def build_formatted_data(
 
     # Preserve unknown .NET keys for non-comparison queries so cross-filter metadata
     # (matchCount, totalBeforeFilter, etc.) and other backend context reaches the frontend.
-    # Comparison widgets are fully self-contained — never merge extra keys into them.
+    # Comparison widgets and ATTENDANCE_CALENDAR are fully self-contained — never merge
+    # extra keys into them.
     if (
         query_type not in ("compare", "comparison")
+        and inferred_type != "ATTENDANCE_CALENDAR"
         and isinstance(source_result, dict)
         and isinstance(data_payload, dict)
     ):
@@ -1586,6 +1791,10 @@ def _build_widget_data(
     if wt in ("PIE_CHART", "DONUT_CHART", "CHART_PIE"):
         return build_pie_chart_data(combined_result)
 
+    # ── ATTENDANCE_CALENDAR ──────────────────────────────────────────────────
+    if wt == "ATTENDANCE_CALENDAR":
+        return build_attendance_calendar_data(combined_result, intent)
+
     # Fallback — unknown type becomes a TABLE
     flat = _extract_records(combined_result, deep_flatten=True)
     return build_table_data(flat)
@@ -1640,7 +1849,11 @@ def build_widget_list(
                 table_data = build_table_data(flat)
                 data["row"] = table_data.get("row") or []
                 data["columns"] = table_data.get("columns") or []
-            if isinstance(combined_result, dict) and isinstance(data, dict):
+            if (
+                spec.widget_type != "ATTENDANCE_CALENDAR"
+                and isinstance(combined_result, dict)
+                and isinstance(data, dict)
+            ):
                 for key in ("degraded", "failedFilters", "matchCount"):
                     if key in combined_result:
                         data[key] = combined_result[key]

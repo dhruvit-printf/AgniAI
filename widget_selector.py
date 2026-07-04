@@ -53,7 +53,7 @@ def _canonical(wt: str) -> str:
 class WidgetSpec:
     """Blueprint for one widget.  No data — only build instructions."""
 
-    widget_type: str  # "TABLE" | "CARD" | "CHART_BAR" | "CHART_LINE" | "CHART_PIE" | "COMPARE_TABLE" | "COMPARE_CARD" | "COMPARE_CHART_BAR" | "COMPARE_CHART_LINE" | "COMPARE_CHART_PIE"
+    widget_type: str  # "TABLE" | "CARD" | "CHART_BAR" | "CHART_LINE" | "CHART_PIE" | "ATTENDANCE_CALENDAR" | "COMPARE_TABLE" | "COMPARE_CARD" | "COMPARE_CHART_BAR" | "COMPARE_CHART_LINE" | "COMPARE_CHART_PIE"
     widget_id: str  # Deterministic, unique within this response
     title: str  # Human-readable title rendered on the widget
     source_hint: str = "primary"  # "primary"|"summary"|"left"|"right"|"section"

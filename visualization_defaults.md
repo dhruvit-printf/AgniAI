@@ -11,7 +11,22 @@ The backend behavior is split into two layers:
 
 The canonical widget `type` values emitted by the backend are:
 
-`TABLE` | `CARD` | `CHART_BAR` | `CHART_LINE` | `CHART_PIE` | `COMPARE_TABLE` | `COMPARE_CARD` | `COMPARE_CHART_BAR` | `COMPARE_CHART_LINE` | `COMPARE_CHART_PIE`
+`TABLE` | `CARD` | `CHART_BAR` | `CHART_LINE` | `CHART_PIE` | `ATTENDANCE_CALENDAR` | `COMPARE_TABLE` | `COMPARE_CARD` | `COMPARE_CHART_BAR` | `COMPARE_CHART_LINE` | `COMPARE_CHART_PIE`
+
+`ATTENDANCE_CALENDAR` is a special-purpose widget used only for `Attendance` / `Daily`. Its `data` shape is fixed:
+
+```json
+{
+  "year": 2025,
+  "month": 7,
+  "agniveerNo": "",
+  "agniveerName": "",
+  "photoPath": "",
+  "days": [
+    { "date": "", "isPresent": true }
+  ]
+}
+```
 
 Legacy names (`BAR_CHART`, `LINE_CHART`, `PIE_CHART`, `AREA_CHART`, `DONUT_CHART`, `RADIAL_CHART`, `COMPARE_BAR_CHART`, `COMPARE_LINE_CHART`, `COMPARE_PIE_CHART`) are still accepted as **input** aliases (e.g. a frontend override), but are never emitted as output. Donut charts are folded into `CHART_PIE` / `COMPARE_CHART_PIE`; radial and area charts are folded into `CHART_LINE` / `COMPARE_CHART_LINE`.
 
@@ -98,7 +113,7 @@ The backend also applies summary-response defaults per operation. Detailed respo
 | Medical | Individual | CARD |
 | Attendance | Monthly | CHART_BAR |
 | Attendance | Weekly | CHART_BAR |
-| Attendance | Daily | TABLE |
+| Attendance | Daily | ATTENDANCE_CALENDAR |
 | Attendance | Present / On-Campus | CHART_PIE |
 | Attendance | Summary | CHART_LINE |
 | Verification | Pending | CARD |
