@@ -18,6 +18,27 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 
+def _has_data(fd: Any) -> bool:
+    if not fd:
+        return False
+    if isinstance(fd, list):
+        return any(_has_data(w) for w in fd)
+    if isinstance(fd, dict):
+        d = fd.get("data")
+        if not d:
+            return False
+        if isinstance(d, dict):
+            if "row" in d and not d["row"]:
+                return False
+            if "rows" in d and not d["rows"]:
+                return False
+            if "left" in d and "right" in d:
+                if not _has_data({"data": d["left"]}) and not _has_data({"data": d["right"]}):
+                    return False
+        return True
+    return True
+
+
 def _to_str(value: Any) -> str:
     """Convert an engine dict or plain string to a full readable string.
 
@@ -97,7 +118,7 @@ def build_response(
         # formattedData is a list of comparison widgets from build_comparison_widgets()
         fd = _normalize_formatted_data(formatted_data)
 
-        return {
+        response = {
             "status": True,
             "message": message or "",
             "formattedData": fd,
@@ -114,6 +135,9 @@ def build_response(
                 failed_sections if isinstance(failed_sections, list) else []
             ),
         }
+        if not _has_data(fd):
+            response.pop("formattedData", None)
+        return response
 
     # For other query types
     fd = _normalize_formatted_data(formatted_data)
@@ -123,7 +147,7 @@ def build_response(
     #   - dict/list → the exact payload sent to the .NET API
     resolved_dotnet_payload = dotnet_payload
 
-    return {
+    response = {
         "status": True,
         "message": message or "",
         "formattedData": fd,
@@ -140,3 +164,8 @@ def build_response(
         "partialFailure": bool(partial_failure),
         "failedSections": failed_sections if isinstance(failed_sections, list) else [],
     }
+    
+    if not _has_data(fd):
+        response.pop("formattedData", None)
+        
+    return response

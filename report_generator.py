@@ -547,50 +547,51 @@ def generate_report(
         )
 
     try:
-        from message_engine import generate_message
+        from narrative_engine import generate_narratives
 
-        message = generate_message(
+        narratives = generate_narratives(
             user_query=user_query,
             combined_result=combined_result,
             query_type=query_type,
             intent=intent,
+            analysis=analysis,
+            prediction=prediction,
+            conclusion=conclusion,
             trace_id=trace_id,
         )
+        message = narratives.get("message") or ""
+        analysis_str = narratives.get("analysis") or ""
+        prediction_str = narratives.get("prediction") or ""
+        conclusion_str = narratives.get("conclusion") or ""
     except Exception as exc:
-        logger.warning("report_generator: message_engine failed: %s", exc)
+        logger.warning("report_generator: narrative_engine failed: %s", exc)
         category = intent.get("category") or "Agniveer"
         category_label = humanize_category(category).lower()
         message = (analysis or {}).get(
             "summary"
         ) or f"The {category_label} query returned {len(records)} records."
+        analysis_str = (analysis or {}).get("summary", "")
+        prediction_str = (prediction or {}).get("projection", "")
+        conclusion_str = (conclusion or {}).get("summary") or (conclusion or {}).get("message") or ""
 
-    analysis_summary_text = (analysis or {}).get("summary", "")
-    conclusion_text = (
-        (conclusion or {}).get("summary") or (conclusion or {}).get("message") or ""
-    )
-
-    intro_needs_fallback = _has_negative_copy(message) or _has_negative_copy(
-        analysis_summary_text
-    )
-    conclusion_needs_fallback = _has_negative_copy(conclusion_text)
+    intro_needs_fallback = _has_negative_copy(message) or _has_negative_copy(analysis_str)
+    conclusion_needs_fallback = _has_negative_copy(conclusion_str)
 
     if intro_needs_fallback or conclusion_needs_fallback:
         grounded = _build_data_grounded_report(combined_result, query_type, intent)
         if intro_needs_fallback:
             message = grounded.get("message", message)
-            analysis = grounded.get("analysis", analysis)
-            prediction = grounded.get("prediction", prediction)
+            analysis_str = grounded.get("analysis", {}).get("summary", analysis_str)
+            prediction_str = grounded.get("prediction", {}).get("projection", prediction_str)
         if conclusion_needs_fallback:
-            conclusion_text = grounded.get("conclusion", {}).get(
-                "summary", conclusion_text
-            )
+            conclusion_str = grounded.get("conclusion", {}).get("summary", conclusion_str)
 
     return {
         "message": message,
-        "analysis": analysis,
-        "prediction": prediction,
+        "analysis": analysis_str,
+        "prediction": prediction_str,
         "conclusion": {
-            "summary": conclusion_text,
+            "summary": conclusion_str,
             "bullets": (
                 conclusion.get("bullets")
                 if (conclusion and isinstance(conclusion, dict))

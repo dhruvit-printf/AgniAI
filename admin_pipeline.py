@@ -2198,6 +2198,8 @@ def execute_admin_query(
         execution_time_ms = round(total_duration * 1000)
         response_payload.setdefault("metadata", {})
         response_payload["metadata"]["executionTimeMs"] = execution_time_ms
+        response_payload["sessionId"] = session_id
+        response_payload["queryType"] = qtype_str
         logger.info(
             {
                 "stage": "total_time",

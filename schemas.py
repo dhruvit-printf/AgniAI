@@ -95,6 +95,8 @@ class DotNetPayloadModel(BaseModel):
     groupBy: Optional[str] = None
     analyticsHint: Optional[str] = None
     sortBy: Optional[str] = None  # ← added: passed by admin_pipeline for ranking
+    returnCondition: Optional[str] = None
+    givenCondition: Optional[str] = None
 
 
 class DotNetResponseModel(BaseModel):
@@ -313,14 +315,14 @@ class FinalResponse(BaseModel):
     message: str
     # Comparison responses intentionally use a single widget dict, while
     # standard responses use a list of widget dicts.
-    formattedData: Union[List[Dict[str, Any]], Dict[str, Any]] = Field(
-        default_factory=list
-    )
+    formattedData: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
     analysis: str = ""
     prediction: str = ""
     conclusion: str = ""
     suggestedQuestions: List[str] = Field(default_factory=list)
     dotnetPayload: Any = None
+    sessionId: str = ""
+    queryType: str = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)
     overallConfidence: float = 0.0
     partialFailure: bool = False

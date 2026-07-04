@@ -179,9 +179,7 @@ def _plan_widgets(
 
     if comparison or query_type in {"compare", "comparison"}:
         override = intent.get("comparison_chart_override")
-        if isinstance(override, str) and override.strip():
-            return _comparison_widgets(override)
-        return _widget_list("CHART_LINE")
+        return _comparison_widgets(override)
 
     if trend or query_type == "trend" or any(
         token in text for token in ("trend", "timeline", "over months", "over time", "growth")

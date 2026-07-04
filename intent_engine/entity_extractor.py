@@ -543,6 +543,24 @@ def _extract_days(query: str) -> Optional[int]:
     return None
 
 
+def _extract_return_condition(query: str) -> Optional[str]:
+    query_lower = _normalise(query)
+    for cond in ("good", "fair", "poor", "damaged"):
+        if re.search(rf"\b(given|issued)\s+(in\s+)?{cond}\b", query_lower):
+            continue
+        if re.search(rf"\b{cond}\b", query_lower):
+            return cond
+    return None
+
+
+def _extract_given_condition(query: str) -> Optional[str]:
+    query_lower = _normalise(query)
+    for cond in ("good", "fair", "poor", "damaged"):
+        if re.search(rf"\b(given|issued)\s+(in\s+)?{cond}\b", query_lower):
+            return cond
+    return None
+
+
 CANONICAL_ENTITY_KEYS = frozenset(
     {
         "batchId",
@@ -569,6 +587,8 @@ CANONICAL_ENTITY_KEYS = frozenset(
         "medicalStatus",
         "diagnose",
         "days",
+        "returnCondition",
+        "givenCondition",
     }
 )
 
@@ -717,6 +737,8 @@ def extract_entities(
         "medicalStatus": None,
         "diagnose": None,
         "days": None,
+        "returnCondition": None,
+        "givenCondition": None,
     }
 
     result["n"] = _extract_number(raw_query)
@@ -739,6 +761,8 @@ def extract_entities(
     result["medicalStatus"] = _extract_medical_status(raw_query)
     result["diagnose"] = _extract_diagnose(raw_query)
     result["days"] = _extract_days(raw_query)
+    result["returnCondition"] = _extract_return_condition(raw_query)
+    result["givenCondition"] = _extract_given_condition(raw_query)
 
     result["companyId"] = (
         resolved_entities.get("company_id")
