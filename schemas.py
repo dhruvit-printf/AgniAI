@@ -283,7 +283,7 @@ class FormattedData(BaseModel):
     model_config = ConfigDict(extra="ignore")
     type: str
     title: str
-    data: Dict[str, Any]
+    data: Optional[Dict[str, Any]] = None
     analysis: Dict[str, Any] = Field(default_factory=dict)
     prediction: Dict[str, Any] = Field(default_factory=dict)
     conclusion: Dict[str, Any] = Field(default_factory=dict)
@@ -316,14 +316,10 @@ class FinalResponse(BaseModel):
     formattedData: Union[List[Dict[str, Any]], Dict[str, Any]] = Field(
         default_factory=list
     )
-    # Root-level narrative — plain strings, never injected into individual widgets
     analysis: str = ""
     prediction: str = ""
     conclusion: str = ""
     suggestedQuestions: List[str] = Field(default_factory=list)
-    # Exact .NET request payload that was executed.
-    # None  → no .NET query was made (conversational/greeting/unclear).
-    # dict  → the verbatim payload sent to the .NET API.
     dotnetPayload: Any = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     overallConfidence: float = 0.0

@@ -145,8 +145,12 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertEqual(json.loads(rows[0]["attempts"]), [{"attempt": 1, "score": 90}])
         self.assertEqual(json.loads(rows[0]["metrics"]), {"avg": 85})
 
-    def test_deep_flatten_only_for_tables(self):
-        # Verify deep flattening only affects tables (Issue 5)
+    def test_deep_flatten_across_widget_types(self):
+        # Verify deep flattening surfaces nested .NET fields for BOTH tables
+        # and chart widgets. Previously CARD/CHART_BAR/CHART_LINE/CHART_PIE
+        # used deep_flatten=False and silently dropped any field .NET nested
+        # under a sub-object (e.g. "nested_info": {"sport": ...}) — those
+        # fields never reached the frontend. Charts must now flatten too.
         combined = [
             {
                 "name": "Amit",
@@ -154,7 +158,7 @@ class TestResponseLayerRefactor(unittest.TestCase):
             }
         ]
 
-        # 1. TABLE widget -> deep flatten should happen
+        # 1. TABLE widget -> deep flatten happens
         fd_table = build_formatted_data(
             combined,
             query_type="simple",
@@ -168,7 +172,7 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertIn("nested_info_Sport", fd_table["data"]["row"][0])
         self.assertIn("nested_info_Detail_Level", fd_table["data"]["row"][0])
 
-        # 2. BAR_CHART widget -> deep flatten should NOT happen; new schema uses rows
+        # 2. BAR_CHART widget -> nested fields are ALSO flattened and surfaced
         fd_bar = build_formatted_data(
             combined,
             query_type="simple",
@@ -181,8 +185,9 @@ class TestResponseLayerRefactor(unittest.TestCase):
         # New BAR_CHART schema has rows, not series
         self.assertIn("rows", fd_bar["data"])
         row = fd_bar["data"]["rows"][0]
-        self.assertIn("name", row)
-        self.assertNotIn("nested_info", row)
+        self.assertIn("Name", row)
+        self.assertIn("Nested_info_Sport", row)
+        self.assertIn("Nested_info_Detail_Level", row)
 
     def test_preserve_dotnet_keys(self):
         # Verify unknown keys pass through to data_payload (Issue 6)

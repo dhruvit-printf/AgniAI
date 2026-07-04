@@ -424,38 +424,40 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
     cards = []
     for r in records:
         used_keys = set()
-        
+
         # 1. Title
         title_cands = ["fullName", "name"]
-        card_title = (f"Record {r.get('id', '')}" if "id" in r else "Details")
-        for k in title_cands:
-            if k in r:
-                card_title = r[k]
-                used_keys.add(k)
-                break
-                
+        id_key = _find_key([r], ["id"])
+        card_title = f"Record {r.get(id_key, '')}" if id_key else "Details"
+        k = _find_key([r], title_cands)
+        if k:
+            card_title = r[k]
+            used_keys.add(k)
+
         # 2. Subtitle
         sub_cands = ["subtitle", "subTitle", "label", "grade"]
         subtitle = ""
-        for k in sub_cands:
-            if k in r:
-                subtitle = r[k]
-                used_keys.add(k)
-                break
-                
+        k = _find_key([r], sub_cands)
+        if k:
+            subtitle = r[k]
+            used_keys.add(k)
+
         # 3. Value
         val_cands = ["bestTotal", "score", "marksObtained", "count", "status", "leaveStatus"]
         card_value = ""
-        for k in val_cands:
-            if k in r:
-                card_value = r[k]
-                used_keys.add(k)
-                break
+        k = _find_key([r], val_cands)
+        if k:
+            card_value = r[k]
+            used_keys.add(k)
 
         # 4. Description + Leftovers
-        description = str(r.get("description") or r.get("details") or "")
-        used_keys.update(["description", "details", "id"])
-        
+        desc_key = _find_key([r], ["description", "details"])
+        description = str(r.get(desc_key, "") or "") if desc_key else ""
+        if desc_key:
+            used_keys.add(desc_key)
+        if id_key:
+            used_keys.add(id_key)
+
         leftovers = []
         for k, v in r.items():
             if k not in used_keys and not str(k).lower().endswith("id"):
@@ -610,11 +612,24 @@ def build_table_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _find_key(records: List[Dict], candidates: List[str]) -> Optional[str]:
-    """Return the first field key matching any candidate (case-insensitive)."""
+    """Return the first field key matching any candidate (case-insensitive).
+
+    Also matches the trailing segment of a flattened/nested key (e.g.
+    'Performance_BestTotal' matches candidate 'bestTotal'), so fields that
+    arrive nested from .NET are still found once the record has been
+    deep-flattened.
+    """
     for c in candidates:
+        cl = c.lower()
         for r in records[:1]:
             for k in r.keys():
-                if k.lower() == c.lower():
+                if k.lower() == cl:
+                    return k
+    for c in candidates:
+        cl = c.lower()
+        for r in records[:1]:
+            for k in r.keys():
+                if "_" in k and k.rsplit("_", 1)[-1].lower() == cl:
                     return k
     return None
 
@@ -707,6 +722,15 @@ def build_bar_chart_data(
             "yKey": "",
             "rows": [],
         }
+    # Flatten any remaining nested sub-objects (e.g. a "performance": {...}
+    # block) now that period-list explosion has already run — otherwise
+    # metrics nested by .NET would never be found below and the chart would
+    # render as all-zero.
+    records = flatten_records(records, deep_flatten=True)
+    # Flattening re-cases top-level keys (e.g. "month" -> "Month"), so
+    # re-resolve period_key to whatever casing actually survived.
+    if period_key:
+        period_key = _find_key(records, [period_key]) or period_key
 
     identity_key = _find_key(records, ["agniveerName", "fullName", "name"])
 
@@ -763,7 +787,7 @@ def build_bar_chart_data(
 
     grouped_rows = {}
     for r in records:
-        x_val = r.get(x_key) or r.get("fullName") or "Category"
+        x_val = r.get(x_key) or (r.get(identity_key) if identity_key else None) or "Category"
         y_val = r.get(y_key) if r.get(y_key) is not None else 0
         if not isinstance(y_val, (int, float)):
             try: y_val = float(y_val)
@@ -799,6 +823,10 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
             "series": [],
             "rows": [],
         }
+    # Flatten remaining nested sub-objects (post period-explosion) so nested
+    # numeric metrics (e.g. "performance": {"bestTotal": 92}) surface as
+    # plottable series instead of vanishing.
+    records = flatten_records(records, deep_flatten=True)
 
     time_keys = ["date", "month", "year", "attemptNo", "attempt", "time", "day"]
     x_key = _find_key(records, time_keys) or "date"
@@ -856,6 +884,10 @@ def build_pie_chart_data(
     records, _period_key = _expand_period_records(records)
     if not records:
         return {"rows": []}
+    # Flatten remaining nested sub-objects (post period-explosion) so nested
+    # fields (e.g. "performance": {"grade": "A", "bestTotal": 92}) are
+    # discoverable as slice label/value instead of vanishing.
+    records = flatten_records(records, deep_flatten=True)
 
     label_key = _find_key(
         records,
@@ -1237,7 +1269,7 @@ def build_formatted_data(
         }
 
     elif inferred_type == "CARD":
-        records = _extract_records(source_result, deep_flatten=False)
+        records = _extract_records(source_result, deep_flatten=True)
         data_payload = build_card_data(records, title)
     elif inferred_type in {"CHART_BAR", "BAR_CHART"}:
         data_payload = build_bar_chart_data(source_result)
@@ -1311,6 +1343,48 @@ def build_formatted_data(
 
     validate_payload(inferred_type, data_payload)
 
+    def _is_meaningful(payload: Any) -> bool:
+        if not payload or not isinstance(payload, dict):
+            return False
+        if "rows" in payload:
+            return bool(payload.get("rows"))
+        if "row" in payload:
+            return bool(payload.get("row"))
+        if "sections" in payload:
+            return any(
+                sec.get("row") or sec.get("rows")
+                for sec in payload.get("sections", [])
+                if isinstance(sec, dict)
+            )
+        if "left" in payload and "right" in payload:
+            left_has = bool(
+                isinstance(payload.get("left"), dict)
+                and (payload["left"].get("row") or payload["left"].get("rows"))
+            )
+            right_has = bool(
+                isinstance(payload.get("right"), dict)
+                and (payload["right"].get("row") or payload["right"].get("rows"))
+            )
+            return left_has or right_has
+        if "sides" in payload:
+            return any(
+                side.get("data")
+                for side in payload.get("sides", [])
+                if isinstance(side, dict)
+            )
+        if "dates" in payload:
+            return bool(payload.get("dates"))
+        if "cards" in payload:
+            return bool(payload.get("cards"))
+        # Fallback for CARD widget which has "value" and "description"
+        if "value" in payload:
+            return payload.get("value") is not None
+        # Allow pass-through if we have unknown keys and some values
+        return any(v is not None for v in payload.values())
+
+    if not _is_meaningful(data_payload):
+        data_payload = None
+
     fd = FormattedData(
         type=inferred_type,
         title=title,
@@ -1325,7 +1399,13 @@ def build_formatted_data(
         group_by=(visualization_intent or {}).get("group_by"),
         metric=(visualization_intent or {}).get("metric"),
     )
-    return fd.model_dump()
+    dumped = fd.model_dump()
+    if dumped.get("data") is None:
+        del dumped["data"]
+    elif isinstance(dumped.get("data"), dict) and not dumped["data"]:
+        del dumped["data"]
+        
+    return dumped
 
 
 # =============================================================================
@@ -1490,7 +1570,7 @@ def _build_compare_bar(combined_result: Dict[str, Any]) -> Dict[str, Any]:
         return str(side.get("label") or "")
 
     def _side_bar(side: Dict[str, Any]) -> Dict[str, Any]:
-        records = side.get("data") or []
+        records = flatten_records(side.get("data") or [], deep_flatten=True)
         if not records:
             return {
                 "heading": _side_heading(side),
@@ -1583,7 +1663,7 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
         return str(side.get("label") or "")
 
     def _side_line(side: Dict[str, Any]) -> Dict[str, Any]:
-        records = side.get("data") or []
+        records = flatten_records(side.get("data") or [], deep_flatten=True)
         if not records:
             return {
                 "heading": _side_heading(side),
@@ -1598,6 +1678,7 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
             for k, v in r.items()
             if isinstance(v, (int, float))
             and k.lower() not in {t.lower() for t in _TIME_KEYS + ["id"]}
+            and not _is_identity_key(k)
         ] or ["value"]
         series = [
             {"key": f"series{idx}", "label": str(key).replace("_", " ").title()}
@@ -1661,7 +1742,7 @@ def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     def _side_pie(side: Dict[str, Any]) -> Dict[str, Any]:
-        records = side.get("data") or []
+        records = flatten_records(side.get("data") or [], deep_flatten=True)
         if not records:
             return {"heading": _side_heading(side), "rows": []}
         label_key = _find_key(records, _PIE_LABEL_CANDIDATES)
@@ -1844,7 +1925,7 @@ def _build_widget_data(
 
     # ── Primary CARD (from raw records) ─────────────────────────────────────
     if wt == "CARD":
-        records = _extract_records(combined_result, deep_flatten=False)
+        records = _extract_records(combined_result, deep_flatten=True)
         return build_card_data(records, spec.title)
 
     # ── TABLE — left/right/section/primary ──────────────────────────────────
