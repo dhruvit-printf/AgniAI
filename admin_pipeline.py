@@ -890,34 +890,35 @@ def execute_admin_query(
             existing_ba = id_filters.get("batchId")
 
             # Load conversation carryover context only for follow-up turns.
+            # get_recent() returns None once the entry exceeds its TTL, so a
+            # stale single-slot record can't be read back arbitrarily later.
             if _ctx_resolution.context_source != "fresh":
-                with _session_context._lock:
-                    prev_history = _session_context._history.get(session_id)
-                    if prev_history:
-                        prev_intent = prev_history.get("intent") or {}
-                        
-                        new_cat = semantic_understanding.get("intent", {}).get("category")
-                        old_cat = prev_intent.get("category")
-                        
-                        if new_cat and old_cat and new_cat != old_cat and new_cat != "Unknown":
-                            logger.info(f"Category shift ({old_cat} -> {new_cat}). Dropping conversational filters.")
-                            carry_forward_filters.clear()
-                        else:
-                            if existing_co is None:
-                                existing_co = prev_intent.get("company_id") or prev_intent.get(
-                                    "companyId"
-                                )
-                            if existing_pl is None:
-                                existing_pl = prev_intent.get("platoon_id") or prev_intent.get(
-                                    "platoonId"
-                                )
-                            if existing_ba is None:
-                                existing_ba = prev_intent.get("batch_id") or prev_intent.get(
-                                    "batchId"
-                                )
-                            resolved_agniveer_no = prev_intent.get(
-                                "agniveer_no"
-                            ) or prev_intent.get("agniveerNo")
+                prev_history = _session_context.get_recent(session_id)
+                if prev_history:
+                    prev_intent = prev_history.get("intent") or {}
+
+                    new_cat = semantic_understanding.get("category")
+                    old_cat = prev_intent.get("category")
+
+                    if new_cat and old_cat and new_cat != old_cat and new_cat != "Unknown":
+                        logger.info(f"Category shift ({old_cat} -> {new_cat}). Dropping conversational filters.")
+                        carry_forward_filters.clear()
+                    else:
+                        if existing_co is None:
+                            existing_co = prev_intent.get("company_id") or prev_intent.get(
+                                "companyId"
+                            )
+                        if existing_pl is None:
+                            existing_pl = prev_intent.get("platoon_id") or prev_intent.get(
+                                "platoonId"
+                            )
+                        if existing_ba is None:
+                            existing_ba = prev_intent.get("batch_id") or prev_intent.get(
+                                "batchId"
+                            )
+                        resolved_agniveer_no = prev_intent.get(
+                            "agniveer_no"
+                        ) or prev_intent.get("agniveerNo")
 
             new_resolved = resolve_entities_from_query(
                 message,

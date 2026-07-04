@@ -152,7 +152,7 @@ def is_conversational_query(text: str) -> bool:
     cleaned = normalize_text(text).rstrip("!?.,;")
     if not cleaned:
         return True
-    if _contains_conversational_phrase(cleaned):
+    if _contains_conversational_phrase(cleaned) and not _contains_admin_signal(cleaned):
         return True
     if _contains_disclaimer_phrase(cleaned):
         return True

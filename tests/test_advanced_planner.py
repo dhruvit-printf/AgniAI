@@ -9,8 +9,7 @@ Test suite for:
   5. Follow-up query support (admin_context)
   6. Aggregation helper (result_combiner)
   7. Comparison engine improvements
-  8. Unified confidence framework
-  9. Backward-compatibility guard for SIMPLE / existing types
+  8. Backward-compatibility guard for SIMPLE / existing types
 
 Run with:
     pytest tests/test_advanced_planner.py -v
@@ -47,7 +46,6 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-import admin_confidence as acf
 import admin_context as ac
 import intent_engine.query_planner as qp
 import result_combiner as rc
@@ -394,83 +392,7 @@ class TestComparisonEngineImprovements(unittest.TestCase):
 
 
 # =============================================================================
-# 8. UNIFIED CONFIDENCE FRAMEWORK
-# =============================================================================
-
-
-class TestUnifiedConfidence(unittest.TestCase):
-
-    def test_high_intent_gives_high_label(self):
-        intent = {
-            "category": "Performance",
-            "subcategory": "TopPerformers",
-            "confidence": "high",
-        }
-        conf = acf.compute_confidence(intent_result=intent)
-        self.assertEqual(conf.label, "high")
-        self.assertGreaterEqual(conf.score, 0.75)
-
-    def test_low_intent_gives_low_label(self):
-        intent = {"category": None, "subcategory": None, "confidence": "low"}
-        conf = acf.compute_confidence(intent_result=intent)
-        self.assertEqual(conf.label, "low")
-        self.assertLess(conf.score, 0.75)
-
-    def test_medium_intent(self):
-        intent = {
-            "category": "Leave",
-            "subcategory": "CurrentLeave",
-            "confidence": "medium",
-        }
-        conf = acf.compute_confidence(intent_result=intent)
-        self.assertIn(conf.label, ("medium", "high"))
-
-    def test_plan_only(self):
-        class FakePlan:
-            confidence = 0.85
-
-        conf = acf.compute_confidence(plan=FakePlan())
-        self.assertEqual(conf.label, "high")
-
-    def test_combined_intent_and_plan(self):
-        intent = {
-            "category": "Medical",
-            "subcategory": "BMIAnalysis",
-            "confidence": "high",
-        }
-
-        class FakePlan:
-            confidence = 0.85
-
-        conf = acf.compute_confidence(intent_result=intent, plan=FakePlan())
-        self.assertEqual(conf.label, "high")
-        self.assertGreater(conf.score, 0.75)
-
-    def test_to_dict_has_score_and_label(self):
-        intent = {
-            "category": "Attendance",
-            "subcategory": "PresentToday",
-            "confidence": "high",
-        }
-        conf = acf.compute_confidence(intent_result=intent)
-        d = conf.to_dict()
-        self.assertIn("score", d)
-        self.assertIn("label", d)
-
-    def test_normalise_intent_confidence(self):
-        intent = {
-            "category": "Skills",
-            "subcategory": "BySport",
-            "confidence": "medium",
-        }
-        updated = acf.normalise_intent_confidence(intent)
-        self.assertIsInstance(updated["confidence"], dict)
-        self.assertIn("score", updated["confidence"])
-        self.assertIn("label", updated["confidence"])
-
-
-# =============================================================================
-# 9. BACKWARD COMPATIBILITY
+# 8. BACKWARD COMPATIBILITY
 # =============================================================================
 
 

@@ -297,7 +297,7 @@ def _extract_new_section(text: str) -> Optional[str]:
 def _compute_follow_up_score(msg: str) -> float:
     """
     Return a score in [0, 1] indicating how likely the message is a follow-up.
-    > 0.55 → treat as follow-up.
+    >= 0.55 → treat as follow-up (see resolve()'s `< 0.55` reject check).
     0.35–0.55 → uncertain.
     < 0.35 → treat as fresh query.
     """
@@ -544,8 +544,9 @@ def _reconstruct_query(
                 return f"{base} for {tail}"
         return f"{base} {msg}"
 
-    # unknown — safest fallback: prepend base context
-    return f"{base} {msg}"
+    # unknown — do not fabricate continuity by fusing unrelated text; classify
+    # the user's literal message on its own.
+    return msg
 
 
 # ─── Main Engine ─────────────────────────────────────────────────────────────
@@ -722,33 +723,47 @@ class ConversationContextEngine:
                 best_record = recent_entry[2]
                 best_idx = 0
 
-        # Step 4 — reconstruct the full query
-        kind = _detect_follow_up_kind(raw_message, best_record)
-        reconstructed = _reconstruct_query(raw_message, best_record, kind)
-
-        # Step 5 — collect carry-forward filters (do not override explicit values)
-        # Only carry filters when the matched interaction has the same category as
-        # the current message's apparent category (prevents stale companyId etc.).
-        carry_filters: Dict[str, Any] = {}
-
-        # Determine current query's category by a lightweight domain-keyword scan
-        _cur_tokens = _tokenize(raw_message)
-        _cur_domain = _has_domain_keyword(_cur_tokens)
+        # Step 4 — determine whether the matched interaction is actually the same
+        # topic as the current message. This is computed BEFORE reconstruction so
+        # that a genuine topic change never gets its query text fused with stale
+        # text, and never carries forward stale entities/filters (prevents stale
+        # companyId/platoonId/etc. leaking across an unrelated follow-up).
         _matched_cat = best_record.category
-
+        _classification_failed = False
         # Import inline to avoid circular dependency at module level
         try:
             from intent_engine.intent_classifier import classify_intent as _clf
             _cur_intent = _clf(raw_message)
             _cur_cat = _cur_intent.get("category")
         except Exception:
+            logger.warning(
+                "context_engine.resolve: inline classify_intent failed during "
+                "carry-forward category check | session=%s | msg=%r",
+                session_id, raw_message, exc_info=True,
+            )
             _cur_cat = None
+            _classification_failed = True
 
-        _same_category = (
+        # A classification failure must fail CLOSED (treat as a topic change, do
+        # not carry forward) rather than silently defaulting to "same category".
+        _same_category = not _classification_failed and (
             _matched_cat is None
             or _cur_cat is None
+            or _cur_cat == "Unknown"
             or _matched_cat == _cur_cat
         )
+
+        # Step 5 — reconstruct the query text. Only fuse the current message with
+        # the matched interaction's resolved query when the topic actually
+        # matches — otherwise classify the user's literal message on its own.
+        if _same_category:
+            kind = _detect_follow_up_kind(raw_message, best_record)
+            reconstructed = _reconstruct_query(raw_message, best_record, kind)
+        else:
+            reconstructed = raw_message
+
+        # Step 6 — collect carry-forward filters (do not override explicit values).
+        carry_filters: Dict[str, Any] = {}
 
         if _same_category:
             for key, val in {**best_record.entities, **best_record.filters}.items():
@@ -777,7 +792,7 @@ class ConversationContextEngine:
         )
         return ContextResolution(
             resolved_query=reconstructed,
-            resolved_entities=dict(best_record.entities),
+            resolved_entities=dict(best_record.entities) if _same_category else {},
             context_source=source_label,
             needs_clarification=False,
             clarification_question=None,

@@ -9,12 +9,16 @@ import logging
 import os
 import re
 import threading
+import time
 from collections import OrderedDict
 from typing import Any, Dict, Optional, Set
 
 logger = logging.getLogger(__name__)
 
 _MAX_SESSIONS = int(os.getenv("ADMIN_SESSION_CACHE_SIZE", "1000"))
+# Matches context_engine's own candidate-interaction TTL so the two stores
+# agree on how long "the previous turn" stays eligible for carry-forward.
+_HISTORY_TTL_SECONDS = int(os.getenv("ADMIN_SESSION_TTL_SECONDS", "300"))
 
 
 def _extract_ids_from_result(data: Any) -> Set[int]:
@@ -113,6 +117,7 @@ class AdminSessionContext:
                 "query": query_text,
                 "intent": intent_dict,
                 "ids": ids,
+                "timestamp": time.time(),
             }
             self._history.move_to_end(session_id)
             while len(self._history) > _MAX_SESSIONS:
@@ -124,6 +129,17 @@ class AdminSessionContext:
                     _MAX_SESSIONS,
                 )
         logger.debug("Updated session %s history: %d ids stored", session_id, len(ids))
+
+    def get_recent(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Return the stored interaction for session_id, or None if missing/expired."""
+        with self._lock:
+            entry = self._history.get(session_id)
+            if not entry:
+                return None
+            age = time.time() - entry.get("timestamp", 0)
+            if age > _HISTORY_TTL_SECONDS:
+                return None
+            return entry
 
     def get_previous_ids(self, session_id: str) -> Optional[Set[int]]:
         with self._lock:
