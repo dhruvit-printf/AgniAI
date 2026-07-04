@@ -93,11 +93,7 @@ class AdminSessionContext:
                 "they",
                 "him",
                 "her",
-                "which of",
                 "who among",
-                "any of",
-                "some of",
-                "each of",
             }
             for ind in indicators:
                 if re.search(r"\b" + re.escape(ind) + r"\b", q):

@@ -188,7 +188,7 @@ def build_conversational_response(
         # No .NET query was executed — explicitly None per contract
         "dotnetPayload": None,
         "metadata": {
-            "sessionId": session_id or "admin-default",
+            "sessionId": session_id or "",
             "confidence": 1.0,
             "queryType": query_type,
             "operationCount": 0,

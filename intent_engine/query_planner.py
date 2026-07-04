@@ -206,8 +206,10 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "gurkha",
         "rajput",
         "punjabi",
-    ],
-    "Roster": [
+        "skill",
+        "who plays",
+        "player",
+        "players",
         "roster",
         "roster by sport",
         "roster by class",
@@ -337,8 +339,8 @@ def _is_semantic_comparison(
     ):
         return True
 
-    if re.search(r"\b(more|less)\s+than\b", text_lower):
-        return True
+    # "more than / less than <number>" is a numeric filter, NOT a comparison
+    # (only a comparison when there's a distinct comparison keyword present)
 
     # Multiple sections
     sections_found = {
@@ -379,42 +381,32 @@ def _is_semantic_comparison(
     if len(sports_found) >= 2:
         return True
 
-    # Multiple months
+    # Date-range pattern ("from X to Y") — two months/years in a range are NOT a comparison
+    _date_range_pattern = re.compile(
+        r"\bfrom\s+\S+\s+(?:to|until)\s+\S+", re.IGNORECASE
+    )
+    if _date_range_pattern.search(text_lower):
+        return False
+
+    # Multiple months — only a comparison when NOT in a "from X to Y" range
     months = [
-        "january",
-        "february",
-        "march",
-        "april",
-        "may",
-        "june",
-        "july",
-        "august",
-        "september",
-        "october",
-        "november",
-        "december",
-        "jan",
-        "feb",
-        "mar",
-        "apr",
-        "jun",
-        "jul",
-        "aug",
-        "sep",
-        "oct",
-        "nov",
-        "dec",
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december",
+        "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
     ]
     months_found = {
         m for m in months if re.search(r"\b" + re.escape(m) + r"\b", text_lower)
     }
     if len(months_found) >= 2:
-        return True
+        # Require an explicit comparison keyword alongside the two months
+        if any(kw in text_lower for kw in ("compare", "vs", "versus", "difference between")):
+            return True
 
-    # Multiple years
+    # Multiple years — same guard
     years_found = set(re.findall(r"\b(19\d{2}|20\d{2})\b", text_lower))
     if len(years_found) >= 2:
-        return True
+        if any(kw in text_lower for kw in ("compare", "vs", "versus", "difference between")):
+            return True
 
     return False
 

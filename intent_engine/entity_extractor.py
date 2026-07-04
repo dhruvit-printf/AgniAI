@@ -203,11 +203,27 @@ def _extract_subsection(query: str, section: Optional[str]) -> Optional[str]:
     return None
 
 
+_GRADING_CONTEXT_WORDS = frozenset(
+    {
+        "grade", "grading", "score", "marks", "performance", "result", "rated",
+        "scored", "achieved", "got", "obtained", "received", "classification",
+    }
+)
+_GRADING_AMBIGUOUS = frozenset({"good", "excellent", "satisfactory", "sat", "fail"})
+
+
 def _extract_grading(query: str) -> Optional[str]:
     query_lower = _normalise(query)
+    has_grading_context = any(w in query_lower for w in _GRADING_CONTEXT_WORDS)
     for key, value in GRADING_CATEGORIES.items():
-        if _normalise(key) in query_lower:
-            return value
+        phrase = _normalise(key)
+        if not re.search(rf"\b{re.escape(phrase)}\b", query_lower):
+            continue
+        # Ambiguous single words need a grading-context word to avoid false positives
+        # ("good morning", "satisfactory work", "fail rate" without grading context)
+        if phrase in _GRADING_AMBIGUOUS and not has_grading_context:
+            continue
+        return value
     return None
 
 
@@ -237,10 +253,20 @@ def _extract_leave_type(query: str) -> Optional[str]:
     return None
 
 
+_BMI_FIT_TERMS = frozenset({"fit", "fittest", "most fit", "physically fit"})
+_BMI_CONTEXT_WORDS = frozenset({"bmi", "weight", "fitness"})
+
+
 def _extract_bmi_category(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     for key, value in BMI_CATEGORIES.items():
-        if _normalise(key) in query_lower:
+        phrase = _normalise(key)
+        if phrase in _BMI_FIT_TERMS:
+            # Only match "fit"-family terms when a BMI/weight/fitness context word is present
+            has_context = any(w in query_lower for w in _BMI_CONTEXT_WORDS)
+            if not has_context:
+                continue
+        if re.search(rf"\b{re.escape(phrase)}\b", query_lower):
             return value
     return None
 
@@ -259,10 +285,14 @@ def _extract_blood_group(query: str) -> Optional[str]:
     return None
 
 
+_SPORTS_SORTED = sorted(SPORTS.items(), key=lambda kv: len(kv[0]), reverse=True)
+
+
 def _extract_sport(query: str) -> Optional[str]:
     query_lower = _normalise(query)
-    for key, value in SPORTS.items():
-        if _normalise(key) in query_lower:
+    for key, value in _SPORTS_SORTED:
+        phrase = _normalise(key)
+        if re.search(rf"\b{re.escape(phrase)}\b", query_lower):
             return value
     return None
 
@@ -270,7 +300,8 @@ def _extract_sport(query: str) -> Optional[str]:
 def _extract_class(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     for key, value in CLASSES.items():
-        if _normalise(key) in query_lower:
+        phrase = _normalise(key)
+        if re.search(rf"\b{re.escape(phrase)}\b", query_lower):
             return value
     return None
 
@@ -465,6 +496,7 @@ def _extract_to_attempt(query: str) -> Optional[int]:
 
 def _extract_unit_name(query: str) -> Optional[str]:
     query_lower = _normalise(query)
+    # Pattern 1: "unit alpha", "alpha unit", "in unit alpha", "from unit alpha"
     match = re.search(
         r"(?:\b(?:in|from|for)\s+unit\s+([A-Za-z]+)\b|\bunit\s+([A-Za-z]+)\b|\b([A-Za-z]+)\s+unit\b)",
         query_lower,
@@ -476,8 +508,11 @@ def _extract_unit_name(query: str) -> Optional[str]:
             return UNIT_ALIASES[token]
         if len(token) == 1:
             return f"Unit {token.upper()}"
+    # Phonetic-alphabet aliases ONLY match when next to the word "unit"
+    # (prevents bare "india", "golf", "delta" etc. from triggering)
     for token, canonical in UNIT_ALIASES.items():
-        if re.search(rf"\b{re.escape(token)}\b", query_lower):
+        pattern = rf"\bunit\s+{re.escape(token)}\b|\b{re.escape(token)}\s+unit\b"
+        if re.search(pattern, query_lower, re.IGNORECASE):
             return canonical
     return None
 
@@ -599,8 +634,36 @@ def assert_canonical_entity_keys(entities: Dict[str, Any]) -> None:
             raise KeyError(f"Non-canonical entity key found: '{key}'")
 
 
+_DIAGNOSE_AMBIGUOUS = frozenset(
+    {
+        "cold",
+        "stress",
+        "burn",
+        "injury",
+        "fatigue",
+        "wound",
+        "allergy",
+        "depression",
+        "fever",
+    }
+)
+_MEDICAL_CONTEXT_WORDS = frozenset(
+    {
+        "medical",
+        "sick",
+        "suffering",
+        "diagnosed",
+        "hospital",
+        "ill",
+        "patient",
+        "treatment",
+    }
+)
+
+
 def _extract_diagnose(query: str) -> Optional[str]:
     query_lower = _normalise(query)
+    has_medical_context = any(w in query_lower for w in _MEDICAL_CONTEXT_WORDS)
     diseases = (
         "viral fever",
         "covid-19",
@@ -697,8 +760,12 @@ def _extract_diagnose(query: str) -> Optional[str]:
         "fatigue",
     )
     for d in diseases:
-        if d in query_lower:
-            return d.title()
+        if not re.search(rf"\b{re.escape(d)}\b", query_lower):
+            continue
+        # Ambiguous terms require a medical context word
+        if d in _DIAGNOSE_AMBIGUOUS and not has_medical_context:
+            continue
+        return d.title()
     return None
 
 
@@ -764,31 +831,32 @@ def extract_entities(
     result["returnCondition"] = _extract_return_condition(raw_query)
     result["givenCondition"] = _extract_given_condition(raw_query)
 
+    # Precedence: explicit value in current query > semantic > stale resolved_entities
     result["companyId"] = (
-        resolved_entities.get("company_id")
-        or resolved_entities.get("companyId")
+        _extract_company_id(raw_query)
         or semantic.get("company_id")
         or semantic.get("companyId")
-        or _extract_company_id(raw_query)
+        or resolved_entities.get("company_id")
+        or resolved_entities.get("companyId")
     )
     result["platoonId"] = (
-        resolved_entities.get("platoon_id")
-        or resolved_entities.get("platoonId")
+        _extract_platoon_id(raw_query)
         or semantic.get("platoon_id")
         or semantic.get("platoonId")
-        or _extract_platoon_id(raw_query)
+        or resolved_entities.get("platoon_id")
+        or resolved_entities.get("platoonId")
     )
     result["batchId"] = (
-        resolved_entities.get("batch_id")
-        or resolved_entities.get("batchId")
+        _extract_batch_id(raw_query)
         or semantic.get("batch_id")
         or semantic.get("batchId")
-        or _extract_batch_id(raw_query)
+        or resolved_entities.get("batch_id")
+        or resolved_entities.get("batchId")
     )
     result["agniveerNo"] = (
-        resolved_entities.get("agniveer_no")
+        _extract_agniveer_no(raw_query)
+        or resolved_entities.get("agniveer_no")
         or resolved_entities.get("agniveerNo")
-        or _extract_agniveer_no(raw_query)
     )
 
     return result

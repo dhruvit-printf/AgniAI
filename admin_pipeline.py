@@ -203,8 +203,12 @@ def _strip_empty_id_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def _get_session_id(data: Dict) -> str:
     """Extract session ID from request body or headers."""
+    import uuid as _uuid
     session_id = (data.get("session_id") or data.get("sessionId") or "").strip()
-    return session_id or "admin-default"
+    if not session_id:
+        session_id = _uuid.uuid4().hex
+        logger.warning("request without session_id — generated ephemeral id %s", session_id)
+    return session_id
 
 
 def _get_id_filters(data: Dict) -> Dict[str, Any]:

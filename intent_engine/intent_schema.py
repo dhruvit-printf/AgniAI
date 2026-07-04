@@ -177,6 +177,8 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "bottom performer",
         "lowest performer",
         "grading",
+        "grade",
+        "grade distribution",
         "average score",
         "attempt",
         "improvement",
@@ -197,6 +199,7 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "medical",
         "health",
         "bmi",
+        "bmi distribution",
         "blood",
         "weight",
         "fitness",
@@ -259,7 +262,14 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     ),
     "Skills": (
         "skills",
+        "skill",
         "sport",
+        "sports",
+        "plays",
+        "player",
+        "players",
+        "good at",
+        "talented in",
         "cricket",
         "football",
         "class",
@@ -269,6 +279,8 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "sport roster",
         "class roster",
         "sports roster",
+        # Individual sport names are added programmatically at module load below
+        # (see _SKILLS_SPORT_KEYWORDS extension at the bottom of this section)
     ),
     "Schedule": (
         "schedule",
@@ -544,10 +556,14 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "score trend",
             "marks trend",
             "how is the batch performing",
+            "how has the batch been performing",
+            "performing over attempts",
+            "performing over time",
             "batch performance over attempts",
             "performance over time",
             "score over time",
             "progress over attempts",
+            "over attempts",
             "trajectory",
             "pattern over attempts",
             "how scores changed",
@@ -889,10 +905,11 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         "Unassigned": (
             "unassigned",
             "not assigned",
+            "not yet assigned",
+            "yet to be assigned",
             "no unit",
             "without unit",
             "not allocated",
-            "yet to be assigned",
             "pending assignment",
             "no allocation",
         ),
@@ -1247,6 +1264,8 @@ BMI_CATEGORIES: Dict[str, str] = {
     "normal": "Normal",
     "overweight": "Overweight",
     "obese": "Obese",
+    # "fit" family kept here for context-guarded lookup in entity_extractor.py;
+    # they only activate when the query also contains "bmi", "weight", or "fitness".
     "fittest": "Normal",
     "fit": "Normal",
     "most fit": "Normal",
@@ -1322,6 +1341,20 @@ SPORTS: Dict[str, str] = {
     "cross country": "Cross Country",
     "marathon": "Marathon",
 }
+
+# Extend CATEGORY_KEYWORDS["Skills"] with all sport names from SPORTS so that
+# any sport keyword automatically scores against the Skills category.
+def _extend_skills_keywords() -> None:
+    base: Tuple[str, ...] = CATEGORY_KEYWORDS.get("Skills", ())
+    sport_additions = tuple(
+        k for k in SPORTS if k not in base
+    ) + tuple(
+        v.lower() for v in SPORTS.values() if v.lower() not in base
+    )
+    CATEGORY_KEYWORDS["Skills"] = tuple(dict.fromkeys(base + sport_additions))
+
+
+_extend_skills_keywords()
 
 # =============================================================================
 # CLASSES

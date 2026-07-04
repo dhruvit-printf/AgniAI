@@ -31,7 +31,6 @@ _MULTI_INDEPENDENT_MARKERS = (
     "as well as",
     "along with",
     "together with",
-    "also",
     "and also",
 )
 _CROSS_FILTER_MARKERS = (
@@ -45,12 +44,8 @@ _CROSS_FILTER_MARKERS = (
     "on medical leave",
     "among",
     "within",
-    "who",
-    "with",
     "suffering",
     "suffered",
-    "had",
-    "whose",
 )
 _RANKING_MARKERS = (
     "rank",
@@ -206,7 +201,7 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
             "skills",
         )
     ):
-        return "Roster"
+        return "Skills"
     if "class" in text and any(
         token in text for token in ("skills", "roster", "sport", "sports")
     ):
@@ -664,7 +659,16 @@ def understand_query(query: str) -> Dict[str, Any]:
     group_by = _infer_group_by(text)
 
     comparison_intent = any(marker in text for marker in _COMPARISON_MARKERS)
-    cross_filter_intent = any(marker in text for marker in _CROSS_FILTER_MARKERS)
+
+    # cross_filter requires a marker AND at least 2 distinct inferred categories
+    _cross_marker_hit = any(marker in text for marker in _CROSS_FILTER_MARKERS)
+    cross_filter_intent = False
+    if _cross_marker_hit:
+        from intent_engine.query_planner import _detect_categories as _dc
+        _cf_cats = _dc(text)
+        if len(set(_cf_cats[:3])) >= 2:
+            cross_filter_intent = True
+
     multi_intent = any(marker in text for marker in _MULTI_INDEPENDENT_MARKERS)
     if not multi_intent and " and " in text:
         clause_parts = [

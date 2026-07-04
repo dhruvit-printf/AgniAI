@@ -190,10 +190,6 @@ def _category_entity_bonus(category: str, entities: Optional[Dict[str, Any]]) ->
             ("sport", 18),
             ("class", 18),
         ],
-        "Roster": [
-            ("sport", 20),
-            ("class", 20),
-        ],
         "Overall": [
             ("section", 10),
         ],
@@ -233,7 +229,7 @@ def _score_category(
                 score += max(2, matched // 4)
 
     # Encourage the natural-language defaults that the old engine used.
-    if category == "Roster" and _phrase_score(query_text, "who plays"):
+    if category == "Skills" and _phrase_score(query_text, "who plays"):
         score += 35
     if category == "Leave" and _phrase_score(query_text, "medical leave"):
         score += 45
@@ -390,6 +386,14 @@ def _should_entity_override_category(
     if not entities:
         return False, None, "no entities present"
 
+    # Confidence guard FIRST — if the classifier is already confident, trust it.
+    if confidence_score >= 0.45:
+        return (
+            False,
+            None,
+            f"confidence sufficient ({confidence_score:.2f}) — classifier wins",
+        )
+
     if _entity_present(entities, "leaveType") and classified_category != "Leave":
         return True, "Leave", "leaveType entity present"
     if (
@@ -422,29 +426,14 @@ def _should_entity_override_category(
             return True, "Strength", "strength entity with section present"
         return True, "Performance", "section entity present"
 
-    if confidence_score >= 0.45:
-        return (
-            False,
-            None,
-            f"confidence sufficient ({confidence_score}) — classifier wins",
-        )
     if _entity_present(entities, "sport") and not _phrase_score(
         query_text, "attendance"
     ):
-        if _phrase_score(query_text, "who plays") or _phrase_score(
-            query_text, "roster"
-        ):
-            if classified_category != "Roster":
-                return (
-                    True,
-                    "Roster",
-                    "sport entity with roster phrase present, classifier confidence low",
-                )
-        elif classified_category is None:
+        if classified_category not in ("Skills",):
             return (
                 True,
-                "Roster",
-                "sport entity present with no category, classifier confidence low",
+                "Skills",
+                "sport entity present with low confidence — Skills",
             )
     if (
         _entity_present(entities, "class")
@@ -532,7 +521,7 @@ def _should_entity_override_operation(
         if _phrase_score(query_text, "search") or _phrase_score(query_text, "find"):
             return True, "Search", "equipment search phrase present"
 
-    if category in ("Roster", "Skills"):
+    if category in ("Skills",):
         if not classified_operation and _entity_present(entities, "sport"):
             return True, "BySport", "sport entity present without operation"
         if not classified_operation and _entity_present(entities, "class"):
@@ -587,6 +576,37 @@ def classify_intent(
         category, category_score, operation, operation_score, semantic, entities
     )
 
+    # Stage 2: semantic fallback when keyword score is low
+    if confidence_score < 0.45:
+        try:
+            from .semantic_classifier import classify_admin_intent_semantic
+            sem_result = classify_admin_intent_semantic(query, confidence_score)
+            if sem_result is not None:
+                if sem_result.get("needs_clarification"):
+                    return {
+                        "category": None,
+                        "operation": None,
+                        "responseType": _detect_response_type(query_text),
+                        "raw_query": query,
+                        "confidence_score": round(sem_result.get("confidence", 0.0), 2),
+                        "confidence": "low",
+                        "needs_clarification": True,
+                        "clarification_question": sem_result.get("clarification_question"),
+                    }
+                sem_cat = sem_result.get("category")
+                sem_op = sem_result.get("operation")
+                sem_conf = float(sem_result.get("confidence", 0.0))
+                if sem_cat:
+                    logger.info(
+                        "[SEMANTIC STAGE2] %s → %s/%s conf=%.3f",
+                        query, sem_cat, sem_op, sem_conf,
+                    )
+                    category = sem_cat
+                    operation = sem_op
+                    confidence_score = sem_conf
+        except Exception as _sem_exc:
+            logger.debug("semantic fallback skipped: %s", _sem_exc)
+
     should_override_cat, override_cat, cat_reason = _should_entity_override_category(
         entities, category, confidence_score, query_text
     )
@@ -614,6 +634,18 @@ def classify_intent(
         operation = operation or "Disease"
     if category == "Attendance" and _phrase_score(query_text, "present today"):
         operation = operation or "Present"
+
+    # Sport-entity strong signal: an exact hit in our SPORTS dictionary with no
+    # competing strong category → classify as Skills/BySport at >= 0.6 confidence.
+    if (
+        entities
+        and entities.get("sport")
+        and category not in ("Leave", "Medical", "Attendance", "Performance", "Equipment")
+    ):
+        if category != "Skills" or confidence_score < 0.6:
+            category = "Skills"
+            operation = "BySport"
+            confidence_score = max(confidence_score, 0.6)
 
     should_override_op, override_op, op_reason = _should_entity_override_operation(
         entities, operation, category, confidence_score, query_text

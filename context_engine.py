@@ -16,12 +16,15 @@ Design goals:
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from collections import OrderedDict, deque
 from dataclasses import asdict, dataclass, field
 from threading import RLock
 from typing import Any, Deque, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 MAX_SESSIONS = 500
 MAX_INTERACTIONS = 10
@@ -39,11 +42,7 @@ _PRONOUN_TOKENS = frozenset(
         "her",
         "it",
         "its",
-        "which of",
         "who among",
-        "any of",
-        "some of",
-        "each of",
     }
 )
 
@@ -96,6 +95,45 @@ _RANKING_PATTERN = re.compile(
 )
 
 _NUMBER_ONLY = re.compile(r"^\d+$")
+
+_NUMERIC_ID_PATTERN = re.compile(
+    r"\b(?:company|coy|platoon|plt|batch|agniveer)\s+\d+\b", re.IGNORECASE
+)
+_SPORT_TERMS = frozenset(
+    {
+        "cricket", "football", "soccer", "volleyball", "hockey", "basketball",
+        "kabaddi", "tennis", "badminton", "swimming", "wrestling", "boxing",
+        "archery", "shooting", "weightlifting", "gymnastics", "cycling", "chess",
+        "carrom", "squash", "billiards", "snooker", "judo", "karate", "taekwondo",
+        "handball", "rugby", "golf", "rowing", "sailing", "fencing", "polo",
+        "marathon", "running", "athletics",
+    }
+)
+_DATE_ENTITY_PATTERN = re.compile(
+    r"\b(?:january|february|march|april|may|june|july|august|september|"
+    r"october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)"
+    r"(?:\s+\d{4})?\b",
+    re.IGNORECASE,
+)
+_AGNIVEER_NO_PATTERN = re.compile(r"\b[A-Z]?\d{5,8}[A-Z]?\b")
+
+
+def _has_new_entity(msg: str) -> bool:
+    """Return True if the message contains a freshly typed entity that makes it an
+    independent query, not a follow-up.  Uses simple patterns to avoid importing the
+    full entity extractor (which would be a circular dependency)."""
+    norm = _normalize(msg)
+    if _NUMERIC_ID_PATTERN.search(msg):
+        return True
+    if _DATE_ENTITY_PATTERN.search(norm):
+        return True
+    if _AGNIVEER_NO_PATTERN.search(msg):
+        return True
+    tokens = _tokenize(msg)
+    if any(t in _SPORT_TERMS for t in tokens):
+        return True
+    return False
+
 
 _SECTION_ALIASES: Dict[str, str] = {
     "bpet": "BPET",
@@ -555,7 +593,9 @@ class ConversationContextEngine:
             payload_summary=payload_summary,
         )
         with self._lock:
-            key = session_id or "default"
+            key = session_id or ""
+            if not key:
+                return  # ephemeral / no-session — nothing to persist
             bucket = self._sessions.get(key)
             if bucket is None:
                 bucket = deque(maxlen=MAX_INTERACTIONS)
@@ -571,12 +611,16 @@ class ConversationContextEngine:
 
     def history(self, session_id: str) -> List[InteractionRecord]:
         """Return the interaction history for a session (oldest first)."""
+        if not session_id:
+            return []
         with self._lock:
-            return list(self._sessions.get(session_id or "default", ()))
+            return list(self._sessions.get(session_id, ()))
 
     def clear(self, session_id: str) -> None:
+        if not session_id:
+            return
         with self._lock:
-            self._sessions.pop(session_id or "default", None)
+            self._sessions.pop(session_id, None)
 
     # ── Resolve ────────────────────────────────────────────────────────────
 
@@ -609,7 +653,16 @@ class ConversationContextEngine:
 
         # Step 1 — decide if this is a follow-up
         follow_up_score = _compute_follow_up_score(raw_message)
-        if follow_up_score < 0.40:
+        if follow_up_score < 0.55:
+            return _fresh
+
+        # Entity guard: a message with freshly stated entities is always a new question
+        if _has_new_entity(raw_message):
+            logger.debug(
+                "context_engine.resolve: entity guard triggered — treating as fresh "
+                "| session=%s | follow_up_score=%.2f | msg=%r",
+                session_id, follow_up_score, raw_message,
+            )
             return _fresh
 
         # Step 2 — score each past interaction for relevance
@@ -618,8 +671,8 @@ class ConversationContextEngine:
         scored: List[Tuple[float, int, InteractionRecord]] = []
         current_time = time.time()
         for idx, record in enumerate(reversed(history)):  # idx=0 is most recent
-            if current_time - record.timestamp > 600:
-                continue  # TTL: ignore interactions older than 10 minutes
+            if current_time - record.timestamp > 300:
+                continue  # TTL: ignore interactions older than 5 minutes
             rel = _compute_relevance(raw_message, record)
             scored.append((rel, idx, record))
             
@@ -674,26 +727,54 @@ class ConversationContextEngine:
         reconstructed = _reconstruct_query(raw_message, best_record, kind)
 
         # Step 5 — collect carry-forward filters (do not override explicit values)
+        # Only carry filters when the matched interaction has the same category as
+        # the current message's apparent category (prevents stale companyId etc.).
         carry_filters: Dict[str, Any] = {}
-        for key, val in {**best_record.entities, **best_record.filters}.items():
-            if key not in (
-                "raw_query",
-                "query_type",
-                "user_message",
-                "timestamp",
-                "payload_summary",
-            ):
-                # Normalize keys to camelCase for backend payload mapping
-                camel_key = "".join(
-                    part[0].upper() + part[1:] if idx > 0 else part
-                    for idx, part in enumerate(key.split("_"))
-                )
-                if camel_key == "class":
-                    camel_key = "class_"
-                if val is not None:
-                    carry_filters[camel_key] = val
+
+        # Determine current query's category by a lightweight domain-keyword scan
+        _cur_tokens = _tokenize(raw_message)
+        _cur_domain = _has_domain_keyword(_cur_tokens)
+        _matched_cat = best_record.category
+
+        # Import inline to avoid circular dependency at module level
+        try:
+            from intent_engine.intent_classifier import classify_intent as _clf
+            _cur_intent = _clf(raw_message)
+            _cur_cat = _cur_intent.get("category")
+        except Exception:
+            _cur_cat = None
+
+        _same_category = (
+            _matched_cat is None
+            or _cur_cat is None
+            or _matched_cat == _cur_cat
+        )
+
+        if _same_category:
+            for key, val in {**best_record.entities, **best_record.filters}.items():
+                if key not in (
+                    "raw_query",
+                    "query_type",
+                    "user_message",
+                    "timestamp",
+                    "payload_summary",
+                ):
+                    # Normalize keys to camelCase for backend payload mapping
+                    camel_key = "".join(
+                        part[0].upper() + part[1:] if idx > 0 else part
+                        for idx, part in enumerate(key.split("_"))
+                    )
+                    if camel_key == "class":
+                        camel_key = "class_"
+                    if val is not None:
+                        carry_filters[camel_key] = val
 
         source_label = f"interaction_{best_idx + 1}"
+        logger.info(
+            "context_engine.resolve: %s | session=%s | followup_score=%.2f | "
+            "resolved_query=%r | carried_filters=%r",
+            source_label, session_id, follow_up_score, reconstructed, carry_filters,
+        )
         return ContextResolution(
             resolved_query=reconstructed,
             resolved_entities=dict(best_record.entities),

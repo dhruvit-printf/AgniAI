@@ -296,10 +296,21 @@ def classify_admin_intent(
             subcategory = "EquipmentSearch"
             operation = "Search"
 
-    # Schedule override: if a date is explicitly provided, it's a Date schedule.
-    if category == "Schedule" and (entities.get("date") or entities.get("fromDate") or entities.get("toDate")):
-        operation = "Date"
-        subcategory = "DateSchedule"
+    # Schedule override: a specific calendar date → Date schedule.
+    # Relative phrases like "today"/"tomorrow"/"this week" are handled by their
+    # own operations (Today/Today/Weekly) — do NOT override them to "Date".
+    _RELATIVE_DATE_PHRASES = frozenset({"today", "yesterday", "tomorrow", "this week", "last week", "this month", "current month", "last month", "this year"})
+    _schedule_date_val = (entities.get("date") or "").lower()
+    _is_relative = _schedule_date_val in _RELATIVE_DATE_PHRASES
+    if category == "Schedule":
+        if entities.get("fromDate") or entities.get("toDate"):
+            operation = "Date"
+            subcategory = "DateSchedule"
+        elif _schedule_date_val and not _is_relative:
+            operation = "Date"
+            subcategory = "DateSchedule"
+        elif _schedule_date_val == "today":
+            operation = operation or "Today"
 
     # ── Attendance date resolution ────────────────────────────────────────────
     # .NET expects date / fromDate / toDate as ISO 8601 date-times, never raw

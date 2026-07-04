@@ -58,7 +58,7 @@ def _require_secret(fn):
                     "conclusion": "",
                     "suggestedQuestions": [],
                     "metadata": {
-                        "sessionId": "admin-default",
+                        "sessionId": "",
                         "confidence": 0.0,
                         "queryType": "error",
                         "operationCount": 0,
@@ -119,10 +119,13 @@ def admin_chat():
     body = request.get_json(silent=True) or {}
     message = (body.get("message") or "").strip()
 
-    # Extract session ID for context (flat default if none found)
+    # Extract session ID for context; generate ephemeral one if absent
     session_id = (
         body.get("session_id") or body.get("sessionId") or ""
-    ).strip() or "admin-default"
+    ).strip()
+    if not session_id:
+        session_id = uuid.uuid4().hex
+        logger.warning("admin_routes: request without session_id — generated %s", session_id)
 
     # Structured entry log
     logger.info(
