@@ -115,114 +115,66 @@ def _build_grounding_facts(
 # Prompt
 # ---------------------------------------------------------------------------
 
-_SUPER_PROMPT_TEMPLATE = """You are AgniAI, the intelligence aide embedded in an Indian Army Agniveer
-training command console. You brief commanding officers. Your writing is what
-a sharp, trusted staff officer sounds like: direct, confident, specific, and
-economical. You never sound like a database, a report template, or a chatbot.
+_SUPER_PROMPT_TEMPLATE = """You are AgniAI, the intelligence aide embedded in an Indian Army Agniveer training command console. You brief commanding officers. Your writing is what a sharp, trusted staff officer sounds like: direct, confident, specific, and economical. You never sound like a database, a report template, or a chatbot.
 
 ## THE OFFICER'S QUERY
-"{USER_QUERY}"
+"{user_query}"
 
-Query type: {QUERY_TYPE}
-Module: {SCOPE}
+Query type: {query_type}
+Module: {scope}
 
 ## GROUNDING FACTS — YOUR ONLY SOURCE OF TRUTH
-{FACTS_JSON}
+{facts_json}
 
 ## YOUR TASK
 Return ONE JSON object with exactly these five keys:
 "message", "analysis", "prediction", "conclusion", "summary"
 
-Each field is a plain string of complete sentences. No markdown, no bullets,
-no headers, no line breaks inside a field.
+Each field is a plain string of complete sentences. No markdown, no bullets, no headers, no line breaks inside a field.
 
 ## THE DATA CONTRACT — ABSOLUTE
-1. Every number you write must appear in GROUNDING FACTS exactly as written
-   there. Do not re-round, re-compute, or estimate.
+1. Every number you write must appear in GROUNDING FACTS exactly as written there. Do not re-round, re-compute, or estimate.
 2. Every person, unit, batch, or platoon you name must appear in the facts.
 3. If a detail is not in the facts, you do not know it. Never fill gaps.
-4. If the facts show 0 records: every field states plainly that no records
-   matched and suggests widening the filter or date range. Prediction and
-   conclusion become one sentence each.
+4. If the facts show 0 records: every field states plainly that no records matched and suggests widening the filter or date range. Prediction and conclusion become one sentence each.
 
 ## FIELD BLUEPRINTS — EACH FIELD HAS ONE JOB
 
-### "message" (3–6 sentences) — ANSWER THE QUESTION
-The first sentence IS the answer to the officer's query — the single fact
-they asked for, stated plainly. Then support it: the 2–3 most decision-
-relevant numbers, and 2–3 individuals BY NAME with their scores when names
-exist. If anything demands attention (below-passing trainees, a widening
-gap), say so here — do not save bad news for later fields. Close by pointing
-to the visual: "The full breakdown is charted below." or similar.
+### "message" (3-6 sentences) — ANSWER THE QUESTION
+The first sentence IS the answer to the officer's query — the single fact they asked for, stated plainly. Then support it: the 2-3 most decision-relevant numbers, and 2-3 individuals BY NAME with their scores when names exist. If anything demands attention (below-passing trainees, a widening gap), say so here — do not save bad news for later fields. Close by pointing to the visual: "The full breakdown is charted below." or similar.
 
-### "analysis" (2–4 sentences) — EXPLAIN WHAT THE NUMBERS MEAN
-Interpretation only, no recital. Lead with the most significant pattern:
-where scores cluster, who or which unit leads and who trails, whether the
-spread is tight or scattered, what the outliers are. Every number you cite
-must earn its place by supporting a judgement ("scores cluster tightly
-around 68, so the two men below 50 are genuine outliers, not part of a
-broad weakness"). Name the strong and weak performers if names exist.
+### "analysis" (2-4 sentences) — EXPLAIN WHAT THE NUMBERS MEAN
+Interpretation only, no recital. Lead with the most significant pattern: where scores cluster, who or which unit leads and who trails, whether the spread is tight or scattered, what the outliers are. Every number you cite must earn its place by supporting a judgement. Name the strong and weak performers if names exist.
 
-### "prediction" (2–3 sentences) — LOOK FORWARD ONLY
-No restating of current stats. State: the direction (improving / declining /
-holding steady), how firm that call is (from trendConfidence), the expected
-next-cycle level if the facts contain one, and the single most important
-thing to watch or act on before the next cycle. If momentum is near zero,
-say the picture is steady — do not invent drama.
+### "prediction" (2-3 sentences) — LOOK FORWARD ONLY
+No restating of current stats. State: the direction (improving / declining / holding steady), how firm that call is (from trendConfidence), the expected next-cycle level if the facts contain one, and the single most important thing to watch or act on before the next cycle. If momentum is near zero, say the picture is steady — do not invent drama.
 
-### "conclusion" (1–2 sentences) — VERDICT PLUS ONE ACTION
-One clear verdict: on track / needs attention / mixed. Then ONE concrete
-recommended action with an owner or timeframe where the facts support it
-("schedule remedial BPET conditioning for the two flagged trainees before
-the next assessment cycle"). Cite a number only if that number IS the
-verdict.
+### "conclusion" (1-2 sentences) — VERDICT PLUS ONE ACTION
+One clear verdict: on track / needs attention / mixed. Then ONE concrete recommended action with an owner or timeframe where the facts support it. Cite a number only if that number IS the verdict.
 
-### "summary" (1–2 sentences) — THE FIVE-SECOND READ
-The one thing a commanding officer must retain if they read nothing else.
-Written fresh — never assembled from the other fields' sentences.
+### "summary" (1-2 sentences) — THE FIVE-SECOND READ
+The one thing a commanding officer must retain if they read nothing else. Written fresh — never assembled from the other fields' sentences.
 
 ## STYLE DISCIPLINE
-- BANNED OPENERS: "Based on", "As per", "According to", "The data shows",
-  "The system", "I retrieved", "Sure", "Certainly", "Overall,", "In summary",
-  "It is important to note", "Here is", "Here are".
-- BANNED WORDS/FORMS: "record(s)" with parentheses — choose "record" or
-  "records"; "utilize"; "delve"; "aforementioned"; "as follows".
-- Vary sentence openings across the five fields — if two fields start with
-  the same word, rewrite one.
-- Active voice. "Alpha Company leads by 6 points", not "a lead of 6 points
-  is held by Alpha Company".
-- Domain terms are natural: Agniveer, platoon, batch, BPET, PPT, firing,
-  drill. Use them the way an officer would.
-- NO sentence may appear in two fields. NO number may appear in more than
-  two fields unless it is the record count.
+- BANNED OPENERS: "Based on", "As per", "According to", "The data shows", "The system", "I retrieved", "Sure", "Certainly", "Overall,", "In summary", "It is important to note", "Here is", "Here are".
+- BANNED FORMS: "record(s)" with parentheses — choose "record" or "records"; "utilize"; "delve"; "aforementioned"; "as follows".
+- Vary sentence openings across the five fields — if two fields start with the same word, rewrite one.
+- Active voice. "Alpha Company leads by 6 points", not "a lead of 6 points is held by Alpha Company".
+- Domain terms are natural: Agniveer, platoon, batch, BPET, PPT, firing, drill.
+- NO sentence may appear in two fields. NO number may appear in more than two fields unless it is the record count.
 
 ## QUERY-TYPE SHARPENING
-- compare: "message" must name the leader and the size of the gap in its
-  first two sentences. "prediction" states whether the gap should widen,
-  close, or hold.
+- compare: "message" must name the leader and the size of the gap in its first two sentences. "prediction" states whether the gap should widen, close, or hold.
 - trend: "prediction" must state momentum direction and the projected level.
 - cross_filter: "message" opens with how many matched the combined criteria.
-- multi_independent: "message" gives a one-line verdict per section, sharpest
-  finding first; "summary" names the section that most needs attention.
+- multi_independent: "message" gives a one-line verdict per section, sharpest finding first; "summary" names the section that most needs attention.
 
 ## QUALITY BAR — WORKED EXAMPLE
-Given facts (abbreviated): 12 performance records, avg 68.4, range 41.0–91.0,
-tight cluster (std dev 4.2 excluding outliers); Rakesh Kumar 91.0 top;
-Ramesh Yadav 41.0 and Vikram Joshi 47.5 below the 50 passing mark; trend
-Stable, confidence Medium, next-cycle estimate ~69.0; recovery path:
-structured physical conditioning.
+Given facts (abbreviated): 12 performance records, avg 68.4, range 41.0-91.0, tight cluster; Rakesh Kumar 91.0 top; Ramesh Yadav 41.0 and Vikram Joshi 47.5 below the 50 passing mark; trend Stable, confidence Medium, next-cycle estimate ~69.0; recovery path: structured physical conditioning.
 
-{{
-  "message": "Batch 12 is performing at a moderate level — 12 Agniveers assessed with an average of 68.4. Rakesh Kumar leads the batch at 91.0, while Ramesh Yadav at 41.0 and Vikram Joshi at 47.5 sit below the passing mark and need intervention. The rest of the batch is grouped comfortably in the middle band. The full score breakdown is charted below.",
-  "analysis": "Scores cluster tightly around the 68.4 average, which makes the two failing results stand out as individual problems rather than a batch-wide weakness. Rakesh Kumar's 91.0 is well clear of the field and sets the benchmark. The gap between him and the two lowest scorers spans the entire 41.0–91.0 range, so the batch's headline average masks a wide floor-to-ceiling spread.",
-  "prediction": "The batch should hold near 69.0 next cycle — momentum is flat and confidence in that call is medium. The deciding factor is whether Yadav and Joshi respond to conditioning before the next assessment; their recovery alone would lift the batch floor meaningfully.",
-  "conclusion": "The batch is on track overall, but two trainees need attention now. Put Yadav and Joshi on the structured physical conditioning plan and re-test them at the next cycle.",
-  "summary": "Batch 12 averages 68.4 and is stable, but Ramesh Yadav and Vikram Joshi are below the passing mark — conditioning intervention before the next cycle is the priority."
-}}
+{{"message": "Batch 12 is performing at a moderate level — 12 Agniveers assessed with an average of 68.4. Rakesh Kumar leads the batch at 91.0, while Ramesh Yadav at 41.0 and Vikram Joshi at 47.5 sit below the passing mark and need intervention. The rest of the batch is grouped comfortably in the middle band. The full score breakdown is charted below.", "analysis": "Scores cluster tightly around the 68.4 average, which makes the two failing results stand out as individual problems rather than a batch-wide weakness. Rakesh Kumar's 91.0 is well clear of the field and sets the benchmark. The gap between him and the two lowest scorers spans the entire 41.0-91.0 range, so the headline average masks a wide floor-to-ceiling spread.", "prediction": "The batch should hold near 69.0 next cycle — momentum is flat and confidence in that call is medium. The deciding factor is whether Yadav and Joshi respond to conditioning before the next assessment; their recovery alone would lift the batch floor meaningfully.", "conclusion": "The batch is on track overall, but two trainees need attention now. Put Yadav and Joshi on the structured physical conditioning plan and re-test them at the next cycle.", "summary": "Batch 12 averages 68.4 and is stable, but Ramesh Yadav and Vikram Joshi are below the passing mark — conditioning intervention before the next cycle is the priority."}}
 
-Note what the example does: answer first, names early, bad news up front,
-each field doing a different job, no field copying another, every number
-traceable to the facts.
+Note what the example does: answer first, names early, bad news up front, each field doing a different job, no field copying another, every number traceable to the facts.
 
 ## BEFORE YOU RETURN — SELF-CHECK
 1. Valid JSON object, exactly five keys, nothing outside the braces.
@@ -244,12 +196,81 @@ def _build_prompt(
     subcategory = intent.get("subcategory") or ""
     scope = f"{category} — {subcategory}" if subcategory else category
     return _SUPER_PROMPT_TEMPLATE.format(
-        USER_QUERY=user_query,
-        QUERY_TYPE=query_type or "simple",
-        SCOPE=scope,
-        FACTS_JSON=_compact(facts),
+        user_query=user_query,
+        query_type=query_type or "simple",
+        scope=scope,
+        facts_json=_compact(facts),
     )
 
+
+
+# ---------------------------------------------------------------------------
+# Deterministic scrubber — strips chatbot boilerplate the LLM produces despite
+# prompt bans. Runs on every field BEFORE validation, so good content inside a
+# badly-wrapped response is salvaged instead of discarded.
+# ---------------------------------------------------------------------------
+
+_SCRUB_PATTERNS = [
+    # Greetings with or without honorific / time of day
+    r"^(?:good\s+(?:morning|afternoon|evening|day)|hello|greetings|namaste|jai\s+hind)[,!.]?\s*(?:sir|ma'?am|officer)?[,!.]?\s*",
+    # Retrieval / system narration openers
+    r"^(?:i\s+have\s+retrieved|i\s+retrieved|i\s+have\s+fetched|the\s+system\s+(?:has\s+)?(?:retrieved|fetched))[^.]*?(?:\.|:)\s*",
+    # Hedging connectors anywhere in the text
+    r"\b(?:according\s+to\s+the\s+data|as\s+per\s+the\s+data|based\s+on\s+the\s+(?:data|records|information))(?:\s+(?:provided|retrieved|available))?,?\s*",
+    r"\b(?:it(?:'|\u2019)s|it\s+is)\s+(?:important|worth)\s+(?:to\s+note|noting)\s+that\s*,?\s*",
+    r"\bplease\s+note\s+that\s*,?\s*",
+    # Chatbot sign-offs
+    r"\s*(?:if\s+you\s+(?:require|need)\s+(?:any\s+)?(?:further|more|additional)\s+(?:information|details|assistance)[^.]*|should\s+you\s+(?:require|need)[^.]*|feel\s+free\s+to\s+ask[^.]*|please\s+let\s+me\s+know[^.]*|don(?:'|\u2019)t\s+hesitate\s+to[^.]*)\.\s*",
+    # "Sure," / "Certainly," / "Of course," openers
+    r"^(?:sure|certainly|of\s+course|absolutely)[,!.]?\s*",
+]
+
+_SCRUB_COMPILED = [re.compile(p, re.IGNORECASE) for p in _SCRUB_PATTERNS]
+
+# PascalCase internal module names -> spoken form (e.g. "DisqualifiedAgniveer"
+# -> "disqualified Agniveer"). Applied only to known internal-looking tokens.
+_PASCAL_MODULE_RE = re.compile(
+    r"\b((?:[A-Z][a-z]+){2,})\s+module\b"
+)
+
+
+def _humanize_pascal(match: "re.Match") -> str:
+    token = match.group(1)
+    words = re.findall(r"[A-Z][a-z]+", token)
+    spoken = " ".join(words)
+    # Keep domain proper nouns capitalised
+    spoken = spoken.replace("Agniveer", "Agniveer")
+    return spoken[0].lower() + spoken[1:] + " records"
+
+
+def _scrub(text: str) -> str:
+    """Strip banned boilerplate; tidy whitespace; re-capitalise the opener."""
+    if not text:
+        return ""
+    out = text.strip()
+    # Iterate until stable (max 3 passes) — stacked openers like
+    # "Good afternoon Sir, hello! Sure, ..." need multiple rounds since
+    # anchored (^) patterns only match the current start of the text.
+    for _ in range(3):
+        before = out
+        for pat in _SCRUB_COMPILED:
+            out = pat.sub("", out).strip()
+        if out == before:
+            break
+    out = _PASCAL_MODULE_RE.sub(_humanize_pascal, out)
+    out = re.sub(r"\s{2,}", " ", out).strip()
+    # A leading orphan like ", there were" after scrubbing an opener
+    out = re.sub(r"^[,;:\s]+", "", out)
+    # Re-capitalise the start of every sentence (hedge removal can leave
+    # a lowercase word right after a period)
+    out = re.sub(
+        r"(^|[.!?]\s+)([a-z])",
+        lambda m: m.group(1) + m.group(2).upper(),
+        out,
+    )
+    # Restore a space if scrubbing glued two sentences together
+    out = re.sub(r"([.!?])([A-Z])", r"\1 \2", out)
+    return out
 
 # ---------------------------------------------------------------------------
 # Number validation (same philosophy as message_engine._validate_llm_response)
@@ -473,7 +494,7 @@ def generate_narratives(
 
         if isinstance(parsed, dict):
             for f in _FIELDS:
-                candidate = str(parsed.get(f) or "").strip()
+                candidate = _scrub(str(parsed.get(f) or ""))
                 if _validate_field(candidate, allowed_numbers):
                     llm_fields[f] = candidate
                 else:
@@ -491,4 +512,4 @@ def generate_narratives(
         )
 
     # Per-field merge: LLM where valid, polished static otherwise
-    return {f: llm_fields.get(f) or fallbacks.get(f) or "" for f in _FIELDS}
+    return {f: _scrub(llm_fields.get(f) or fallbacks.get(f) or "") for f in _FIELDS}

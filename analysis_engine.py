@@ -280,6 +280,24 @@ def _analysis_payload(
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 
+def _extract_time_context(records: List[Any]) -> Optional[str]:
+    """Identify if the records represent a time-series and return a summary string."""
+    if not records or not isinstance(records[0], dict):
+        return None
+    time_keys = ["month", "date", "week", "day", "year"]
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        for k in time_keys:
+            if k in r and isinstance(r[k], str):
+                vals = [rec[k] for rec in records if isinstance(rec, dict) and k in rec and isinstance(rec[k], str)]
+                if len(vals) > 1:
+                    return f"Trend spans {len(vals)} periods from {vals[0]} to {vals[-1]}."
+                elif len(vals) == 1:
+                    return f"Data point recorded for {vals[0]}."
+    return None
+
+
 def generate_analysis(
     combined_result: Any,
     query_type: str,
@@ -530,6 +548,11 @@ def generate_analysis(
                     f"Range: {min_score}–{max_score}.",
                 ]
                 insights += _score_insights(scores, category, score_stats)
+
+                if category.lower() == "attendance":
+                    time_ctx = _extract_time_context(all_records)
+                    if time_ctx:
+                        insights.insert(0, time_ctx)
 
                 named = _named_score_records(all_records)
                 weak = sorted(

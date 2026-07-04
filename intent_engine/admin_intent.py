@@ -296,6 +296,11 @@ def classify_admin_intent(
             subcategory = "EquipmentSearch"
             operation = "Search"
 
+    # Schedule override: if a date is explicitly provided, it's a Date schedule.
+    if category == "Schedule" and (entities.get("date") or entities.get("fromDate") or entities.get("toDate")):
+        operation = "Date"
+        subcategory = "DateSchedule"
+
     # ── Attendance date resolution ────────────────────────────────────────────
     # .NET expects date / fromDate / toDate as ISO 8601 date-times, never raw
     # phrases like "current month" or "June". Resolve whatever was extracted
@@ -311,6 +316,11 @@ def classify_admin_intent(
         entities["date"] = resolved_date
         entities["fromDate"] = resolved_from_date
         entities["toDate"] = resolved_to_date
+
+    if category == "Schedule" and operation == "Date":
+        if not entities.get("date") and not entities.get("fromDate") and not entities.get("toDate"):
+            import datetime
+            entities["date"] = datetime.date.today().isoformat()
 
     # ── Stage 5: Legacy visualization hint — pure lookup ────────────────────
     legacy_type: Optional[str] = _legacy_type(category, operation, subcategory)

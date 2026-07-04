@@ -129,10 +129,7 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
         ]
     ),
     "Schedule": frozenset(
-        [
-            "Today",
-            "Agniveer",
-        ]
+        {"Today", "Agniveer", "Company", "Date"}
     ),
     "personaldetail": frozenset(["info"]),
     "disqualified": frozenset(["removed"]),
@@ -986,9 +983,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "today's schedule",
             "today schedule",
             "schedule today",
-            "company schedule",
-            "schedule by company",
-            "company wise schedule",
             "training schedule",
             "today's training",
             "current schedule",
@@ -997,6 +991,18 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "today's plan",
             "today's activities",
             "todays program",
+        ),
+        "Company": (
+            "company schedule",
+            "schedule by company",
+            "company wise schedule",
+            "schedule for company",
+        ),
+        "Date": (
+            "date wise schedule",
+            "schedule on date",
+            "schedule for date",
+            "daily schedule",
         ),
         "Agniveer": (
             "agniveer schedule",
@@ -1729,6 +1735,8 @@ INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Skills", "ByClass"): "Tabular",
     ("Overall", "OverallPerformance"): "Tabular",
     ("Schedule", "Today"): "Tabular",
+    ("Schedule", "Company"): "Tabular",
+    ("Schedule", "Date"): "Tabular",
     ("Schedule", "Agniveer"): "Tabular",
 }
 
@@ -1780,8 +1788,8 @@ SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "BySport": "BySport",
     "ByClass": "ByClass",
     "TodaySchedule": "Today",
-    "DateSchedule": "Today",
-    "CompanySchedule": "Today",
+    "CompanySchedule": "Company",
+    "DateSchedule": "Date",
     "AgniveerSchedule": "Agniveer",
     "PersonalDetailInfo": "info",
     "DisqualifiedRemoved": "removed",
@@ -1877,6 +1885,8 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Skills", "ByClass"): "ByClass",
     ("Overall", "OverallPerformance"): "OverallPerformance",
     ("Schedule", "Today"): "TodaySchedule",
+    ("Schedule", "Company"): "CompanySchedule",
+    ("Schedule", "Date"): "DateSchedule",
     ("Schedule", "Agniveer"): "AgniveerSchedule",
     ("personaldetail", "info"): "PersonalDetailInfo",
     ("disqualified", "removed"): "DisqualifiedRemoved",

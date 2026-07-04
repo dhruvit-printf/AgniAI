@@ -38,6 +38,9 @@ _SCORE_FIELDS = (
     "Score",
     "omrInputTotal",
     "marksObtained",
+    "present",
+    "absent",
+    "leaveDays",
 )
 
 
