@@ -811,53 +811,7 @@ def execute_admin_query(
     # Initialise entity dict so it's always bound when add_interaction() fires
     resolved_entities: Dict[str, Any] = dict(_ctx_resolution.resolved_entities or {})
 
-    # ── Check Cache ──
-    from cache_manager import cache_manager
 
-    query_hash = cache_manager.get_query_hash(user_query, scope=_get_cache_scope(body))
-    import sys
-
-    in_testing = (
-        "pytest" in sys.modules
-        or "unittest" in sys.modules
-        or os.getenv("ENV") == "testing"
-    )
-    bypass_cache = (
-        body.get("bypass_cache")
-        or body.get("bypassCache")
-        or os.getenv("BYPASS_CACHE", "false").lower() in ("true", "1", "yes")
-        or in_testing
-    )
-
-    if not bypass_cache:
-        cached_val = cache_manager.get(query_hash)
-        if cached_val:
-            metrics_collector.inc_cache_hits()
-            request_id_var.reset(token_req)
-            trace_id_var.reset(token_trace)
-            session_id_var.reset(token_sess)
-            if isinstance(cached_val, dict) and "response_payload" in cached_val:
-                payload = dict(cached_val["response_payload"])
-                if "metadata" in payload:
-                    payload["metadata"] = dict(payload["metadata"])
-                    payload["metadata"]["requestId"] = request_id
-                    payload["metadata"]["traceId"] = trace_id
-                    payload["metadata"]["sessionId"] = session_id
-                if "sessionId" in payload:
-                    payload["sessionId"] = session_id
-                cached_val = dict(cached_val)
-                cached_val["response_payload"] = payload
-            cached_intent: Dict[str, Any] = {}
-            if isinstance(cached_val, dict):
-                cached_intent = (
-                    cached_val.get("response_payload", {}).get("intent") or {}
-                )
-            write_audit_log(question=user_query, intent=cached_intent)
-            return cached_val
-        else:
-            metrics_collector.inc_cache_misses()
-    else:
-        metrics_collector.inc_cache_misses()
 
     try:
         message = clean_query(user_query or "").strip()
@@ -2307,20 +2261,7 @@ def execute_admin_query(
         combined_message = response_payload.get("message", "")
         metrics_collector.inc_success(qtype_str)
 
-        # Cache successful query response
-        is_cacheable = cache_manager.is_cacheable_category(
-            primary_intent.get("category")
-        )
-        if is_cacheable and not bypass_cache and response_payload.get("status"):
-            result_to_cache = {
-                "type": "query",
-                "response_payload": response_payload,
-                "combined_message": combined_message,
-                "execution_time_ms": execution_time_ms,
-            }
-            cache_manager.set(
-                query_hash, result_to_cache, category=primary_intent.get("category")
-            )
+
 
         return {
             "type": "query",

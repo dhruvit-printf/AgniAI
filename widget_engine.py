@@ -693,6 +693,21 @@ def _expand_period_records(
     return exploded, period_label_key
 
 
+def _pivot_distribution(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not records or len(records) != 1:
+        return records
+    rec = records[0]
+    num_keys = [k for k, v in rec.items() if isinstance(v, (int, float))]
+    other_keys = [k for k in rec.keys() if k != 'label']
+    
+    if len(num_keys) >= 2 and len(num_keys) == len(other_keys):
+        pivoted = []
+        for k in num_keys:
+            pivoted.append({'label': k, 'value': rec[k]})
+        return pivoted
+    return records
+
+
 def build_bar_chart_data(
     combined_result: Any, series_label: str = ""
 ) -> Dict[str, Any]:
@@ -721,6 +736,7 @@ def build_bar_chart_data(
     # metrics nested by .NET would never be found below and the chart would
     # render as all-zero.
     records = flatten_records(records, deep_flatten=True)
+    records = _pivot_distribution(records)
     # Flattening re-cases top-level keys (e.g. "month" -> "Month"), so
     # re-resolve period_key to whatever casing actually survived.
     if period_key:
@@ -882,6 +898,7 @@ def build_pie_chart_data(
     # fields (e.g. "performance": {"grade": "A", "bestTotal": 92}) are
     # discoverable as slice label/value instead of vanishing.
     records = flatten_records(records, deep_flatten=True)
+    records = _pivot_distribution(records)
 
     label_key = _find_key(
         records,

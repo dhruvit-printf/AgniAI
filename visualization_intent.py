@@ -181,6 +181,9 @@ def _plan_widgets(
         override = intent.get("comparison_chart_override")
         return _comparison_widgets(override)
 
+    if operation in ("improvement", "drop") and response_type == "Detailed":
+        return _widget_list("TABLE")
+
     if trend or query_type == "trend" or any(
         token in text for token in ("trend", "timeline", "over months", "over time", "growth")
     ):

@@ -150,7 +150,7 @@ Interpretation only, no recital. Lead with the most significant pattern: where s
 No restating of current stats. State: the direction (improving / declining / holding steady), how firm that call is (from trendConfidence), the expected next-cycle level if the facts contain one, and the single most important thing to watch or act on before the next cycle. If momentum is near zero, say the picture is steady — do not invent drama.
 
 ### "conclusion" (1-2 sentences) — VERDICT PLUS ONE ACTION
-One clear verdict: on track / needs attention / mixed. Then ONE concrete recommended action with an owner or timeframe where the facts support it. Cite a number only if that number IS the verdict.
+One clear verdict: on track / needs attention / mixed. Then ONE concrete recommended action ONLY if the facts explicitly contain the necessary context. Do NOT invent training plans, schedules, names, or actions that are not present in the facts. Cite a number only if that number IS the verdict.
 
 ### "summary" (1-2 sentences) — THE FIVE-SECOND READ
 The one thing a commanding officer must retain if they read nothing else. Written fresh — never assembled from the other fields' sentences.
@@ -178,7 +178,7 @@ Note what the example does: answer first, names early, bad news up front, each f
 
 ## BEFORE YOU RETURN — SELF-CHECK
 1. Valid JSON object, exactly five keys, nothing outside the braces.
-2. Every number and name exists in GROUNDING FACTS.
+2. Every number, name, and recommended action MUST exist in GROUNDING FACTS. If the facts lack names or specific problems, do NOT copy names like "Yadav" or "Joshi" from the example, and do NOT invent schedule/training plans.
 3. No banned opener or banned form anywhere.
 4. No repeated sentence across fields.
 5. Every field ends with terminal punctuation.
