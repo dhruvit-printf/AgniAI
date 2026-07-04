@@ -423,28 +423,48 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
     """CARD schema: { cards: [{title, subtitle, value, description}] }"""
     cards = []
     for r in records:
-        card_title = (
-            r.get("fullName")
-            or r.get("name")
-            or (f"Record {r.get('id', '')}" if "id" in r else "Details")
-        )
-        subtitle = (
-            r.get("subtitle")
-            or r.get("subTitle")
-            or r.get("label")
-            or r.get("grade")
-            or ""
-        )
-        card_value = (
-            r.get("bestTotal")
-            or r.get("score")
-            or r.get("marksObtained")
-            or r.get("count")
-            or r.get("status")
-            or r.get("leaveStatus")
-            or ""
-        )
-        description = r.get("description") or r.get("details") or ""
+        used_keys = set()
+        
+        # 1. Title
+        title_cands = ["fullName", "name"]
+        card_title = (f"Record {r.get('id', '')}" if "id" in r else "Details")
+        for k in title_cands:
+            if k in r:
+                card_title = r[k]
+                used_keys.add(k)
+                break
+                
+        # 2. Subtitle
+        sub_cands = ["subtitle", "subTitle", "label", "grade"]
+        subtitle = ""
+        for k in sub_cands:
+            if k in r:
+                subtitle = r[k]
+                used_keys.add(k)
+                break
+                
+        # 3. Value
+        val_cands = ["bestTotal", "score", "marksObtained", "count", "status", "leaveStatus"]
+        card_value = ""
+        for k in val_cands:
+            if k in r:
+                card_value = r[k]
+                used_keys.add(k)
+                break
+
+        # 4. Description + Leftovers
+        description = str(r.get("description") or r.get("details") or "")
+        used_keys.update(["description", "details", "id"])
+        
+        leftovers = []
+        for k, v in r.items():
+            if k not in used_keys and not str(k).lower().endswith("id"):
+                leftovers.append(f"{make_readable_label(k)}: {v}")
+        
+        if leftovers:
+            extra = " | ".join(leftovers)
+            description = f"{description}\n{extra}".strip()
+
         cards.append(
             {
                 "title": str(card_title),
@@ -471,23 +491,15 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
 
 # Suffixes that mark internal .NET metadata fields — never shown in the table.
 _EXCLUDED_COLUMN_SUFFIXES = (
-    "_SubItemId",
-    "_MaxMarks",
-    "_IsBestAttempt",
-    "_SectionId",
     "_DisplayOrder",
 )
 
 # Top-level fields that are internal and should not appear as columns.
 _EXCLUDED_COLUMN_KEYS_EXACT = {
-    "IsActive",
-    "isActive",
     "ID",
     "id",
     "DisplayOrder",
     "displayOrder",
-    "SectionId",
-    "sectionId",
 }
 
 
@@ -749,11 +761,23 @@ def build_bar_chart_data(
         or "value"
     )
 
-    rows = []
+    grouped_rows = {}
     for r in records:
         x_val = r.get(x_key) or r.get("fullName") or "Category"
         y_val = r.get(y_key) if r.get(y_key) is not None else 0
-        rows.append({x_key: x_val, y_key: y_val})
+        if not isinstance(y_val, (int, float)):
+            try: y_val = float(y_val)
+            except: y_val = 0
+        if isinstance(y_val, float) and y_val.is_integer(): y_val = int(y_val)
+
+        if x_val not in grouped_rows:
+            grouped_rows[x_val] = {x_key: x_val, y_key: 0}
+            for k, v in r.items():
+                if k not in (x_key, y_key) and not str(k).lower().endswith("id"):
+                    grouped_rows[x_val].setdefault(k, v)
+        grouped_rows[x_val][y_key] += y_val
+
+    rows = list(grouped_rows.values())
 
     return {"xKey": x_key, "yKey": y_key, "rows": rows}
 
@@ -795,12 +819,26 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
         for idx, sk in enumerate(numeric_keys)
     ]
 
-    rows = []
+    grouped_rows = {}
     for r in records:
-        row: Dict[str, Any] = {x_key: r.get(x_key, "")}
+        x_val = r.get(x_key, "")
+        if x_val not in grouped_rows:
+            grouped_rows[x_val] = {x_key: x_val}
+            for idx, sk in enumerate(numeric_keys):
+                grouped_rows[x_val][f"series{idx}"] = 0
+            for k, v in r.items():
+                if k != x_key and k not in numeric_keys and not str(k).lower().endswith("id"):
+                    grouped_rows[x_val].setdefault(k, v)
+                
         for idx, sk in enumerate(numeric_keys):
-            row[f"series{idx}"] = r.get(sk, 0)
-        rows.append(row)
+            val = r.get(sk, 0)
+            if not isinstance(val, (int, float)):
+                try: val = float(val)
+                except: val = 0
+            if isinstance(val, float) and val.is_integer(): val = int(val)
+            grouped_rows[x_val][f"series{idx}"] += val
+
+    rows = list(grouped_rows.values())
 
     return {"xKey": x_key, "series": series, "rows": rows}
 
@@ -859,13 +897,27 @@ def build_pie_chart_data(
         or "value"
     )
 
-    rows = [
-        {
-            "label": str(r.get(label_key) or r.get("fullName") or "Category"),
-            "value": r.get(value_key) if r.get(value_key) is not None else 1,
-        }
-        for r in records
-    ]
+    grouped_rows = {}
+    for r in records:
+        lbl = str(r.get(label_key) or r.get("fullName") or "Category")
+        val = r.get(value_key) if r.get(value_key) is not None else 1
+        if not isinstance(val, (int, float)):
+            try: val = float(val)
+            except: val = 0
+        if isinstance(val, float) and val.is_integer(): val = int(val)
+        
+        if lbl not in grouped_rows:
+            grouped_rows[lbl] = {"value": 0}
+            for k, v in r.items():
+                if k not in (label_key, value_key) and not str(k).lower().endswith("id"):
+                    grouped_rows[lbl].setdefault(k, v)
+        grouped_rows[lbl]["value"] += val
+
+    rows = []
+    for k, grp in grouped_rows.items():
+        row = {"label": k}
+        row.update(grp)
+        rows.append(row)
 
     return {"rows": rows}
 
@@ -1490,11 +1542,23 @@ def _build_compare_bar(combined_result: Dict[str, Any]) -> Dict[str, Any]:
                 if isinstance(candidate_value, str) and candidate_value.strip():
                     x_key = candidate_key
                     break
-        rows = []
+        grouped_rows = {}
         for r in records:
             x_val = r.get(x_key)
             y_val = r.get(y_key)
-            rows.append({x_key: x_val, y_key: y_val})
+            if not isinstance(y_val, (int, float)):
+                try: y_val = float(y_val)
+                except: y_val = 0
+            if isinstance(y_val, float) and y_val.is_integer(): y_val = int(y_val)
+
+            if x_val not in grouped_rows:
+                grouped_rows[x_val] = {x_key: x_val, y_key: 0}
+                for k, v in r.items():
+                    if k not in (x_key, y_key) and not str(k).lower().endswith("id"):
+                        grouped_rows[x_val].setdefault(k, v)
+            grouped_rows[x_val][y_key] += y_val
+
+        rows = list(grouped_rows.values())
         return {
             "heading": _side_heading(side),
             "xKey": x_key,
@@ -1536,16 +1600,29 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
             and k.lower() not in {t.lower() for t in _TIME_KEYS + ["id"]}
         ] or ["value"]
         series = [
-            {"key": key, "label": str(key).replace("_", " ").title()}
-            for key in numeric_keys
+            {"key": f"series{idx}", "label": str(key).replace("_", " ").title()}
+            for idx, key in enumerate(numeric_keys)
         ]
-        rows = []
+        grouped_rows = {}
         for r in records:
-            row: Dict[str, Any] = {x_key: r.get(x_key)}
+            x_val = r.get(x_key)
+            if x_val not in grouped_rows:
+                grouped_rows[x_val] = {x_key: x_val}
+                for idx, sk in enumerate(numeric_keys):
+                    grouped_rows[x_val][f"series{idx}"] = 0
+                for k, v in r.items():
+                    if k != x_key and k not in numeric_keys and not str(k).lower().endswith("id"):
+                        grouped_rows[x_val].setdefault(k, v)
+                    
             for idx, sk in enumerate(numeric_keys):
-                value = r.get(sk)
-                row[f"series{idx}"] = value
-            rows.append(row)
+                val = r.get(sk, 0)
+                if not isinstance(val, (int, float)):
+                    try: val = float(val)
+                    except: val = 0
+                if isinstance(val, float) and val.is_integer(): val = int(val)
+                grouped_rows[x_val][f"series{idx}"] += val
+
+        rows = list(grouped_rows.values())
         return {
             "heading": _side_heading(side),
             "xKey": x_key,
@@ -1610,13 +1687,27 @@ def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
             or _find_numeric_key(records, ["id"])
             or "value"
         )
-        rows = [
-            {
-                "label": str(r.get(label_key) or ""),
-                "value": r.get(value_key) if r.get(value_key) is not None else 0,
-            }
-            for r in records
-        ]
+        grouped_rows = {}
+        for r in records:
+            lbl = str(r.get(label_key) or "")
+            val = r.get(value_key) if r.get(value_key) is not None else 0
+            if not isinstance(val, (int, float)):
+                try: val = float(val)
+                except: val = 0
+            if isinstance(val, float) and val.is_integer(): val = int(val)
+            
+            if lbl not in grouped_rows:
+                grouped_rows[lbl] = {"value": 0}
+                for k, v in r.items():
+                    if k not in (label_key, value_key) and not str(k).lower().endswith("id"):
+                        grouped_rows[lbl].setdefault(k, v)
+            grouped_rows[lbl]["value"] += val
+
+        rows = []
+        for k, grp in grouped_rows.items():
+            row = {"label": k}
+            row.update(grp)
+            rows.append(row)
         return {"heading": _side_heading(side), "rows": rows}
 
     return {

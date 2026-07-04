@@ -2,12 +2,6 @@
 widget_selector.py
 ==================
 Widget Selection Engine.
-
-Given query context (type, intent, combined-result shape, analysis),
-returns an ordered List[WidgetSpec] that describes WHAT to build.
-No data construction happens here — only selection.
-
-Widget order contract: CARD → CHART → TABLE
 """
 
 from __future__ import annotations
@@ -16,11 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-# ── helpers ──────────────────────────────────────────────────────────────────
-
 
 def _slug(text: str) -> str:
-    """Stable lowercase snake_case slug safe for use in widget IDs."""
     t = re.sub(r"[^a-zA-Z0-9\s]", "", str(text or "")).strip()
     return re.sub(r"\s+", "_", t).lower() or "widget"
 
@@ -31,41 +22,30 @@ def _title(category: str, operation: str = "") -> str:
 
 
 def _canonical(wt: str) -> str:
-    """Normalise legacy/alias widget type names to canonical constants."""
     _ALIASES: Dict[str, str] = {
-        "BAR_CHART": "CHART_BAR",  # legacy alias
-        "LINE_CHART": "CHART_LINE",  # legacy alias
-        "AREA_CHART": "CHART_LINE",  # folded into line
-        "RADIAL_CHART": "CHART_LINE",  # folded into line
-        "PIE_CHART": "CHART_PIE",  # legacy alias
-        "DONUT_CHART": "CHART_PIE",  # folded into pie
-        "COMPARE_BAR_CHART": "COMPARE_CHART_BAR",  # legacy alias
-        "COMPARE_LINE_CHART": "COMPARE_CHART_LINE",  # legacy alias
-        "COMPARE_PIE_CHART": "COMPARE_CHART_PIE",  # legacy alias
+        "BAR_CHART": "CHART_BAR",
+        "LINE_CHART": "CHART_LINE",
+        "AREA_CHART": "CHART_LINE",
+        "RADIAL_CHART": "CHART_LINE",
+        "PIE_CHART": "CHART_PIE",
+        "DONUT_CHART": "CHART_PIE",
+        "COMPARE_BAR_CHART": "COMPARE_CHART_BAR",
+        "COMPARE_LINE_CHART": "COMPARE_CHART_LINE",
+        "COMPARE_PIE_CHART": "COMPARE_CHART_PIE",
     }
     return _ALIASES.get((wt or "").upper(), (wt or "TABLE").upper())
 
 
-# ── data ─────────────────────────────────────────────────────────────────────
-
-
 @dataclass
 class WidgetSpec:
-    """Blueprint for one widget.  No data — only build instructions."""
-
-    widget_type: str  # "TABLE" | "CARD" | "CHART_BAR" | "CHART_LINE" | "CHART_PIE" | "ATTENDANCE_CALENDAR" | "COMPARE_TABLE" | "COMPARE_CARD" | "COMPARE_CHART_BAR" | "COMPARE_CHART_LINE" | "COMPARE_CHART_PIE"
-    widget_id: str  # Deterministic, unique within this response
-    title: str  # Human-readable title rendered on the widget
-    source_hint: str = "primary"  # "primary"|"summary"|"left"|"right"|"section"
-    section_label: str = ""  # Non-empty for multi_independent TABLE specs
-
-
-# ── engine ───────────────────────────────────────────────────────────────────
+    widget_type: str
+    widget_id: str
+    title: str
+    source_hint: str = "primary"
+    section_label: str = ""
 
 
 class WidgetSelector:
-    """Routes a declarative widget plan into deterministic WidgetSpec objects."""
-
     def select(
         self,
         *,
