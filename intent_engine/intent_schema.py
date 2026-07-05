@@ -211,6 +211,10 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "sick",
         "fever",
         "injury",
+        "obese",
+        "obesity",
+        "overweight",
+        "underweight",
     ),
     "Attendance": (
         "attendance",
@@ -660,6 +664,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "weight",
             "fitness",
             "body mass index",
+            "obese",
             "who is obese",
             "overweight",
             "underweight",
@@ -1031,6 +1036,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "today's plan",
             "today's activities",
             "todays program",
+            "bytoday",
         ),
         "Company": (
             "company schedule",
@@ -1043,6 +1049,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "schedule on date",
             "schedule for date",
             "daily schedule",
+            "bydate",
         ),
         "Agniveer": (
             "agniveer schedule",
@@ -1546,7 +1553,7 @@ COMMON_ENTITY_TYPES: Set[str] = {
 CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
     "Performance": ("section", "grading", "attempt", "score", "marks", "trend"),
     "Leave": ("leave", "absent", "abscond", "leaveType"),
-    "Medical": ("medical", "hospital", "bmi", "blood"),
+    "Medical": ("medical", "hospital", "bmi", "blood", "obese", "overweight", "underweight","Normal"),
     "Attendance": ("attendance", "present", "campus", "date"),
     "Strength": ("strength", "breakdown", "headcount"),
     "Verification": ("verification", "verified", "pending"),
@@ -1554,7 +1561,7 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
     "Distribution": ("distribution", "unit", "unassigned"),
     "Skills": ("skills", "sport", "class", "roster", "who plays"),
     "Overall": ("overall", "composite", "all criteria", "composite ranking"),
-    "Schedule": ("schedule", "company", "agniveer", "training"),
+    "Schedule": ("schedule", "training", "bycompany", "byagniveer", "bydate", "bytoday"),
     "personaldetail": (
         "profile",
         "contact",

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime as _datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic import ValidationError
@@ -986,7 +987,7 @@ def _coerce_is_present(value: Any) -> bool:
     return False
 
 
-def _parse_calendar_date(value: Any) -> Optional["datetime"]:
+def _parse_calendar_date(value: Any) -> Optional["_datetime"]:
     from datetime import datetime as _datetime
 
     text = str(value or "").strip()
@@ -1912,6 +1913,61 @@ def build_comparison_widgets(
     return widgets
 
 
+def _medical_individual_nested(
+    combined_result: Any, intent: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Return the inner .NET 'data' object for a Medical/Individual report if
+    it matches the multi-section shape (profile + bmi + stats + latestVitals
+    + medicalHistory), else None.
+
+    utils.extract_records() walks this response looking for the first
+    non-empty nested record and stops there — for this shape that's always
+    'profile', so the sibling sections never get read. 'profile' as a dict
+    key is unique to this response shape across the codebase, so gating on
+    it plus the Medical/Individual intent keeps this from ever intercepting
+    any other category/operation.
+    """
+    if (
+        not isinstance(combined_result, dict)
+        or (intent or {}).get("category") != "Medical"
+        or (intent or {}).get("operation") != "Individual"
+    ):
+        return None
+    nested = combined_result.get("data")
+    if isinstance(nested, dict) and isinstance(nested.get("profile"), dict):
+        return nested
+    return None
+
+
+def _build_medical_individual_row(nested: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge the Medical/Individual sibling sections (profile, bmi, stats,
+    latestVitals) into a single flat record so they render as ordinary
+    table columns/row, same as every other TABLE widget — no nested blocks.
+
+    utils.extract_records() only ever surfaced 'profile' for this response
+    shape (it returns on the first non-empty nested value it finds), so
+    'bmi', 'stats' and 'latestVitals' never reached the table at all.
+    medicalHistory is list-shaped — a different cardinality (one row per
+    visit, not one row per person) — so it's summarised as a count column
+    instead of being spread across the single profile row.
+    """
+    merged: Dict[str, Any] = {}
+    for section in (
+        nested.get("profile"),
+        nested.get("bmi"),
+        nested.get("stats"),
+        nested.get("latestVitals"),
+    ):
+        if isinstance(section, dict):
+            merged.update(section)
+
+    medical_history = nested.get("medicalHistory")
+    if isinstance(medical_history, list):
+        merged["medicalHistoryCount"] = len(medical_history)
+
+    return merged
+
+
 def _build_widget_data(
     spec: Any,  # WidgetSpec — typed loosely to avoid circular import
     combined_result: Any,
@@ -1960,7 +2016,14 @@ def _build_widget_data(
                     flat = flatten_records(sec.get("data") or [], deep_flatten=True)
                     break
         else:
-            flat = _extract_records(combined_result, deep_flatten=True)
+            medical_individual = _medical_individual_nested(combined_result, intent)
+            if medical_individual is not None:
+                flat = flatten_records(
+                    [_build_medical_individual_row(medical_individual)],
+                    deep_flatten=True,
+                )
+            else:
+                flat = _extract_records(combined_result, deep_flatten=True)
         return build_table_data(flat)
 
     # ── BAR_CHART ────────────────────────────────────────────────────────────

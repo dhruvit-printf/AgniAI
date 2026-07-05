@@ -77,6 +77,18 @@ def _phrase_score(text: str, phrase: str) -> int:
     if not phrase_norm:
         return 0
     if phrase_norm not in text:
+        # Fall back to a whitespace-insensitive match so a hint written as
+        # one compact token (e.g. "bycompany") still identifies the
+        # naturally spaced phrase in the query text ("by company"). Only
+        # reached when the exact spaced phrase wasn't found, so every
+        # existing (already-spaced) phrase keeps its original score.
+        compact_phrase = phrase_norm.replace(" ", "")
+        compact_text = text.replace(" ", "")
+        if compact_phrase and compact_phrase in compact_text:
+            words = len(phrase_norm.split())
+            base = words * 12 + len(compact_phrase)
+            occurrences = max(1, compact_text.count(compact_phrase))
+            return base * occurrences
         return 0
 
     words = len(phrase_norm.split())
