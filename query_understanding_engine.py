@@ -47,6 +47,20 @@ _CROSS_FILTER_MARKERS = (
     "suffering",
     "suffered",
 )
+
+# Generic relative-clause connectors ("who", "with") also signal a filter
+# relationship between two categories, even when the exact verb/phrase isn't
+# in the fixed marker list above — e.g. "top 10 bpet performers who have
+# volleyball in their skills" instead of "... who plays volleyball". The
+# ">= 2 categories" gate applied wherever this is used keeps it from firing
+# on ordinary single-category queries that happen to contain "who"/"with".
+_CROSS_FILTER_GENERIC_CONNECTORS = re.compile(r"\bwho\b|\bwith\b")
+
+
+def _has_cross_filter_marker(text: str) -> bool:
+    if any(marker in text for marker in _CROSS_FILTER_MARKERS):
+        return True
+    return bool(_CROSS_FILTER_GENERIC_CONNECTORS.search(text))
 _RANKING_MARKERS = (
     "rank",
     "top",
@@ -536,7 +550,7 @@ def _extract_sub_requests(
             }
         ]
 
-    if any(marker in text for marker in _CROSS_FILTER_MARKERS):
+    if _has_cross_filter_marker(text):
         parts = []
         current = text
         for sep in (r"\bwho\b", r"\bwith\b"):
@@ -661,7 +675,7 @@ def understand_query(query: str) -> Dict[str, Any]:
     comparison_intent = any(marker in text for marker in _COMPARISON_MARKERS)
 
     # cross_filter requires a marker AND at least 2 distinct inferred categories
-    _cross_marker_hit = any(marker in text for marker in _CROSS_FILTER_MARKERS)
+    _cross_marker_hit = _has_cross_filter_marker(text)
     cross_filter_intent = False
     if _cross_marker_hit:
         from intent_engine.query_planner import _detect_categories as _dc
