@@ -56,9 +56,20 @@ _CROSS_FILTER_MARKERS = (
 # on ordinary single-category queries that happen to contain "who"/"with".
 _CROSS_FILTER_GENERIC_CONNECTORS = re.compile(r"\bwho\b|\bwith\b")
 
+# "... for Dogra class agniveers" / "... among Dogra class" — a ranking/trend
+# query scoped to a community/class roster. Matched separately from the
+# generic markers above because the cutpoint for splitting is the class name
+# itself, not a fixed connector word.
+_CLASS_NAMES = ("sikh", "dogra", "jat", "gurkha", "gorkha", "rajput", "punjabi", "oic")
+_CLASS_FILTER_RE = re.compile(
+    rf"\b({'|'.join(_CLASS_NAMES)})\s+class\b", re.IGNORECASE
+)
+
 
 def _has_cross_filter_marker(text: str) -> bool:
     if any(marker in text for marker in _CROSS_FILTER_MARKERS):
+        return True
+    if _CLASS_FILTER_RE.search(text):
         return True
     return bool(_CROSS_FILTER_GENERIC_CONNECTORS.search(text))
 _RANKING_MARKERS = (
@@ -629,15 +640,27 @@ def _extract_sub_requests(
     if _has_cross_filter_marker(text):
         parts = []
         current = text
-        for sep in (r"\bwho\b", r"\bwith\b"):
+        for sep in (r"\bwho\b", r"\bwith\b", r"\bamong\b", r"\bwithin\b"):
             split_parts = re.split(sep, current, maxsplit=1, flags=re.IGNORECASE)
             if len(split_parts) > 1:
                 parts.append(split_parts[0].strip(" ,"))
                 current = " ".join(split_parts[1:])
                 break
         else:
-            parts = [current]
-            current = ""
+            class_match = _CLASS_FILTER_RE.search(current)
+            if class_match:
+                lead = current[: class_match.start()]
+                lead = re.sub(
+                    r"\b(for|from|among|within|of|in)\s*$",
+                    "",
+                    lead,
+                    flags=re.IGNORECASE,
+                ).strip(" ,")
+                parts.append(lead)
+                current = current[class_match.start() :].strip()
+            else:
+                parts = [current]
+                current = ""
 
         if current:
             and_parts = [
@@ -795,19 +818,22 @@ def understand_query(query: str) -> Dict[str, Any]:
         query_type = "comparison"
         complexity = "comparison"
         intent_kind = "comparison"
-    elif cross_filter_intent and any(
-        token in text
-        for token in (
-            "with ",
-            "who ",
-            "among ",
-            "within ",
-            "players",
-            "player",
-            "plays",
-            "currently on leave",
-            "currently absent",
+    elif cross_filter_intent and (
+        any(
+            token in text
+            for token in (
+                "with ",
+                "who ",
+                "among ",
+                "within ",
+                "players",
+                "player",
+                "plays",
+                "currently on leave",
+                "currently absent",
+            )
         )
+        or _CLASS_FILTER_RE.search(text)
     ):
         query_type = "cross_filter"
         complexity = "cross_filter"

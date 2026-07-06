@@ -184,6 +184,46 @@ def _plan_widgets(
     if operation in ("improvement", "drop") and response_type == "Detailed":
         return _widget_list("TABLE")
 
+    # `query_type` is a structural classification from the planner — it must
+    # win over text-heuristic checks below (e.g. "breakdown"/"distribution"
+    # keyword sniffing), otherwise a multi-independent query whose text just
+    # happens to contain one of those words (e.g. "... and strength
+    # breakdown") gets collapsed into a single combined chart instead of one
+    # widget per independent section.
+    if query_type == "multi_independent":
+        widgets: List[Dict[str, Any]] = []
+        sections = []
+        if isinstance(intent.get("combined_result"), dict):
+            sections = intent["combined_result"].get("sections") or []
+        operations = intent.get("operations") or []
+        for idx, section in enumerate(sections):
+            if isinstance(section, dict):
+                label = section.get("label") or "Section"
+                op_intent = operations[idx] if idx < len(operations) else {}
+                sec_category = (op_intent.get("category") or "").strip()
+                sec_operation = (
+                    op_intent.get("operation") or op_intent.get("subcategory") or ""
+                ).strip().lower()
+                # Same default widget-type lookup a standalone query for this
+                # category/operation would use — a section doesn't get a
+                # hardcoded presentation just because it's part of a
+                # multi-independent bundle.
+                sec_widgets = _SUMMARY_WIDGET_PLANS.get((sec_category, sec_operation)) or [
+                    "TABLE"
+                ]
+                widgets.append(
+                    {
+                        "type": sec_widgets[0],
+                        "title": label,
+                        "section_label": label,
+                        "source_hint": "section",
+                    }
+                )
+        return widgets or _widget_list("TABLE")
+
+    if query_type == "cross_filter":
+        return _widget_list("TABLE")
+
     if trend or query_type == "trend" or any(
         token in text for token in ("trend", "timeline", "over months", "over time", "growth")
     ):
@@ -193,27 +233,6 @@ def _plan_widgets(
         token in text for token in ("distribution", "breakdown", "percentage", "share")
     ):
         return _widget_list(*(["CHART_PIE", "TABLE"] if response_type == "Detailed" else ["CHART_PIE"]))
-
-    if query_type == "cross_filter":
-        return _widget_list("TABLE")
-
-    if query_type == "multi_independent":
-        widgets: List[Dict[str, Any]] = []
-        sections = []
-        if isinstance(intent.get("combined_result"), dict):
-            sections = intent["combined_result"].get("sections") or []
-        for section in sections:
-            if isinstance(section, dict):
-                label = section.get("label") or "Section"
-                widgets.append(
-                    {
-                        "type": "TABLE",
-                        "title": label,
-                        "section_label": label,
-                        "source_hint": "section",
-                    }
-                )
-        return widgets or _widget_list("TABLE")
 
     summary_widgets = _SUMMARY_WIDGET_PLANS.get((category, operation))
     if not summary_widgets:

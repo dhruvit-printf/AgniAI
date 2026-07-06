@@ -377,6 +377,25 @@ def resolve_entities_from_query(
             pos = q_clean.find(cand_clean, pos + 1)
         return False
 
+    _MIN_PARTIAL_MENTION_LEN = 3
+
+    def _is_partial_prefix_mention(query_text: str, candidate_name: str) -> bool:
+        """True if some word in the query is a genuine prefix of
+        candidate_name (or vice versa) — catches a half-typed name like
+        "Maha" for "Mahadev". `_is_mention_in_query` only checks whether the
+        FULL candidate name occurs inside the query, so it never fires when
+        the user typed less than the whole name.
+        """
+        cand_compact = re.sub(r"[^a-z0-9]", "", candidate_name.lower())
+        if not cand_compact or len(cand_compact) < _MIN_PARTIAL_MENTION_LEN:
+            return False
+        for word in _COMPANY_TOKEN_RE.findall(query_text.lower()):
+            if len(word) < _MIN_PARTIAL_MENTION_LEN or word in _NOISE_WORDS:
+                continue
+            if cand_compact.startswith(word) or word.startswith(cand_compact):
+                return True
+        return False
+
     if result["companyId"] is None:
         companies = _fetch_companies(trace_id=trace_id)
         best_match_len = 0
@@ -388,7 +407,9 @@ def resolve_entities_from_query(
                 continue
             stored_core = re.sub(r"(?:company|coy|unit)", "", stored.lower()).strip()
             for candidate in (stored, stored_core):
-                if _is_mention_in_query(query, candidate):
+                if _is_mention_in_query(query, candidate) or _is_partial_prefix_mention(
+                    query, candidate
+                ):
                     candidate_len = len(clean_query(candidate).strip())
                     if candidate_len > best_match_len:
                         cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
@@ -408,7 +429,9 @@ def resolve_entities_from_query(
                 continue
             stored_core = re.sub(r"(?:platoon|pl)", "", stored.lower()).strip()
             for candidate in (stored, stored_core):
-                if _is_mention_in_query(query, candidate):
+                if _is_mention_in_query(query, candidate) or _is_partial_prefix_mention(
+                    query, candidate
+                ):
                     candidate_len = len(clean_query(candidate).strip())
                     if candidate_len > best_match_len:
                         pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")

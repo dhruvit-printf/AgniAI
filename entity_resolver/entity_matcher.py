@@ -11,6 +11,11 @@ try:  # Optional dependency.
 except Exception:  # pragma: no cover
     _rf_fuzz = None
 
+# Shortest query we'll treat as a deliberate name prefix (e.g. "Maha" for
+# "Mahadev"). Below this, a bare few letters is too likely to prefix-match
+# several unrelated names.
+_MIN_PREFIX_LEN = 3
+
 
 def normalize_text(text: str) -> str:
     text = (text or "").lower().strip()
@@ -124,6 +129,28 @@ def match_entity(
                     best_score = score
                     best_alias = alias_text
                     match_type = "alias"
+            if (
+                alias_compact
+                and compact_query
+                and len(compact_query) >= _MIN_PREFIX_LEN
+                and (
+                    alias_compact.startswith(compact_query)
+                    or compact_query.startswith(alias_compact)
+                )
+            ):
+                # A genuine "half the name" prefix (e.g. "Maha" for
+                # "Mahadev") has no token boundary to trigger the alias
+                # check above, and its fuzzy ratio can fall under threshold
+                # for short prefixes of long names. Score it directly off
+                # how much of the shorter string the prefix covers so it
+                # reliably clears the match threshold.
+                shorter = min(len(alias_compact), len(compact_query))
+                longer = max(len(alias_compact), len(compact_query))
+                score = 90.0 + 5.0 * (shorter / longer)
+                if score > best_score:
+                    best_score = score
+                    best_alias = alias_text
+                    match_type = "prefix"
             fuzzy_score = _similarity(normalized_query, alias_norm)
             if fuzzy_score > best_score:
                 best_score = fuzzy_score

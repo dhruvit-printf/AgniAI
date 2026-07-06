@@ -1915,7 +1915,7 @@ def execute_admin_query(
             from widget_engine import build_widget_list
 
             visualization_intent = build_visualization_intent(
-                message, primary_intent, combined_result
+                message, primary_intent, combined_result, query_type_override=qtype_str
             )
             if frontend_visualization_intent:
                 visualization_intent = {

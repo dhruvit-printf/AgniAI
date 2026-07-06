@@ -273,12 +273,15 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertTrue(response_payload["status"])
         self.assertEqual(response_payload["metadata"]["queryType"], "multi_independent")
 
-        # Verify sections (TABLE widgets for Attendance and Leave)
+        # Verify sections — each uses the same default widget type a
+        # standalone query for that category/operation would get (Attendance
+        # has no default mapping so it falls back to TABLE; Leave/Current
+        # defaults to CHART_PIE).
         widgets = response_payload["formattedData"]
         self.assertEqual(len(widgets), 2)
         self.assertEqual(widgets[0]["type"], "TABLE")
         self.assertEqual(widgets[0]["title"], "Attendance")
-        self.assertEqual(widgets[1]["type"], "TABLE")
+        self.assertEqual(widgets[1]["type"], "CHART_PIE")
         self.assertEqual(widgets[1]["title"], "Leave")
 
         self.assertEqual(mock_call_dotnet.call_count, 2)
