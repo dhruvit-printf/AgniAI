@@ -119,6 +119,7 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
     ],
     "Leave": [
         "leave",
+        "leaves",
         "absent",
         "absentee",
         "absconded",
@@ -157,6 +158,7 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "dengue",
         "typhoid",
         "blood group",
+        "blood groups",
         "blood type",
         "overweight",
         "underweight",
@@ -174,6 +176,8 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "verified",
         "pending verification",
         "completed verification",
+        "rejected",
+        "unverified",
     ],
     "Equipment": [
         "equipment",
@@ -185,6 +189,8 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "damaged",
         "returned",
         "holding",
+        "held",
+        "overdue",
     ],
     "Distribution": [
         "distribution",
@@ -247,6 +253,7 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "personaldetail",
         "personal info",
         "profile",
+        "profiles",
         "biodata",
         "bio data",
         "contact",
@@ -264,6 +271,23 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "expelled agniveer",
     ],
 }
+
+
+def _extend_skills_category_signals() -> None:
+    """Extend _CATEGORY_SIGNALS["Skills"] with every sport name so that
+    mentioning ANY sport (not just the half-dozen hardcoded here) registers
+    as a Skills-category signal for cross-filter's ">= 2 categories" gate —
+    e.g. "who got excellent in firing among badminton players" needs both
+    Performance and Skills detected to split at all.
+    """
+    from .intent_schema import SPORTS
+
+    base = _CATEGORY_SIGNALS["Skills"]
+    additions = [name for name in SPORTS.keys() if name not in base]
+    _CATEGORY_SIGNALS["Skills"] = base + additions
+
+
+_extend_skills_category_signals()
 
 
 def _detect_categories(text_lower: str) -> List[str]:

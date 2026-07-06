@@ -88,6 +88,22 @@ _NOISE_WORDS = {
     "improvement",
     "drop",
     "drops",
+    "bpet",
+    "bept",
+    "betp",
+    "ppt",
+    "firing",
+    "drill",
+    "topper",
+    "toppers",
+    "topped",
+    "highest",
+    "lowest",
+    "worst",
+    "excellent",
+    "good",
+    "sat",
+    "fail",
 }
 
 
@@ -404,11 +420,13 @@ def resolve_entities_from_query(
     _MIN_PARTIAL_MENTION_LEN = 3
 
     def _is_partial_prefix_mention(query_text: str, candidate_name: str) -> bool:
-        """True if some word in the query is a genuine prefix of
-        candidate_name (or vice versa) — catches a half-typed name like
-        "Maha" for "Mahadev". `_is_mention_in_query` only checks whether the
-        FULL candidate name occurs inside the query, so it never fires when
-        the user typed less than the whole name.
+        """True if some word in the query is a genuine partial match of
+        candidate_name — catches a half-typed name like "Maha" for
+        "Mahadev" (prefix), or one word of a multi-word name like
+        "Lakhwinder" for "Lak - Lakhwinder" (embedded, not just a prefix).
+        `_is_mention_in_query` only checks whether the FULL candidate name
+        occurs inside the query, so it never fires when the user typed only
+        part of it.
         """
         cand_compact = re.sub(r"[^a-z0-9]", "", candidate_name.lower())
         if not cand_compact or len(cand_compact) < _MIN_PARTIAL_MENTION_LEN:
@@ -416,7 +434,11 @@ def resolve_entities_from_query(
         for word in _COMPANY_TOKEN_RE.findall(query_text.lower()):
             if len(word) < _MIN_PARTIAL_MENTION_LEN or word in _NOISE_WORDS:
                 continue
-            if cand_compact.startswith(word) or word.startswith(cand_compact):
+            if (
+                cand_compact.startswith(word)
+                or word.startswith(cand_compact)
+                or word in cand_compact
+            ):
                 return True
         return False
 

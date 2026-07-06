@@ -672,9 +672,22 @@ def _extract_sub_requests(
     if _has_cross_filter_marker(text):
         parts = []
         current = text
-        for sep in (r"\bwho\b", r"\bwith\b", r"\bamong\b", r"\bwithin\b"):
+        for sep in (
+            r"\bwho\b",
+            r"\bwith\b",
+            r"\bamong\b",
+            r"\bwithin\b",
+            r"\bsuffering\b",
+            r"\bsuffered\b",
+        ):
             split_parts = re.split(sep, current, maxsplit=1, flags=re.IGNORECASE)
-            if len(split_parts) > 1:
+            # A leading interrogative ("Who improved... among the badminton
+            # players?") matches "who" at position 0, leaving an empty lead
+            # fragment that then gets dropped entirely — collapsing the
+            # query back to one unsplit fragment. Skip a match that produces
+            # an empty lead and keep trying the remaining separators (e.g.
+            # "among") instead of accepting the degenerate split.
+            if len(split_parts) > 1 and split_parts[0].strip(" ,"):
                 parts.append(split_parts[0].strip(" ,"))
                 current = " ".join(split_parts[1:])
                 break
@@ -711,8 +724,17 @@ def _extract_sub_requests(
                     lead,
                     flags=re.IGNORECASE,
                 ).strip(" ,")
-                parts.append(lead)
-                current = current[roster_match.start() :].strip()
+                if lead:
+                    parts.append(lead)
+                    current = current[roster_match.start() :].strip()
+                else:
+                    # Roster mention sits at the very start ("Dogra class
+                    # agniveers present today") — there's no lead text
+                    # before it, so split the roster phrase itself from
+                    # what follows instead of collapsing back into one
+                    # fragment with an empty lead.
+                    parts.append(current[roster_match.start() : roster_match.end()].strip())
+                    current = current[roster_match.end() :].strip()
             else:
                 parts = [current]
                 current = ""
@@ -886,6 +908,9 @@ def understand_query(query: str) -> Dict[str, Any]:
                 "plays",
                 "currently on leave",
                 "currently absent",
+                "on leave",
+                "suffering",
+                "suffered",
             )
         )
         or _CLASS_FILTER_RE.search(text)
@@ -956,17 +981,29 @@ def understand_query(query: str) -> Dict[str, Any]:
         for marker in _LEAVE_STATUS_MARKERS:
             if marker in text:
                 head, tail = text.split(marker, 1)
+                head_clean = head.strip(" ,")
                 tail_clean = tail.strip(" ,")
-                tail_frag = f"{marker} {tail_clean}" if tail_clean else marker
+                if head_clean:
+                    first_frag = head_clean
+                    second_frag = f"{marker} {tail_clean}" if tail_clean else marker
+                else:
+                    # Marker sits at the very start ("Currently absent
+                    # cricket players") — there's no lead text before it to
+                    # form a first fragment, so split the marker phrase
+                    # itself from what follows instead of reconstructing the
+                    # whole original text as one fragment with an empty
+                    # sibling.
+                    first_frag = marker
+                    second_frag = tail_clean or marker
                 sub_requests = [
                     {
-                        "fragment": head.strip(" ,"),
+                        "fragment": first_frag,
                         "category": category,
                         "operation": operation,
                         "entities": entities,
                     },
                     {
-                        "fragment": tail_frag,
+                        "fragment": second_frag,
                         "category": None,
                         "operation": "lookup",
                         "entities": entities,

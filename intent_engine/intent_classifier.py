@@ -293,7 +293,15 @@ def _score_operation(
     if category == "Strength" and operation == "StrengthBreakdown":
         score += 10 if _entity_present(entities, "section") else 0
     if category == "Schedule" and operation == "Today":
-        score += 10 if _phrase_score(query_text, "schedule") else 0
+        # Bare "schedule" is a weak, generic signal — don't let it outscore
+        # Company/Date/Agniveer when the query actually names one of those
+        # (e.g. "schedule for Lakhwinder company" contains "schedule" too,
+        # but should resolve to Company, not the bare Today default).
+        has_more_specific_signal = (
+            _entity_present(entities, "agniveerNo", "date")
+            or bool(re.search(r"\b(company|coy)\b", query_text, re.IGNORECASE))
+        )
+        score += 10 if _phrase_score(query_text, "schedule") and not has_more_specific_signal else 0
     if category == "Attendance" and operation in {
         "Monthly",
         "Weekly",
@@ -537,6 +545,17 @@ def _should_entity_override_operation(
             return True, "Monthly", "date value indicates a month"
 
     if category == "Schedule" and not classified_operation:
+        # Company resolution happens later in the pipeline (not in `entities`
+        # here), so a company mention can't be caught via _entity_present —
+        # fall back to a bare keyword check. Checked before Agniveer/Date so
+        # "schedule of agniveer X's company" style text still prefers the
+        # more specific agniveerNo/date entity when both are present.
+        if _entity_present(entities, "agniveerNo"):
+            return True, "Agniveer", "Schedule query for a specific agniveer"
+        if _entity_present(entities, "date"):
+            return True, "Date", "Schedule query for a specific date"
+        if re.search(r"\b(company|coy)\b", query_text, re.IGNORECASE):
+            return True, "Company", "Schedule query mentions a company"
         return True, "Today", "Schedule query default operation"
 
     if category == "Equipment" and not classified_operation:

@@ -25,6 +25,7 @@ from .intent_schema import (
     RELATIVE_DATE_PHRASES,
     SECTION,
     SPORTS,
+    SUBSECTION_ALIASES,
     SUBSECTIONS_BY_SECTION,
     UNIT_ALIASES,
 )
@@ -198,8 +199,10 @@ def _extract_subsection(query: str, section: Optional[str]) -> Optional[str]:
         return None
     query_lower = _normalise(query)
     for subsection in SUBSECTIONS_BY_SECTION[section]:
-        if _normalise(subsection) in query_lower:
-            return subsection
+        candidates = (subsection,) + SUBSECTION_ALIASES.get(subsection, ())
+        for candidate in candidates:
+            if _normalise(candidate) in query_lower:
+                return subsection
     return None
 
 
@@ -578,21 +581,36 @@ def _extract_days(query: str) -> Optional[int]:
     return None
 
 
-def _extract_return_condition(query: str) -> Optional[str]:
+def _extract_return_condition(query: str, semantic: Optional[Dict[str, Any]] = None) -> Optional[str]:
     query_lower = _normalise(query)
+    op = ""
+    if semantic and semantic.get("module", "").lower() == "equipment":
+        op = str(semantic.get("operation") or "").lower()
+
     for cond in ("good", "fair", "poor", "damaged"):
         if re.search(rf"\b(given|issued)\s+(in\s+)?{cond}\b", query_lower):
             continue
+        if re.search(rf"\breturn(ed)?\s+(in\s+)?{cond}\b", query_lower):
+            return cond
         if re.search(rf"\b{cond}\b", query_lower):
+            if op == "sent":
+                continue
             return cond
     return None
 
 
-def _extract_given_condition(query: str) -> Optional[str]:
+def _extract_given_condition(query: str, semantic: Optional[Dict[str, Any]] = None) -> Optional[str]:
     query_lower = _normalise(query)
+    op = ""
+    if semantic and semantic.get("module", "").lower() == "equipment":
+        op = str(semantic.get("operation") or "").lower()
+
     for cond in ("good", "fair", "poor", "damaged"):
         if re.search(rf"\b(given|issued)\s+(in\s+)?{cond}\b", query_lower):
             return cond
+        if re.search(rf"\b{cond}\b", query_lower):
+            if op == "sent" and not re.search(rf"\breturn(ed)?\s+(in\s+)?{cond}\b", query_lower):
+                return cond
     return None
 
 
@@ -828,8 +846,8 @@ def extract_entities(
     result["medicalStatus"] = _extract_medical_status(raw_query)
     result["diagnose"] = _extract_diagnose(raw_query)
     result["days"] = _extract_days(raw_query)
-    result["returnCondition"] = _extract_return_condition(raw_query)
-    result["givenCondition"] = _extract_given_condition(raw_query)
+    result["returnCondition"] = _extract_return_condition(raw_query, semantic)
+    result["givenCondition"] = _extract_given_condition(raw_query, semantic)
 
     # Precedence: explicit value in current query > semantic > stale resolved_entities
     result["companyId"] = (
