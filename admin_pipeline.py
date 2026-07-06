@@ -55,6 +55,7 @@ from query_understanding_engine import understand_query
 from report_generator import generate_report, get_fallback_report
 from response_builder import build_response
 from result_combiner import combine_results
+from schedule_enrichment import enrich_schedule_by_company
 from schemas import (
     AnalysisModel,
     CombinedResponseModel,
@@ -1208,6 +1209,54 @@ def execute_admin_query(
                             "error_type": "thread_exception",
                             "error_message": _BACKEND_UNAVAILABLE_MESSAGE,
                         }
+
+                    # ── Dependent Schedule enrichment ─────────────────────
+                    # A "Schedule" leg with no company/platoon of its own
+                    # (e.g. "top performers in BPET and their today's
+                    # schedule") can't be resolved from its own fragment
+                    # text — the company only becomes known from a peer
+                    # leg's records (each carrying a platoonName). Re-fetch
+                    # that leg scoped to the company(ies) actually present
+                    # in the peer data instead of leaving it as a generic,
+                    # unscoped schedule call.
+                    for pos, (idx, op, _data, _err, op_time_ms) in enumerate(results):
+                        if op.intent_result.get("category") != "Schedule":
+                            continue
+                        sent_payload = response_dotnet_payload[idx] or {}
+                        if sent_payload.get("companyId") or sent_payload.get(
+                            "platoonId"
+                        ):
+                            continue  # already scoped from its own fragment
+                        for _, peer_op, peer_data, peer_err, _ in results:
+                            if (
+                                peer_err
+                                or peer_data is None
+                                or peer_op.intent_result.get("category")
+                                == "Schedule"
+                            ):
+                                continue
+                            enriched = enrich_schedule_by_company(
+                                sent_payload,
+                                peer_data,
+                                trace_id=trace_id,
+                                session_id=session_id,
+                                query_type=qtype_str,
+                            )
+                            if enriched is not None:
+                                results[pos] = (idx, op, enriched, None, op_time_ms)
+                                logger.info(
+                                    json.dumps(
+                                        {
+                                            "message": "Schedule leg enriched from peer records",
+                                            "trace_id": trace_id,
+                                            "session_id": session_id,
+                                            "companies": enriched["data"][
+                                                "totalCompanies"
+                                            ],
+                                        }
+                                    )
+                                )
+                                break
 
                     dotnet_duration = time.time() - dotnet_start
                     logger.info(

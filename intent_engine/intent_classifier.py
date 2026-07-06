@@ -118,11 +118,14 @@ def _word_family_score(text_word: str, phrase: str) -> int:
     if common_prefix >= 5 or common_prefix >= min(len(text_word), len(phrase)):
         return 12
 
-    # Short words get a tighter budget (one edit) so unrelated short words
-    # don't collide; anything length 5+ allows two edits, which also covers
-    # an adjacent-letter transposition (e.g. "levae" for "leave").
-    max_distance = 1 if len(phrase) <= 4 else 2
-    if abs(len(text_word) - len(phrase)) <= max_distance and _levenshtein(
+    # A flat "2 edits allowed" budget here previously let unrelated common
+    # words collide (e.g. "right" ~ "weight", both edit-distance 2 under
+    # plain Levenshtein) purely because they're a similar length. Using
+    # transposition-aware distance and capping at 1 edit fixes that false
+    # positive while still catching an adjacent-letter swap typo like
+    # "levae" for "leave" (a single transposition costs 1, not 2, here).
+    max_distance = 1 if len(phrase) <= 7 else 2
+    if abs(len(text_word) - len(phrase)) <= max_distance and _damerau_levenshtein(
         text_word, phrase
     ) <= max_distance:
         return 10
@@ -395,6 +398,35 @@ def _levenshtein(a: str, b: str) -> int:
             current_row.append(min(insertion, deletion, substitution))
         previous_row = current_row
     return previous_row[-1]
+
+
+def _damerau_levenshtein(a: str, b: str) -> int:
+    """Edit distance counting an adjacent-letter transposition (e.g.
+    "levae" -> "leave") as a single edit rather than two substitutions."""
+    if a == b:
+        return 0
+    la, lb = len(a), len(b)
+    d = [[0] * (lb + 1) for _ in range(la + 1)]
+    for i in range(la + 1):
+        d[i][0] = i
+    for j in range(lb + 1):
+        d[0][j] = j
+    for i in range(1, la + 1):
+        for j in range(1, lb + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            d[i][j] = min(
+                d[i - 1][j] + 1,
+                d[i][j - 1] + 1,
+                d[i - 1][j - 1] + cost,
+            )
+            if (
+                i > 1
+                and j > 1
+                and a[i - 1] == b[j - 2]
+                and a[i - 2] == b[j - 1]
+            ):
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + cost)
+    return d[la][lb]
 
 
 def _fuzzy_contains_word(query_text: str, targets: Iterable[str], max_distance: int = 2) -> bool:
