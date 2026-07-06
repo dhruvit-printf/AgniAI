@@ -137,12 +137,39 @@ def extract_records(data: Any) -> List[Dict]:
         if members:
             return members
 
-    # Fallback recursive check on other values
+    # A direct list of dicts anywhere in this object is a genuine multi-row
+    # result (e.g. Schedule's "byCompany") — check every value for one
+    # before considering any dict sibling, since descending into just the
+    # first dict found (below) would discard the list otherwise.
     for value in data.values():
-        if isinstance(value, (dict, list)):
-            nested = extract_records(value)
-            if nested:
-                return nested
+        if isinstance(value, list):
+            res = [item for item in value if isinstance(item, dict)]
+            if res:
+                return res
+
+    # Exactly one dict sibling actually contains a record list buried
+    # deeper inside it → genuine envelope, safe to unwrap by recursing.
+    # Sibling dicts made purely of scalars (e.g. Equipment Stats'
+    # "issued"/"procured" groups) do NOT count: recursing into just one of
+    # those would silently discard every other sibling group (and any
+    # top-level scalars like "totalAssigned") — exactly the bug where
+    # "procured" and "totalAssigned" vanished and only "issued" survived.
+    dict_children_with_lists = [
+        v for v in data.values() if isinstance(v, dict) and _contains_record_list(v)
+    ]
+    if len(dict_children_with_lists) == 1:
+        nested = extract_records(dict_children_with_lists[0])
+        if nested:
+            return nested
+
+    # No genuine record list anywhere, but this object has one or more
+    # nested dicts (e.g. "issued": {...}, "procured": {...}) — it's a
+    # single aggregate/summary row made of named sub-groups, not a list of
+    # many similar records. Keep the whole object — every sibling group
+    # intact — so the widget flattener can turn each one into its own
+    # prefixed columns instead of losing all but the first.
+    if any(isinstance(value, dict) for value in data.values()) and has_any_data([data]):
+        return [data]
 
     # Flat aggregate/summary dict — no nested list/dict found anywhere in
     # this object, but it carries real scalar content (e.g. a Summary-shaped
@@ -152,6 +179,16 @@ def extract_records(data: Any) -> List[Dict]:
         return [data]
 
     return []
+
+
+def _contains_record_list(value: Any) -> bool:
+    """Whether a record list (a list containing at least one dict) exists
+    anywhere inside this value, however deeply nested."""
+    if isinstance(value, list):
+        return any(isinstance(item, dict) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_record_list(v) for v in value.values())
+    return False
 
 
 def get_score(record: Dict[str, Any]) -> Optional[float]:

@@ -198,6 +198,15 @@ def _looks_like_noise_query(
     if _has_action_signal(query_text):
         return False
 
+    # A sport/class name is a strong, specific identifier on its own — unlike
+    # a bare date or number, it isn't the kind of "stray token in a filler
+    # sentence" this heuristic guards against. This matters most for a
+    # cross-filter clause split off a larger query (e.g. "who also plays
+    # volleyball"), which is inherently short and has no other entity to
+    # offer besides the sport/class itself.
+    if (entities or {}).get("sport") or (entities or {}).get("class"):
+        return False
+
     filled_entities = [
         key
         for key, value in (entities or {}).items()
