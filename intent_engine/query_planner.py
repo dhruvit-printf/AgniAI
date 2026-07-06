@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from query_understanding_engine import understand_query
+from query_understanding_engine import propagate_lead_in_across_parts, understand_query
 from utils import build_filters_from_entities
 
 from .admin_intent import classify_admin_intent, format_admin_payload
@@ -472,6 +472,7 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
                     temp_text = temp_text[len(prefix) :].strip()
                     temp_lower = temp_text.lower().strip()
             parts = re.split(re.escape(sep), temp_text, flags=re.IGNORECASE)
+            parts = propagate_lead_in_across_parts(parts)
             return _normalize_n_parts(parts)
 
     diff_match = re.search(

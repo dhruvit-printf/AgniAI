@@ -276,7 +276,6 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "talented in",
         "cricket",
         "football",
-        "class",
         "community",
         "roster",
         "rosters",
@@ -959,8 +958,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         "ByClass": (
             "by class",
             "class wise",
-            "sikh class",
-            "dogra class",
             "class wise roster",
             "grouped by class",
             "class participation",
@@ -1559,7 +1556,7 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
     "Verification": ("verification", "verified", "pending"),
     "Equipment": ("equipment", "gear", "inventory", "search", "category", "name"),
     "Distribution": ("distribution", "unit", "unassigned"),
-    "Skills": ("skills", "sport", "class", "roster", "who plays"),
+    "Skills": ("skills", "sport", "roster", "who plays"),
     "Overall": ("overall", "composite", "all criteria", "composite ranking"),
     "Schedule": ("schedule", "training", "bycompany", "byagniveer", "bydate", "bytoday"),
     "personaldetail": (

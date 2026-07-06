@@ -1040,7 +1040,23 @@ def execute_admin_query(
 
                     def run_op(idx, op):
                         payload = dict(op.dotnet_payload)
-                        payload.update(id_filters)
+                        # Each comparison/multi-op fragment may name its own
+                        # company/platoon/batch (e.g. "... of Arora" vs
+                        # "... of Thorat company") — resolve per-fragment so
+                        # the two sides don't collapse onto the same
+                        # globally-resolved id. Fragments that don't mention
+                        # a distinct entity fall back to the shared filters.
+                        frag_entities = resolve_entities_from_query(
+                            op.raw_fragment,
+                            trace_id=trace_id,
+                            session_id=session_id,
+                        )
+                        op_filters = dict(id_filters)
+                        for key in ("companyId", "platoonId", "batchId"):
+                            frag_value = frag_entities.get(key)
+                            if frag_value is not None:
+                                op_filters[key] = frag_value
+                        payload.update(op_filters)
                         for k, v in carry_forward_filters.items():
                             if payload.get(k) in (None, ""):
                                 payload[k] = v

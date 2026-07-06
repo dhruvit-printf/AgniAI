@@ -482,6 +482,107 @@ def _split_on_connectors(text: str, markers: List[str]) -> List[str]:
     return [text]
 
 
+_LEAD_IN_PREPOSITIONS = ("of", "in", "for", "among", "between", "during", "on")
+
+
+def _apply_shared_lead_in(left: str, right: str) -> str:
+    """Propagate a shared lead-in phrase from the left comparison fragment to
+    the right one.
+
+    "top performers of Lak-Lakhwinder and Jas-Jaswant company in BPET" splits
+    on " and " into "top performers of Lak-Lakhwinder" / "Jas-Jaswant company
+    in BPET" — the right side loses "top performers of", so on its own it has
+    no operation/category signal and fails classification. "Lowest scorers in
+    drill vs firing" has the same problem with "vs": the right side ("firing")
+    loses "lowest scorers in" entirely. When the left fragment has a
+    "<lead-in> <of/in/for/...> <target>" shape, prepend the same lead-in to
+    the right fragment.
+    """
+    matches = list(
+        re.finditer(
+            rf"\b({'|'.join(_LEAD_IN_PREPOSITIONS)})\b", left, flags=re.IGNORECASE
+        )
+    )
+    if not matches:
+        return right
+    prefix = left[: matches[-1].end()].strip()
+    if not prefix or prefix.lower() in right.lower():
+        return right
+    return f"{prefix} {right}".strip()
+
+
+def propagate_lead_in_across_parts(parts: List[str]) -> List[str]:
+    """N-way version of `_apply_shared_lead_in` for raw "A vs B vs C" splits.
+
+    "Lowest scorers in drill vs firing" splits into ["Lowest scorers in
+    drill", "firing"] — only the first part keeps the "lowest scorers in"
+    lead-in, so "firing" alone has no operation/category signal. Propagate
+    the first part's lead-in phrase to every other part that doesn't already
+    carry it.
+    """
+    if len(parts) < 2:
+        return list(parts)
+    first = parts[0].strip()
+    matches = list(
+        re.finditer(
+            rf"\b({'|'.join(_LEAD_IN_PREPOSITIONS)})\b", first, flags=re.IGNORECASE
+        )
+    )
+    if not matches:
+        return [first] + [p.strip() for p in parts[1:]]
+    prefix = first[: matches[-1].end()].strip()
+    if not prefix:
+        return [first] + [p.strip() for p in parts[1:]]
+    result = [first]
+    for p in parts[1:]:
+        p = p.strip()
+        if prefix.lower() in p.lower():
+            result.append(p)
+        else:
+            result.append(f"{prefix} {p}".strip())
+    return result
+
+
+_ORG_NOUNS = ("company", "coy", "platoon", "unit")
+
+
+def _apply_shared_trailing_suffix(left: str, right: str) -> str:
+    """Propagate a shared trailing filter clause — and a shared organizational
+    noun — from the right comparison fragment to the left one.
+
+    "... of Arora and Thorat company in BPET" splits on " and " into
+    "of Arora" / "Thorat company in BPET". Two things qualify both sides but
+    only survive on the right: the trailing "in BPET" filter, and the word
+    "company" that marks "Thorat" as an org name (needed later to resolve
+    "Arora" and "Thorat" as two distinct companies instead of one blended,
+    mis-resolved mention). Propagate both to the left fragment.
+    """
+    prep_match = re.search(
+        r"\b(in|for|during|among|between|on)\b", right, flags=re.IGNORECASE
+    )
+    if prep_match:
+        target_part = right[: prep_match.start()].strip()
+        suffix = right[prep_match.start():].strip().rstrip(".").strip()
+    else:
+        target_part = right.strip()
+        suffix = ""
+
+    pieces = [left]
+
+    noun_match = re.search(
+        rf"\b({'|'.join(_ORG_NOUNS)})\b\s*$", target_part, flags=re.IGNORECASE
+    )
+    if noun_match and not re.search(
+        rf"\b{re.escape(noun_match.group(1))}\b", left, flags=re.IGNORECASE
+    ):
+        pieces.append(noun_match.group(1))
+
+    if suffix and suffix.lower() not in left.lower():
+        pieces.append(suffix)
+
+    return " ".join(p for p in pieces if p).strip()
+
+
 def _extract_sub_requests(
     text: str,
     category: Optional[str],
@@ -493,54 +594,29 @@ def _extract_sub_requests(
             r"\b(?:compare|comparison)\b", text, maxsplit=1, flags=re.IGNORECASE
         )
         body = comparator_split[-1].strip() if comparator_split else text
-        if " and " in body:
-            left, right = body.split(" and ", 1)
-            return [
-                {
-                    "fragment": left.strip(),
-                    "category": category,
-                    "operation": operation,
-                    "entities": entities,
-                },
-                {
-                    "fragment": right.strip(),
-                    "category": category,
-                    "operation": operation,
-                    "entities": entities,
-                },
-            ]
-        if " vs " in body:
-            left, right = body.split(" vs ", 1)
-            return [
-                {
-                    "fragment": left.strip(),
-                    "category": category,
-                    "operation": operation,
-                    "entities": entities,
-                },
-                {
-                    "fragment": right.strip(),
-                    "category": category,
-                    "operation": operation,
-                    "entities": entities,
-                },
-            ]
-        if " versus " in body:
-            left, right = body.split(" versus ", 1)
-            return [
-                {
-                    "fragment": left.strip(),
-                    "category": category,
-                    "operation": operation,
-                    "entities": entities,
-                },
-                {
-                    "fragment": right.strip(),
-                    "category": category,
-                    "operation": operation,
-                    "entities": entities,
-                },
-            ]
+        for separator in (" and ", " vs ", " versus "):
+            if separator in body:
+                left, right = body.split(separator, 1)
+                left = left.strip()
+                right = right.strip()
+                left, right = (
+                    _apply_shared_trailing_suffix(left, right),
+                    _apply_shared_lead_in(left, right),
+                )
+                return [
+                    {
+                        "fragment": left,
+                        "category": category,
+                        "operation": operation,
+                        "entities": entities,
+                    },
+                    {
+                        "fragment": right,
+                        "category": category,
+                        "operation": operation,
+                        "entities": entities,
+                    },
+                ]
         return [
             {
                 "fragment": body or text,
