@@ -1600,17 +1600,69 @@ COMMON_ENTITY_TYPES: Set[str] = {
 }
 
 CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
-    "Performance": ("section", "grading", "attempt", "score", "marks", "trend"),
-    "Leave": ("leave", "absent", "abscond", "leaveType"),
-    "Medical": ("medical", "hospital", "bmi", "blood", "obese", "overweight", "underweight","Normal"),
-    "Attendance": ("attendance", "present", "campus", "date"),
-    "Strength": ("strength", "breakdown", "headcount"),
-    "Verification": ("verification", "verified", "pending"),
-    "Equipment": ("equipment", "gear", "inventory", "search", "category", "name"),
-    "Distribution": ("distribution", "unit", "unassigned"),
-    "Skills": ("skills", "sport", "roster", "who plays"),
-    "Overall": ("overall", "composite", "all criteria", "composite ranking"),
-    "Schedule": ("schedule", "training", "bycompany", "byagniveer", "bydate", "bytoday"),
+    "Performance": (
+        "section", "grading", "attempt", "score", "marks", "trend",
+        "performance", "performer", "performers", "grade", "grades",
+        "improvement", "improved", "drop", "dropped", "decline", "declined",
+        "average", "percentage", "ranking", "ranked", "attemptwise",
+        "best attempt", "grading summary", "grade summary",
+    ),
+    "Leave": (
+        "leave", "absent", "abscond", "leaveType", "leaves", "absentee",
+        "absconded", "awol", "annual leave", "sick leave", "medical leave",
+        "on leave", "absent today", "day off", "days off", "leave status",
+        "leave taken", "who is away",
+    ),
+    "Medical": (
+        "medical", "hospital", "bmi", "blood", "obese", "overweight", "underweight", "Normal",
+        "disease", "diseases", "diagnosis", "illness", "ailment", "sick",
+        "fever", "injury", "injured", "fracture", "wound", "dengue",
+        "malaria", "typhoid", "blood group", "blood type", "fitness",
+        "hospitalized", "patient", "ward", "medical record", "health status",
+    ),
+    "Attendance": (
+        "attendance", "present", "campus", "date", "monthly attendance",
+        "weekly attendance", "daily attendance", "present today",
+        "attendance summary", "attendance overview", "muster",
+        "checked in", "marked present", "who came today",
+    ),
+    "Strength": (
+        "strength", "breakdown", "headcount", "manpower", "personnel count",
+        "current strength", "unit strength", "strength summary",
+        "headcount breakdown", "how many in each section",
+    ),
+    "Verification": (
+        "verification", "verified", "pending", "rejected", "unverified",
+        "not responded", "completed verification", "sent verification",
+        "awaiting verification", "disapproved", "denied", "verification status",
+        "all clear",
+    ),
+    "Equipment": (
+        "equipment", "gear", "inventory", "search", "category", "name",
+        "issued", "holding", "overdue", "returned", "damaged", "kit",
+        "stock", "possession", "checked out", "handed back",
+        "equipment stats", "equipment summary",
+    ),
+    "Distribution": (
+        "distribution", "unit", "unassigned", "allocation", "allocated",
+        "assignment", "assignments", "distributed", "top unit", "by unit",
+        "unit wise", "pending assignment", "grouped by unit",
+    ),
+    "Skills": (
+        "skills", "sport", "roster", "who plays", "player", "players",
+        "plays", "sport roster", "sport wise", "by sport", "talented in",
+        "good at", "sports roster", "class roster", "class wise roster",
+    ),
+    "Overall": (
+        "overall", "composite", "all criteria", "composite ranking",
+        "holistic", "cumulative", "standing", "overall standing",
+        "overall report", "overall ranking",
+    ),
+    "Schedule": (
+        "schedule", "training", "bycompany", "byagniveer", "bydate", "bytoday",
+        "agenda", "training plan", "today's schedule", "timetable",
+        "training schedule", "today's agenda", "today's plan",
+    ),
     "personaldetail": (
         "profile",
         "contact",
@@ -1619,8 +1671,19 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
         "family",
         "details",
         "personal detail",
+        "biodata",
+        "bio data",
+        "qualification",
+        "next of kin",
+        "personal info",
+        "background",
+        "who is agniveer",
+        "tell me about",
     ),
-    "disqualified": ("disqualified", "removed", "expelled"),
+    "disqualified": (
+        "disqualified", "removed", "expelled", "washed out", "terminated",
+        "discharged", "kicked out", "de-enrolled", "released from service",
+    ),
 }
 
 # Named unit aliases that should normalize to canonical unit labels.
@@ -1704,6 +1767,7 @@ FUZZY_VOCAB: Dict[str, str] = {
     "performace": "performance",
     "performence": "performance",
     "prefomance": "performance",
+    "perfomance": "performance",
     "preformance": "performance",
     "performnce": "performance",
     "attendence": "attendance",
@@ -1794,6 +1858,22 @@ FUZZY_VOCAB: Dict[str, str] = {
     "satifactory": "satisfactory",
     "unassignd": "unassigned",
     "unasigned": "unassigned",
+    "vollyball": "volleyball",
+    "voleyball": "volleyball",
+    "volyball": "volleyball",
+    "criket": "cricket",
+    "crciket": "cricket",
+    "footbal": "football",
+    "footbol": "football",
+    "hocky": "hockey",
+    "hokey": "hockey",
+    "badmintion": "badminton",
+    "badminten": "badminton",
+    "basaball": "baseball",
+    "baskeball": "basketball",
+    "baskteball": "basketball",
+    "kabadi": "kabaddi",
+    "kabbadi": "kabaddi",
 }
 
 # =============================================================================
