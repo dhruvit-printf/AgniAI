@@ -266,7 +266,9 @@ class TestPipelineEndToEnd(unittest.TestCase):
             "conclusion": {"summary": "Multi-op done"},
         }
 
-        result = execute_admin_query("Show attendance and current leave records", {})
+        result = execute_admin_query(
+            "Show attendance and current leave records for agniveer 12345", {}
+        )
 
         self.assertEqual(result["type"], "query")
         response_payload = result["response_payload"]

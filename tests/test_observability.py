@@ -24,7 +24,7 @@ class TestObservability(unittest.TestCase):
         body = {"session_id": session_id}
 
         result = execute_admin_query(
-            user_query="Show attendance",
+            user_query="Show attendance for agniveer 12345",
             body=body,
             session_id=session_id,
             trace_id=trace_id,
@@ -44,7 +44,7 @@ class TestObservability(unittest.TestCase):
             combined_result={"records": []},
             query_type="simple",
             intent=unittest.mock.ANY,
-            user_query="Show attendance",
+            user_query="Show attendance for agniveer 12345",
             trace_id=trace_id,
         )
 
@@ -84,7 +84,7 @@ class TestObservability(unittest.TestCase):
 
             # Run query
             result = execute_admin_query(
-                user_query="Show attendance",
+                user_query="Show attendance for agniveer 12345",
                 body={"session_id": "test-session"},
                 trace_id=trace_id,
             )
@@ -145,13 +145,18 @@ class TestObservability(unittest.TestCase):
 
         with self.assertLogs(logger_pipeline, level="WARNING") as log_pipeline:
             result = execute_admin_query(
-                user_query="Show attendance",
+                user_query="Show attendance for agniveer 12345",
                 body={"session_id": "test-session"},
                 trace_id="err-trace-id",
             )
 
-            # Verify result is error
-            self.assertEqual(result["type"], "error")
+            # The user-facing result is a friendly service-unavailable message —
+            # the raw HTTP status/body must never reach it, only the log below.
+            self.assertEqual(result["type"], "service_unavailable")
+            user_message = result["response_payload"]["message"]
+            self.assertNotIn("sensitive", user_message)
+            self.assertNotIn("secret_record_data", user_message)
+            self.assertNotIn("HTTP 400", user_message)
 
             # Verify logs
             found_log = False

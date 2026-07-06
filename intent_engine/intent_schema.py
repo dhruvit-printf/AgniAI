@@ -148,6 +148,35 @@ RESPONSE_TYPES: FrozenSet[str] = frozenset(
 
 RESPONSE_TYPE_DEFAULT: Optional[str] = "Summary"
 
+# Categories that default to Detailed responses even without an explicit
+# "detail" keyword in the query (leave, medical, and equipment data are
+# expected to be shown in full by default).
+DEFAULT_DETAILED_CATEGORIES: FrozenSet[str] = frozenset(
+    [
+        "Leave",
+        "Medical",
+        "Equipment",
+    ]
+)
+
+# =============================================================================
+# REQUIRED ENTITIES
+# =============================================================================
+
+# Categories where every operation targets one specific agniveer, so
+# agniveerNo must be supplied (e.g. personal detail lookups).
+AGNIVEER_NO_ALWAYS_REQUIRED_CATEGORIES: FrozenSet[str] = frozenset(
+    [
+        "personaldetail",
+    ]
+)
+
+# Categories where agniveerNo is required except for the listed operations,
+# which are aggregate/company-wide and don't target one person.
+AGNIVEER_NO_REQUIRED_EXCEPT_OPERATIONS: Dict[str, FrozenSet[str]] = {
+    "Attendance": frozenset(["Present"]),
+}
+
 # Keywords that trigger Detailed response type
 DETAILED_KEYWORDS: FrozenSet[str] = frozenset(
     [
@@ -170,6 +199,12 @@ DETAILED_KEYWORDS: FrozenSet[str] = frozenset(
 CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     "Performance": (
         "performance",
+        "performances",
+        "perform",
+        "performing",
+        "performed",
+        "performer",
+        "performers",
         "top performer",
         "top performers",
         "highest performer",
@@ -178,17 +213,28 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "lowest performer",
         "grading",
         "grade",
+        "grades",
+        "graded",
         "grade distribution",
         "average score",
         "attempt",
+        "attempts",
         "improvement",
+        "improvements",
         "drop",
         "trend analysis",
     ),
     "Leave": (
         "leave",
+        "leaves",
+        "leaving",
+        "left",
         "absent",
+        "absentee",
+        "absentees",
+        "absence",
         "absconded",
+        "absconding",
         "on leave",
         "days off",
         "off days",
@@ -197,20 +243,31 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     ),
     "Medical": (
         "medical",
+        "medically",
+        "medicine",
+        "medicines",
         "health",
+        "healthy",
         "bmi",
         "bmi distribution",
         "blood",
         "weight",
         "fitness",
+        "fit",
         "disease",
+        "diseases",
         "diagnosis",
+        "diagnosed",
         "medical report",
         "admitted",
         "hospital",
+        "hospitalized",
         "sick",
+        "sickness",
         "fever",
         "injury",
+        "injured",
+        "injuries",
         "obese",
         "obesity",
         "overweight",
@@ -218,7 +275,15 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     ),
     "Attendance": (
         "attendance",
+        "attendances",
+        "attend",
+        "attends",
+        "attending",
+        "attended",
+        "attendee",
+        "attendees",
         "present",
+        "presence",
         "campus",
         "muster",
         "monthly",
@@ -228,27 +293,40 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     ),
     "Strength": (
         "strength",
+        "strengths",
         "strength breakdown",
         "headcount",
+        "headcounts",
         "headcount breakdown",
         "section",
         "current strength",
     ),
     "Verification": (
         "verification",
+        "verifications",
         "verify",
+        "verifying",
         "verified",
         "pending",
         "rejected",
+        "rejection",
         "approved",
+        "approval",
         "cleared",
     ),
     "Equipment": (
         "equipment",
+        "equipments",
+        "equip",
+        "equipped",
+        "equipping",
         "issued",
+        "issuing",
         "holding",
         "returned",
+        "returning",
         "search",
+        "searching",
         "category",
         "item name",
         "find equipment",
@@ -260,8 +338,13 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     ),
     "Distribution": (
         "distribution",
+        "distributions",
+        "distribute",
+        "distributed",
+        "distributing",
         "unit",
         "assigned",
+        "assigning",
         "agniveer assignment",
         "unassigned",
         "assignment",
@@ -272,13 +355,17 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     "Skills": (
         "skills",
         "skill",
+        "skilled",
         "sport",
         "sports",
         "plays",
+        "playing",
+        "played",
         "player",
         "players",
         "good at",
         "talented in",
+        "talent",
         "cricket",
         "football",
         "community",
@@ -292,7 +379,11 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     ),
     "Schedule": (
         "schedule",
+        "schedules",
+        "scheduled",
+        "scheduling",
         "training",
+        "trainings",
         "agenda",
         "current schedule",
         "company schedule",
@@ -311,26 +402,34 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "personal details",
         "personaldetail",
         "personal info",
+        "personal",
         "profile",
+        "profiles",
         "biography",
         "bio data",
         "biodata",
+        "bio",
         "contact",
         "phone number",
         "email",
         "address",
         "education",
         "qualification",
+        "qualifications",
         "family details",
         "next of kin",
         "kin details",
     ),
     "disqualified": (
         "disqualified",
+        "disqualify",
+        "disqualifying",
+        "disqualifies",
         "disqualification",
         "disqualified agniveer",
         "disqualified agniveers",
         "removed agniveer",
+        "expelled",
         "expelled agniveer",
         "disqualification reason",
     ),
@@ -2087,6 +2186,7 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
 METADATA: Dict[str, Any] = {
     "responseTypes": RESPONSE_TYPES,
     "responseTypeDefault": RESPONSE_TYPE_DEFAULT,
+    "defaultDetailedCategories": DEFAULT_DETAILED_CATEGORIES,
     "detailedKeywords": DETAILED_KEYWORDS,
     "categoryKeywords": CATEGORY_KEYWORDS,
     "operationSynonyms": OPERATION_SYNONYMS,
@@ -2099,6 +2199,18 @@ METADATA: Dict[str, Any] = {
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+
+def agniveer_no_required(category: Optional[str], operation: Optional[str]) -> bool:
+    """Whether this category/operation combination must have an agniveerNo."""
+    if not category:
+        return False
+    if category in AGNIVEER_NO_ALWAYS_REQUIRED_CATEGORIES:
+        return True
+    exempt_operations = AGNIVEER_NO_REQUIRED_EXCEPT_OPERATIONS.get(category)
+    if exempt_operations is not None:
+        return operation not in exempt_operations
+    return False
 
 
 def get_section_by_alias(alias: str) -> Optional[str]:

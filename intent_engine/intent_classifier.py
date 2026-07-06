@@ -17,6 +17,7 @@ from query_understanding_engine import understand_query
 from .intent_schema import (
     CATEGORY_ENTITY_HINTS,
     CATEGORY_KEYWORDS,
+    DEFAULT_DETAILED_CATEGORIES,
     DETAILED_KEYWORDS,
     OFFICIAL_CATEGORIES,
     OPERATION_SYNONYMS,
@@ -96,6 +97,60 @@ def _phrase_score(text: str, phrase: str) -> int:
     occurrences = max(1, text.count(phrase_norm))
     boundary_bonus = 6 if re.search(rf"\b{re.escape(phrase_norm)}\b", text) else 0
     return base * occurrences + boundary_bonus
+
+
+def _word_family_score(text_word: str, phrase: str) -> int:
+    """Typo/word-family fallback for a single-word keyword against one query token.
+
+    Catches two things a plain substring match misses:
+      - Misspellings ("levae", "atendance", "eqipment") via edit distance.
+      - Word-family variants sharing a root ("performer"/"performers"/
+        "performance" all share "perform") via a long common prefix.
+    """
+    if len(phrase) < 4 or len(text_word) < 4 or text_word == phrase:
+        return 0
+
+    common_prefix = 0
+    for a, b in zip(text_word, phrase):
+        if a != b:
+            break
+        common_prefix += 1
+    if common_prefix >= 5 or common_prefix >= min(len(text_word), len(phrase)):
+        return 12
+
+    # Short words get a tighter budget (one edit) so unrelated short words
+    # don't collide; anything length 5+ allows two edits, which also covers
+    # an adjacent-letter transposition (e.g. "levae" for "leave").
+    max_distance = 1 if len(phrase) <= 4 else 2
+    if abs(len(text_word) - len(phrase)) <= max_distance and _levenshtein(
+        text_word, phrase
+    ) <= max_distance:
+        return 10
+    return 0
+
+
+def _fuzzy_keyword_bonus(query_text: str, phrases: Iterable[str]) -> int:
+    """Typo/word-family credit for a whole keyword list, capped to the single
+    best match per query word rather than summed per phrase.
+
+    Dictionaries intentionally list several word-family variants of the same
+    root (e.g. distribute/distributed/distribution). Without this cap, one
+    query word would earn fuzzy credit against every sibling variant and
+    inflate that category's score well past what the same word should be
+    worth once.
+    """
+    single_word_phrases = [p for p in phrases if p and " " not in p]
+    if not single_word_phrases:
+        return 0
+    total = 0
+    for word in query_text.split():
+        best = 0
+        for phrase in single_word_phrases:
+            matched = _word_family_score(word, phrase)
+            if matched > best:
+                best = matched
+        total += best
+    return total
 
 
 def _semantic_score(candidate: str, semantic_value: Optional[str]) -> int:
@@ -228,17 +283,24 @@ def _score_category(
     score = _semantic_score(category, semantic.get("category"))
     score += _category_entity_bonus(category, entities)
 
-    for phrase in CATEGORY_KEYWORDS.get(category, ()):
+    category_keywords = CATEGORY_KEYWORDS.get(category, ())
+    for phrase in category_keywords:
         score += _phrase_score(query_text, phrase)
+    score += _fuzzy_keyword_bonus(query_text, category_keywords)
 
-    for hint in CATEGORY_ENTITY_HINTS.get(category, ()):
+    category_hints = CATEGORY_ENTITY_HINTS.get(category, ())
+    for hint in category_hints:
         score += _phrase_score(query_text, hint)
+    score += _fuzzy_keyword_bonus(query_text, category_hints)
 
     for synonyms in OPERATION_SYNONYMS.get(category, {}).values():
         for phrase in synonyms:
             matched = _phrase_score(query_text, phrase)
             if matched:
                 score += max(2, matched // 4)
+        fuzzy_bonus = _fuzzy_keyword_bonus(query_text, synonyms)
+        if fuzzy_bonus:
+            score += max(2, fuzzy_bonus // 4)
 
     # Encourage the natural-language defaults that the old engine used.
     if category == "Skills" and _phrase_score(query_text, "who plays"):
@@ -269,8 +331,10 @@ def _score_operation(
     if semantic_operation and semantic_operation == operation:
         score += 40
 
-    for phrase in OPERATION_SYNONYMS.get(category, {}).get(operation, ()):
+    operation_synonyms = OPERATION_SYNONYMS.get(category, {}).get(operation, ())
+    for phrase in operation_synonyms:
         score += _phrase_score(query_text, phrase)
+    score += _fuzzy_keyword_bonus(query_text, operation_synonyms)
 
     if category == "Leave" and operation == "Current":
         score += 20 if _phrase_score(query_text, "currently absent") else 0
@@ -314,15 +378,80 @@ def _score_operation(
     return score
 
 
-def _detect_response_type(query_text: str) -> str:
+def _levenshtein(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    previous_row = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, start=1):
+        current_row = [i]
+        for j, char_b in enumerate(b, start=1):
+            insertion = previous_row[j] + 1
+            deletion = current_row[j - 1] + 1
+            substitution = previous_row[j - 1] + (char_a != char_b)
+            current_row.append(min(insertion, deletion, substitution))
+        previous_row = current_row
+    return previous_row[-1]
+
+
+def _fuzzy_contains_word(query_text: str, targets: Iterable[str], max_distance: int = 2) -> bool:
+    # Tolerates typos (e.g. "derail"/"detril" for "detail") so a misspelled
+    # request for a detailed/summary response is still recognized.
+    for word in query_text.split():
+        if len(word) < 4:
+            continue
+        for target in targets:
+            if abs(len(word) - len(target)) > max_distance:
+                continue
+            if _levenshtein(word, target) <= max_distance:
+                return True
+    return False
+
+
+def _detect_explicit_response_type(query_text: str) -> Optional[str]:
+    """Whether the query explicitly asks for Detailed or Summary, ignoring
+    any category-based default. Returns None when the text carries no such
+    signal (typo-tolerant — see _fuzzy_contains_word)."""
     for keyword in DETAILED_KEYWORDS:
         if _phrase_score(query_text, keyword):
             return "Detailed"
+    if _fuzzy_contains_word(query_text, ("detail", "detailed")):
+        return "Detailed"
     if _phrase_score(query_text, "summary") or _phrase_score(
         query_text, "summarize"
     ) or _phrase_score(query_text, "summarise"):
         return "Summary"
+    if _fuzzy_contains_word(query_text, ("summary", "summarize", "summarise")):
+        return "Summary"
+    return None
+
+
+def _detect_response_type(query_text: str, category: Optional[str] = None) -> str:
+    explicit = _detect_explicit_response_type(query_text)
+    if explicit:
+        return explicit
+    if category in DEFAULT_DETAILED_CATEGORIES:
+        return "Detailed"
     return RESPONSE_TYPE_DEFAULT
+
+
+def detect_query_response_type_override(raw_query: str) -> Optional[str]:
+    """Public: whether the raw (un-normalised) query explicitly asks for a
+    Detailed or Summary response, regardless of category.
+
+    A multi-part query ("show bpet performers who returned equipment in good
+    condition in detail") gets split into per-category fragments before each
+    one is classified — "in detail" only appears in the last fragment's raw
+    text, so only that fragment's responseType would pick it up. Callers
+    that assemble multiple sub-operations from one query (query_planner.py)
+    use this to detect the signal from the *whole* query once and apply it
+    uniformly to every operation, so one "in detail"/"summary" governs the
+    entire answer rather than just whichever fragment happened to contain it.
+    """
+    return _detect_explicit_response_type(_canonical_text(raw_query))
 
 
 def _choose_category(
@@ -704,7 +833,7 @@ def classify_intent(
             category, category_score, operation, operation_score, semantic, entities
         )
 
-    response_type = _detect_response_type(query_text)
+    response_type = _detect_response_type(query_text, category)
 
     return {
         "category": category,

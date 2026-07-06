@@ -14,6 +14,7 @@ from query_understanding_engine import propagate_lead_in_across_parts, understan
 from utils import build_filters_from_entities
 
 from .admin_intent import classify_admin_intent, format_admin_payload
+from .intent_classifier import detect_query_response_type_override
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,23 @@ _COMPARISON_KEYWORDS: List[str] = [
     "compared with",
     "difference between",
     "contrast",
+    "compare with",
+    "compare against",
+    "contrasting",
+    "differentiate",
+    "different from",
+    "in comparison with",
+    "in comparison to",
+    "in contrast to",
+    "rank against",
+    "relative performance",
+    "head to head",
+    "side by side",
+    "similar to",
+    "unlike",
+    "identical to",
+    "equivalent to",
+    "same as",
 ]
 
 
@@ -333,6 +351,23 @@ def _build_sub_operation(
     )
 
 
+def _apply_response_type_override(ops: List[SubOperation], raw_query: str) -> None:
+    """A multi-part query is split into per-category fragments before each
+    is classified, so "in detail"/"summary" only lands in whichever fragment
+    contains it — e.g. "show bpet performers who returned equipment in
+    detail" would otherwise leave the performers leg on the Summary default.
+    One "in detail"/"summary" in the query governs the whole answer, so
+    detect it against the full raw query and force it onto every leg.
+    """
+    override = detect_query_response_type_override(raw_query)
+    if not override:
+        return
+    for op in ops:
+        if op.intent_result.get("responseType") != override:
+            op.intent_result["responseType"] = override
+            op.dotnet_payload = format_admin_payload(op.intent_result)
+
+
 def _is_semantic_comparison(
     text_lower: str, categories: List[str], semantic: Dict[str, Any]
 ) -> bool:
@@ -347,6 +382,15 @@ def _is_semantic_comparison(
     ):
         return True
 
+    # The understanding engine already ran its own gated cross_filter/
+    # multi_independent checks. If it settled on one of those, the weaker
+    # heuristics below (e.g. "two sections mentioned") must not silently
+    # override that decision back to compare — e.g. "Show BPET report, also
+    # show firing report and leave status" names two sections but is three
+    # independent requests, not a comparison.
+    if semantic and semantic.get("query_type") in ("cross_filter", "multi_independent"):
+        return False
+
     # Adjectives / comparative words
     comparatives = [
         "better",
@@ -355,6 +399,10 @@ def _is_semantic_comparison(
         "lower",
         "faster",
         "slower",
+        "stronger",
+        "weaker",
+        "superior",
+        "inferior",
         "compare",
         "comparison",
         "difference",
@@ -369,13 +417,24 @@ def _is_semantic_comparison(
     # "more than / less than <number>" is a numeric filter, NOT a comparison
     # (only a comparison when there's a distinct comparison keyword present)
 
+    # A section immediately followed by its own grading value ("BPET
+    # Excellent", "Firing Good") is a filter condition on each section, not a
+    # request to compare the sections against each other — e.g. "candidates
+    # with BPET Excellent and Firing Good" wants one filtered result set
+    # (CROSS_FILTER), not a side-by-side comparison. Only trust the "multiple
+    # sections mentioned" signal below when this qualifier pattern is absent.
+    _section_with_grading = re.search(
+        r"\b(bpet|bept|ppt|firing|drill)\b\s*\w*\s*\b(excellent|good|sat|fail|unsat)\b",
+        text_lower,
+    )
+
     # Multiple sections
     sections_found = {
         s
         for s in {"bpet", "bept", "ppt", "firing", "drill"}
         if re.search(r"\b" + re.escape(s) + r"\b", text_lower)
     }
-    if len(sections_found) >= 2:
+    if len(sections_found) >= 2 and not _section_with_grading:
         return True
 
     # Multiple companies/units
@@ -693,6 +752,8 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                     }
                 )
 
+            _apply_response_type_override(ops, raw_query)
+
             logger.info(
                 "plan_query: COMPARE plan | query_type=compare | operation_count=%d | "
                 "operations=%s",
@@ -758,6 +819,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 combined_filters.update(
                     build_filters_from_entities(op.intent_result.get("filters", {}))
                 )
+            _apply_response_type_override(valid_ops, raw_query)
             logger.info(
                 "plan_query: COMPARE plan (semantic fallback) | query_type=compare | "
                 "operation_count=%d",
@@ -794,6 +856,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 combined_filters.update(
                     build_filters_from_entities(op.intent_result.get("filters", {}))
                 )
+            _apply_response_type_override(valid_ops, raw_query)
             return QueryPlan(
                 QueryType.MULTI_INDEPENDENT,
                 valid_ops,

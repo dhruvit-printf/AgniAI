@@ -93,7 +93,7 @@ class TestPartialFailure(unittest.TestCase):
         mock_call_dotnet.side_effect = [(None, "Error 1"), (None, "Error 2")]
         result = execute_admin_query("Compare PPT and BEPT", {})
         self.assertEqual(result["type"], "error")
-        self.assertEqual(result["error_message"], "Failed to process request.")
+        self.assertIn("trouble reaching", result["error_message"].lower())
 
 
 if __name__ == "__main__":

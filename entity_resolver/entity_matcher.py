@@ -16,6 +16,21 @@ except Exception:  # pragma: no cover
 # several unrelated names.
 _MIN_PREFIX_LEN = 3
 
+# An alias/identifier value that happens to equal a common interrogative or
+# filler word (e.g. a record whose agniveerNo or name field is literally
+# "who") must never be used as a matchable alias — otherwise ordinary
+# questions like "who is on leave" would false-match against it via the
+# boundary check below. This is a data-quality guard, not a query filter.
+_ALIAS_STOPWORDS: frozenset = frozenset(
+    {
+        "who", "whom", "whose", "what", "which",
+        "is", "are", "was", "were", "am", "be",
+        "a", "an", "the",
+        "of", "on", "in", "at", "to", "for", "with", "and", "or",
+        "show", "list", "give", "tell", "find",
+    }
+)
+
 
 def normalize_text(text: str) -> str:
     text = (text or "").lower().strip()
@@ -49,7 +64,10 @@ def _aliases_for_record(
     for field in list(label_fields) + list(alias_fields):
         value = record.get(field)
         if isinstance(value, str) and value.strip():
-            aliases.append(value.strip())
+            candidate = value.strip()
+            if candidate.lower() in _ALIAS_STOPWORDS:
+                continue
+            aliases.append(candidate)
     return aliases
 
 

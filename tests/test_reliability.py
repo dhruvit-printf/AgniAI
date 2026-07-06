@@ -178,7 +178,7 @@ class TestReliability(unittest.TestCase):
         mock_gen_report.side_effect = Exception("Ollama server down")
 
         # Execute query
-        payload = execute_admin_query("Show me attendance", {})
+        payload = execute_admin_query("Show me attendance for agniveer 12345", {})
 
         self.assertEqual(payload["type"], "query")
         response_payload = payload["response_payload"]
@@ -200,7 +200,7 @@ class TestReliability(unittest.TestCase):
         self.assertEqual(payload["type"], "service_unavailable")
         response_payload = payload["response_payload"]
         self.assertTrue(response_payload["status"])
-        self.assertIn("cannot reach the backend", response_payload["message"].lower())
+        self.assertIn("trouble reaching", response_payload["message"].lower())
 
     @patch("admin_pipeline._call_dotnet")
     def test_disqualified_lookup_does_not_carry_forward_stale_batch(self, mock_call_dotnet):
@@ -225,7 +225,7 @@ class TestReliability(unittest.TestCase):
         self.assertNotIn("batchId", payload)
 
     @patch("admin_pipeline._call_dotnet")
-    def test_disqualified_lookup_http_400_is_reported_as_error(self, mock_call_dotnet):
+    def test_disqualified_lookup_http_400_is_reported_gracefully(self, mock_call_dotnet):
         mock_call_dotnet.return_value = (
             None,
             "Backend returned HTTP 400: Bad Request",
@@ -233,9 +233,13 @@ class TestReliability(unittest.TestCase):
 
         payload = execute_admin_query("Show all disqualified agniveers.", {})
 
-        self.assertEqual(payload["type"], "error")
-        self.assertEqual(payload["error_type"], "dotnet_error")
-        self.assertIn("Backend returned HTTP 400", payload["error_message"])
+        # The raw HTTP status/body is never shown to the user — only a
+        # friendly, conversational message (it's still logged server-side).
+        self.assertEqual(payload["type"], "service_unavailable")
+        response_payload = payload["response_payload"]
+        self.assertTrue(response_payload["status"])
+        self.assertNotIn("HTTP 400", response_payload["message"])
+        self.assertIn("trouble reaching", response_payload["message"].lower())
 
     def test_progress_callback_protection(self):
         # Custom progress callback that raises an exception
@@ -248,7 +252,9 @@ class TestReliability(unittest.TestCase):
 
             # This should run to completion and not raise any exceptions
             result = execute_admin_query(
-                user_query="Show attendance", body={}, progress_callback=bad_progress
+                user_query="Show attendance for agniveer 12345",
+                body={},
+                progress_callback=bad_progress,
             )
             self.assertEqual(result["type"], "query")
 

@@ -46,6 +46,7 @@ from intent_engine.admin_intent import (
     classify_admin_intent,
     format_admin_payload,
 )
+from intent_engine.intent_schema import agniveer_no_required
 from intent_engine.query_planner import QueryType, plan_query
 from metadata_builder import build_metadata
 from normalized_models import extract_records as _extract_records
@@ -199,6 +200,35 @@ def _strip_empty_id_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
                 continue
         cleaned[k] = v
     return cleaned
+
+
+_AGNIVEER_NO_MISSING_MESSAGE = "Please provide agniveer number"
+
+# Friendly, conversational fallbacks — the raw exception/status text is always
+# logged server-side for diagnostics, but never shown to the user verbatim.
+_BACKEND_UNAVAILABLE_MESSAGE = (
+    "I'm having trouble reaching the records system right now. "
+    "Please try again in a moment."
+)
+_REQUEST_UNPROCESSABLE_MESSAGE = (
+    "I couldn't quite work out how to run that request. "
+    "Could you try rephrasing your question?"
+)
+
+
+def _agniveer_no_missing_response(session_id: str) -> Dict[str, Any]:
+    """Clarification response for categories/operations that require agniveerNo."""
+    payload = build_conversation_payload(
+        _AGNIVEER_NO_MISSING_MESSAGE,
+        session_id=session_id,
+        query_type="clarification",
+    )
+    return {
+        "type": "clarification",
+        "response_payload": payload,
+        "combined_message": _AGNIVEER_NO_MISSING_MESSAGE,
+        "execution_time_ms": 0,
+    }
 
 
 def _get_session_id(data: Dict) -> str:
@@ -1015,6 +1045,18 @@ def execute_admin_query(
                         IntentModel, op.intent_result, "multi.intent"
                     )
 
+                # Categories like personaldetail (always) and Attendance
+                # (except Present) require an agniveerNo on every operation.
+                for op in query_plan.operations:
+                    op_agniveer_no = (
+                        op.intent_result.get("agniveer_no") or resolved_agniveer_no
+                    )
+                    if agniveer_no_required(
+                        op.intent_result.get("category"),
+                        op.intent_result.get("operation"),
+                    ) and not op_agniveer_no:
+                        return _agniveer_no_missing_response(session_id)
+
                 intent_duration = time.time() - intent_start
                 logger.info(
                     {
@@ -1164,7 +1206,7 @@ def execute_admin_query(
                         return {
                             "type": "error",
                             "error_type": "thread_exception",
-                            "error_message": "Backend thread execution failed.",
+                            "error_message": _BACKEND_UNAVAILABLE_MESSAGE,
                         }
 
                     dotnet_duration = time.time() - dotnet_start
@@ -1197,7 +1239,7 @@ def execute_admin_query(
                         )
                         return {
                             "type": "error",
-                            "error_message": "Failed to process request.",
+                            "error_message": _BACKEND_UNAVAILABLE_MESSAGE,
                         }
 
                     # CROSS_FILTER primary failure check
@@ -1221,7 +1263,7 @@ def execute_admin_query(
                             )
                             return {
                                 "type": "error",
-                                "error_message": "Primary query operation failed.",
+                                "error_message": _BACKEND_UNAVAILABLE_MESSAGE,
                             }
 
                     # Build raw_results and labeled_results preserving the order
@@ -1508,6 +1550,16 @@ def execute_admin_query(
                         "combined_message": combined_message,
                     }
 
+                # Categories like personaldetail (always) and Attendance
+                # (except Present) require an agniveerNo before calling .NET.
+                _primary_agniveer_no = (
+                    primary_intent.get("agniveer_no") or resolved_agniveer_no
+                )
+                if agniveer_no_required(
+                    primary_intent.get("category"), primary_intent.get("operation")
+                ) and not _primary_agniveer_no:
+                    return _agniveer_no_missing_response(session_id)
+
                 dotnet_payload = format_admin_payload(primary_intent)
                 dotnet_payload.update(id_filters)
                 for k, v in carry_forward_filters.items():
@@ -1607,46 +1659,29 @@ def execute_admin_query(
                             error_type="dotnet_error",
                         )
 
-                        # Transport failures can be softened into a service
-                        # unavailable response. HTTP 400 means the backend
-                        # rejected the payload, so keep that visible as an
-                        # actual error instead of mislabeling it as outage.
-                        if "cannot connect to .net backend" in sanitized_error.lower():
-                            if primary_intent.get("category") in {
-                                "disqualified",
-                                "personaldetail",
-                            }:
-                                unavailable_msg = (
-                                    f"I cannot reach the backend right now, so I cannot "
-                                    f"fetch {primary_intent.get('category')} records."
-                                )
-                                availability_payload = build_conversation_payload(
-                                    unavailable_msg,
-                                    session_id=session_id,
-                                    query_type="service_unavailable",
-                                )
-                                availability_payload.setdefault("metadata", {})
-                                availability_payload["metadata"].setdefault(
-                                    "timings", {}
-                                )
-                                availability_payload["metadata"]["timings"][
-                                    "dotnetDurationMs"
-                                ] = round(dotnet_duration * 1000, 2)
-                                availability_payload["metadata"][
-                                    "executionTimeMs"
-                                ] = round(total_duration * 1000)
-                                return {
-                                    "type": "service_unavailable",
-                                    "response_payload": availability_payload,
-                                    "combined_message": unavailable_msg,
-                                    "execution_time_ms": round(total_duration * 1000),
-                                }
-
+                        # Every .NET call failure — a transient outage or a
+                        # rejected request — is surfaced as one friendly,
+                        # conversational message. The raw status/body is only
+                        # ever written to the log above, never to the user.
+                        unavailable_msg = _BACKEND_UNAVAILABLE_MESSAGE
+                        availability_payload = build_conversation_payload(
+                            unavailable_msg,
+                            session_id=session_id,
+                            query_type="service_unavailable",
+                        )
+                        availability_payload.setdefault("metadata", {})
+                        availability_payload["metadata"].setdefault("timings", {})
+                        availability_payload["metadata"]["timings"][
+                            "dotnetDurationMs"
+                        ] = round(dotnet_duration * 1000, 2)
+                        availability_payload["metadata"][
+                            "executionTimeMs"
+                        ] = round(total_duration * 1000)
                         return {
-                            "type": "error",
-                            "error_type": "dotnet_error",
-                            "error_message": sanitized_error
-                            or "Failed to process request.",
+                            "type": "service_unavailable",
+                            "response_payload": availability_payload,
+                            "combined_message": unavailable_msg,
+                            "execution_time_ms": round(total_duration * 1000),
                         }
 
                     ensure_agniveer_no_in_data(dotnet_data)
@@ -2304,6 +2339,17 @@ def execute_admin_query(
         total_duration = time.time() - start_time
         error_intent = {"type": "error"}
         set_audit_context(question=user_query, intent=error_intent)
+        logger.warning(
+            json.dumps(
+                {
+                    "message": "Payload validation failed",
+                    "question": user_query,
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "errors": exc.errors,
+                }
+            )
+        )
         metrics_collector.inc_requests("error")
         metrics_collector.inc_errors("error")
         metrics_collector.record_duration(
@@ -2313,7 +2359,7 @@ def execute_admin_query(
         return {
             "type": "error",
             "error_type": "payload_validation",
-            "error_message": "; ".join(exc.errors),
+            "error_message": _REQUEST_UNPROCESSABLE_MESSAGE,
         }
 
     except Exception as exc:
@@ -2361,7 +2407,10 @@ def execute_admin_query(
         return {
             "type": "error",
             "error_type": "internal_error",
-            "error_message": "Internal server error. Please try again or contact support.",
+            "error_message": (
+                "Something went wrong on my end while processing that. "
+                "Please try again in a moment."
+            ),
         }
     finally:
         request_id_var.reset(token_req)

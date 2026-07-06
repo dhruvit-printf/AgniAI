@@ -26,12 +26,70 @@ _SECTION_ALIASES = {
 
 _PERFORMANCE_SECTIONS = {"BPET", "PPT", "Firing", "Drill"}
 _GRADING_VALUES = ("excellent", "good", "sat", "fail", "unsat")
-_COMPARISON_MARKERS = ("compare", "comparison", "versus", "difference between", "vs")
+
+# Strong, mostly-unambiguous compare verbs/phrases. Deliberately excludes bare
+# "against"/"between"/"across"/"among" (used as range/membership words
+# elsewhere) and "more than"/"less than"/"greater than"/"fewer than" (numeric
+# filters, e.g. "agniveers with more than 5 days leave" must NOT become a
+# comparison — see test_09_more_than_5_days_leave_not_comparison).
+_COMPARISON_MARKERS = (
+    "compare",
+    "comparison",
+    "versus",
+    "difference between",
+    "vs",
+    "compared to",
+    "compared with",
+    "compare with",
+    "compare against",
+    "contrast",
+    "contrasting",
+    "differentiate",
+    "different from",
+    "in comparison with",
+    "in comparison to",
+    "in contrast to",
+    "rank against",
+    "relative performance",
+    "head to head",
+    "side by side",
+    "similar to",
+    "unlike",
+    "identical to",
+    "equivalent to",
+    "same as",
+)
+
+# Multi-independent markers. Every hit here is still gated in understand_query
+# by requiring the clauses split on that marker to reference >= 2 distinct
+# categories — several of these words (also, plus, then) are common enough
+# that using them unconditionally would misfire on ordinary single-request
+# queries, so the gate does the real work, not the word list.
 _MULTI_INDEPENDENT_MARKERS = (
     "as well as",
     "along with",
     "together with",
     "and also",
+    "also show",
+    "then show",
+    "next show",
+    "in addition to",
+    "in addition",
+    "additionally",
+    "furthermore",
+    "moreover",
+    "besides",
+    "after that",
+    "followed by",
+    "subsequently",
+    "at the same time",
+    "simultaneously",
+    "meanwhile",
+    "also",
+    "plus",
+    "then",
+    "next",
+    "later",
 )
 _CROSS_FILTER_MARKERS = (
     "who plays",
@@ -46,6 +104,42 @@ _CROSS_FILTER_MARKERS = (
     "within",
     "suffering",
     "suffered",
+    "having ",
+    "has ",
+    "have ",
+    "without ",
+    "where ",
+    "matching ",
+    "meeting ",
+    "satisfying ",
+    "fulfilling ",
+    "belonging to",
+    "including ",
+    "excluding ",
+    "containing ",
+    "filtered by",
+    "based on",
+    "according to",
+    "subject to",
+    "before ",
+    "after ",
+    "during ",
+    "since ",
+    "until ",
+    "at least",
+    "at most",
+    "over ",
+    "under ",
+    "except ",
+    "except for",
+    "other than",
+    "missing ",
+    "part of",
+    "member of",
+    "unless ",
+    "provided ",
+    "whenever ",
+    "depending on",
 )
 
 # Subset of the markers above with a dedicated fallback splitter one level up
@@ -63,13 +157,16 @@ _LEAVE_STATUS_MARKERS = (
     "on medical leave",
 )
 
-# Generic relative-clause connectors ("who", "with") also signal a filter
-# relationship between two categories, even when the exact verb/phrase isn't
-# in the fixed marker list above — e.g. "top 10 bpet performers who have
-# volleyball in their skills" instead of "... who plays volleyball". The
-# ">= 2 categories" gate applied wherever this is used keeps it from firing
-# on ordinary single-category queries that happen to contain "who"/"with".
-_CROSS_FILTER_GENERIC_CONNECTORS = re.compile(r"\bwho\b|\bwith\b")
+# Generic relative-clause connectors ("who", "with", "whose", "which", "that
+# has/have") also signal a filter relationship between two categories, even
+# when the exact verb/phrase isn't in the fixed marker list above — e.g. "top
+# 10 bpet performers who have volleyball in their skills" instead of "... who
+# plays volleyball". The ">= 2 categories" gate applied wherever this is used
+# keeps it from firing on ordinary single-category queries that happen to
+# contain one of these very common words.
+_CROSS_FILTER_GENERIC_CONNECTORS = re.compile(
+    r"\bwho\b|\bwith\b|\bwhose\b|\bwhich\b|\bhaving\b|\bhas\b|\bhave\b"
+)
 
 # "... for Dogra class agniveers" / "... among Dogra class" — a ranking/trend
 # query scoped to a community/class roster. Matched separately from the
@@ -859,18 +956,35 @@ def understand_query(query: str) -> Dict[str, Any]:
         if len(set(_cf_cats[:3])) >= 2:
             cross_filter_intent = True
 
-    multi_intent = any(marker in text for marker in _MULTI_INDEPENDENT_MARKERS)
+    def _distinct_category_count(clause_parts: List[str]) -> int:
+        clause_categories = []
+        for part in clause_parts:
+            clause_entities = extract_entities(part, semantic={})
+            clause_categories.append(_infer_category(part, clause_entities))
+        return len({cat for cat in clause_categories if cat})
+
+    # Every multi-independent marker — even weak ones like "also"/"then" — is
+    # gated by requiring the clauses split on it to reference >= 2 distinct
+    # categories. Words like "also"/"plus"/"as well as" are common enough in
+    # single-request phrasing that the word alone proves nothing; the gate is
+    # what makes this reliable, not the vocabulary.
+    multi_intent = False
+    for marker in _MULTI_INDEPENDENT_MARKERS:
+        if marker not in text:
+            continue
+        clause_parts = [
+            part.strip(" ,") for part in text.split(marker) if part.strip(" ,")
+        ]
+        if len(clause_parts) >= 2 and _distinct_category_count(clause_parts) >= 2:
+            multi_intent = True
+            break
+
     if not multi_intent and " and " in text:
         clause_parts = [
             part.strip(" ,") for part in text.split(" and ") if part.strip(" ,")
         ]
-        if len(clause_parts) >= 2:
-            clause_categories = []
-            for part in clause_parts:
-                clause_entities = extract_entities(part, semantic={})
-                clause_categories.append(_infer_category(part, clause_entities))
-            if len({cat for cat in clause_categories if cat}) >= 2:
-                multi_intent = True
+        if len(clause_parts) >= 2 and _distinct_category_count(clause_parts) >= 2:
+            multi_intent = True
 
     confidence = 0.18
     if operation != "lookup":
@@ -895,26 +1009,12 @@ def understand_query(query: str) -> Dict[str, Any]:
         query_type = "comparison"
         complexity = "comparison"
         intent_kind = "comparison"
-    elif cross_filter_intent and (
-        any(
-            token in text
-            for token in (
-                "with ",
-                "who ",
-                "among ",
-                "within ",
-                "players",
-                "player",
-                "plays",
-                "currently on leave",
-                "currently absent",
-                "on leave",
-                "suffering",
-                "suffered",
-            )
-        )
-        or _CLASS_FILTER_RE.search(text)
-    ):
+    elif cross_filter_intent:
+        # cross_filter_intent already required a marker hit (including the
+        # sport/class roster patterns) AND >= 2 distinct categories, so it's
+        # the single source of truth here — no need to re-check a narrower,
+        # separately-maintained token list that could drift out of sync with
+        # _CROSS_FILTER_MARKERS.
         query_type = "cross_filter"
         complexity = "cross_filter"
         intent_kind = "cross_filter"
