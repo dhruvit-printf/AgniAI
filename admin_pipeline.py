@@ -181,6 +181,26 @@ _NO_CARRY_FORWARD_CATEGORIES = frozenset(
     }
 )
 
+# Operations that genuinely target one specific agniveer (unique names — no
+# collisions across categories). Every other operation in the schema is a
+# listing/ranking/aggregate operation (Top, BySport, ByUnit, Monthly, ...)
+# that returns many agniveers, so silently injecting a carried-forward
+# agniveerNo/fullName from an earlier, unrelated turn would incorrectly
+# scope — or corrupt — an otherwise multi-record answer (e.g. a "who plays
+# cricket" listing must never be filtered down to one leftover agniveer).
+_SINGLE_AGNIVEER_OPERATIONS = frozenset(
+    {
+        "info",  # personaldetail
+        "Individual",  # Medical
+        "AgniveerWise",  # Equipment
+        "Agniveer",  # Schedule
+    }
+)
+
+
+def _allows_agniveer_carry_forward(category: Optional[str], operation: Optional[str]) -> bool:
+    return category == "personaldetail" or operation in _SINGLE_AGNIVEER_OPERATIONS
+
 
 def _strip_empty_id_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -1103,10 +1123,14 @@ def execute_admin_query(
                         for k, v in carry_forward_filters.items():
                             if payload.get(k) in (None, ""):
                                 payload[k] = v
-                        if resolved_agniveer_no and not payload.get("agniveerNo"):
-                            payload["agniveerNo"] = resolved_agniveer_no
-                        if full_name:
-                            payload["fullName"] = full_name
+                        if _allows_agniveer_carry_forward(
+                            op.intent_result.get("category"),
+                            op.intent_result.get("operation"),
+                        ):
+                            if resolved_agniveer_no and not payload.get("agniveerNo"):
+                                payload["agniveerNo"] = resolved_agniveer_no
+                            if full_name:
+                                payload["fullName"] = full_name
 
                         # ── Rule 9: strip empty/zero/null ID fields before sending ──
                         payload = _strip_empty_id_fields(payload)
@@ -1614,11 +1638,14 @@ def execute_admin_query(
                 for k, v in carry_forward_filters.items():
                     if dotnet_payload.get(k) in (None, ""):
                         dotnet_payload[k] = v
-                if full_name:
-                    dotnet_payload["fullName"] = full_name
-                # Wire in agniveerNo from entity resolution if not already set by intent
-                if resolved_agniveer_no and not dotnet_payload.get("agniveerNo"):
-                    dotnet_payload["agniveerNo"] = resolved_agniveer_no
+                if _allows_agniveer_carry_forward(
+                    primary_intent.get("category"), primary_intent.get("operation")
+                ):
+                    if full_name:
+                        dotnet_payload["fullName"] = full_name
+                    # Wire in agniveerNo from entity resolution if not already set by intent
+                    if resolved_agniveer_no and not dotnet_payload.get("agniveerNo"):
+                        dotnet_payload["agniveerNo"] = resolved_agniveer_no
 
                 # ── Rule 9: strip empty/zero/null ID fields before sending ──
                 dotnet_payload = _strip_empty_id_fields(dotnet_payload)

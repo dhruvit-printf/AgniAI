@@ -100,7 +100,11 @@ def _intent_context(intent: Dict[str, Any]) -> Dict[str, str]:
     if category:
         ctx["module"] = category
     if subcategory:
-        ctx["sub_module"] = subcategory
+        # subcategory is an internal PascalCase code (e.g. "BySport",
+        # "TopPerformers") — humanize_category's generic word-splitting
+        # works on any PascalCase string, not just categories, so reuse it
+        # rather than leaking the raw code into a user-facing message.
+        ctx["sub_module"] = humanize_category(subcategory)
     if section:
         ctx["section"] = section
 
@@ -396,7 +400,7 @@ def _static_fallback(
     ctx = data_summary.get("context") or {}
     module = ctx.get("module") or humanize_category(intent.get("category") or "records")
     section = ctx.get("section") or ctx.get("sub_module") or ""
-    scope = f"{module} — {section}" if section else module
+    scope = f"{module} ({section})" if section else module
 
     # ── No results ───────────────────────────────────────────────────────────
     count = data_summary.get("record_count") or data_summary.get("match_count") or 0
@@ -510,31 +514,38 @@ def _static_fallback(
             msg += f" Their recorded score is {score_val}."
         return msg
 
-    sentences = [f"{rec_count} {scope} record{'s' if rec_count != 1 else ''} found{filter_str}."]
+    sentences = [
+        f"I found {rec_count} {scope} record{'s' if rec_count != 1 else ''}{filter_str}."
+    ]
 
     if avg is not None:
         if max_score is not None and min_score is not None and max_score != min_score:
             sentences.append(
-                f"Scores average {avg}, spanning a range from {min_score} to {max_score}."
+                f"Scores average {avg}, ranging from {min_score} to {max_score}."
             )
         else:
             sentences.append(f"The average score across this set is {avg}.")
 
     if top_entries:
-        names_str = ", ".join(top_entries[:5])
-        lead_word = "Leading the list" if qtype == "ranking" else "Notable entries include"
+        names = list(top_entries[:5])
+        names_str = (
+            f"{', '.join(names[:-1])}, and {names[-1]}" if len(names) > 1 else names[0]
+        )
+        lead_word = "Leading the way" if qtype == "ranking" else "A few names that stand out"
         sentences.append(f"{lead_word}: {names_str}.")
 
     if unit_breakdown:
         top_unit = max(unit_breakdown, key=unit_breakdown.get)  # type: ignore[arg-type]
+        top_unit_count = unit_breakdown[top_unit]
         sentences.append(
-            f"{top_unit} contributes the most entries to this set, with {unit_breakdown[top_unit]} record(s)."
+            f"{top_unit} has the most entries here, with "
+            f"{top_unit_count} record{'s' if top_unit_count != 1 else ''}."
         )
 
     if qtype == "ranking" and rec_count > 1:
-        sentences.append("The full ranking is listed below.")
+        sentences.append("You can see the full ranking below.")
     else:
-        sentences.append("The complete dataset is formatted below.")
+        sentences.append("You can see the complete dataset in the table below.")
 
     return " ".join(sentences)
 
