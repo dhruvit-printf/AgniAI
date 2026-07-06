@@ -2026,20 +2026,33 @@ def _build_widget_data(
                 flat = _extract_records(combined_result, deep_flatten=True)
         return build_table_data(flat)
 
+    # For a multi_independent section widget, only that section's own
+    # records should feed the chart builder below — otherwise records from
+    # every other independent section get flattened together and blend into
+    # the same bars/slices (e.g. a Leave pie chart picking up Performance
+    # rows' bestTotal/grade fields from a sibling section).
+    chart_source = combined_result
+    if hint == "section" and isinstance(combined_result, dict):
+        chart_source = []
+        for sec in combined_result.get("sections") or []:
+            if isinstance(sec, dict) and sec.get("label") == spec.section_label:
+                chart_source = sec.get("data") or []
+                break
+
     # ── BAR_CHART ────────────────────────────────────────────────────────────
     if wt in ("BAR_CHART", "CHART_BAR"):
         if query_type in ("compare", "comparison"):
             # Fallback for dynamic schema
             return _build_compare_bar(combined_result)
-        return build_bar_chart_data(combined_result)
+        return build_bar_chart_data(chart_source)
 
     # ── LINE_CHART / AREA_CHART / RADIAL_CHART (folded into line) ────────────
     if wt in ("LINE_CHART", "AREA_CHART", "RADIAL_CHART", "CHART_LINE"):
-        return build_line_chart_data(combined_result)
+        return build_line_chart_data(chart_source)
 
     # ── PIE_CHART / DONUT_CHART (folded into pie) ─────────────────────────────
     if wt in ("PIE_CHART", "DONUT_CHART", "CHART_PIE"):
-        return build_pie_chart_data(combined_result)
+        return build_pie_chart_data(chart_source)
 
     # ── ATTENDANCE_CALENDAR ──────────────────────────────────────────────────
     if wt == "ATTENDANCE_CALENDAR":
