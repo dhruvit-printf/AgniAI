@@ -48,6 +48,21 @@ _CROSS_FILTER_MARKERS = (
     "suffered",
 )
 
+# Subset of the markers above with a dedicated fallback splitter one level up
+# in understand_query (keyed off this exact list). Kept as its own tuple so
+# other splitting paths can check "is this a leave-status phrase" without
+# duplicating the list.
+_LEAVE_STATUS_MARKERS = (
+    "who plays",
+    "who is on leave",
+    "currently on leave",
+    "currently absent",
+    "with medical",
+    "on leave",
+    "medical leave",
+    "on medical leave",
+)
+
 # Generic relative-clause connectors ("who", "with") also signal a filter
 # relationship between two categories, even when the exact verb/phrase isn't
 # in the fixed marker list above — e.g. "top 10 bpet performers who have
@@ -66,10 +81,27 @@ _CLASS_FILTER_RE = re.compile(
 )
 
 
+def _build_sport_filter_re() -> "re.Pattern[str]":
+    """"... for football players" / "... among cricket players" — a
+    performance/ranking query scoped to a sport roster. Matched the same way
+    as `_CLASS_FILTER_RE`: the cutpoint for splitting is the sport name
+    itself, not a fixed connector word, so "for"/"among"/"from" all work.
+    """
+    from intent_engine.intent_schema import SPORTS
+
+    names = sorted({re.escape(name) for name in SPORTS.keys()}, key=len, reverse=True)
+    return re.compile(rf"\b({'|'.join(names)})\s+players?\b", re.IGNORECASE)
+
+
+_SPORT_FILTER_RE = _build_sport_filter_re()
+
+
 def _has_cross_filter_marker(text: str) -> bool:
     if any(marker in text for marker in _CROSS_FILTER_MARKERS):
         return True
     if _CLASS_FILTER_RE.search(text):
+        return True
+    if _SPORT_FILTER_RE.search(text):
         return True
     return bool(_CROSS_FILTER_GENERIC_CONNECTORS.search(text))
 _RANKING_MARKERS = (
@@ -647,9 +679,32 @@ def _extract_sub_requests(
                 current = " ".join(split_parts[1:])
                 break
         else:
-            class_match = _CLASS_FILTER_RE.search(current)
-            if class_match:
-                lead = current[: class_match.start()]
+            # "currently on leave"-style phrases are handled by a dedicated
+            # fallback splitter one level up (in understand_query, keyed off
+            # this same marker list) once it sees this branch produced only
+            # one fragment. Don't let the class/sport cutpoint below claim
+            # the split first — "cricket" in "cricket players currently on
+            # leave" would cut in the wrong place, leaving "show" as a
+            # near-empty lead fragment and blending the leave clause into
+            # the sport fragment.
+            has_leave_marker = any(
+                marker in current.lower() for marker in _LEAVE_STATUS_MARKERS
+            )
+            roster_matches = (
+                []
+                if has_leave_marker
+                else [
+                    m
+                    for m in (
+                        _CLASS_FILTER_RE.search(current),
+                        _SPORT_FILTER_RE.search(current),
+                    )
+                    if m
+                ]
+            )
+            roster_match = min(roster_matches, key=lambda m: m.start()) if roster_matches else None
+            if roster_match:
+                lead = current[: roster_match.start()]
                 lead = re.sub(
                     r"\b(for|from|among|within|of|in)\s*$",
                     "",
@@ -657,7 +712,7 @@ def _extract_sub_requests(
                     flags=re.IGNORECASE,
                 ).strip(" ,")
                 parts.append(lead)
-                current = current[class_match.start() :].strip()
+                current = current[roster_match.start() :].strip()
             else:
                 parts = [current]
                 current = ""
@@ -898,16 +953,7 @@ def understand_query(query: str) -> Dict[str, Any]:
 
     sub_requests = _extract_sub_requests(text, category, operation, entities)
     if cross_filter_intent and len(sub_requests) == 1:
-        for marker in (
-            "who plays",
-            "who is on leave",
-            "currently on leave",
-            "currently absent",
-            "with medical",
-            "on leave",
-            "medical leave",
-            "on medical leave",
-        ):
+        for marker in _LEAVE_STATUS_MARKERS:
             if marker in text:
                 head, tail = text.split(marker, 1)
                 tail_clean = tail.strip(" ,")
