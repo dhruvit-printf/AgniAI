@@ -883,7 +883,7 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
 
 
 def build_pie_chart_data(
-    combined_result: Any, series_label: str = "Distribution"
+    combined_result: Any, series_label: str = "Distribution", intent: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     PIE_CHART / DONUT_CHART schema:
@@ -961,9 +961,18 @@ def build_pie_chart_data(
                     grouped_rows[lbl].setdefault(k, v)
         grouped_rows[lbl]["value"] += val
 
+    is_perf_avg = False
+    if intent:
+        mod = str(intent.get("module") or "").lower()
+        op = str(intent.get("operation") or "").lower()
+        if mod == "performance" and op == "average":
+            is_perf_avg = True
+
     rows = []
     for k, grp in grouped_rows.items():
         row = {"label": k}
+        if is_perf_avg and "value" in grp:
+            grp["Average Score"] = grp.pop("value")
         row.update(grp)
         rows.append(row)
 
@@ -1292,7 +1301,7 @@ def build_formatted_data(
     elif inferred_type in {"CHART_LINE", "LINE_CHART", "AREA_CHART", "RADIAL_CHART"}:
         data_payload = build_line_chart_data(source_result)
     elif inferred_type in {"CHART_PIE", "PIE_CHART", "DONUT_CHART"}:
-        data_payload = build_pie_chart_data(source_result)
+        data_payload = build_pie_chart_data(source_result, intent=intent)
     elif inferred_type == "ATTENDANCE_CALENDAR":
         data_payload = build_attendance_calendar_data(source_result, intent)
     else:
@@ -1733,7 +1742,7 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
+def _build_compare_pie(combined_result: Dict[str, Any], intent: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """COMPARE_PIE_CHART: {left: {rows: [{label, value}]}, right: {rows: [{label, value}]}}"""
     left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
@@ -1800,9 +1809,18 @@ def _build_compare_pie(combined_result: Dict[str, Any]) -> Dict[str, Any]:
                         grouped_rows[lbl].setdefault(k, v)
             grouped_rows[lbl]["value"] += val
 
+        is_perf_avg = False
+        if intent:
+            mod = str(intent.get("module") or "").lower()
+            op = str(intent.get("operation") or "").lower()
+            if mod == "performance" and op == "average":
+                is_perf_avg = True
+
         rows = []
         for k, grp in grouped_rows.items():
             row = {"label": k}
+            if is_perf_avg and "value" in grp:
+                grp["Average Score"] = grp.pop("value")
             row.update(grp)
             rows.append(row)
         return {"heading": _side_heading(side), "rows": rows}
@@ -1988,7 +2006,7 @@ def _build_widget_data(
     elif wt in ("COMPARE_LINE_CHART", "COMPARE_CHART_LINE"):
         return _build_compare_line(combined_result)
     elif wt in ("COMPARE_PIE_CHART", "COMPARE_CHART_PIE"):
-        return _build_compare_pie(combined_result)
+        return _build_compare_pie(combined_result, intent=intent)
 
     # ── Summary CARD (from analysis.statistics) ──────────────────────────────
     if hint == "summary":
@@ -2052,7 +2070,7 @@ def _build_widget_data(
 
     # ── PIE_CHART / DONUT_CHART (folded into pie) ─────────────────────────────
     if wt in ("PIE_CHART", "DONUT_CHART", "CHART_PIE"):
-        return build_pie_chart_data(chart_source)
+        return build_pie_chart_data(chart_source, intent=intent)
 
     # ── ATTENDANCE_CALENDAR ──────────────────────────────────────────────────
     if wt == "ATTENDANCE_CALENDAR":

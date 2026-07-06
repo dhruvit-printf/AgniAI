@@ -158,6 +158,9 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "typhoid",
         "blood group",
         "blood type",
+        "overweight",
+        "underweight",
+        "obese",
     ],
     "Attendance": [
         "attendance",

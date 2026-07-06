@@ -723,6 +723,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "one person medical",
             "single agniveer medical",
             "medical record of",
+            "medical records of",
             "health record of",
             "medical history of",
             "medical status for",

@@ -507,6 +507,12 @@ def _should_entity_override_operation(
             return True, "BloodGroup", "bloodGroup entity present"
         if not classified_operation and _entity_present(entities, "medicalStatus"):
             return True, "Summary", "medicalStatus entity present without operation"
+        if not classified_operation and _entity_present(entities, "agniveerNo"):
+            # .NET rejects Medical calls with no operation at all ("Unknown
+            # medical operation ''"). A query naming a specific agniveer
+            # ("medical records of agniveer X") means their individual
+            # record, even when the phrasing doesn't match a keyword synonym.
+            return True, "Individual", "agniveerNo entity present without operation"
 
     if (
         category == "Leave"
