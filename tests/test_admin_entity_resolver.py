@@ -142,7 +142,11 @@ class TestResolveEntitiesFromQuery:
             assert r2["companyId"] == 10
             assert r2["companyName"] == "Alpha Company"
 
-            # 3. Matches company "Bravo" directly
+            # 3. Both companies are named — a single global resolution can
+            # only pick one, so it prefers the longer/more complete verified
+            # match ("Alpha Company", the full real name) over the shorter
+            # one ("Bravo"). Per-fragment resolution (used for comparison
+            # queries) is what correctly resolves each side independently.
             r3 = resolve_entities_from_query("Compare Bravo and Alpha Company")
-            assert r3["companyId"] == 20
-            assert r3["companyName"] == "Bravo"
+            assert r3["companyId"] == 10
+            assert r3["companyName"] == "Alpha Company"

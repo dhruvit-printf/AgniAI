@@ -71,6 +71,23 @@ _NOISE_WORDS = {
     "monthly",
     "weekly",
     "daily",
+    "summary",
+    "summaries",
+    "grading",
+    "grade",
+    "grades",
+    "count",
+    "counts",
+    "total",
+    "totals",
+    "distribution",
+    "compare",
+    "comparison",
+    "trend",
+    "trends",
+    "improvement",
+    "drop",
+    "drops",
 }
 
 
@@ -331,6 +348,13 @@ def resolve_entities_from_query(
     result["batchName"] = batch_mention
     result["agniveerNo"] = agniveer_mention
 
+    # `extract_company_mention`/`extract_platoon_mention` are a positional
+    # heuristic (the word(s) next to "company"/"platoon") — they can pick up
+    # stray query vocabulary as part of the name (see _NOISE_WORDS) and they
+    # only fire when that keyword is actually present in the text. The .NET
+    # company/platoon directory (fetched below) is the authoritative source
+    # of real names — matching the query against it directly is checked
+    # first and, when it finds anything, wins over the positional guess.
     if company_mention:
         result["companyId"] = resolve_company_id(
             company_mention, trace_id=trace_id, session_id=session_id
@@ -396,54 +420,57 @@ def resolve_entities_from_query(
                 return True
         return False
 
-    if result["companyId"] is None:
-        companies = _fetch_companies(trace_id=trace_id)
-        best_match_len = 0
-        for co in companies:
-            stored = str(
-                _get_field(co, "companyName", "CompanyName", "name", "Name") or ""
-            )
-            if not stored:
-                continue
-            stored_core = re.sub(r"(?:company|coy|unit)", "", stored.lower()).strip()
-            for candidate in (stored, stored_core):
-                if _is_mention_in_query(query, candidate) or _is_partial_prefix_mention(
-                    query, candidate
-                ):
-                    candidate_len = len(clean_query(candidate).strip())
-                    if candidate_len > best_match_len:
-                        cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
-                        if cid is not None:
-                            result["companyId"] = int(cid)
-                            result["companyName"] = stored
-                            best_match_len = candidate_len
+    # Authoritative lookup: scan the real .NET company directory directly
+    # for a name match, regardless of whether the positional heuristic above
+    # found anything. This always runs — and wins when it finds a match —
+    # because it can only ever match a name that genuinely exists, whereas
+    # the heuristic above can misfire on stray words near "company"/"platoon".
+    companies = _fetch_companies(trace_id=trace_id)
+    best_match_len = 0
+    directory_company_id = None
+    for co in companies:
+        stored = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
+        if not stored:
+            continue
+        stored_core = re.sub(r"(?:company|coy|unit)", "", stored.lower()).strip()
+        for candidate in (stored, stored_core):
+            if _is_mention_in_query(query, candidate) or _is_partial_prefix_mention(
+                query, candidate
+            ):
+                candidate_len = len(clean_query(candidate).strip())
+                if candidate_len > best_match_len:
+                    cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
+                    if cid is not None:
+                        directory_company_id = int(cid)
+                        result["companyName"] = stored
+                        best_match_len = candidate_len
+    if directory_company_id is not None:
+        result["companyId"] = directory_company_id
 
-    if result["platoonId"] is None:
-        platoons = _fetch_platoons(trace_id=trace_id)
-        best_match_len = 0
-        for pl in platoons:
-            stored = str(
-                _get_field(pl, "platoonName", "PlatoonName", "name", "Name") or ""
-            )
-            if not stored:
-                continue
-            stored_core = re.sub(r"(?:platoon|pl)", "", stored.lower()).strip()
-            for candidate in (stored, stored_core):
-                if _is_mention_in_query(query, candidate) or _is_partial_prefix_mention(
-                    query, candidate
-                ):
-                    candidate_len = len(clean_query(candidate).strip())
-                    if candidate_len > best_match_len:
-                        pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
-                        cid = _get_field(pl, "companyId", "CompanyId")
-                        if pid is not None:
-                            if (
-                                result["companyId"] is None
-                                or cid == result["companyId"]
-                            ):
-                                result["platoonId"] = int(pid)
-                                result["platoonName"] = stored
-                                best_match_len = candidate_len
+    platoons = _fetch_platoons(trace_id=trace_id)
+    best_match_len = 0
+    directory_platoon_id = None
+    for pl in platoons:
+        stored = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
+        if not stored:
+            continue
+        stored_core = re.sub(r"(?:platoon|pl)", "", stored.lower()).strip()
+        for candidate in (stored, stored_core):
+            if _is_mention_in_query(query, candidate) or _is_partial_prefix_mention(
+                query, candidate
+            ):
+                candidate_len = len(clean_query(candidate).strip())
+                if candidate_len > best_match_len:
+                    pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
+                    cid = _get_field(pl, "companyId", "CompanyId")
+                    if pid is not None and (
+                        result["companyId"] is None or cid == result["companyId"]
+                    ):
+                        directory_platoon_id = int(pid)
+                        result["platoonName"] = stored
+                        best_match_len = candidate_len
+    if directory_platoon_id is not None:
+        result["platoonId"] = directory_platoon_id
 
     if result["companyId"] is not None:
         companies = _fetch_companies(trace_id=trace_id)

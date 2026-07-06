@@ -488,6 +488,14 @@ def _should_entity_override_operation(
             return True, "AttemptWise", "attempt entity present"
         if not classified_operation and _entity_present(entities, "grading"):
             return True, "Grading", "grading entity present without operation"
+        if classified_operation == "Grading" and not _entity_present(
+            entities, "grading"
+        ):
+            # The .NET "Grading" operation requires an explicit grade value
+            # (Good/Excellent/SAT/Fail/...) and 400s without one. A query
+            # like "grade distribution" or "compare grading" names no grade,
+            # so it means the grade breakdown, not one specific grade.
+            return True, "GradingSummary", "Grading operation without a grading value"
 
     if category == "Medical":
         if _entity_present(entities, "bmiCategory") and classified_operation != "BMI":

@@ -792,6 +792,31 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 ) == "Roster" and op.intent_result.get("sport"):
                     op.intent_result["category"] = "Skills"
                     op.dotnet_payload = format_admin_payload(op.intent_result)
+            # Cross-filter intersects individual agniveer records by
+            # agniveerNo. A "Summary" responseType returns aggregate counts
+            # (e.g. improvedCount, totalAgniveers) with no per-agniveer rows
+            # at all, so intersection silently finds nothing. Every leg needs
+            # the Detailed, per-agniveer response for the intersection to
+            # have anything to match on.
+            for op in valid_ops:
+                if op.intent_result.get("responseType") != "Detailed":
+                    op.intent_result["responseType"] = "Detailed"
+                    op.dotnet_payload = format_admin_payload(op.intent_result)
+            # Ranking/trend operations return only the top N (default 10)
+            # unless "n" is set explicitly. Left uncapped, a cross-filter leg
+            # like "who improved in BPET" only ever considers the top 10
+            # improvers — a real match sitting at rank 11+ is silently
+            # missed. Uncap to the full candidate set unless the user asked
+            # for a specific count (e.g. "top 5 who improved...").
+            for op in valid_ops:
+                if (
+                    op.intent_result.get("category") == "Performance"
+                    and op.intent_result.get("operation")
+                    in ("Top", "Bottom", "Improvement", "Drop")
+                    and op.intent_result.get("number") is None
+                ):
+                    op.intent_result["number"] = 1000
+                    op.dotnet_payload = format_admin_payload(op.intent_result)
             combined_filters = {}
             for op in valid_ops:
                 combined_filters.update(

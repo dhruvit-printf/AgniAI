@@ -65,9 +65,12 @@ def test_fail_percentage():
 
 
 def test_grade_distribution():
+    # The .NET "Grading" operation requires an explicit grade value and 400s
+    # without one — a query naming no specific grade must resolve to
+    # GradingSummary (the full breakdown), not Grading/GradeDistribution.
     r = classify_admin_intent("Show grade distribution for DRILL")
     assert r["category"] == "Performance"
-    assert r["subcategory"] == "GradeDistribution"
+    assert r["subcategory"] == "GradingSummary"
     assert r["section"] == "Drill"
 
 
