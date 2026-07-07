@@ -15,11 +15,18 @@ class TestPartialFailure(unittest.TestCase):
     ):
         # 3-way cross filter: primary succeeds, secondary 1 fails, secondary 2 succeeds
         # Let's say: "Show top performer in PPT who plays cricket and is currently on leave"
-        mock_call_dotnet.side_effect = [
-            ([{"agniveerNo": "101"}, {"agniveerNo": "102"}], None),  # PPT (Primary)
-            (None, "Connection error to Skills"),  # Cricket (Secondary - Fails!)
-            ([{"agniveerNo": "102"}, {"agniveerNo": "103"}], None),  # Leave (Secondary)
-        ]
+        # All three legs run in parallel threads, so the mock must key off
+        # the actual payload (category) rather than call order — a plain
+        # sequential side_effect list races and is flaky.
+        def side_effect(payload, *args, **kwargs):
+            category = payload.get("category")
+            if category == "Performance":
+                return [{"agniveerNo": "101"}, {"agniveerNo": "102"}], None
+            if category == "Skills":
+                return None, "Connection error to Skills"
+            return [{"agniveerNo": "102"}, {"agniveerNo": "103"}], None
+
+        mock_call_dotnet.side_effect = side_effect
         mock_generate_report.return_value = {
             "introMessage": "Report.",
             "analysis": {"summary": "Analysis", "observations": [], "insights": []},

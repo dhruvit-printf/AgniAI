@@ -28,6 +28,8 @@ from .intent_schema import (
     SUBSECTION_ALIASES,
     SUBSECTIONS_BY_SECTION,
     UNIT_ALIASES,
+    CATEGORY_KEYWORDS,
+    OPERATION_SYNONYMS,
 )
 
 _BLOOD_GROUPS_SORTED = sorted(BLOOD_GROUPS, key=len, reverse=True)
@@ -185,6 +187,27 @@ def detect_query_number_override(raw_query: str) -> Optional[int]:
     return _extract_number(raw_query)
 
 
+def _extract_category(query: str) -> Optional[str]:
+    query_lower = _normalise(query)
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        for keyword in keywords:
+            phrase = _normalise(keyword)
+            if re.search(rf"\b{re.escape(phrase)}\b", query_lower):
+                return category
+    return None
+
+
+def _extract_operation(query: str) -> Optional[str]:
+    query_lower = _normalise(query)
+    for category, ops in OPERATION_SYNONYMS.items():
+        for operation, keywords in ops.items():
+            for keyword in keywords:
+                phrase = _normalise(keyword)
+                if re.search(rf"\b{re.escape(phrase)}\b", query_lower):
+                    return operation
+    return None
+
+
 def _extract_section(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     for section_name, section_data in SECTION.items():
@@ -275,24 +298,24 @@ _THRESHOLD_FILTER_SIGNALS = (
     "near", "nearing", "close to", "almost", "above", "below", "reached",
     "crossed", "hit ", "limit", "cap", "quota", "allowance", "warning level",
     "critical level", "danger zone", "safe limit", "ceiling", "boundary",
-    "cutoff", "benchmark",
-)
+    "cutoff", "benchmark","90%", "90 %","Threshold","threshold","Threshhold","Thresholds",
+) 
 
 
 def _has_threshold_filter_signal(query_lower: str) -> bool:
     return any(signal in query_lower for signal in _THRESHOLD_FILTER_SIGNALS)
 
 
-_BMI_FIT_TERMS = frozenset({"fit"})
-_BMI_CONTEXT_WORDS = frozenset({"bmi", "weight", "fitness"})
+_BMI_AMBIGUOUS_TERMS = frozenset({"fit", "normal"})
+_BMI_CONTEXT_WORDS = frozenset({"bmi", "weight", "fitness", "medical", "health", "fat", "thin"})
 
 
 def _extract_bmi_category(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     for key, value in BMI_CATEGORIES.items():
         phrase = _normalise(key)
-        if phrase in _BMI_FIT_TERMS:
-            # Only match "fit"-family terms when a BMI/weight/fitness context word is present
+        if phrase in _BMI_AMBIGUOUS_TERMS:
+            # Only match highly ambiguous terms (like "fit", "normal") when a medical/BMI context word is present
             has_context = any(w in query_lower for w in _BMI_CONTEXT_WORDS)
             if not has_context:
                 continue
@@ -669,6 +692,8 @@ CANONICAL_ENTITY_KEYS = frozenset(
         "days",
         "returnCondition",
         "givenCondition",
+        "Operation",
+        "Category"
     }
 )
 
