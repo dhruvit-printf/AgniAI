@@ -130,7 +130,7 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
         ]
     ),
     "Schedule": frozenset(
-        {"Today", "Agniveer", "Company", "Date"}
+        {"bytoday", "byagniveer", "bycompany", "bydate"}
     ),
     "personaldetail": frozenset(["info"]),
     "disqualified": frozenset(["removed"]),
@@ -1189,7 +1189,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         ),
     },
     "Schedule": {
-        "Today": (
+        "bytoday": (
             "today",
             "today's schedule",
             "today schedule",
@@ -1204,20 +1204,20 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "todays program",
             "bytoday",
         ),
-        "Company": (
+        "bycompany": (
             "company schedule",
             "schedule by company",
             "company wise schedule",
             "schedule for company",
         ),
-        "Date": (
+        "bydate": (
             "date wise schedule",
             "schedule on date",
             "schedule for date",
             "daily schedule",
             "bydate",
         ),
-        "Agniveer": (
+        "byagniveer": (
             "agniveer schedule",
             "schedule by agniveer",
             "agniveer wise schedule",
@@ -2080,10 +2080,10 @@ INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Skills", "BySport"): "Tabular",
     ("Skills", "ByClass"): "Tabular",
     ("Overall", "OverallPerformance"): "Tabular",
-    ("Schedule", "Today"): "Tabular",
-    ("Schedule", "Company"): "Tabular",
-    ("Schedule", "Date"): "Tabular",
-    ("Schedule", "Agniveer"): "Tabular",
+    ("Schedule", "bytoday"): "Tabular",
+    ("Schedule", "bycompany"): "Tabular",
+    ("Schedule", "bydate"): "Tabular",
+    ("Schedule", "byagniveer"): "Tabular",
 }
 
 SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
@@ -2134,10 +2134,10 @@ SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "TopUnit": "TopUnit",
     "BySport": "BySport",
     "ByClass": "ByClass",
-    "TodaySchedule": "Today",
-    "CompanySchedule": "Company",
-    "DateSchedule": "Date",
-    "AgniveerSchedule": "Agniveer",
+    "TodaySchedule": "bytoday",
+    "CompanySchedule": "bycompany",
+    "DateSchedule": "bydate",
+    "AgniveerSchedule": "byagniveer",
     "PersonalDetailInfo": "info",
     "DisqualifiedRemoved": "removed",
     "CompositeRanking": "OverallPerformance",
@@ -2168,7 +2168,10 @@ OPERATION_TO_PAYLOAD_FIELD: Dict[str, str] = {
     "Daily": "Daily",
     "Present": "Present",
     "StrengthBreakdown": "StrengthBreakdown",
-    "Today": "Today",
+    "bytoday": "bytoday",
+    "bycompany": "bycompany",
+    "bydate": "bydate",
+    "byagniveer": "byagniveer",
     "Stats": "Stats",
     "Search": "Search",
     "Returned": "Returned",
@@ -2184,7 +2187,6 @@ OPERATION_TO_PAYLOAD_FIELD: Dict[str, str] = {
     "Sent": "Sent",
     "NotResponded": "NotResponded",
     "Rejected": "Rejected",
-    "Agniveer": "Agniveer",
     "OverallPerformance": "OverallPerformance",
 }
 
@@ -2233,10 +2235,10 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Skills", "BySport"): "BySport",
     ("Skills", "ByClass"): "ByClass",
     ("Overall", "OverallPerformance"): "OverallPerformance",
-    ("Schedule", "Today"): "TodaySchedule",
-    ("Schedule", "Company"): "CompanySchedule",
-    ("Schedule", "Date"): "DateSchedule",
-    ("Schedule", "Agniveer"): "AgniveerSchedule",
+    ("Schedule", "bytoday"): "TodaySchedule",
+    ("Schedule", "bycompany"): "CompanySchedule",
+    ("Schedule", "bydate"): "DateSchedule",
+    ("Schedule", "byagniveer"): "AgniveerSchedule",
     ("personaldetail", "info"): "PersonalDetailInfo",
     ("disqualified", "removed"): "DisqualifiedRemoved",
 }

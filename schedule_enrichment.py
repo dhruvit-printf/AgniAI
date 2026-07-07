@@ -103,7 +103,7 @@ def enrich_schedule_by_company(
 
     for company_id in company_ids:
         payload = dict(schedule_payload)
-        payload["operation"] = "Company"
+        payload["operation"] = "bycompany"
         payload["companyId"] = company_id
         payload.pop("platoonId", None)
 

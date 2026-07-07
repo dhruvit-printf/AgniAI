@@ -385,7 +385,7 @@ def _score_operation(
         score += 10 if _entity_present(entities, "bloodGroup") else 0
     if category == "Strength" and operation == "StrengthBreakdown":
         score += 10 if _entity_present(entities, "section") else 0
-    if category == "Schedule" and operation == "Today":
+    if category == "Schedule" and operation == "bytoday":
         # Bare "schedule" is a weak, generic signal — don't let it outscore
         # Company/Date/Agniveer when the query actually names one of those
         # (e.g. "schedule for Lakhwinder company" contains "schedule" too,
@@ -757,12 +757,12 @@ def _should_entity_override_operation(
         # "schedule of agniveer X's company" style text still prefers the
         # more specific agniveerNo/date entity when both are present.
         if _entity_present(entities, "agniveerNo"):
-            return True, "Agniveer", "Schedule query for a specific agniveer"
+            return True, "byagniveer", "Schedule query for a specific agniveer"
         if _entity_present(entities, "date"):
-            return True, "Date", "Schedule query for a specific date"
+            return True, "bydate", "Schedule query for a specific date"
         if re.search(r"\b(company|coy)\b", query_text, re.IGNORECASE):
-            return True, "Company", "Schedule query mentions a company"
-        return True, "Today", "Schedule query default operation"
+            return True, "bycompany", "Schedule query mentions a company"
+        return True, "bytoday", "Schedule query default operation"
 
     if category == "Equipment" and not classified_operation:
         if _entity_present(entities, "equipmentName"):

@@ -450,7 +450,7 @@ class TestScheduleCases:
     def test_today_schedule(self):
         r = _classify("what is today's training schedule")
         assert r["category"] == "Schedule"
-        assert r["operation"] == "Today"
+        assert r["operation"] == "bytoday"
 
     def test_company_schedule(self):
         r = _classify("schedule for company 2 this week")

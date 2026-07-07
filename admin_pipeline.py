@@ -194,7 +194,7 @@ _SINGLE_AGNIVEER_OPERATIONS = frozenset(
         "info",  # personaldetail
         "Individual",  # Medical
         "AgniveerWise",  # Equipment
-        "Agniveer",  # Schedule
+        "byagniveer",  # Schedule
     }
 )
 

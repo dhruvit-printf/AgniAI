@@ -321,28 +321,28 @@ def classify_admin_intent(
             subcategory = "EquipmentSearch"
             operation = "Search"
 
-    # Schedule override: a specific calendar date → Date schedule.
+    # Schedule override: a specific calendar date → bydate schedule.
     # Relative phrases like "today"/"tomorrow"/"this week" are handled by their
-    # own operations (Today/Today/Weekly) — do NOT override them to "Date".
+    # own operation (bytoday) — do NOT override them to "bydate".
     _RELATIVE_DATE_PHRASES = frozenset({"today", "yesterday", "tomorrow", "this week", "last week", "this month", "current month", "last month", "this year"})
     _schedule_date_val = (entities.get("date") or "").lower()
     _is_relative = _schedule_date_val in _RELATIVE_DATE_PHRASES
     if category == "Schedule":
         if entities.get("fromDate") or entities.get("toDate"):
-            operation = "Date"
+            operation = "bydate"
             subcategory = "DateSchedule"
         elif _schedule_date_val and not _is_relative:
-            operation = "Date"
+            operation = "bydate"
             subcategory = "DateSchedule"
         elif _schedule_date_val == "today":
-            operation = operation or "Today"
+            operation = operation or "bytoday"
 
-    # ── Attendance date resolution ────────────────────────────────────────────
+    # ── Attendance / Schedule date resolution ─────────────────────────────────
     # .NET expects date / fromDate / toDate as ISO 8601 date-times, never raw
     # phrases like "current month" or "June". Resolve whatever was extracted
     # into concrete dates, and default Monthly/Weekly/Daily to the current
     # period when the query didn't mention one at all.
-    if category == "Attendance":
+    if category in ("Attendance", "Schedule"):
         resolved_date, resolved_from_date, resolved_to_date = resolve_date_range(
             operation=operation,
             date=entities.get("date"),
@@ -353,7 +353,9 @@ def classify_admin_intent(
         entities["fromDate"] = resolved_from_date
         entities["toDate"] = resolved_to_date
 
-    if category == "Schedule" and operation == "Date":
+    # bydate/byagniveer schedules must always carry a date scope — default to
+    # today (formatted as ISO 8601) when the query didn't name one at all.
+    if category == "Schedule" and operation in ("bydate", "byagniveer"):
         if not entities.get("date") and not entities.get("fromDate") and not entities.get("toDate"):
             import datetime
             entities["date"] = datetime.date.today().isoformat()
