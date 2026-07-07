@@ -183,7 +183,7 @@ _CROSS_FILTER_GENERIC_CONNECTORS = re.compile(
 # query scoped to a community/class roster. Matched separately from the
 # generic markers above because the cutpoint for splitting is the class name
 # itself, not a fixed connector word.
-_CLASS_NAMES = ("sikh", "dogra", "jat", "gurkha", "gorkha", "rajput", "punjabi", "oic")
+_CLASS_NAMES = ("sikh", "dogra", "oic")
 _CLASS_FILTER_RE = re.compile(
     rf"\b({'|'.join(_CLASS_NAMES)})\s+class\b", re.IGNORECASE
 )
