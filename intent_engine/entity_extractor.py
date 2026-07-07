@@ -255,6 +255,7 @@ def _extract_leave_type(query: str) -> Optional[str]:
             "noleave",
             "annual",
             "sick",
+            "exhausted",
         )
     ):
         return None

@@ -264,14 +264,7 @@ def classify_admin_intent(
     category = intent_result.get("category")
     operation: Optional[str] = intent_result.get("operation")
 
-    if (
-        category == "Leave"
-        and entities.get("leaveType") == "Threshold"
-        and operation is None
-    ):
-        # Fallback only — a query that already resolved to a real operation
-        # (e.g. "Least" for "least leaves") must never be overwritten just
-        # because "threshold" also appears in the text.
+    if category == "Leave" and entities.get("leaveType") == "Threshold":
         operation = "Current"
 
     # ── Stage 4: Subcategory — pure table lookup, no inference ───────────────
