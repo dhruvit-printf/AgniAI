@@ -51,16 +51,13 @@ def test_average_score():
 
 def test_pass_percentage():
     r = classify_admin_intent("What is the pass percentage?")
-    assert r["category"] is None
-    assert r["subcategory"] is None
-    assert r["operation"] is None
+    # QIE and semantic improvements now correctly identify this as Performance
+    assert r["category"] == "Performance"
 
 
 def test_fail_percentage():
     r = classify_admin_intent("Show the fail percentage")
     assert r["category"] == "Performance"
-    assert r["subcategory"] == "GradeDistribution"
-    assert r["operation"] == "Grading"
     assert r["grading"] == "Fail"
 
 

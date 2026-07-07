@@ -217,6 +217,69 @@ _RANKING_MARKERS = (
     "least",
     "bottom",
 )
+_THRESHOLD_MARKERS = (
+    "threshold",
+    "limit",
+    "quota",
+    "allowance",
+    "cap",
+    "warning level",
+    "critical level",
+    "danger zone",
+    "safe limit",
+    "ceiling",
+    "boundary",
+    "cutoff",
+    "benchmark",
+    "above",
+    "below",
+    "over",
+    "under",
+    "greater than",
+    "less than",
+    "more than",
+    "higher than",
+    "lower than",
+    "equal to",
+    "equals",
+    "at least",
+    "at most",
+    "between",
+    "within",
+    "outside",
+    "inside",
+    "greater",
+    "smaller",
+    "surpasses",
+    "exceeds",
+    "crosses",
+    "beyond",
+    "past",
+    "near",
+    "nearing",
+    "close to",
+    "almost",
+    "approximately",
+    "about to",
+    "approaching",
+    "on the verge of",
+    "just below",
+    "nearly",
+    "around",
+    "close enough",
+    "not far from",
+    "reaching",
+    "heading toward",
+    "exhaust",
+    "exhaustion",
+    "running out",
+    "balance",
+    "remaining",
+    "unused",
+    "percentage",
+    "ratio",
+    "%",
+)
 _DISTRIBUTION_MARKERS = (
     "distribution",
     "breakdown",
@@ -492,6 +555,8 @@ def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
     category = _infer_category(text, entities)
     if category == "Equipment" and (entities.get("agniveerNo") or entities.get("agniveer_no")):
         return "byagniveer"
+    if category == "Leave" and any(marker in text for marker in _THRESHOLD_MARKERS):
+        return "Threshold"
     if any(marker in text for marker in _COMPARISON_MARKERS):
         return "compare"
     if any(marker in text for marker in _RANKING_MARKERS):
@@ -612,6 +677,8 @@ def _build_user_goal(
         return "show current leave status"
     if operation == "absconded":
         return "find absconded records"
+    if operation == "Threshold":
+        return "review leave threshold records"
     if category:
         return f"review {category.lower()} data"
     if entities:

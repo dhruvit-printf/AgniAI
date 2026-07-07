@@ -51,6 +51,7 @@ from intent_engine.query_planner import QueryType, plan_query
 from metadata_builder import build_metadata
 from normalized_models import extract_records as _extract_records
 from query_normalizer import admin_normalize_query, clean_query
+from intent_engine.query_intelligence_engine import process_query as qie_process
 from query_understanding_engine import understand_query
 from report_generator import generate_report, get_fallback_report
 from response_builder import build_response
@@ -1005,7 +1006,8 @@ def execute_admin_query(
             )
 
             planning_start = time.time()
-            message = admin_normalize_query(message)
+            qie_result = qie_process(message)
+            message = qie_result.canonical_text
             query_plan = plan_query(message)
             planning_duration = time.time() - planning_start
             planner_duration = time.time() - planner_start
