@@ -308,7 +308,7 @@ def classify_admin_intent(
                 subcategory = "ProcuredItems"
                 operation = "Procured"
             elif any(kw in _nq for kw in {"overdue"}):
-                subcategory = "OverdueEquipment"
+                subcategory = "HoldingEquipment"
                 operation = "Holding"
         else:
             # Specific item name mentioned — decide operation from query context
