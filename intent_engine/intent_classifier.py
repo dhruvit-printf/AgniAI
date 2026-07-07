@@ -440,16 +440,27 @@ def _damerau_levenshtein(a: str, b: str) -> int:
 
 def _fuzzy_contains_word(query_text: str, targets: Iterable[str], max_distance: int = 2) -> bool:
     # Tolerates typos (e.g. "derail"/"detril" for "detail") so a misspelled
-    # request for a detailed/summary response is still recognized.
+    # request for a detailed/summary response is still recognized. Uses
+    # transposition-aware distance so an adjacent-letter swap typo (e.g.
+    # "detials" for "details") counts as one edit, not two.
     for word in query_text.split():
         if len(word) < 4:
             continue
         for target in targets:
             if abs(len(word) - len(target)) > max_distance:
                 continue
-            if _levenshtein(word, target) <= max_distance:
+            if _damerau_levenshtein(word, target) <= max_distance:
                 return True
     return False
+
+
+# Single-word DETAILED_KEYWORDS entries are typo-checked directly; multi-word
+# phrases ("full report", "deep analysis") aren't — matching a typo'd word
+# within a phrase reliably would need per-word phrase alignment, which isn't
+# worth the complexity for these rarer, longer phrasings.
+_DETAILED_SINGLE_WORDS: Tuple[str, ...] = tuple(
+    kw for kw in DETAILED_KEYWORDS if " " not in kw
+) + ("details",)
 
 
 def _detect_explicit_response_type(query_text: str) -> Optional[str]:
@@ -459,7 +470,7 @@ def _detect_explicit_response_type(query_text: str) -> Optional[str]:
     for keyword in DETAILED_KEYWORDS:
         if _phrase_score(query_text, keyword):
             return "Detailed"
-    if _fuzzy_contains_word(query_text, ("detail", "detailed")):
+    if _fuzzy_contains_word(query_text, _DETAILED_SINGLE_WORDS):
         return "Detailed"
     if _phrase_score(query_text, "summary") or _phrase_score(
         query_text, "summarize"
