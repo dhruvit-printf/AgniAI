@@ -267,6 +267,9 @@ def classify_admin_intent(
     if category == "Leave" and entities.get("leaveType") == "Threshold":
         operation = "Current"
 
+    if category and not operation:
+        operation = _comparison_fallback_operation(category)
+
     # ── Stage 4: Subcategory — pure table lookup, no inference ───────────────
     subcategory: Optional[str] = _subcategory_from_table(category, operation)
 
@@ -455,6 +458,7 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     entities: Dict[str, Any] = {
         "n": intent_result.get("number"),
         "section": intent_result.get("section"),
+        "operation": intent_result.get("operation"),
         "subSection": intent_result.get("sub_section"),
         "grading": intent_result.get("grading"),
         "leaveType": intent_result.get("leave_type"),

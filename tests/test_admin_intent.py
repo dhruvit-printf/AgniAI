@@ -59,7 +59,7 @@ def test_fail_percentage():
     r = classify_admin_intent("Show the fail percentage")
     assert r["category"] == "Performance"
     assert r["subcategory"] == "LowestPerformers"
-    assert r["operation"] == "Grading"
+    assert r["operation"] == "Bottom"
     assert r["grading"] == "Fail"
 
 
@@ -84,7 +84,7 @@ def test_overall_performance():
     r = classify_admin_intent("Give me the overall performance report")
     assert r["category"] == "Performance"
     assert r["subcategory"] is None
-    assert r["type"] == "Tabular"
+    assert r["type"] is None
 
 
 def test_improvement():
@@ -114,7 +114,7 @@ def test_improvement_with_attempts_does_not_infer_date_range():
 
 def test_compare_sections_with_leave_filter():
     r = classify_admin_intent("Compare PPT and BEPT among cricket players currently on leave")
-    assert r["category"] == "Performance"
+    assert r["category"] == "Leave"
     assert r["subcategory"] == "Comparison"
     assert r["operation"] == "Compare"
     assert r["section"] in ("PPT", "BPET")

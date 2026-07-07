@@ -286,7 +286,7 @@ def _has_threshold_filter_signal(query_lower: str) -> bool:
     return any(signal in query_lower for signal in _THRESHOLD_FILTER_SIGNALS)
 
 
-_BMI_FIT_TERMS = frozenset({"fit", "fittest", "most fit", "physically fit"})
+_BMI_FIT_TERMS = frozenset({"fit"})
 _BMI_CONTEXT_WORDS = frozenset({"bmi", "weight", "fitness"})
 
 

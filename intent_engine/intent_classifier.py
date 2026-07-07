@@ -142,7 +142,18 @@ def _fuzzy_keyword_bonus(query_text: str, phrases: Iterable[str]) -> int:
     inflate that category's score well past what the same word should be
     worth once.
     """
-    single_word_phrases = [p for p in phrases if p and " " not in p]
+    # Exclude "by<word>" compact compound tokens ("byagniveer", "bycompany")
+    # — these exist purely so _phrase_score's whitespace-insensitive fallback
+    # can match the spaced phrase "by agniveer"/"by company"; they are not
+    # real words. Fed through word-family fuzzy matching, the "by" prefix is
+    # just a 2-character insertion, so any query containing the bare word
+    # ("agniveer", present in nearly every query in this system) picks up a
+    # false fuzzy-match credit for a category it has nothing to do with.
+    single_word_phrases = [
+        p
+        for p in phrases
+        if p and " " not in p and not (p.startswith("by") and len(p) > 3)
+    ]
     if not single_word_phrases:
         return 0
     total = 0
