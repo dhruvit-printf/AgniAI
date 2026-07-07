@@ -73,7 +73,7 @@ _SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
     ("Performance", "grading"): ["TABLE"],
     ("Performance", "gradingsummary"): ["CHART_BAR"],
     ("Performance", "average"): ["CHART_PIE"],
-    ("Performance", "attemptwise"): ["TABLE"],
+    ("Performance", "attemptwise"): ["CHART_LINE"],
     ("Performance", "bestattempt"): ["TABLE"],
     ("Performance", "trend"): ["CHART_LINE"],
     ("Leave", "most"): ["CHART_PIE"],
@@ -96,10 +96,10 @@ _SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
     ("Verification", "completed"): ["CARD"],
     ("Verification", "verified"): ["CARD"],
     ("Verification", "rejected"): ["CARD"],
-    ("Equipment", "stats"): ["CHART_BAR"],
+    ("Equipment", "stats"): ["TABLE"],
     ("Equipment", "search"): ["TABLE"],
-    ("Equipment", "returned"): ["CARD"],
-    ("Equipment", "holding"): ["CARD"],
+    ("Equipment", "returned"): ["TABLE"],
+    ("Equipment", "holding"): ["TABLE"],
     ("Equipment", "agniveerwise"): ["TABLE"],
     ("Distribution", "latest"): ["TABLE"],
     ("Distribution", "byunit"): ["CHART_BAR"],
@@ -229,8 +229,13 @@ def _plan_widgets(
     ):
         return _widget_list(*(["CHART_LINE", "TABLE"] if response_type == "Detailed" else ["CHART_LINE"]))
 
-    if query_type == "distribution" or any(
-        token in text for token in ("distribution", "breakdown", "percentage", "share")
+    # AttemptWise is always a line chart (attempt-over-attempt progression) —
+    # "attempt wise breakdown" is extremely common phrasing for this exact
+    # operation, so it must not fall into the generic "breakdown" ->
+    # CHART_PIE sniffing below meant for categories with no specific mapping.
+    if (category, operation) != ("Performance", "attemptwise") and (
+        query_type == "distribution"
+        or any(token in text for token in ("distribution", "breakdown", "percentage", "share"))
     ):
         return _widget_list(*(["CHART_PIE", "TABLE"] if response_type == "Detailed" else ["CHART_PIE"]))
 

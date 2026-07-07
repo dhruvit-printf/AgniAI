@@ -14,6 +14,7 @@ from query_understanding_engine import propagate_lead_in_across_parts, understan
 from utils import build_filters_from_entities
 
 from .admin_intent import classify_admin_intent, format_admin_payload
+from .entity_extractor import detect_query_number_override
 from .intent_classifier import detect_query_response_type_override
 
 logger = logging.getLogger(__name__)
@@ -178,6 +179,14 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "blood group",
         "blood groups",
         "blood type",
+        "o+",
+        "o-",
+        "a+",
+        "a-",
+        "b+",
+        "b-",
+        "ab+",
+        "ab-",
         "overweight",
         "underweight",
         "obese",
@@ -191,9 +200,17 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
     ],
     "Verification": [
         "verification",
+        "verifications",
         "verified",
         "pending verification",
+        "pending verifications",
         "completed verification",
+        "completed verifications",
+        "rejected verification",
+        "rejected verifications",
+        "sent verification",
+        "sent verifications",
+        "not responded",
         "rejected",
         "unverified",
     ],
@@ -286,7 +303,9 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "disqualified agniveer",
         "disqualified agniveers",
         "removed agniveer",
+        "removed agniveers",
         "expelled agniveer",
+        "expelled agniveers",
     ],
 }
 
@@ -305,7 +324,24 @@ def _extend_skills_category_signals() -> None:
     _CATEGORY_SIGNALS["Skills"] = base + additions
 
 
+def _extend_equipment_category_signals() -> None:
+    """Extend _CATEGORY_SIGNALS["Equipment"] with every named equipment item
+    (Combat Coat, Kit Bag, Blanket, ...), mirroring the sports extension
+    above — a query naming a specific item ("Kit Bag holders who are
+    disqualified") otherwise registers zero Equipment signal, since only the
+    generic word "equipment" was in the list, and the cross-filter gate
+    never sees the 2 categories it needs to split.
+    """
+    from .intent_schema import ISSUED_EQUIPMENT_ITEMS, PROCURED_EQUIPMENT_ITEMS
+
+    base = _CATEGORY_SIGNALS["Equipment"]
+    names = [item.lower() for item in ISSUED_EQUIPMENT_ITEMS + PROCURED_EQUIPMENT_ITEMS]
+    additions = [name for name in names if name not in base]
+    _CATEGORY_SIGNALS["Equipment"] = base + additions
+
+
 _extend_skills_category_signals()
+_extend_equipment_category_signals()
 
 
 def _detect_categories(text_lower: str) -> List[str]:
@@ -365,6 +401,35 @@ def _apply_response_type_override(ops: List[SubOperation], raw_query: str) -> No
     for op in ops:
         if op.intent_result.get("responseType") != override:
             op.intent_result["responseType"] = override
+            op.dotnet_payload = format_admin_payload(op.intent_result)
+
+
+# Operations where a count genuinely means "limit to the top/bottom N" —
+# not filter/condition operations (BySport, Search, Holding, Individual, ...)
+# where capping the underlying fetch could hide real cross-filter matches
+# (e.g. capping a "who plays cricket" leg to 5 could exclude the actual
+# agniveer a "top 5 performers" leg needs to intersect against).
+_RANKABLE_OPERATIONS = frozenset(
+    {"Top", "Bottom", "Most", "Least", "TopUnit", "BestAttempt"}
+)
+
+
+def _apply_number_override(ops: List[SubOperation], raw_query: str) -> None:
+    """A multi-part query's "top N"/"bottom N" only lands in whichever
+    fragment's own text mentioned it — e.g. "top 5 BPET performers and best
+    drill performers" would otherwise leave the second leg with no limit at
+    all. Detect the count from the whole raw query once and apply it to
+    every rankable operation that doesn't already have its own number.
+    """
+    override = detect_query_number_override(raw_query)
+    if override is None:
+        return
+    for op in ops:
+        if (
+            op.intent_result.get("operation") in _RANKABLE_OPERATIONS
+            and op.intent_result.get("number") is None
+        ):
+            op.intent_result["number"] = override
             op.dotnet_payload = format_admin_payload(op.intent_result)
 
 
@@ -753,6 +818,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 )
 
             _apply_response_type_override(ops, raw_query)
+            _apply_number_override(ops, raw_query)
 
             logger.info(
                 "plan_query: COMPARE plan | query_type=compare | operation_count=%d | "
@@ -820,6 +886,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                     build_filters_from_entities(op.intent_result.get("filters", {}))
                 )
             _apply_response_type_override(valid_ops, raw_query)
+            _apply_number_override(valid_ops, raw_query)
             logger.info(
                 "plan_query: COMPARE plan (semantic fallback) | query_type=compare | "
                 "operation_count=%d",
@@ -857,6 +924,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                     build_filters_from_entities(op.intent_result.get("filters", {}))
                 )
             _apply_response_type_override(valid_ops, raw_query)
+            _apply_number_override(valid_ops, raw_query)
             return QueryPlan(
                 QueryType.MULTI_INDEPENDENT,
                 valid_ops,
@@ -892,6 +960,11 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 if op.intent_result.get("responseType") != "Detailed":
                     op.intent_result["responseType"] = "Detailed"
                     op.dotnet_payload = format_admin_payload(op.intent_result)
+            # An explicit count ("top 5") in the query but mentioned in a
+            # different fragment than the ranking leg — apply it before the
+            # generic uncap-to-1000 below, so a real user-stated number
+            # always wins over that fallback.
+            _apply_number_override(valid_ops, raw_query)
             # Ranking/trend operations return only the top N (default 10)
             # unless "n" is set explicitly. Left uncapped, a cross-filter leg
             # like "who improved in BPET" only ever considers the top 10

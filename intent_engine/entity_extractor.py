@@ -176,6 +176,15 @@ def _extract_number(query: str) -> Optional[int]:
     return None
 
 
+def detect_query_number_override(raw_query: str) -> Optional[int]:
+    """Public: whether the raw query explicitly names a count ("top 5",
+    "bottom 10", "rank 3"). Used by query_planner.py to propagate one count
+    mentioned once in a multi-part query onto every rankable operation, not
+    just whichever fragment's own text happened to contain it.
+    """
+    return _extract_number(raw_query)
+
+
 def _extract_section(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     for section_name, section_data in SECTION.items():

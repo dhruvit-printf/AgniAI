@@ -44,6 +44,7 @@ class TestVisualizationQueryAware(unittest.TestCase):
         self.assertEqual(res["type"], "CHART_PIE")
 
     def test_summary_override_for_equipment_stats(self):
+        # Equipment always renders as a table, regardless of responseType.
         combined = {"sections": [{"label": "Result", "data": [{"count": 12}]}]}
         res = build_formatted_data(
             combined,
@@ -54,7 +55,7 @@ class TestVisualizationQueryAware(unittest.TestCase):
                 "responseType": "Summary",
             },
         )
-        self.assertEqual(res["type"], "CHART_BAR")
+        self.assertEqual(res["type"], "TABLE")
 
     def test_detailed_equipment_stats_stays_table(self):
         combined = {
