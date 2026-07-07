@@ -294,32 +294,48 @@ def classify_admin_intent(
 
     # Equipment item override: prefer the canonical Search / Returned / Holding /
     # Stats operations even when the query includes a specific equipment item name.
-    if category == "Equipment" and entities.get("equipmentName"):
+    if category == "Equipment":
         _nq = _normalise(raw_query)
-        if any(kw in _nq for kw in {"issued", "issue", "currently issued"}):
-            subcategory = "HoldingEquipment"
-            operation = "Holding"
-        elif any(
-            kw in _nq
-            for kw in {
-                "currently holding",
-                "holding",
-            }
-        ):
-            subcategory = "HoldingEquipment"
-            operation = "Holding"
-        elif any(
-            kw in _nq
-            for kw in {"poor condition", "returned", "damaged", "broken"}
-        ):
-            subcategory = "PoorConditionEquipment"
-            operation = "Returned"
-        elif any(kw in _nq for kw in {"stats", "summary", "overview"}):
-            subcategory = "EquipmentSummary"
-            operation = "Stats"
+        _eq_type = entities.get("equipmentType")
+
+        if not entities.get("equipmentName"):
+            # No specific item mentioned — check if the user is asking about a
+            # type of equipment (issued / procured) generically.
+            if _eq_type == "IssuedItems" and operation != "Returned":
+                subcategory = "IssuedItems"
+                operation = "Issued"
+            elif _eq_type == "ProcuredItems" and operation != "Returned":
+                subcategory = "ProcuredItems"
+                operation = "Procured"
+            elif any(kw in _nq for kw in {"overdue"}):
+                subcategory = "OverdueEquipment"
+                operation = "Holding"
         else:
-            subcategory = "EquipmentSearch"
-            operation = "Search"
+            # Specific item name mentioned — decide operation from query context
+            if any(
+                kw in _nq
+                for kw in {
+                    "currently holding",
+                    "holding",
+                }
+            ):
+                subcategory = _eq_type or "HoldingEquipment"
+                operation = "Holding"
+            elif any(
+                kw in _nq
+                for kw in {"poor condition", "returned", "damaged", "broken"}
+            ):
+                subcategory = "PoorConditionEquipment"
+                operation = "Returned"
+            elif any(kw in _nq for kw in {"stats", "summary", "overview"}):
+                subcategory = "EquipmentSummary"
+                operation = "Stats"
+            else:
+                # Default: use the item's type as subcategory (IssuedItems / ProcuredItems)
+                # or fall back to EquipmentSearch if type is unknown.
+                subcategory = _eq_type or "EquipmentSearch"
+                operation = "Search"
+
 
     # Schedule override: a specific calendar date → bydate schedule.
     # Relative phrases like "today"/"tomorrow"/"this week" are handled by their

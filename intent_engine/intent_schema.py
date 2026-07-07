@@ -108,6 +108,8 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Returned",
             "Holding",
             "AgniveerWise",
+            "Issued",
+            "Procured",
         ]
     ),
     "Distribution": frozenset(
@@ -2228,6 +2230,8 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Equipment", "Returned"): "PoorConditionEquipment",
     ("Equipment", "Holding"): "HoldingEquipment",
     ("Equipment", "AgniveerWise"): "AgniveerWiseEquipment",
+    ("Equipment", "Issued"): "IssuedItems",
+    ("Equipment", "Procured"): "ProcuredItems",
     ("Distribution", "Latest"): "LatestDistribution",
     ("Distribution", "ByUnit"): "DistributionByUnit",
     ("Distribution", "Unassigned"): "UnassignedItems",
