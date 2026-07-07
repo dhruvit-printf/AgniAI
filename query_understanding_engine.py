@@ -157,6 +157,15 @@ _LEAVE_STATUS_MARKERS = (
     "on leave",
     "medical leave",
     "on medical leave",
+    "away right now",
+    "who is away",
+    "who are away right now",
+    "currently away",
+    "away today",
+    "absent right now",
+    "absent today",
+    "out right now",
+    "out today",
 )
 
 # Generic relative-clause connectors ("who", "with", "whose", "which", "that
