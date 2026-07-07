@@ -350,13 +350,20 @@ def generate_analysis(
 
         if is_empty:
             base_stats: Dict[str, Any] = {"record_count": 0}
+            no_match_message = "No matching records found."
             if query_type == "cross_filter":
                 base_stats["match_count"] = 0
+                # cross_filter_datasets() already distinguishes "a condition
+                # genuinely returned nothing" from "every condition matched
+                # records individually but none overlap" — use that specific
+                # message instead of implying the data doesn't exist.
+                if isinstance(combined_result, dict) and combined_result.get("message"):
+                    no_match_message = combined_result["message"]
             elif query_type in ("compare", "comparison"):
                 base_stats.update({"left_count": 0, "right_count": 0})
             elif query_type == "multi_independent":
                 base_stats["section_count"] = len(sections)
-            return _analysis_payload("No matching records found.", [], base_stats)
+            return _analysis_payload(no_match_message, [], base_stats)
 
         # ── Query-type branching ──────────────────────────────────────────
 

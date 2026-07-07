@@ -338,15 +338,23 @@ def get_fallback_report(
             ]
             conclusion = f"The cross-filter search is complete and the {match_count} matching records are ready for review."
         else:
-            message = (
-                "I checked the selected conditions, but no matching records were found."
-            )
-            summary = "The cross-filter search did not find any records that satisfy every selected condition."
+            # cross_filter_datasets() already distinguishes "a condition
+            # genuinely returned nothing" (message stays a plain "no records
+            # found") from "every condition matched records individually but
+            # none overlap" (message names what was found) — reuse it here
+            # instead of a message that implies the data doesn't exist.
+            no_overlap_message = (
+                combined_result.get("message")
+                if isinstance(combined_result, dict)
+                else None
+            ) or "No matching records found."
+            message = no_overlap_message
+            summary = no_overlap_message
             obs = ["The search did not return any overlapping records."]
             insights = [
                 "The selected conditions may be too narrow for the current set of records."
             ]
-            conclusion = "The cross-filter search did not return any matches. You may want to broaden the conditions and try again."
+            conclusion = no_overlap_message
     elif query_type in ("comparison", "compare"):
         sides = (
             combined_result.get("sides", [])
@@ -455,22 +463,40 @@ def generate_report(
 
     if not has_valid_data:
         fallback = get_fallback_report(combined_result, query_type, intent)
+
+        # cross_filter_datasets() already distinguishes "a condition
+        # genuinely returned nothing" from "every condition matched records
+        # individually but none overlap" and phrases the message accordingly
+        # — prefer that specific message over the generic fallback text.
+        no_match_message = (
+            combined_result.get("message")
+            if query_type == "cross_filter" and isinstance(combined_result, dict)
+            else None
+        ) or fallback.get("message") or "No matching records found."
+
+        analysis_summary = (
+            fallback.get("analysis", {}).get("summary") or no_match_message
+        )
+        conclusion_summary = (
+            fallback.get("conclusion", {}).get("summary") or no_match_message
+        )
+
         return {
-            "message": "No matching records found.",
+            "message": no_match_message,
             "analysis": {
-                "summary": "No matching records found.",
-                "insights": [],
+                "summary": analysis_summary,
+                "insights": fallback.get("analysis", {}).get("insights", []),
                 "statistics": {"record_count": 0},
             },
             "prediction": {
                 "trend": "Insufficient Data",
-                "projection": "No matching records were returned, so a reliable prediction is not available.",
+                "projection": no_match_message,
                 "heuristicEstimate": "Unavailable",
                 "shortTerm": "insufficient data",
                 "futureTrends": [],
             },
             "conclusion": {
-                "summary": "No matching records found.",
+                "summary": conclusion_summary,
                 "bullets": [],
             },
             "durations": {

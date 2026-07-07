@@ -363,7 +363,8 @@ def combine_results(
         logger.info(
             "result_combiner: cross_filter_datasets across %d sets", len(raw_results)
         )
-        return cross_filter_datasets(raw_results, primary_index=0)
+        labels = [label for label, _ in labeled_results] if labeled_results else None
+        return cross_filter_datasets(raw_results, primary_index=0, labels=labels)
     elif qtype_str in ("comparison", "compare"):
         logger.info(
             "result_combiner: compare_datasets across %d sides", len(labeled_results)

@@ -314,11 +314,22 @@ def _build_fallback_prediction(
     record_count = len(records)
 
     if record_count <= 0:
+        projection = f"Future projection is unavailable — no {category.lower()} records returned."
+        if (
+            query_type == "cross_filter"
+            and isinstance(combined_result, dict)
+            and combined_result.get("message")
+        ):
+            # cross_filter_datasets() already distinguishes a genuinely empty
+            # condition from "everything matched individually but nothing
+            # overlaps" — reuse that specific message instead of implying no
+            # data exists at all.
+            projection = combined_result["message"]
         return {
             "trend": "Stable",
             "trendConfidence": "Low",
             "momentum": 0.0,
-            "projection": f"Future projection is unavailable — no {category.lower()} records returned.",
+            "projection": projection,
             "heuristicEstimate": f"Insufficient data to estimate next-cycle performance for {category.lower()}.",
             "shortTerm": "stable",
             "futureTrends": [],

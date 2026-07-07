@@ -489,6 +489,9 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
 
 
 def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
+    category = _infer_category(text, entities)
+    if category == "Equipment" and (entities.get("agniveerNo") or entities.get("agniveer_no")):
+        return "byagniveer"
     if any(marker in text for marker in _COMPARISON_MARKERS):
         return "compare"
     if any(marker in text for marker in _RANKING_MARKERS):

@@ -362,7 +362,17 @@ def generate_conclusion(
         category = intent.get("category") or "Agniveer"
 
         if is_empty:
-            return {"summary": "No matching records found.", "bullets": []}
+            no_match_message = "No matching records found."
+            if (
+                query_type in ("cross_filter",)
+                and isinstance(combined_result, dict)
+                and combined_result.get("message")
+            ):
+                # cross_filter_datasets() already distinguishes a genuinely
+                # empty condition from "everything matched individually but
+                # nothing overlaps" — reuse that specific message.
+                no_match_message = combined_result["message"]
+            return {"summary": no_match_message, "bullets": []}
 
         bullets: List[str] = []
         qtype = (query_type or "").strip().lower()
