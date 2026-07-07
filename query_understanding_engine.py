@@ -142,6 +142,7 @@ _CROSS_FILTER_MARKERS = (
     "provided ",
     "whenever ",
     "depending on",
+    "from "
 )
 
 # Subset of the markers above with a dedicated fallback splitter one level up
