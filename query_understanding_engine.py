@@ -96,6 +96,18 @@ _CROSS_FILTER_MARKERS = (
     "who played",
     "who plays",
     "who is on leave",
+    "whose ",
+    "who are ",
+    "who is ",
+    "who were ",
+    "who was ",
+    "who ",
+    "that are ",
+    "that is ",
+    "which are ",
+    "which is ",
+    "whose ",
+    "that ",
     "currently on leave",
     "currently absent",
     "with medical",
@@ -940,6 +952,10 @@ def _extract_sub_requests(
         current = text
         for sep in (
             r"\bwho\b",
+            r"\bwhose\b",
+            r"\bwhom\b",
+            r"\bthat\b",
+            r"\bwhich\b",
             r"\bwith\b",
             r"\bamong\b",
             r"\bwithin\b",
@@ -1040,8 +1056,8 @@ def _extract_sub_requests(
             (
                 {
                     "fragment": p,
-                    "category": category,
-                    "operation": operation,
+                    "category": _infer_category(p, {}) or category,
+                    "operation": _infer_operation(p, {}) if _infer_operation(p, {}) != "lookup" else operation,
                     "entities": entities,
                 }
                 if idx == 0
