@@ -289,10 +289,10 @@ def classify_admin_intent(
 
     # Equipment Agniveer override: default to AgniveerWise when an agniveer number is passed
     if category == "Equipment" and entities.get("agniveerNo"):
-        operation = "byagniveer"
-        subcategory = "byagniveerEquipment"
+        operation = "AgniveerWise"
+        subcategory = "AgniveerWiseEquipment"
 
-    # Equipment item override: prefer the canonical Search / Returned / Holding /
+    # Equipment item override: prefer the canonical ByName / Returned / Holding /
     # Stats operations even when the query includes a specific equipment item name.
     if category == "Equipment":
         _nq = _normalise(raw_query)
@@ -303,10 +303,10 @@ def classify_admin_intent(
             # type of equipment (issued / procured) generically.
             if _eq_type == "IssuedItems" and operation != "Returned":
                 subcategory = "IssuedItems"
-                operation = "Issued"
+                operation = "ByName"
             elif _eq_type == "ProcuredItems" and operation != "Returned":
                 subcategory = "ProcuredItems"
-                operation = "Procured"
+                operation = "ByName"
             elif any(kw in _nq for kw in {"overdue"}):
                 subcategory = "HoldingEquipment"
                 operation = "Holding"
@@ -334,7 +334,7 @@ def classify_admin_intent(
                 # Default: use the item's type as subcategory (IssuedItems / ProcuredItems)
                 # or fall back to EquipmentSearch if type is unknown.
                 subcategory = _eq_type or "EquipmentSearch"
-                operation = "Search"
+                operation = "ByName"
 
 
     # Schedule override: a specific calendar date → bydate schedule.

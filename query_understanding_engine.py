@@ -145,6 +145,44 @@ _CROSS_FILTER_MARKERS = (
     "from "
 )
 
+# A clause introduced by a multi-independent marker ("additionally", "then",
+# "also", ...) that refers back to the PRIMARY request's result set — rather
+# than naming its own independent subject — is a dependent/nested request,
+# not a second independent one. E.g. "top 10 BPET performers, additionally
+# check whether any of them have rejected verification" must intersect the
+# verification check against those same 10 performers (cross_filter-style
+# execution), not run "top 10 performers" and "rejected verification" as two
+# unrelated legs. Anaphoric back-references ("them", "these", "those
+# selected", "the above") and bare validation verbs ("check/confirm/verify
+# whether", "see/find if") without their own named subject are the tell.
+_DEPENDENT_BACKREF_MARKERS = (
+    "any of them",
+    "of them",
+    "among them",
+    "between them",
+    "for those",
+    "of these",
+    "from the above",
+    "using these",
+    "these selected",
+    "those selected",
+    "the selected",
+    "the same agniveers",
+    "same set",
+)
+
+_VALIDATION_VERB_RE = re.compile(r"\b(?:check|confirm|verify|see|find)\s+(?:whether|if)\b")
+
+
+def _has_dependent_backref(text: str) -> bool:
+    """True when `text` anaphorically refers to a previously-named result set
+    (a dependent clause) rather than introducing its own independent subject.
+    """
+    if any(marker in text for marker in _DEPENDENT_BACKREF_MARKERS):
+        return True
+    return bool(_VALIDATION_VERB_RE.search(text))
+
+
 # Subset of the markers above with a dedicated fallback splitter one level up
 # in understand_query (keyed off this exact list). Kept as its own tuple so
 # other splitting paths can check "is this a leave-status phrase" without
@@ -329,6 +367,7 @@ class QueryUnderstanding:
     entities: Dict[str, Any] = field(default_factory=dict)
     comparison_intent: bool = False
     cross_filter_intent: bool = False
+    dependent_intent: bool = False
     sub_requests: List[Dict[str, Any]] = field(default_factory=list)
     conversational: bool = False
 
@@ -814,6 +853,51 @@ def _extract_sub_requests(
     operation: str,
     entities: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
+    # Dependent/nested clause ("...additionally check whether any of them...")
+    # — split on the connecting marker first. None of the generic cross-filter
+    # cutpoints below (who/with/among/...) appear in this phrasing, so without
+    # this branch the whole query falls through as a single un-split
+    # fragment and the dependent leg (e.g. the verification check) is lost.
+    if _has_dependent_backref(text):
+        for marker in _MULTI_INDEPENDENT_MARKERS:
+            if marker not in text:
+                continue
+            parts = [p.strip(" ,.") for p in text.split(marker) if p.strip(" ,.")]
+            if len(parts) >= 2 and _has_dependent_backref(parts[-1]):
+                head = parts[0]
+                tail = " ".join(parts[1:])
+                # A dependent tail can itself contain further siblings —
+                # "Then tell me which of them are medically unfit. Also show
+                # their attendance." — every clause after the primary request
+                # is a dependent child of it, not nested further, so split
+                # the tail on any remaining marker into flat sibling
+                # fragments instead of leaving them merged into one.
+                tail_fragments = _split_on_connectors(tail, list(_MULTI_INDEPENDENT_MARKERS))
+                if len(tail_fragments) < 2:
+                    tail_fragments = [tail]
+                result = [
+                    {
+                        "fragment": head,
+                        "category": category,
+                        "operation": operation,
+                        "entities": entities,
+                    }
+                ]
+                for frag in tail_fragments:
+                    frag_clean = frag.strip(" ,.")
+                    if not frag_clean:
+                        continue
+                    result.append(
+                        {
+                            "fragment": frag_clean,
+                            "category": _infer_category(frag_clean, {}),
+                            "operation": _infer_operation(frag_clean, {}),
+                            "entities": entities,
+                        }
+                    )
+                if len(result) >= 2:
+                    return result
+
     if operation == "compare":
         comparator_split = re.split(
             r"\b(?:compare|comparison)\b", text, maxsplit=1, flags=re.IGNORECASE
@@ -1062,22 +1146,46 @@ def understand_query(query: str) -> Dict[str, Any]:
     # single-request phrasing that the word alone proves nothing; the gate is
     # what makes this reliable, not the vocabulary.
     multi_intent = False
+    dependent_intent = False
+    # First pass: does splitting on ANY marker reveal a dependent
+    # back-reference in a later clause? Checked across every marker (not just
+    # the first one present) because a 3+ clause chain — "Find the top 20
+    # performers. Then tell me which of them are medically unfit. Also show
+    # their attendance." — only exposes the "of them" back-reference when
+    # split on "then"; splitting on the earlier-matching "also" first would
+    # hide it and wrongly fall through to multi_intent classification below.
     for marker in _MULTI_INDEPENDENT_MARKERS:
         if marker not in text:
             continue
         clause_parts = [
             part.strip(" ,") for part in text.split(marker) if part.strip(" ,")
         ]
-        if len(clause_parts) >= 2 and _distinct_category_count(clause_parts) >= 2:
-            multi_intent = True
+        if len(clause_parts) >= 2 and any(
+            _has_dependent_backref(part) for part in clause_parts[1:]
+        ):
+            dependent_intent = True
             break
 
-    if not multi_intent and " and " in text:
+    if not dependent_intent:
+        for marker in _MULTI_INDEPENDENT_MARKERS:
+            if marker not in text:
+                continue
+            clause_parts = [
+                part.strip(" ,") for part in text.split(marker) if part.strip(" ,")
+            ]
+            if len(clause_parts) >= 2 and _distinct_category_count(clause_parts) >= 2:
+                multi_intent = True
+                break
+
+    if not multi_intent and not dependent_intent and " and " in text:
         clause_parts = [
             part.strip(" ,") for part in text.split(" and ") if part.strip(" ,")
         ]
-        if len(clause_parts) >= 2 and _distinct_category_count(clause_parts) >= 2:
-            multi_intent = True
+        if len(clause_parts) >= 2:
+            if any(_has_dependent_backref(part) for part in clause_parts[1:]):
+                dependent_intent = True
+            elif _distinct_category_count(clause_parts) >= 2:
+                multi_intent = True
 
     confidence = 0.18
     if operation != "lookup":
@@ -1111,6 +1219,16 @@ def understand_query(query: str) -> Dict[str, Any]:
         query_type = "cross_filter"
         complexity = "cross_filter"
         intent_kind = "cross_filter"
+    elif dependent_intent:
+        # A back-referencing clause ("...additionally check whether any of
+        # them...") is a nested/dependent request, not an independent second
+        # query — it must be intersected against the primary request's result
+        # set, exactly like cross_filter. Execution reuses the cross_filter
+        # machinery; intent_kind stays "nested" so the distinction is visible
+        # in telemetry/canonical output.
+        query_type = "cross_filter"
+        complexity = "nested"
+        intent_kind = "nested"
     elif multi_intent:
         query_type = "multi_independent"
         complexity = "multi_independent"
@@ -1221,6 +1339,7 @@ def understand_query(query: str) -> Dict[str, Any]:
         entities=entities,
         comparison_intent=comparison_intent,
         cross_filter_intent=cross_filter_intent,
+        dependent_intent=dependent_intent,
         sub_requests=sub_requests,
         conversational=False,
     )
