@@ -1020,7 +1020,16 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
 
     op = _build_sub_operation(q)
     filters = build_filters_from_entities(op.intent_result.get("filters", {}))
-    confidence = max(0.3, float(semantic.get("confidence") or 0.0))
+    # semantic.get("confidence") alone badly under-represents queries that
+    # classify_intent() already resolved correctly and confidently (e.g.
+    # "give details of A0701763P" -> personaldetail/info at 0.52) — the
+    # semantic-understanding score is a separate, more conservative signal
+    # and must not silently override a real classification result.
+    confidence = max(
+        0.3,
+        float(semantic.get("confidence") or 0.0),
+        float(op.intent_result.get("confidence_score") or 0.0),
+    )
     if (
         semantic.get("operation") == "ranking"
         or semantic.get("query_type") == "ranking"
