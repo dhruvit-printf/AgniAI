@@ -118,6 +118,29 @@ _DATE_ENTITY_PATTERN = re.compile(
 _AGNIVEER_NO_PATTERN = re.compile(r"\b[A-Z]?\d{5,8}[A-Z]?\b")
 
 
+def _is_explicit_continuation_phrase(msg: str) -> bool:
+    """
+    True when the message is structurally a filter/continuation/pronoun
+    phrase ("only platoon 2", "same but for company alpha", "show them").
+    In that case any entity inside it is refining the previous query, not
+    stating a brand-new standalone one, so the entity guard below must not
+    override it.
+    """
+    norm = _normalize(msg)
+    tokens = _tokenize(msg)
+    if re.match(r"^(only|just|for|from|show only|show for)\s+", norm):
+        return True
+    for phrase in _EXPLICIT_FOLLOWUP_PHRASES:
+        if phrase in norm:
+            return True
+    if _has_pronoun(tokens):
+        return True
+    for tok in _CONTINUATION_TOKENS:
+        if norm.startswith(tok + " ") or norm == tok:
+            return True
+    return False
+
+
 def _has_new_entity(msg: str) -> bool:
     """Return True if the message contains a freshly typed entity that makes it an
     independent query, not a follow-up.  Uses simple patterns to avoid importing the
@@ -652,13 +675,23 @@ class ConversationContextEngine:
         if not history:
             return _fresh
 
-        # Step 1 — decide if this is a follow-up
+        # Step 1 — decide if this is a follow-up. Scores >= 0.35 are at least
+        # "uncertain" (see _compute_follow_up_score docstring) and are worth
+        # checking against history — the weak-relevance guard below and the
+        # ambiguity check handle the low end of that range, so a message
+        # doesn't need to clear the full 0.55 "confirmed follow-up" bar just
+        # to be eligible for ambiguity detection.
         follow_up_score = _compute_follow_up_score(raw_message)
-        if follow_up_score < 0.55:
+        if follow_up_score < 0.35:
             return _fresh
 
-        # Entity guard: a message with freshly stated entities is always a new question
-        if _has_new_entity(raw_message):
+        # Entity guard: a message with freshly stated entities is a new
+        # question — UNLESS the message is structurally a filter/continuation
+        # phrase ("only platoon 2"), where the entity is refining the
+        # previous query rather than starting an unrelated one.
+        if _has_new_entity(raw_message) and not _is_explicit_continuation_phrase(
+            raw_message
+        ):
             logger.debug(
                 "context_engine.resolve: entity guard triggered — treating as fresh "
                 "| session=%s | follow_up_score=%.2f | msg=%r",
@@ -730,19 +763,31 @@ class ConversationContextEngine:
         # companyId/platoonId/etc. leaking across an unrelated follow-up).
         _matched_cat = best_record.category
         _classification_failed = False
-        # Import inline to avoid circular dependency at module level
-        try:
-            from intent_engine.intent_classifier import classify_intent as _clf
-            _cur_intent = _clf(raw_message)
-            _cur_cat = _cur_intent.get("category")
-        except Exception:
-            logger.warning(
-                "context_engine.resolve: inline classify_intent failed during "
-                "carry-forward category check | session=%s | msg=%r",
-                session_id, raw_message, exc_info=True,
-            )
-            _cur_cat = None
-            _classification_failed = True
+        _cur_cat: Optional[str] = None
+
+        # Only reclassify when the message itself contains an explicit domain
+        # keyword. A bare filter fragment ("only platoon 2", "for company
+        # alpha") has no category signal of its own — re-classifying it in
+        # isolation lets the fuzzy matcher latch onto an unrelated category
+        # (e.g. "platoon" alone gets fuzzy-matched to "Strength" at medium
+        # confidence) purely because a unit/number was mentioned, which then
+        # incorrectly looks like a topic change and discards a legitimate
+        # follow-up. A real topic change ("now show leave records") always
+        # carries its own domain keyword, so this still catches genuine
+        # switches without misfiring on plain filters.
+        if _has_domain_keyword(_tokenize(raw_message)):
+            # Import inline to avoid circular dependency at module level
+            try:
+                from intent_engine.intent_classifier import classify_intent as _clf
+                _cur_intent = _clf(raw_message)
+                _cur_cat = _cur_intent.get("category")
+            except Exception:
+                logger.warning(
+                    "context_engine.resolve: inline classify_intent failed during "
+                    "carry-forward category check | session=%s | msg=%r",
+                    session_id, raw_message, exc_info=True,
+                )
+                _classification_failed = True
 
         # A classification failure must fail CLOSED (treat as a topic change, do
         # not carry forward) rather than silently defaulting to "same category".

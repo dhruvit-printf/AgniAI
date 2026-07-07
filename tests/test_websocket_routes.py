@@ -187,7 +187,7 @@ class TestProgressCallback:
             ) as mock_exec,
         ):
 
-            def fake_pipeline(user_query, body, progress_callback, trace_id):
+            def fake_pipeline(user_query, body, session_id, progress_callback, trace_id):
                 for stage in ["planner", "intent", "dotnet", "combiner", "report"]:
                     progress_callback(stage)
                 return mock_result

@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 from grounding_utils import ground_and_sanitize as _ground_and_sanitize
 from normalized_models import humanize_category
+from utils import categorical_breakdown as _categorical_breakdown
 from utils import get_score as _get_score
 from utils import safe_float as _safe_float
 
@@ -593,6 +594,26 @@ def generate_analysis(
                 insights = [
                     f"The query returned {len(all_records)} {category_label} records."
                 ]
+
+                breakdown = _categorical_breakdown(all_records)
+                if breakdown:
+                    parts = ", ".join(
+                        f"{item['count']} {item['value']}"
+                        for item in breakdown["breakdown"]
+                    )
+                    summary = (
+                        f"Matched {len(all_records)} {category_label} records — "
+                        f"by {breakdown['field']}: {parts}."
+                    )
+                    insights = [f"Breakdown by {breakdown['field']}: {parts}."]
+                    if breakdown["attention"]:
+                        att = ", ".join(
+                            f"{a['count']} {a['value']}" for a in breakdown["attention"]
+                        )
+                        insights.append(
+                            f"{att} — flagged for follow-up out of {breakdown['total']} records."
+                        )
+                    stats["categorical_breakdown"] = breakdown
 
         return _analysis_payload(summary, insights, stats)
 

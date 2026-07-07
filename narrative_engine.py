@@ -243,6 +243,50 @@ def _humanize_pascal(match: "re.Match") -> str:
     return spoken[0].lower() + spoken[1:] + " records"
 
 
+def _dedupe_sentences(text: str) -> str:
+    """Drop sentences that repeat (case/punctuation-insensitive) an earlier
+    sentence in the same field — guards against a weak model padding a thin
+    fact set by restating the one sentence it has."""
+    if not text:
+        return text
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    seen: set = set()
+    out: List[str] = []
+    for p in parts:
+        key = p.strip().lower().rstrip(".!?")
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(p)
+    return " ".join(out)
+
+
+def _looks_like_concatenation(
+    summary: str, analysis: str, prediction: str, conclusion: str
+) -> bool:
+    """Detect a "summary" that's just the other three fields glued together
+    instead of a fresh executive line — 2+ of its sentences appearing
+    verbatim in the other fields is a clear tell."""
+    if not summary:
+        return False
+    summary_sents = [
+        s.strip().lower().rstrip(".!?")
+        for s in re.split(r"(?<=[.!?])\s+", summary)
+        if s.strip()
+    ]
+    if len(summary_sents) < 2:
+        return False
+    other_sents = {
+        s.strip().lower().rstrip(".!?")
+        for other in (analysis, prediction, conclusion)
+        for s in re.split(r"(?<=[.!?])\s+", other or "")
+        if s.strip()
+    }
+    overlap = sum(1 for s in summary_sents if s in other_sents)
+    return overlap >= 2
+
+
 def _scrub(text: str) -> str:
     """Strip banned boilerplate; tidy whitespace; re-capitalise the opener."""
     if not text:
@@ -270,6 +314,7 @@ def _scrub(text: str) -> str:
     )
     # Restore a space if scrubbing glued two sentences together
     out = re.sub(r"([.!?])([A-Z])", r"\1 \2", out)
+    out = _dedupe_sentences(out)
     return out
 
 # ---------------------------------------------------------------------------
@@ -512,4 +557,14 @@ def generate_narratives(
         )
 
     # Per-field merge: LLM where valid, polished static otherwise
-    return {f: _scrub(llm_fields.get(f) or fallbacks.get(f) or "") for f in _FIELDS}
+    merged = {f: _scrub(llm_fields.get(f) or fallbacks.get(f) or "") for f in _FIELDS}
+
+    # "summary" must be a fresh 5-second read, not the other fields glued
+    # together — a known failure mode when the underlying facts are thin
+    # (nothing else to say, so the model pastes the other fields).
+    if _looks_like_concatenation(
+        merged["summary"], merged["analysis"], merged["prediction"], merged["conclusion"]
+    ):
+        merged["summary"] = _scrub(fallbacks["summary"])
+
+    return merged

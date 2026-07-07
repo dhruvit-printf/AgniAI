@@ -716,7 +716,12 @@ def generate_suggested_questions(
         return []
 
     subcategory = (intent.get("subcategory") or "").strip()
-    qtype = QTYPE_NORMALIZE.get((query_type or "").strip().lower(), "simple")
+    # Only cross-filter style follow-ups are suggested: multiple conditions
+    # applied to the *same* record set are inherently related to each other.
+    # simple / compare / multi_independent suggestions are not offered —
+    # a compare or a side-by-side section dump isn't a natural next step
+    # off of an arbitrary query, whereas "who else matches this + that" is.
+    qtype = "cross_filter"
 
     ctx = _extract_context(combined_result, intent)
 

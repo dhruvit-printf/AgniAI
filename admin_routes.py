@@ -142,7 +142,9 @@ def admin_chat():
     )
 
     # ── Call the unified pipeline ───────────────────────────────────────────
-    result = execute_admin_query(user_query=message, body=body, trace_id=trace_id)
+    result = execute_admin_query(
+        user_query=message, body=body, session_id=session_id, trace_id=trace_id
+    )
     if not isinstance(result, dict):
         result = {}
 

@@ -104,6 +104,7 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
         result = execute_admin_query(
             user_query=message,
             body=body,
+            session_id=session_id,
             progress_callback=emit_progress,
             trace_id=trace_id,
         )

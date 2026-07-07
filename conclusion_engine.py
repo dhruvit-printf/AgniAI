@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+from utils import categorical_breakdown as _categorical_breakdown
 from utils import get_score as _get_score
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -541,6 +542,27 @@ def generate_conclusion(
                         "Overall verdict: the set is performing at or above standard, with no "
                         "records currently flagged for concern."
                     )
+            else:
+                breakdown = _categorical_breakdown(records)
+                if breakdown:
+                    parts = ", ".join(
+                        f"{item['value']}: {item['count']}"
+                        for item in breakdown["breakdown"]
+                    )
+                    bullets.append(f"Breakdown by {breakdown['field']} — {parts}.")
+                    if breakdown["attention"]:
+                        att = ", ".join(
+                            f"{a['count']} {a['value']}" for a in breakdown["attention"]
+                        )
+                        bullets.append(
+                            f"Overall verdict: {att} out of {breakdown['total']} record(s) "
+                            f"need follow-up."
+                        )
+                    else:
+                        bullets.append(
+                            "Overall verdict: no records in this set are flagged for "
+                            "immediate attention."
+                        )
 
         # Cap at 5 bullets to allow named highlights plus a closing verdict
         bullets = bullets[:5]

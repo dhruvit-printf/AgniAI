@@ -241,6 +241,83 @@ def build_filters_from_entities(entities: Dict[str, Any]) -> Dict[str, Any]:
     return filters
 
 
+_ATTENTION_KEYWORDS = (
+    "overdue", "pending", "rejected", "disqualified", "absconded", "poor",
+    "damaged", "lost", "expired", "failed", "not responded", "notresponded",
+    "awol", "missing", "unassigned", "declined",
+)
+
+_CATEGORICAL_SKIP_HINTS = (
+    "id", "no", "number", "name", "date", "time", "url", "link", "guid",
+    "email", "phone", "remark", "comment", "description", "address",
+)
+
+
+def categorical_breakdown(
+    records: List[Dict[str, Any]],
+    limit: int = 5,
+) -> Optional[Dict[str, Any]]:
+    """
+    Find the most informative low-cardinality string field across *records*
+    (e.g. status/condition/grade) and return its value distribution.
+
+    Schema-agnostic — makes no assumption about field names, so it works for
+    any category (equipment, skills, medical, ...) not just score-bearing
+    ones. Returns None if no informative field is found.
+    """
+    if not records:
+        return None
+    n = len(records)
+    max_card = max(2, min(8, n))
+
+    field_values: Dict[str, List[str]] = {}
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        for k, v in r.items():
+            key = k.lower()
+            if any(hint in key for hint in _CATEGORICAL_SKIP_HINTS):
+                continue
+            if isinstance(v, bool) or v is None:
+                continue
+            if isinstance(v, str) and v.strip():
+                field_values.setdefault(k, []).append(v.strip())
+
+    best_field: Optional[str] = None
+    best_values: List[str] = []
+    best_card: Optional[int] = None
+    for field, values in field_values.items():
+        if len(values) < max(2, n * 0.6):
+            continue  # too sparse to be meaningful
+        distinct = set(values)
+        card = len(distinct)
+        if card < 2 or card > max_card:
+            continue
+        if best_card is None or card < best_card:
+            best_field, best_values, best_card = field, values, card
+
+    if not best_field:
+        return None
+
+    counts: Dict[str, int] = {}
+    for v in best_values:
+        counts[v] = counts.get(v, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: -kv[1])[:limit]
+
+    attention = [
+        {"value": val, "count": cnt}
+        for val, cnt in ranked
+        if any(kw in val.lower() for kw in _ATTENTION_KEYWORDS)
+    ]
+
+    return {
+        "field": best_field,
+        "breakdown": [{"value": v, "count": c} for v, c in ranked],
+        "total": len(best_values),
+        "attention": attention,
+    }
+
+
 def has_any_data(records: List[Dict[str, Any]]) -> bool:
     """Check if the list of records contains any non-empty data."""
     if not records:

@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 from grounding_utils import ground_and_sanitize as _ground_and_sanitize
+from utils import categorical_breakdown as _categorical_breakdown
 from utils import get_score as _get_score
 from utils import safe_float as _safe_float
 
@@ -701,9 +702,30 @@ def generate_predictions(
                     )
             else:
                 short_term = "stable"
-                future_trends.append(
-                    f"The {category.lower()} record count of {total_points} is expected to remain stable."
-                )
+                breakdown = _categorical_breakdown(target_records)
+                if breakdown:
+                    top = breakdown["breakdown"][0]
+                    share = (
+                        round((top["count"] / breakdown["total"]) * 100, 1)
+                        if breakdown["total"]
+                        else 0
+                    )
+                    confidence = "Medium"
+                    future_trends.append(
+                        f"By {breakdown['field']}, {top['value']} accounts for {top['count']} of "
+                        f"{total_points} records ({share}%) and is expected to remain the dominant "
+                        f"group next cycle."
+                    )
+                    if breakdown["attention"]:
+                        att = breakdown["attention"][0]
+                        future_trends.append(
+                            f"{att['count']} record(s) marked {att['value']} should be resolved "
+                            f"or monitored before the next cycle."
+                        )
+                else:
+                    future_trends.append(
+                        f"The {category.lower()} record count of {total_points} is expected to remain stable."
+                    )
 
         # ── Sanitize trends — cap BEFORE loop (save work) ─────────────────
         future_trends = future_trends[:5]
