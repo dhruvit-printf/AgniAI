@@ -129,10 +129,10 @@ _CATALOG: List[Tuple[str, str, str]] = [
     ("Overall", "OverallPerformance", "composite score across all criteria"),
     ("Overall", "OverallPerformance", "holistic performance of the batch"),
     # Schedul
-    ("Schedule", "byToday", "show today's agenda for the company"),
-    ("Schedule", "byCompany", "schedule for company 2 this week"),
-    ("Schedule", "byDate", "training schedule for a specific date"),
-    ("Schedule", "byAgniveer", "schedule for a particular agniveer"),
+    ("Schedule", "bytoday", "show today's agenda for the company"),
+    ("Schedule", "bycompany", "schedule for company 2 this week"),
+    ("Schedule", "bydate", "training schedule for a specific date"),
+    ("Schedule", "byagniveer", "schedule for a particular agniveer"),
     # personaldetail
     ("personaldetail", "info", "personal details of agniveer 12345"),
     ("personaldetail", "info", "contact information and profile of an agniveer"),

@@ -81,6 +81,7 @@ class DotNetPayloadModel(BaseModel):
     date: Optional[str] = None
     bloodGroup: Optional[str] = None
     equipmentName: Optional[str] = None
+    equipmentType: Optional[str] = None
     companyId: Optional[int] = None
     platoonId: Optional[int] = None
     batchId: Optional[int] = None

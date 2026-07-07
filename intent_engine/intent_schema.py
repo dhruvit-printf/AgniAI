@@ -1727,7 +1727,7 @@ CATEGORY_ENTITY_COMPATIBILITY: Dict[str, Set[str]] = {
     "Attendance": {"date", "fromDate", "toDate", "sport", "class"},
     "Verification": {"sport", "class"},
     "Strength": {"section"},
-    "Equipment": {"equipmentName", "itemName", "itemCategory", "sport", "class"},
+    "Equipment": {"equipmentName", "equipmentType", "itemName", "itemCategory", "sport", "class"},
     "Distribution": {"sport", "class"},
     "Skills": {"sport", "class", "section", "subSection"},
     "Overall": {"sport", "class"},

@@ -413,6 +413,19 @@ def _extract_equipment_item(query: str) -> Optional[str]:
     return best_item
 
 
+def _extract_equipment_type(query: str) -> Optional[str]:
+    """Extract equipment type (IssuedItems / ProcuredItems) from query keywords."""
+    query_lower = _normalise(query)
+    _ISSUED_HINTS = ("issued", "issue", "currently issued")
+    _PROCURED_HINTS = ("procured", "purchased", "bought")
+    for hint in _ISSUED_HINTS:
+        if hint in query_lower:
+            return "IssuedItems"
+    for hint in _PROCURED_HINTS:
+        if hint in query_lower:
+            return "ProcuredItems"
+    return None
+
 def _extract_date_patterns(query: str) -> Optional[str]:
     query_lower = _normalise(query)
 
@@ -680,6 +693,7 @@ CANONICAL_ENTITY_KEYS = frozenset(
         "bmiCategory",
         "bloodGroup",
         "equipmentName",
+        "equipmentType",
         "sport",
         "class",
         "unitName",
@@ -864,6 +878,7 @@ def extract_entities(
         "bmiCategory": None,
         "bloodGroup": None,
         "equipmentName": None,
+        "equipmentType": None,
         "sport": None,
         "class": None,
         "unitName": None,
@@ -889,6 +904,15 @@ def extract_entities(
     result["sport"] = _extract_sport(raw_query)
     result["class"] = _extract_class(raw_query)
     result["equipmentName"] = _extract_equipment_item(raw_query)
+    # equipmentType: first try to extract from keywords ("issued"/"procured"),
+    # then fall back to deriving from the matched equipment item name.
+    eq_type = _extract_equipment_type(raw_query)
+    if eq_type is None and result["equipmentName"]:
+        if result["equipmentName"] in ISSUED_EQUIPMENT_ITEMS:
+            eq_type = "IssuedItems"
+        elif result["equipmentName"] in PROCURED_EQUIPMENT_ITEMS:
+            eq_type = "ProcuredItems"
+    result["equipmentType"] = eq_type
     result["unitName"] = _extract_unit_name(raw_query)
     result["attemptNo"] = _extract_attempt_no(raw_query)
     result["fromAttempt"] = _extract_from_attempt(raw_query)

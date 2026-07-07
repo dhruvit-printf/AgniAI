@@ -42,6 +42,7 @@ def build_ai_command_request_dto(
         "bmiCategory": "bmiCategory",
         "bloodGroup": "bloodGroup",
         "equipmentName": "equipmentName",
+        "equipmentType": "equipmentType",
         "sport": "sport",
         "class": "class",
         "unitName": "unitName",

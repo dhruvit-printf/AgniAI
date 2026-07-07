@@ -22,6 +22,7 @@ from .intent_schema import (
     OFFICIAL_CATEGORIES,
     OPERATION_SYNONYMS,
     OPERATIONS_BY_CATEGORY,
+    RELATIVE_DATE_PHRASES,
     RESPONSE_TYPE_DEFAULT,
 )
 
@@ -756,9 +757,17 @@ def _should_entity_override_operation(
         # fall back to a bare keyword check. Checked before Agniveer/Date so
         # "schedule of agniveer X's company" style text still prefers the
         # more specific agniveerNo/date entity when both are present.
+        #
+        # A relative phrase ("this week", "today", ...) is a weak, generic
+        # time-scope modifier — it must NOT preempt an explicit company/
+        # agniveer mention just because it happened to land in the `date`
+        # entity (e.g. "company 2 schedule this week" must stay bycompany,
+        # not fall through to bydate).
+        date_val = str(entities.get("date") or "").lower()
+        is_specific_date = bool(date_val) and date_val not in RELATIVE_DATE_PHRASES
         if _entity_present(entities, "agniveerNo"):
             return True, "byagniveer", "Schedule query for a specific agniveer"
-        if _entity_present(entities, "date"):
+        if is_specific_date:
             return True, "bydate", "Schedule query for a specific date"
         if re.search(r"\b(company|coy)\b", query_text, re.IGNORECASE):
             return True, "bycompany", "Schedule query mentions a company"
