@@ -1031,6 +1031,14 @@ def understand_query(query: str) -> Dict[str, Any]:
         if len(set(_cf_cats[:3])) >= 2:
             cross_filter_intent = True
 
+    # "which <group> has the most/highest/lowest ..." asks to RANK groups by
+    # a single metric (a distribution/group-by question) — not to intersect
+    # two independent conditions. Without this guard, the group word (e.g.
+    # "unit") and the metric word (e.g. "absconded") register as two
+    # distinct categories and wrongly satisfy the cross-filter gate above.
+    if re.search(r"\bwhich\s+\w+\s+has\s+(?:the\s+)?(?:most|highest|lowest|least)\b", text):
+        cross_filter_intent = False
+
     def _distinct_category_count(clause_parts: List[str]) -> int:
         clause_categories = []
         for part in clause_parts:

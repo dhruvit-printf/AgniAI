@@ -334,6 +334,12 @@ def _score_category(
         score += 35
     if category == "Performance" and _phrase_score(query_text, "grade distribution"):
         score += 25
+    if category == "Overall" and _phrase_score(query_text, "overall performance"):
+        # "overall performance ranking" otherwise loses to Performance —
+        # "performance" alone is a strong, common Performance keyword, but
+        # "overall performance" as a compound phrase means the composite
+        # ranking, not a Performance-category lookup.
+        score += 60
     return score
 
 
@@ -598,7 +604,24 @@ def _should_entity_override_category(
     if not entities:
         return False, None, "no entities present"
 
-    # Confidence guard FIRST — if the classifier is already confident, trust it.
+    # A named equipment item is matched against a curated, unambiguous list
+    # (ISSUED_EQUIPMENT_ITEMS / PROCURED_EQUIPMENT_ITEMS) — unlike the
+    # heuristic keyword-score signals below, it's precise enough that it
+    # must win even when the classifier is otherwise "confident" about a
+    # different category purely because the item's name happens to overlap
+    # with an unrelated category's keywords (e.g. "swimming costumes" ~
+    # Skills' "swimming", "health card" ~ Medical's "health").
+    if (
+        _entity_present(entities, "equipmentName")
+        and classified_category != "Equipment"
+    ):
+        return (
+            True,
+            "Equipment",
+            "equipmentName entity present (curated item list — overrides confidence)",
+        )
+
+    # Confidence guard — if the classifier is already confident, trust it.
     if confidence_score >= 0.45:
         return (
             False,
@@ -608,15 +631,6 @@ def _should_entity_override_category(
 
     if _entity_present(entities, "leaveType") and classified_category != "Leave":
         return True, "Leave", "leaveType entity present"
-    if (
-        _entity_present(entities, "equipmentName")
-        and classified_category != "Equipment"
-    ):
-        return (
-            True,
-            "Equipment",
-            "equipmentName entity present",
-        )
     if (
         _entity_present(
             entities, "bmiCategory", "bloodGroup", "medicalStatus", "diagnose"

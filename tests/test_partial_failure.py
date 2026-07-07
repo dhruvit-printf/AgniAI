@@ -34,31 +34,34 @@ class TestPartialFailure(unittest.TestCase):
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
 
-        # Checked processed data has degraded == True and failedFilters
-        processed = response_payload["formattedData"][1]["data"]
-        self.assertTrue(processed.get("degraded"))
-        self.assertEqual(processed.get("failedFilters"), ["Skills"])
-
-        # Find the TABLE widget in formattedData for row and match assertions
-        table_widget = next(
-            w for w in response_payload["formattedData"] if w["type"] == "TABLE"
-        )
+        # A single widget is returned bare, not wrapped in a list — see
+        # response_builder.py's module docstring. degraded/failedFilters
+        # live directly inside that widget's data.
+        table_widget = response_payload["formattedData"]
+        self.assertEqual(table_widget["type"], "TABLE")
         table_data = table_widget["data"]
+        self.assertTrue(table_data.get("degraded"))
+        self.assertEqual(table_data.get("failedFilters"), ["Skills"])
         self.assertEqual(table_data["matchCount"], 1)
         self.assertEqual(
-            table_data["rows"][0].get("agniveerNo")
-            or table_data["rows"][0].get("AgniveerNo"),
+            table_data["row"][0].get("agniveerNo")
+            or table_data["row"][0].get("AgniveerNo"),
             "102",
         )
 
     @patch("admin_pipeline._call_dotnet")
     @patch("admin_pipeline.generate_report")
     def test_comparison_side_failure(self, mock_generate_report, mock_call_dotnet):
-        # Comparison: one side succeeds, one side fails
-        mock_call_dotnet.side_effect = [
-            ([{"id": 1, "bestTotal": 95}], None),  # PPT
-            (None, "Timeout on BEPT"),  # BEPT (Fails)
-        ]
+        # Comparison: one side succeeds, one side fails. Both sides run in
+        # parallel threads, so the mock must key off the actual payload
+        # (which section it's for) rather than assuming call order — a
+        # plain sequential side_effect list races and is flaky.
+        def side_effect(payload, *args, **kwargs):
+            if payload.get("section") == "PPT":
+                return [{"id": 1, "bestTotal": 95}], None
+            return None, "Timeout on BEPT"
+
+        mock_call_dotnet.side_effect = side_effect
         mock_generate_report.return_value = {
             "introMessage": "Report.",
             "analysis": {"summary": "Analysis", "observations": [], "insights": []},
@@ -71,17 +74,20 @@ class TestPartialFailure(unittest.TestCase):
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
 
-        widgets = response_payload["formattedData"]
-        self.assertEqual(widgets[0]["type"], "COMPARE_TABLE")
-        self.assertEqual(len(widgets), 1)
+        # A single widget is returned bare, not wrapped in a list — see
+        # response_builder.py's module docstring.
+        widget = response_payload["formattedData"]
+        self.assertEqual(widget["type"], "COMPARE_TABLE")
 
         # PPT (left side) succeeds and has 1 row
-        left_table = widgets[0]["data"]["left"]
-        self.assertEqual(len(left_table["rows"]), 1)
+        left_table = widget["data"]["left"]
+        self.assertEqual(len(left_table["row"]), 1)
 
-        # BEPT (right side) failed and has 0 rows
-        right_table = widgets[0]["data"]["right"]
-        self.assertEqual(len(right_table["rows"]), 0)
+        # BEPT (right side) failed — rendered as a single "unavailable"
+        # placeholder row rather than an empty table.
+        right_table = widget["data"]["right"]
+        self.assertEqual(len(right_table["row"]), 1)
+        self.assertTrue(right_table["row"][0].get("unavailable"))
 
         # Failed sections metadata is populated
         self.assertEqual(response_payload["failedSections"], ["BPET"])

@@ -264,12 +264,9 @@ def _extract_leave_type(query: str) -> Optional[str]:
             if key == "medical" and "medical leave" not in query_lower:
                 continue
             if key == "threshold" and not _has_threshold_filter_signal(query_lower):
-                # Bare mention of "threshold" as an incidental reason ("least
-                # leaves due to threshold issue") is not a request to filter
-                # by the threshold leave type — only a real proximity/limit
-                # phrase ("near the threshold", "above the leave limit")
-                # should trigger it.
-                continue
+                # We used to ignore bare "threshold" mentions, but the user explicitly
+                # wants "threshold" to map to the Threshold leave type.
+                pass
             return value
     return None
 

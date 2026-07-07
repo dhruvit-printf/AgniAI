@@ -264,6 +264,20 @@ def classify_admin_intent(
     category = intent_result.get("category")
     operation: Optional[str] = intent_result.get("operation")
 
+    if category is None:
+        if entities.get("leaveType"):
+            category = "Leave"
+            intent_result["category"] = category
+        elif entities.get("sport") or entities.get("class"):
+            category = "Skills"
+            intent_result["category"] = category
+        elif entities.get("bmiCategory") or entities.get("bloodGroup") or entities.get("diagnose") or entities.get("medicalStatus"):
+            category = "Medical"
+            intent_result["category"] = category
+        elif entities.get("equipmentName"):
+            category = "Equipment"
+            intent_result["category"] = category
+
     if category == "Leave" and entities.get("leaveType") == "Threshold":
         operation = "Current"
 

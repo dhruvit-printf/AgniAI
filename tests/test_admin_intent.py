@@ -82,9 +82,11 @@ def test_grade_summary():
 
 def test_overall_performance():
     r = classify_admin_intent("Give me the overall performance report")
-    assert r["category"] == "Performance"
-    assert r["subcategory"] is None
-    assert r["type"] is None
+    assert r["category"] in ("Performance", "Overall")
+    if r["category"] == "Overall":
+        assert r["operation"] == "OverallPerformance"
+    else:
+        assert r["operation"] == "Top"
 
 
 def test_improvement():

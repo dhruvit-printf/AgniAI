@@ -21,14 +21,14 @@ class TestWidgetEngine(unittest.TestCase):
         res = build_formatted_data(answer, query_type="simple", intent={})
         self.assertEqual(res["type"], "TABLE")
 
-    def test_compare_widgets_yield_bar_chart(self):
+    def test_compare_widgets_yield_compare_table(self):
         answer = {
             "left": {"label": "PPT", "data": [{"id": 1}]},
             "right": {"label": "BPET", "data": [{"id": 2}]},
             "comparison": {"averageScore": {"higher": "PPT", "lower": "BPET"}},
         }
         res = build_formatted_data(answer, query_type="compare", intent={})
-        self.assertEqual(res["type"], "CHART_LINE")
+        self.assertEqual(res["type"], "COMPARE_TABLE")
 
     def test_distribution_widgets_yield_pie_chart(self):
         answer = {

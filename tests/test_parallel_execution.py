@@ -35,18 +35,19 @@ class TestParallelExecution(unittest.TestCase):
         response_payload = result["response_payload"]
         self.assertTrue(response_payload["status"])
 
-        widgets = response_payload["formattedData"]
-        self.assertEqual(widgets[0]["type"], "COMPARE_TABLE")
-        self.assertEqual(len(widgets), 1)
+        # A single widget is returned bare, not wrapped in a list — see
+        # response_builder.py's module docstring.
+        widget = response_payload["formattedData"]
+        self.assertEqual(widget["type"], "COMPARE_TABLE")
 
         # In the new widget structure, COMPARE_TABLE data has left and right sides
-        table_data = widgets[0]["data"]
+        table_data = widget["data"]
         left = table_data["left"]
         right = table_data["right"]
 
         # PPT must be left side, BEPT (normalised to BPET) must be right side
-        self.assertEqual(left["rows"][0]["agniveerNo"], "PPT-1")
-        self.assertEqual(right["rows"][0]["agniveerNo"], "BEPT-1")
+        self.assertEqual(left["row"][0]["agniveerNo"], "PPT-1")
+        self.assertEqual(right["row"][0]["agniveerNo"], "BEPT-1")
         self.assertEqual(mock_call_dotnet.call_count, 2)
 
 

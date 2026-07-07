@@ -134,8 +134,10 @@ def test_response_builder_format():
     )
 
     assert response["status"] is True
-    assert isinstance(response["formattedData"], list)
-    assert response["formattedData"][0]["type"] == "COMPARE_CARD"
+    # A single widget dict is returned bare, not wrapped in a list — see
+    # response_builder.py's module docstring.
+    assert isinstance(response["formattedData"], dict)
+    assert response["formattedData"]["type"] == "COMPARE_CARD"
     assert "comparisonMetrics" in response["metadata"]
     assert response["dotnetPayload"] == dotnet_payload
 

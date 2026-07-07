@@ -73,7 +73,10 @@ class TestArchitecturalFixes(unittest.TestCase):
     def test_response_builder_answer_key(self):
         resp = build_response(
             message="Intro text",
-            formatted_data={"type": "TABLE", "data": {"columns": [], "row": []}},
+            formatted_data={
+                "type": "TABLE",
+                "data": {"columns": ["id"], "row": [{"id": 1}]},
+            },
             metadata={"sessionId": "session-123"},
             session_id="session-123",
             suggested_questions=[],
@@ -82,6 +85,17 @@ class TestArchitecturalFixes(unittest.TestCase):
         self.assertIn("formattedData", resp)
         self.assertIsInstance(resp["formattedData"], dict)
         self.assertEqual(resp["metadata"]["sessionId"], "session-123")
+
+    def test_response_builder_omits_formatted_data_when_empty(self):
+        # No actual rows -> formattedData is dropped rather than rendering an
+        # empty table widget.
+        resp = build_response(
+            message="Intro text",
+            formatted_data={"type": "TABLE", "data": {"columns": [], "row": []}},
+            metadata={"sessionId": "session-123"},
+            session_id="session-123",
+        )
+        self.assertNotIn("formattedData", resp)
 
     def test_widgets_selection_step_12(self):
         # 1. Single record -> TABLE
@@ -100,7 +114,7 @@ class TestArchitecturalFixes(unittest.TestCase):
         )
         self.assertEqual(fd_multi["type"], "TABLE")
 
-        # 3. Comparison -> CHART_LINE
+        # 3. Comparison -> COMPARE_TABLE
         fd_compare = build_formatted_data(
             {
                 "left": {"label": "Left", "data": [{"id": 1}]},
@@ -110,7 +124,7 @@ class TestArchitecturalFixes(unittest.TestCase):
             query_type="compare",
             intent={},
         )
-        self.assertEqual(fd_compare["type"], "CHART_LINE")
+        self.assertEqual(fd_compare["type"], "COMPARE_TABLE")
 
         # 4. Trend -> CHART_LINE
         fd_trend = build_formatted_data(
