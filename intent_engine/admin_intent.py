@@ -469,8 +469,24 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
         operation = _comparison_fallback_operation(category)
         intent_result = {**intent_result, "operation": operation}
 
+    n_val = intent_result.get("number")
+    if n_val is None:
+        n_val = intent_result.get("n")
+    if n_val is None:
+        n_val = intent_result.get("top_n")
+
+    # If no limit was provided from query or frontend, and operation implies ranking, default to 10.
+    if n_val is None and operation in {"Top", "Bottom", "Highest", "Lowest", "Best", "Worst"}:
+        n_val = 10
+
+    try:
+        if n_val is not None:
+            n_val = int(n_val)
+    except (ValueError, TypeError):
+        n_val = 10
+
     entities: Dict[str, Any] = {
-        "n": intent_result.get("number"),
+        "n": n_val,
         "section": intent_result.get("section"),
         "operation": intent_result.get("operation"),
         "subSection": intent_result.get("sub_section"),

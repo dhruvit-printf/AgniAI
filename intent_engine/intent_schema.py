@@ -1448,6 +1448,8 @@ LEAVE_TYPES: Dict[str, str] = {
     "ex-ppg": "ExPPG",
     "hospitalized": "Hospitalized",
     "threshold": "Threshold",
+    "90%": "Threshold",
+    "90 %": "Threshold",
     "90% leave used": "Threshold",
     "above threshold": "Threshold",
     "near leave limit": "Threshold",
