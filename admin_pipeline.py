@@ -1803,6 +1803,31 @@ def execute_admin_query(
                 primary_intent,
                 comparison_context=comparison_context,
             )
+
+            # A cross-filter's ranking leg had its "number" uncapped to a large
+            # sentinel before hitting .NET (see query_planner's cross_filter
+            # branch) so the intersection wouldn't silently drop a real match
+            # sitting past rank 10. That's a fetch-side widening only — nothing
+            # downstream re-applies the user's actual "top N" intent, so a
+            # query like "top performers in firing who are fit by BMI" was
+            # displaying every intersecting record (up to that sentinel)
+            # instead of a sensible top N. Re-trim here now that the sets have
+            # already been intersected.
+            if qtype_str == "cross_filter" and isinstance(combined_result, dict):
+                display_limit = min(
+                    (
+                        op.intent_result.get("_displayLimit")
+                        for op in query_plan.operations
+                        if op.intent_result.get("_displayLimit") is not None
+                    ),
+                    default=None,
+                )
+                records = combined_result.get("records")
+                if display_limit is not None and records:
+                    if all(isinstance(r.get("rank"), (int, float)) for r in records):
+                        records = sorted(records, key=lambda r: r["rank"])
+                    combined_result["records"] = records[:display_limit]
+
             _log_combination_summary(
                 question=user_query,
                 intent=primary_intent,

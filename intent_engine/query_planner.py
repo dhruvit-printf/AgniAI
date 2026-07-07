@@ -422,6 +422,12 @@ _RANKABLE_OPERATIONS = frozenset(
     {"Top", "Bottom", "Most", "Least", "TopUnit", "BestAttempt"}
 )
 
+# Default number of rows a "Top N"/"Bottom N" style query should ever display
+# when the user didn't state a count. Used to re-trim cross-filter results
+# after the fetch-side uncap-to-1000 below (see its comment for why the
+# fetch itself must stay uncapped).
+_CROSS_FILTER_DISPLAY_DEFAULT = 10
+
 
 def _apply_number_override(ops: List[SubOperation], raw_query: str) -> None:
     """A multi-part query's "top N"/"bottom N" only lands in whichever
@@ -987,6 +993,11 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                     in ("Top", "Bottom", "Improvement", "Drop")
                     and op.intent_result.get("number") is None
                 ):
+                    # Remember the display cap separately from the fetch-side
+                    # "number" sent to .NET — the combiner trims the final
+                    # intersected rows back down to this after matching, since
+                    # the 1000 below exists only to widen the candidate pool.
+                    op.intent_result["_displayLimit"] = _CROSS_FILTER_DISPLAY_DEFAULT
                     op.intent_result["number"] = 1000
                     op.dotnet_payload = format_admin_payload(op.intent_result)
             combined_filters = {}
