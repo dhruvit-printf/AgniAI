@@ -929,4 +929,7 @@ def extract_entities(
         or resolved_entities.get("agniveerNo")
     )
 
+    result["Operation"] = _extract_operation(raw_query)
+    result["Category"] = _extract_category(raw_query)
+
     return result
