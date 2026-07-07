@@ -9,7 +9,7 @@ QUESTION_BANK["by_category"][CATEGORY][SUBCATEGORY][QUERY_TYPE] -> list[str]
 QUESTION_BANK["mixed"][QUERY_TYPE] -> list[str]  (category-spanning examples)
 """
 
-QUESTION_BANK = {'by_category': 
+QUESTION_BANK = {'by_category': {},
  'mixed': {'compare': ['Compare BPET and PPT scores.',
                        'Firing vs drill grading distribution.',
                        'BPET versus firing average marks.',

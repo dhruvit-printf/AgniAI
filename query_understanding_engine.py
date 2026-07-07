@@ -92,6 +92,8 @@ _MULTI_INDEPENDENT_MARKERS = (
     "later",
 )
 _CROSS_FILTER_MARKERS = (
+    "who has",
+    "who played",
     "who plays",
     "who is on leave",
     "currently on leave",
@@ -308,6 +310,9 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
         token in text
         for token in (
             "disqualified",
+            "disqualify",
+            "disqualifying",
+            "disqualifies",
             "disqualification",
             "disqualified agniveer",
             "disqualified agniveers",
