@@ -58,6 +58,8 @@ def test_pass_percentage():
 def test_fail_percentage():
     r = classify_admin_intent("Show the fail percentage")
     assert r["category"] == "Performance"
+    assert r["subcategory"] == "LowestPerformers"
+    assert r["operation"] == "Grading"
     assert r["grading"] == "Fail"
 
 
@@ -80,8 +82,8 @@ def test_grade_summary():
 
 def test_overall_performance():
     r = classify_admin_intent("Give me the overall performance report")
-    assert r["category"] == "Overall"
-    assert r["subcategory"] == "OverallPerformance"
+    assert r["category"] == "Performance"
+    assert r["subcategory"] is None
     assert r["type"] == "Tabular"
 
 

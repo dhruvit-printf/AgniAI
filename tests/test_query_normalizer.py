@@ -52,6 +52,15 @@ class TestFuzzyTypoCorrection(unittest.TestCase):
         # be forced into a correction.
         self.assertIn("disqualify", clean_query("give me disqualify performers"))
 
+    def test_protects_common_words_from_false_correction(self):
+        # Regression: "food" is one substitution away from "foot" (a BPET
+        # subsection term), which previously caused "who is suffering from
+        # food poisoning?" to be misclassified entirely.
+        self.assertEqual(
+            clean_query("Who is suffering from food poisoning?"),
+            "Who is suffering from food poisoning?",
+        )
+
 
 class TestPunctuationAndWhitespaceCleanup(unittest.TestCase):
     def test_collapses_repeated_punctuation(self):

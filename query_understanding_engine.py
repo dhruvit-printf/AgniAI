@@ -278,7 +278,9 @@ _THRESHOLD_MARKERS = (
     "unused",
     "percentage",
     "ratio",
-    "%",
+    "90%",
+    "90 %"
+
 )
 _DISTRIBUTION_MARKERS = (
     "distribution",
@@ -555,8 +557,6 @@ def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
     category = _infer_category(text, entities)
     if category == "Equipment" and (entities.get("agniveerNo") or entities.get("agniveer_no")):
         return "byagniveer"
-    if category == "Leave" and any(marker in text for marker in _THRESHOLD_MARKERS):
-        return "Threshold"
     if any(marker in text for marker in _COMPARISON_MARKERS):
         return "compare"
     if any(marker in text for marker in _RANKING_MARKERS):
@@ -677,8 +677,8 @@ def _build_user_goal(
         return "show current leave status"
     if operation == "absconded":
         return "find absconded records"
-    if operation == "Threshold":
-        return "review leave threshold records"
+    if operation == "Verify":
+        return "verify admin access"
     if category:
         return f"review {category.lower()} data"
     if entities:

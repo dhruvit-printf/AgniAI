@@ -219,6 +219,7 @@ _GRADING_CONTEXT_WORDS = frozenset(
     {
         "grade", "grading", "score", "marks", "performance", "result", "rated",
         "scored", "achieved", "got", "obtained", "received", "classification",
+        "percentage", "percent",
     }
 )
 _GRADING_AMBIGUOUS = frozenset({"good", "excellent", "satisfactory", "sat", "fail"})

@@ -264,8 +264,16 @@ def classify_admin_intent(
     category = intent_result.get("category")
     operation: Optional[str] = intent_result.get("operation")
 
+    if category == "Leave" and entities.get("leaveType") == "Threshold":
+        operation = "Current"
+
     # ── Stage 4: Subcategory — pure table lookup, no inference ───────────────
     subcategory: Optional[str] = _subcategory_from_table(category, operation)
+
+    # Equipment Agniveer override: default to AgniveerWise when an agniveer number is passed
+    if category == "Equipment" and entities.get("agniveerNo"):
+        operation = "byagniveer"
+        subcategory = "byagniveerEquipment"
 
     # Equipment item override: prefer the canonical Search / Returned / Holding /
     # Stats operations even when the query includes a specific equipment item name.
@@ -377,6 +385,8 @@ def classify_admin_intent(
         "medical_status": entities.get("medicalStatus"),
         "diagnose": entities.get("diagnose"),
         "days": entities.get("days"),
+        "given_condition": entities.get("givenCondition"),
+        "return_condition": entities.get("returnCondition"),
         "responseType": intent_result.get("responseType"),
         "raw_query": raw_query,
         "confidence_score": confidence_score,
@@ -407,6 +417,9 @@ def classify_admin_intent(
             ("equipmentName", result["item_name"]),
             ("medicalStatus", result["medical_status"]),
             ("diagnose", result["diagnose"]),
+            ("givenCondition", result["given_condition"]),
+            ("returnCondition", result["return_condition"]),
+            ("operation", result["operation"]),
         )
         if value is not None
     }

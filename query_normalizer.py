@@ -117,27 +117,32 @@ def _vocab() -> FrozenSet[str]:
     return vocab_manager.get_domain_vocab()
 
 
-_VOCAB_BY_LENGTH: Optional[Dict[int, Tuple[str, ...]]] = None
+_VOCAB_INDEX: Optional[Dict[Tuple[int, str], Tuple[str, ...]]] = None
 
 
-def _vocab_by_length() -> Dict[int, Tuple[str, ...]]:
-    """Vocabulary bucketed by word length, built once. Fuzzy correction only
-    ever needs candidates within +/-max_dist of the input word's length, so
-    this avoids scanning the full ~750-word vocabulary per token."""
-    global _VOCAB_BY_LENGTH
-    if _VOCAB_BY_LENGTH is None:
-        buckets: Dict[int, List[str]] = {}
+def _vocab_index() -> Dict[Tuple[int, str], Tuple[str, ...]]:
+    """Vocabulary indexed by (length, first letter), built once from the
+    static domain vocabulary. Fuzzy correction only ever needs candidates
+    within +/-max_dist of the input word's length that also share its first
+    letter — real-world typos essentially never change the first letter —
+    so this index turns an O(vocab_size) scan per token into a handful of
+    lookups, which matters because clean_query() is called from hot loops
+    (e.g. scoring ~300 equipment-item candidates per query in
+    entity_extractor.py), not just once per user query."""
+    global _VOCAB_INDEX
+    if _VOCAB_INDEX is None:
+        buckets: Dict[Tuple[int, str], List[str]] = {}
         for word in _vocab():
-            buckets.setdefault(len(word), []).append(word)
-        _VOCAB_BY_LENGTH = {length: tuple(words) for length, words in buckets.items()}
-    return _VOCAB_BY_LENGTH
+            buckets.setdefault((len(word), word[0]), []).append(word)
+        _VOCAB_INDEX = {key: tuple(words) for key, words in buckets.items()}
+    return _VOCAB_INDEX
 
 
-def _candidates_near_length(length: int, max_dist: int) -> List[str]:
-    by_length = _vocab_by_length()
+def _candidates_near_length(length: int, max_dist: int, first_letter: str) -> List[str]:
+    index = _vocab_index()
     out: List[str] = []
     for candidate_len in range(length - max_dist, length + max_dist + 1):
-        out.extend(by_length.get(candidate_len, ()))
+        out.extend(index.get((candidate_len, first_letter), ()))
     return out
 
 
@@ -198,6 +203,38 @@ def _max_distance_for(word_len: int) -> int:
     return 1 if word_len <= 5 else 2
 
 
+# Ordinary English words that must NEVER be "corrected" against the domain
+# vocabulary, no matter how close the edit distance — the domain vocabulary
+# is narrow (a few hundred military/admin terms), so an everyday word can
+# easily land 1 edit away from an unrelated domain term by pure coincidence
+# (e.g. "food" is one substitution from "foot", which is itself a term from
+# a BPET subsection). Without a full English dictionary to confirm a token
+# is already a real word, this denylist is the guard against that class of
+# false positive — expand it as new collisions turn up.
+_PROTECTED_COMMON_WORDS: FrozenSet[str] = frozenset(
+    {
+        "food", "foods", "water", "house", "world", "point", "place", "thing",
+        "things", "people", "person", "family", "friend", "friends", "money",
+        "phone", "email", "address", "school", "office", "field", "party",
+        "night", "morning", "evening", "hour", "hours", "minute", "minutes",
+        "second", "seconds", "book", "books", "paper", "papers", "letter",
+        "letters", "road", "roads", "city", "cities", "state", "states",
+        "country", "countries", "story", "stories", "movie", "music", "game",
+        "games", "team", "teams", "line", "lines", "area", "areas", "case",
+        "cases", "fact", "facts", "level", "levels", "hand", "hands", "part",
+        "parts", "eye", "eyes", "life", "lives", "child", "children", "care",
+        "word", "words", "power", "moment", "moments", "issue", "issues",
+        "side", "sides", "kind", "kinds", "head", "heads", "help", "want",
+        "wants", "wanted", "look", "looks", "looking", "looked", "seem",
+        "seems", "seemed", "feel", "feels", "feeling", "felt", "leave",
+        "leaves", "call", "calls", "called", "calling", "try", "tries",
+        "tried", "trying", "ask", "asks", "asked", "asking", "work", "works",
+        "worked", "working", "town", "towns", "matter", "matters", "problem",
+        "problems",
+    }
+)
+
+
 def _fuzzy_correct_tokens(text: str) -> Tuple[str, List[str]]:
     try:
         from intent_engine.intent_classifier import _damerau_levenshtein
@@ -213,6 +250,9 @@ def _fuzzy_correct_tokens(text: str) -> Tuple[str, List[str]]:
             out_words.append(raw_word)
             continue
         lower = core.lower()
+        if lower in _PROTECTED_COMMON_WORDS:
+            out_words.append(raw_word)
+            continue
         if lower in vocab:
             out_words.append(raw_word)
             continue
@@ -221,7 +261,7 @@ def _fuzzy_correct_tokens(text: str) -> Tuple[str, List[str]]:
         best_word: Optional[str] = None
         best_dist = max_dist + 1
         tie = False
-        for candidate in _candidates_near_length(len(lower), max_dist):
+        for candidate in _candidates_near_length(len(lower), max_dist, lower[0]):
             dist = _damerau_levenshtein(lower, candidate)
             if dist < best_dist:
                 best_dist = dist

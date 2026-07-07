@@ -349,12 +349,10 @@ def get_fallback_report(
                 else None
             ) or "No matching records found."
             message = no_overlap_message
-            summary = no_overlap_message
+            summary = "The selected conditions may be too narrow for the current set of records."
             obs = ["The search did not return any overlapping records."]
-            insights = [
-                "The selected conditions may be too narrow for the current set of records."
-            ]
-            conclusion = no_overlap_message
+            insights = []
+            conclusion = "Try broadening one of the filters to see more results."
     elif query_type in ("comparison", "compare"):
         sides = (
             combined_result.get("sides", [])
@@ -475,10 +473,10 @@ def generate_report(
         ) or fallback.get("message") or "No matching records found."
 
         analysis_summary = (
-            fallback.get("analysis", {}).get("summary") or no_match_message
+            fallback.get("analysis", {}).get("summary") or "The selected conditions may be too narrow."
         )
         conclusion_summary = (
-            fallback.get("conclusion", {}).get("summary") or no_match_message
+            fallback.get("conclusion", {}).get("summary") or "Try broadening the filters to find matching records."
         )
 
         return {
@@ -490,7 +488,7 @@ def generate_report(
             },
             "prediction": {
                 "trend": "Insufficient Data",
-                "projection": no_match_message,
+                "projection": "Unavailable.",
                 "heuristicEstimate": "Unavailable",
                 "shortTerm": "insufficient data",
                 "futureTrends": [],
