@@ -264,7 +264,14 @@ def classify_admin_intent(
     category = intent_result.get("category")
     operation: Optional[str] = intent_result.get("operation")
 
-    if category == "Leave" and entities.get("leaveType") == "Threshold":
+    if (
+        category == "Leave"
+        and entities.get("leaveType") == "Threshold"
+        and operation is None
+    ):
+        # Fallback only — a query that already resolved to a real operation
+        # (e.g. "Least" for "least leaves") must never be overwritten just
+        # because "threshold" also appears in the text.
         operation = "Current"
 
     # ── Stage 4: Subcategory — pure table lookup, no inference ───────────────
@@ -398,6 +405,7 @@ def classify_admin_intent(
         key: value
         for key, value in (
             ("section", result["section"]),
+            ("operation", result["operation"]),
             ("subSection", result["sub_section"]),
             ("grading", result["grading"]),
             ("leaveType", result["leave_type"]),
@@ -419,7 +427,6 @@ def classify_admin_intent(
             ("diagnose", result["diagnose"]),
             ("givenCondition", result["given_condition"]),
             ("returnCondition", result["return_condition"]),
-            ("operation", result["operation"]),
         )
         if value is not None
     }
@@ -477,6 +484,8 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
         "medicalStatus": intent_result.get("medical_status"),
         "diagnose": intent_result.get("diagnose"),
         "days": intent_result.get("days"),
+        "givenCondition": intent_result.get("given_condition"),
+        "returnCondition": intent_result.get("return_condition"),
     }
 
     # Assumption: after category is finalized, only category-safe entities should

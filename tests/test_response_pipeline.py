@@ -550,7 +550,10 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         report = generate_report(combined, "cross_filter", intent, "query")
 
         self.assertEqual(report["message"], "No matching records found.")
-        self.assertEqual(report["analysis"]["summary"], "No matching records found.")
+        self.assertEqual(
+            report["analysis"]["summary"],
+            "The selected conditions may be too narrow for the current set of records.",
+        )
         self.assertEqual(report["prediction"]["trend"], "Insufficient Data")
         self.assertEqual(report["conclusion"]["bullets"], [])
 

@@ -262,8 +262,27 @@ def _extract_leave_type(query: str) -> Optional[str]:
         if _normalise(key) in query_lower:
             if key == "medical" and "medical leave" not in query_lower:
                 continue
+            if key == "threshold" and not _has_threshold_filter_signal(query_lower):
+                # Bare mention of "threshold" as an incidental reason ("least
+                # leaves due to threshold issue") is not a request to filter
+                # by the threshold leave type — only a real proximity/limit
+                # phrase ("near the threshold", "above the leave limit")
+                # should trigger it.
+                continue
             return value
     return None
+
+
+_THRESHOLD_FILTER_SIGNALS = (
+    "near", "nearing", "close to", "almost", "above", "below", "reached",
+    "crossed", "hit ", "limit", "cap", "quota", "allowance", "warning level",
+    "critical level", "danger zone", "safe limit", "ceiling", "boundary",
+    "cutoff", "benchmark",
+)
+
+
+def _has_threshold_filter_signal(query_lower: str) -> bool:
+    return any(signal in query_lower for signal in _THRESHOLD_FILTER_SIGNALS)
 
 
 _BMI_FIT_TERMS = frozenset({"fit", "fittest", "most fit", "physically fit"})

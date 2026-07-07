@@ -247,6 +247,8 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "leave taken",
         "never on leave",
         "leave status",
+        "hospitalized",
+        "sick",
     ),
     "Medical": (
         "medical",
@@ -266,10 +268,12 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "diagnosis",
         "diagnosed",
         "medical report",
+        "medical issue",
+        "medical issues",
+        "health issue",
+        "health issues",
         "admitted",
         "hospital",
-        "hospitalized",
-        "sick",
         "sickness",
         "fever",
         "injury",
@@ -1444,6 +1448,15 @@ LEAVE_TYPES: Dict[str, str] = {
     "ex-ppg": "ExPPG",
     "hospitalized": "Hospitalized",
     "threshold": "Threshold",
+    "90% leave used": "Threshold",
+    "above threshold": "Threshold",
+    "near leave limit": "Threshold",
+    "almost exhausted": "Threshold",
+    "high leave usage": "Threshold",
+    "leave threshold": "Threshold",
+    "leave utilization": "Threshold",
+    "leave risk": "Threshold",
+    "critical leave": "Threshold",
     "noleave": "NoLeave",
 }
 
@@ -1733,6 +1746,8 @@ COMMON_ENTITY_TYPES: Set[str] = {
     "fromDate",
     "toDate",
     "days",
+    "givenCondition",
+    "returnCondition",
 }
 
 CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
@@ -1747,14 +1762,14 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
         "leave", "absent", "abscond", "leaveType", "leaves", "absentee",
         "absconded", "awol", "annual leave", "sick leave", "medical leave",
         "on leave", "absent today", "day off", "days off", "leave status",
-        "leave taken", "who is away",
+        "leave taken", "who is away", "sick", "hospitalized",
     ),
     "Medical": (
         "medical", "hospital", "bmi", "blood", "obese", "overweight", "underweight", "Normal",
-        "disease", "diseases", "diagnosis", "illness", "ailment", "sick",
+        "disease", "diseases", "diagnosis", "illness", "ailment", 
         "fever", "injury", "injured", "fracture", "wound", "dengue",
         "malaria", "typhoid", "blood group", "blood type", "fitness",
-        "hospitalized", "patient", "ward", "medical record", "health status",
+        "patient", "ward", "medical record", "health status",
     ),
     "Attendance": (
         "attendance", "present", "campus", "date", "monthly attendance",
