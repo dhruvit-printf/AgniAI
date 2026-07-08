@@ -11,7 +11,6 @@ tags:
   - faiss
   - sentence-transformers
   - admin-intelligence
-  - websocket
   - prometheus
 license: mit
 ---
@@ -31,7 +30,7 @@ Both run inside the same Flask server and share the same Ollama LLM.
 - 🔍 **FAISS + BM25** — hybrid dense + keyword retrieval with optional cross-encoder reranking
 - 🧠 **Sentence Transformers** — local embeddings, downloaded once then fully offline
 - 📄 **Dynamic RAG** — ingest PDFs, URLs, Word docs, or raw text at any time
-- 🌐 **REST + WebSocket APIs** — Flask + Socket.IO for .NET / React / mobile frontends
+- 🌐 **REST API** — Flask for .NET / React / mobile frontends
 - 🛡️ **Production hardening** — circuit breaker, retries, rate limiting, audit logs, Prometheus metrics, optional Sentry + OpenTelemetry
 
 ---
@@ -44,7 +43,7 @@ Both run inside the same Flask server and share the same Ollama LLM.
                          └──────────────────────────────┘
 
                          ┌──────────────────────────────┐
-   Admin question ──────▶│ /api/admin/chat  +  WebSocket│
+   Admin question ──────▶│      /api/admin/chat         │
                          │     (admin_pipeline.py)      │
                          └──────────────┬───────────────┘
                                         │
@@ -53,7 +52,7 @@ Both run inside the same Flask server and share the same Ollama LLM.
                                                             combiner) generator)  builder)
 ```
 
-`admin_pipeline.execute_admin_query()` is the **single source of truth** — both the HTTP route and the WebSocket route call it.
+`admin_pipeline.execute_admin_query()` is the **single source of truth** — the HTTP route calls it.
 
 ---
 
@@ -139,7 +138,7 @@ AgniAI starts with an empty knowledge base. Add documents before asking RAG ques
 python main.py
 ```
 
-**REST + WebSocket API mode (frontends / .NET integration):**
+**REST API mode (frontends / .NET integration):**
 ```bash
 python app.py
 # Server starts at http://0.0.0.0:5000
@@ -265,14 +264,6 @@ POST /api/admin/chat
 { "message": "Who are the top 5 performers in BPET?", "session_id": "admin-1" }
 ```
 
-### WebSocket (Admin, real-time)
-
-Connect to `ws://localhost:5000/socket.io`. Emit a `query` event:
-```json
-{ "message": "Who is on leave today?", "session_id": "admin-1" }
-```
-The server streams back `query_received` → `progress` (planner/intent/dotnet/combiner/report) → `intro` → `result` → `analysis` → `conclusion` → `done`.
-
 ---
 
 ## Configuration
@@ -295,7 +286,7 @@ All settings are environment variables — copy `.env.example` to `.env` and edi
 | `ADMIN_RATE_LIMIT` | `20 per minute` | Per-IP admin rate limit |
 | `AGNI_LOG_FILE` | `agni.log` | Application log file |
 
-**Feature flags** (`feature_flags.py`, prefix `ENABLE_`): `REPORTS`, `OLLAMA`, `STREAMING`, `WEBSOCKET`, `METRICS`, `HEALTH_ENDPOINT`, `AUDIT_LOGGING`, `OPENTELEMETRY` (default off), `SENTRY` (default off), `PROMETHEUS`. Change a flag in `.env` to toggle a feature at runtime — no code change needed.
+**Feature flags** (`feature_flags.py`, prefix `ENABLE_`): `REPORTS`, `OLLAMA`, `STREAMING`, `METRICS`, `HEALTH_ENDPOINT`, `AUDIT_LOGGING`, `OPENTELEMETRY` (default off), `SENTRY` (default off), `PROMETHEUS`. Change a flag in `.env` to toggle a feature at runtime — no code change needed.
 
 > ⚠ **Port rule:** Flask listens on **5000**; the .NET backend runs on a **different** port (default `7257`). Never point `DOTNET_API_BASE_URL` at 5000.
 
@@ -303,7 +294,7 @@ All settings are environment variables — copy `.env.example` to `.env` and edi
 
 ## Observability & Reliability
 
-**Metrics** (`metrics.py`) — Prometheus-ready counters and summaries at `/metrics`: requests/successful/failed by query type, per-stage durations (planner, intent, dotnet, combiner, report, pipeline), LLM/dotnet/timeout failures, active WebSocket gauge. Grafana-friendly names.
+**Metrics** (`metrics.py`) — Prometheus-ready counters and summaries at `/metrics`: requests/successful/failed by query type, per-stage durations (planner, intent, dotnet, combiner, report, pipeline), LLM/dotnet/timeout failures. Grafana-friendly names.
 
 **Audit logging** (`audit_logger.py`) — one JSON line per admin query to a rotating `audit.log` (10 MB × 30 backups, 90-day retention). Prompts, payloads, raw responses, and secrets are **never** logged.
 
@@ -323,7 +314,7 @@ All settings are environment variables — copy `.env.example` to `.env` and edi
 AgniAI/
 ├── User RAG chatbot
 │   ├── main.py                # CLI chat loop + command dispatcher
-│   ├── app.py                 # Flask REST API + Socket.IO server
+│   ├── app.py                 # Flask REST API server
 │   ├── rag.py                 # Embeddings, FAISS+BM25, retrieval, deterministic answers
 │   ├── ingest.py              # PDF / URL / DOCX / DOC / text ingestion
 │   ├── memory.py              # Sliding-window conversation history
@@ -352,8 +343,6 @@ AgniAI/
 │   └── dotnet_executor.py     # .NET calls with circuit breaker + retries
 │
 ├── Infrastructure
-│   ├── websocket_manager.py   # Socket.IO connection registry
-│   ├── websocket_routes.py    # WebSocket transport (calls the same pipeline)
 │   ├── metrics.py             # Prometheus metrics
 │   ├── audit_logger.py        # Rotating JSON audit trail
 │   ├── telemetry.py           # OpenTelemetry spans (opt-in)

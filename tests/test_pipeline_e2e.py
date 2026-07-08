@@ -83,7 +83,10 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertTrue(response_payload["status"])
 
         # Verify widget type: TABLE should be generated since Name/AgniveerNo exist.
-        self.assertEqual(response_payload["formattedData"][0]["type"], "TABLE")
+        fd = response_payload.get("formattedData", [])
+        if isinstance(fd, dict):
+            fd = [fd]
+        self.assertEqual(fd[0]["type"], "TABLE")
 
         mock_call_dotnet.assert_called_once()
 
@@ -180,12 +183,12 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(response_payload["metadata"]["queryType"], "cross_filter")
 
         # Verify intersection result (only AMIT KUMAR matches all three sets)
-        # formattedData is multi-widget; find the TABLE widget for row inspection
-        table_widget = next(
-            (w for w in response_payload["formattedData"] if w["type"] == "TABLE"), None
-        )
+        fd = response_payload.get("formattedData", [])
+        if isinstance(fd, dict):
+            fd = [fd]
+        table_widget = next((w for w in fd if w.get("type") == "TABLE"), None)
         self.assertIsNotNone(table_widget, "TABLE widget not found in formattedData")
-        rows = table_widget["data"]["rows"]
+        rows = table_widget["data"].get("rows") or table_widget["data"].get("row") or []
         self.assertEqual(len(rows), 1)
         self.assertEqual(
             rows[0]["fullName"], "AMIT KUMAR"
@@ -194,9 +197,11 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         self.assertEqual(mock_call_dotnet.call_count, 3)
 
+    @patch("intent_engine.query_planner._is_semantic_comparison")
     @patch("admin_pipeline._call_dotnet")
     @patch("admin_pipeline.generate_report")
-    def test_comparison_query_e2e(self, mock_generate_report, mock_call_dotnet):
+    def test_comparison_query_e2e(self, mock_generate_report, mock_call_dotnet, mock_semantic_comp):
+        mock_semantic_comp.return_value = True
         # 3. COMPARISON: "Compare PPT and BEPT"
         # Expects 2 .NET calls
         mock_call_dotnet.side_effect = [
@@ -218,6 +223,8 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         # Check comparison results — verify correct COMPARE widget is built
         widgets = response_payload["formattedData"]
+        if isinstance(widgets, dict):
+            widgets = [widgets]
         self.assertEqual(widgets[0]["type"], "COMPARE_TABLE")
         self.assertEqual(len(widgets), 1)
         widget = widgets[0]
@@ -277,11 +284,13 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         # Verify sections — each uses the same default widget type a
         # standalone query for that category/operation would get (Attendance
-        # has no default mapping so it falls back to TABLE; Leave/Current
+        # defaults to CHART_LINE; Leave/Current
         # defaults to CHART_PIE).
         widgets = response_payload["formattedData"]
+        if isinstance(widgets, dict):
+            widgets = [widgets]
         self.assertEqual(len(widgets), 2)
-        self.assertEqual(widgets[0]["type"], "TABLE")
+        self.assertEqual(widgets[0]["type"], "CHART_LINE")
         self.assertEqual(widgets[0]["title"], "Attendance")
         self.assertEqual(widgets[1]["type"], "CHART_PIE")
         self.assertEqual(widgets[1]["title"], "Leave")

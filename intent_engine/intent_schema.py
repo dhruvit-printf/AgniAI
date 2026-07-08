@@ -1825,6 +1825,8 @@ GRADING_CATEGORIES: Dict[str, str] = {
     "sat": "SAT",
     "satisfactory": "SAT",
     "fail": "Fail",
+    "failed": "Fail",
+    "failing": "Fail",
 }
 
 # =============================================================================

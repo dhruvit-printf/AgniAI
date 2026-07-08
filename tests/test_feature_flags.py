@@ -37,13 +37,6 @@ class TestFeatureFlagsDefaults:
             f = FeatureFlags(_env_file=None)
         assert f.ENABLE_STREAMING is True
 
-    def test_enable_websocket_default_true(self):
-        with patch.dict(os.environ, {}, clear=True):
-            from feature_flags import FeatureFlags
-
-            f = FeatureFlags(_env_file=None)
-        assert f.ENABLE_WEBSOCKET is True
-
     def test_enable_metrics_default_true(self):
         with patch.dict(os.environ, {}, clear=True):
             from feature_flags import FeatureFlags

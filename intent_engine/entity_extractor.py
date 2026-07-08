@@ -221,8 +221,9 @@ _GRADING_CONTEXT_WORDS = frozenset(
         "scored", "achieved", "got", "obtained", "received", "classification",
         "percentage", "percent",
     }
+    | {v.lower() for v in SECTION.keys()}
 )
-_GRADING_AMBIGUOUS = frozenset({"good", "excellent", "satisfactory", "sat", "fail"})
+_GRADING_AMBIGUOUS = frozenset({"good", "excellent", "satisfactory", "sat", "fail", "failed", "failing"})
 
 
 def _extract_grading(query: str) -> Optional[str]:

@@ -15,7 +15,6 @@ Metric names (Grafana-ready):
   combiner_duration       summary (ms)
   report_duration         summary (ms)
   pipeline_duration       summary (ms)
-  active_websockets       gauge
   llm_failures            counter
   dotnet_failures         counter
   timeout_failures        counter
@@ -114,18 +113,6 @@ class Metrics:
                 self.durations[metric_name]["sum"] += duration_ms
                 self.durations[metric_name]["count"] += 1.0
 
-    # ── Active websockets ─────────────────────────────────────────────────
-
-    @property
-    def active_websockets(self) -> int:
-        """Dynamically query active websockets count from the source of truth."""
-        try:
-            from websocket_manager import ws_manager
-
-            return ws_manager.active_count
-        except Exception:
-            return 0
-
     # ── Prometheus text export ────────────────────────────────────────────
 
     def generate_prometheus_text(self) -> str:
@@ -189,13 +176,6 @@ class Metrics:
             lines.append("# HELP cache_misses Total cache misses.")
             lines.append("# TYPE cache_misses counter")
             lines.append(f"cache_misses {self.cache_misses}")
-
-            # ── active_websockets ──────────────────────────────────────────
-            lines.append(
-                "# HELP active_websockets Number of currently active WebSocket connections."
-            )
-            lines.append("# TYPE active_websockets gauge")
-            lines.append(f"active_websockets {self.active_websockets}")
 
             # ── duration summaries ─────────────────────────────────────────
             for name in sorted(self.durations.keys()):

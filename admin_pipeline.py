@@ -3,8 +3,8 @@ admin_pipeline.py
 =================
 Single source of truth for the AgniAI admin query execution pipeline.
 
-Both HTTP (admin_routes.py) and WebSocket (websocket_routes.py) call
-execute_admin_query() — the ONLY orchestration function.
+admin_routes.py (HTTP transport) calls execute_admin_query() — the ONLY
+orchestration function.
 
 This module owns:
   - .NET API configuration and communication
@@ -784,8 +784,7 @@ def execute_admin_query(
     """
     Execute the complete admin query pipeline.
 
-    This is the ONLY orchestration function. Both HTTP and WebSocket
-    transports call this function.
+    This is the ONLY orchestration function. The HTTP transport calls it.
     """
     if not trace_id:
         trace_id = uuid.uuid4().hex

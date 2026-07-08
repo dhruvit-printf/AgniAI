@@ -6,7 +6,6 @@ OpenTelemetry distributed tracing for AgniAI.
 Instruments the full pipeline with spans:
   HTTP Request → plan_query → classify_admin_intent → _call_dotnet
   → combine_results → generate_report → build_response → Response Send
-  (and WebSocket Request)
 
 Controlled by ENABLE_OPENTELEMETRY env flag. When disabled, all functions
 are no-ops — zero overhead, zero import errors.
@@ -103,7 +102,6 @@ def _get_tracer():
 
 # ── Span names (matches super-prompt spec) ─────────────────────────────────
 SPAN_HTTP_REQUEST = "http_request"
-SPAN_WEBSOCKET_REQUEST = "websocket_request"
 SPAN_EXECUTE_ADMIN_QUERY = "admin_pipeline.execute_admin_query"
 SPAN_PLAN_QUERY = "plan_query"
 SPAN_CLASSIFY_ADMIN_INTENT = "classify_admin_intent"

@@ -432,6 +432,25 @@ def resolve_entities_from_query(
 
     _MIN_PARTIAL_MENTION_LEN = 3
 
+    def _matching_word(query_text: str, candidate_name: str) -> Optional[str]:
+        """Return the query word that would trigger `_is_partial_prefix_mention`
+        for this candidate, or None. Used only for diagnostic logging below —
+        does not change matching behaviour.
+        """
+        cand_compact = re.sub(r"[^a-z0-9]", "", candidate_name.lower())
+        if not cand_compact or len(cand_compact) < _MIN_PARTIAL_MENTION_LEN:
+            return None
+        for word in _COMPANY_TOKEN_RE.findall(query_text.lower()):
+            if len(word) < _MIN_PARTIAL_MENTION_LEN or word in _NOISE_WORDS:
+                continue
+            if (
+                cand_compact.startswith(word)
+                or word.startswith(cand_compact)
+                or word in cand_compact
+            ):
+                return word
+        return None
+
     def _is_partial_prefix_mention(query_text: str, candidate_name: str) -> bool:
         """True if some word in the query is a genuine partial match of
         candidate_name — catches a half-typed name like "Maha" for
@@ -468,13 +487,23 @@ def resolve_entities_from_query(
             continue
         stored_core = re.sub(r"(?:company|coy|unit)", "", stored.lower()).strip()
         for candidate in (stored, stored_core):
-            if _is_mention_in_query(query, candidate) or _is_partial_prefix_mention(
-                query, candidate
-            ):
+            full_hit = _is_mention_in_query(query, candidate)
+            partial_word = None if full_hit else _matching_word(query, candidate)
+            if full_hit or partial_word:
                 candidate_len = len(clean_query(candidate).strip())
                 if candidate_len > best_match_len:
                     cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
                     if cid is not None:
+                        if not company_mention:
+                            logger.info(
+                                "resolve_entities_from_query: silent companyId match "
+                                "(no 'company'/'coy' keyword in query) | query=%r | "
+                                "matched_company=%r | company_id=%s | "
+                                "match_type=%s | matched_word=%r",
+                                query, stored, cid,
+                                "full_name" if full_hit else "partial_prefix",
+                                partial_word,
+                            )
                         directory_company_id = int(cid)
                         result["companyName"] = stored
                         best_match_len = candidate_len
@@ -489,9 +518,9 @@ def resolve_entities_from_query(
             continue
         stored_core = re.sub(r"(?:platoon|pl)", "", stored.lower()).strip()
         for candidate in (stored, stored_core):
-            if _is_mention_in_query(query, candidate) or _is_partial_prefix_mention(
-                query, candidate
-            ):
+            full_hit = _is_mention_in_query(query, candidate)
+            partial_word = None if full_hit else _matching_word(query, candidate)
+            if full_hit or partial_word:
                 candidate_len = len(clean_query(candidate).strip())
                 if candidate_len > best_match_len:
                     pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
@@ -499,6 +528,16 @@ def resolve_entities_from_query(
                     if pid is not None and (
                         result["companyId"] is None or cid == result["companyId"]
                     ):
+                        if not platoon_mention:
+                            logger.info(
+                                "resolve_entities_from_query: silent platoonId match "
+                                "(no 'platoon' keyword in query) | query=%r | "
+                                "matched_platoon=%r | platoon_id=%s | "
+                                "match_type=%s | matched_word=%r",
+                                query, stored, pid,
+                                "full_name" if full_hit else "partial_prefix",
+                                partial_word,
+                            )
                         directory_platoon_id = int(pid)
                         result["platoonName"] = stored
                         best_match_len = candidate_len

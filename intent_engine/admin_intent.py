@@ -297,11 +297,22 @@ def classify_admin_intent(
     if category == "Equipment":
         _nq = _normalise(raw_query)
         _eq_type = entities.get("equipmentType")
+        
+        # Ensure equipmentType is strictly Issued/Procured (not IssuedItems/ProcuredItems)
+        if _eq_type in ("IssuedItems", "ProcuredItems"):
+            _eq_type = _eq_type.replace("Items", "")
+            entities["equipmentType"] = _eq_type
 
         if not entities.get("equipmentName"):
             # No specific item mentioned — check if the user is asking about a
             # type of equipment (issued / procured) generically.
-            if _eq_type == "Issued" and operation != "Returned":
+            if any(kw in _nq for kw in {"currently holding", "holding", "where"}):
+                subcategory = "HoldingEquipment"
+                operation = "Holding"
+            elif any(kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}):
+                subcategory = "PoorConditionEquipment"
+                operation = "Returned"
+            elif _eq_type == "Issued" and operation != "Returned":
                 subcategory = "IssuedItems"
                 operation = "ByName"
             elif _eq_type == "Procured" and operation != "Returned":
@@ -317,6 +328,7 @@ def classify_admin_intent(
                 for kw in {
                     "currently holding",
                     "holding",
+                    "where"
                 }
             ):
                 subcategory = _eq_type or "HoldingEquipment"
