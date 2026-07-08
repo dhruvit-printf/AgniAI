@@ -105,6 +105,8 @@ class WidgetSelector:
         if widget_type.startswith("COMPARE_"):
             return widget_type.lower()
         if widget_type == "CARD":
+            if base:
+                return f"{base}_card"
             return f"{cat_slug}_{op_slug}_card" if op_slug else f"{cat_slug}_card"
         if widget_type == "TABLE":
             if base:

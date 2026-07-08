@@ -2056,15 +2056,32 @@ def build_widget_list(
             ]
 
     for index, spec in enumerate(specs):
+        resolved_section_label = spec.section_label
         if (
             query_type == "multi_independent"
             and isinstance(combined_result, dict)
-            and not spec.section_label
+            and not resolved_section_label
             and index < len(section_labels)
             and section_labels[index]
         ):
-            spec.section_label = section_labels[index]
+            resolved_section_label = section_labels[index]
+            spec.section_label = resolved_section_label
             spec.source_hint = "section"
+
+        if (
+            query_type == "multi_independent"
+            and isinstance(combined_result, dict)
+            and resolved_section_label
+        ):
+            from widget_selector import WidgetSelector
+
+            spec.widget_id = WidgetSelector._widget_id(
+                spec.widget_type,
+                "",
+                "",
+                resolved_section_label,
+                index,
+            )
 
         try:
             data = _build_widget_data(

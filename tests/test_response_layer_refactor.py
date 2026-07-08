@@ -150,6 +150,7 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertEqual(len(widgets), 2)
         self.assertEqual(widgets[0]["data"]["cards"][0]["title"], "Amit")
         self.assertEqual(widgets[1]["data"]["cards"][0]["title"], "Kapil")
+        self.assertNotEqual(widgets[0]["id"], widgets[1]["id"])
 
     def test_multi_independent_chart_sections_use_their_own_records(self):
         combined = {
