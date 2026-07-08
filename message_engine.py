@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 from normalized_models import humanize_category
 from utils import extract_records as _extract_records
+from utils import safe_float as _safe_float
 
 # ---------------------------------------------------------------------------
 # Score field candidates (priority order)
@@ -55,13 +56,6 @@ _UNIT_FIELDS = ("platoon", "platoonName", "batch", "batchName", "company", "unit
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _safe_float(val: Any) -> Optional[float]:
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return None
-
 
 def _get_score(record: Dict[str, Any]) -> Optional[float]:
     for field in _SCORE_FIELDS:

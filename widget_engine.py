@@ -19,8 +19,19 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import ValidationError
 
 from normalized_models import extract_records as _orig_extract_records
+from widget_types import CHART_TYPE_ALIASES as _CHART_TYPE_ALIASES
+from widget_types import COMPARE_CHART_OVERRIDE_MAP as _COMPARE_CHART_OVERRIDE_MAP
+from widget_types import canonical_widget_type as _canonical_widget_type
 
 logger = logging.getLogger(__name__)
+
+# Frontend widget-type-override dropdown never offers compare-chart types or
+# ATTENDANCE_CALENDAR directly, so this excludes _CHART_TYPE_ALIASES' 3
+# COMPARE_* keys — computed once from the shared alias map instead of being
+# hand-typed a second time.
+_NON_COMPARE_CANONICAL_TYPES = {"TABLE", "CARD", "CHART_BAR", "CHART_LINE", "CHART_PIE"} | {
+    k for k in _CHART_TYPE_ALIASES if not k.startswith("COMPARE_")
+}
 
 
 def capitalize_segment(s: str) -> str:
@@ -208,29 +219,6 @@ def _extract_records(
     )
 
 
-# Legacy/alias widget type names accepted as input, normalised to the new
-# canonical names (CHART_BAR / CHART_LINE / CHART_PIE / COMPARE_CHART_*).
-# DONUT_CHART and RADIAL_CHART are folded — donut into pie, radial into line —
-# and AREA_CHART is folded into line as well.
-_CHART_TYPE_ALIASES: Dict[str, str] = {
-    "BAR_CHART": "CHART_BAR",
-    "LINE_CHART": "CHART_LINE",
-    "AREA_CHART": "CHART_LINE",
-    "RADIAL_CHART": "CHART_LINE",
-    "PIE_CHART": "CHART_PIE",
-    "DONUT_CHART": "CHART_PIE",
-    "COMPARE_BAR_CHART": "COMPARE_CHART_BAR",
-    "COMPARE_LINE_CHART": "COMPARE_CHART_LINE",
-    "COMPARE_PIE_CHART": "COMPARE_CHART_PIE",
-}
-
-
-def _canonical_widget_type(value: Any) -> str:
-    """Normalise any accepted widget type name (new or legacy) to canonical form."""
-    text = str(value or "TABLE").upper()
-    return _CHART_TYPE_ALIASES.get(text, text)
-
-
 def _planned_widget_types(
     visualization_intent: Optional[Dict[str, Any]],
 ) -> List[str]:
@@ -321,20 +309,9 @@ def _normalize_requested_widget_type(value: Any) -> Optional[str]:
 
     # Direct match: canonical constants, plus legacy constants accepted as
     # input aliases (BAR_CHART, DONUT_CHART, RADIAL_CHART, AREA_CHART, ...).
-    _CANONICAL = {
-        "TABLE",
-        "CARD",
-        "CHART_BAR",
-        "CHART_LINE",
-        "CHART_PIE",
-        "BAR_CHART",
-        "LINE_CHART",
-        "AREA_CHART",
-        "PIE_CHART",
-        "DONUT_CHART",
-        "RADIAL_CHART",
-    }
-    if text.upper() in _CANONICAL:
+    # Deliberately excludes the COMPARE_* aliases and ATTENDANCE_CALENDAR —
+    # the frontend widget-type override dropdown never offers those.
+    if text.upper() in _NON_COMPARE_CANONICAL_TYPES:
         return _canonical_widget_type(text.upper())
 
     # Case-insensitive label lookup covering all labels from the widget menu
@@ -1487,51 +1464,6 @@ def build_summary_card_from_analysis(
     return {"cards": cards}
 
 
-def _get_score(record: Dict[str, Any]) -> Optional[float]:
-    for key in (
-        "bestTotal",
-        "totalMarks",
-        "score",
-        "Score",
-        "omrInputTotal",
-        "marksObtained",
-    ):
-        val = record.get(key)
-        if val is not None:
-            try:
-                return float(val)
-            except (ValueError, TypeError):
-                pass
-    return None
-
-
-def _safe_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return None
-
-
-def _extract_chronological_key(record: Dict[str, Any]) -> Any:
-    for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp"):
-        val = record.get(k)
-        if val:
-            return str(val)
-    for k in ("attempt", "attemptNo", "Attempt", "AttemptNo"):
-        val = _safe_float(record.get(k))
-        if val is not None:
-            return val
-    month = record.get("month") or record.get("Month")
-    year = record.get("year") or record.get("Year")
-    if year is not None:
-        if month is not None:
-            return (year, month)
-        return year
-    return None
-
-
 def _build_compare_card(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     """COMPARE_CARD: {left: [{label, value}], right: [{label, value}]}"""
     left_side = combined_result.get("left") or {}
@@ -1831,14 +1763,6 @@ def _build_compare_pie(combined_result: Dict[str, Any], intent: Optional[Dict[st
     }
 
 
-# Canonical type names coming from compare_engine — handle any legacy aliases.
-_COMPARE_TYPE_ALIASES: Dict[str, str] = {
-    "COMPARE_BAR_CHART": "COMPARE_CHART_BAR",
-    "COMPARE_LINE_CHART": "COMPARE_CHART_LINE",
-    "COMPARE_PIE_CHART": "COMPARE_CHART_PIE",
-}
-
-
 def build_comparison_widgets(
     combined_result: Dict[str, Any],
     base_title: str = "",
@@ -1861,28 +1785,21 @@ def build_comparison_widgets(
 
     planned = _planned_widget_types(visualization_intent)
     viz_type = planned[0] if planned else "COMPARE_TABLE"
-    if viz_type in _COMPARE_TYPE_ALIASES:
-        viz_type = _COMPARE_TYPE_ALIASES[viz_type]
+    if viz_type in _CHART_TYPE_ALIASES:
+        viz_type = _CHART_TYPE_ALIASES[viz_type]
     if viz_type == "COMPARE_CARD":
         viz_type = "COMPARE_TABLE"
 
     # Preserve legacy fallback when no visualization plan is available.
     if not planned:
         raw_viz = combined_result.get("visualizationType") or "COMPARE_TABLE"
-        viz_type = _COMPARE_TYPE_ALIASES.get(raw_viz, raw_viz)
+        viz_type = _CHART_TYPE_ALIASES.get(raw_viz, raw_viz)
         if viz_type == "COMPARE_CARD":
             viz_type = "COMPARE_TABLE"
         if isinstance(visualization_intent, dict):
             override = visualization_intent.get("comparison_chart_override")
             if override and isinstance(override, str):
-                mapped = {
-                    "line": "COMPARE_CHART_LINE",
-                    "bar": "COMPARE_CHART_BAR",
-                    "pie": "COMPARE_CHART_PIE",
-                    "donut": "COMPARE_CHART_PIE",
-                    "radial": "COMPARE_CHART_LINE",
-                    "area": "COMPARE_CHART_LINE",
-                }.get(override.lower())
+                mapped = _COMPARE_CHART_OVERRIDE_MAP.get(override.lower())
                 if mapped:
                     viz_type = mapped
 
@@ -1993,22 +1910,29 @@ def _build_widget_data(
     intent: Dict[str, Any],
     analysis: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """Dispatch to the appropriate builder for a single WidgetSpec."""
-    wt = spec.widget_type
+    """Dispatch to the appropriate builder for a single WidgetSpec.
+
+    `wt` is re-canonicalized defensively (WidgetSelector already canonicalizes
+    every spec it produces, so this is normally a no-op) so BUILDERS below
+    only ever needs canonical keys, never legacy aliases.
+    """
+    wt = _canonical_widget_type(spec.widget_type)
     hint = spec.source_hint
 
-    if wt == "COMPARE_CARD":
-        return _build_compare_card(combined_result)
-    elif wt == "COMPARE_TABLE":
-        return _build_compare_table(combined_result)
-    elif wt in ("COMPARE_BAR_CHART", "COMPARE_CHART_BAR"):
-        return _build_compare_bar(combined_result)
-    elif wt in ("COMPARE_LINE_CHART", "COMPARE_CHART_LINE"):
-        return _build_compare_line(combined_result)
-    elif wt in ("COMPARE_PIE_CHART", "COMPARE_CHART_PIE"):
-        return _build_compare_pie(combined_result, intent=intent)
+    # ── Compare widgets — pure type -> builder dispatch, checked first so a
+    # COMPARE_* type always wins regardless of hint/query_type below. ───────
+    compare_builders: Dict[str, Any] = {
+        "COMPARE_CARD": lambda: _build_compare_card(combined_result),
+        "COMPARE_TABLE": lambda: _build_compare_table(combined_result),
+        "COMPARE_CHART_BAR": lambda: _build_compare_bar(combined_result),
+        "COMPARE_CHART_LINE": lambda: _build_compare_line(combined_result),
+        "COMPARE_CHART_PIE": lambda: _build_compare_pie(combined_result, intent=intent),
+    }
+    if wt in compare_builders:
+        return compare_builders[wt]()
 
-    # ── Summary CARD (from analysis.statistics) ──────────────────────────────
+    # ── Summary CARD (from analysis.statistics) — an unconditional hint
+    # pre-empt, not a type-based branch, so it stays outside the dict. ──────
     if hint == "summary":
         return build_summary_card_from_analysis(analysis, query_type, intent)
 
@@ -2017,7 +1941,8 @@ def _build_widget_data(
         records = _extract_records(combined_result, deep_flatten=True)
         return build_card_data(records, spec.title)
 
-    # ── TABLE — left/right/section/primary ──────────────────────────────────
+    # ── TABLE — left/right/section/primary (hint-dependent data selection,
+    # not a pure type dispatch, so it stays its own branch) ─────────────────
     if wt == "TABLE":
         if hint == "left" and isinstance(combined_result, dict):
             left = combined_result.get("left") or {}
@@ -2057,24 +1982,22 @@ def _build_widget_data(
                 chart_source = sec.get("data") or []
                 break
 
-    # ── BAR_CHART ────────────────────────────────────────────────────────────
-    if wt in ("BAR_CHART", "CHART_BAR"):
-        if query_type in ("compare", "comparison"):
-            # Fallback for dynamic schema
-            return _build_compare_bar(combined_result)
-        return build_bar_chart_data(chart_source)
+    # ── CHART_BAR has a query_type-dependent special case (falls back to the
+    # compare builder for a dynamic/legacy schema), so it's resolved before
+    # the pure chart-type dict dispatch below. ──────────────────────────────
+    if wt == "CHART_BAR" and query_type in ("compare", "comparison"):
+        return _build_compare_bar(combined_result)
 
-    # ── LINE_CHART / AREA_CHART / RADIAL_CHART (folded into line) ────────────
-    if wt in ("LINE_CHART", "AREA_CHART", "RADIAL_CHART", "CHART_LINE"):
-        return build_line_chart_data(chart_source)
-
-    # ── PIE_CHART / DONUT_CHART (folded into pie) ─────────────────────────────
-    if wt in ("PIE_CHART", "DONUT_CHART", "CHART_PIE"):
-        return build_pie_chart_data(chart_source, intent=intent)
-
-    # ── ATTENDANCE_CALENDAR ──────────────────────────────────────────────────
-    if wt == "ATTENDANCE_CALENDAR":
-        return build_attendance_calendar_data(combined_result, intent)
+    chart_builders: Dict[str, Any] = {
+        "CHART_BAR": lambda: build_bar_chart_data(chart_source),
+        "CHART_LINE": lambda: build_line_chart_data(chart_source),
+        "CHART_PIE": lambda: build_pie_chart_data(chart_source, intent=intent),
+        "ATTENDANCE_CALENDAR": lambda: build_attendance_calendar_data(
+            combined_result, intent
+        ),
+    }
+    if wt in chart_builders:
+        return chart_builders[wt]()
 
     # Fallback — unknown type becomes a TABLE
     flat = _extract_records(combined_result, deep_flatten=True)

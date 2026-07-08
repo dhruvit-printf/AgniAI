@@ -9,7 +9,9 @@ from unittest.mock import patch
 
 from admin_pipeline import execute_admin_query
 from report_generator import (
+    _build_fallback_prediction_dict,
     _extract_numbers_from_text,
+    _normalize_prediction_category,
     _strip_ungrounded_numbers,
     generate_report,
     get_fallback_report,
@@ -101,6 +103,40 @@ class TestFallbackReport(unittest.TestCase):
             rep["conclusion"]["summary"],
             "The cross-filter search is complete and the 3 matching records are ready for review.",
         )
+
+    def test_normalize_prediction_category_defaults_and_titlecase(self):
+        self.assertEqual(_normalize_prediction_category(None), "Agniveer")
+        self.assertEqual(_normalize_prediction_category(""), "Agniveer")
+        self.assertEqual(_normalize_prediction_category("unclear"), "Agniveer")
+        self.assertEqual(_normalize_prediction_category("unknown"), "Agniveer")
+        self.assertEqual(_normalize_prediction_category("none"), "Agniveer")
+        self.assertEqual(_normalize_prediction_category("performance"), "Performance")
+        self.assertEqual(_normalize_prediction_category("Leave"), "Leave")
+
+    def test_build_fallback_prediction_dict_with_records(self):
+        pred = _build_fallback_prediction_dict("Performance", has_records=True)
+        self.assertEqual(pred["trend"], "Stable")
+        expected = (
+            "Future Performance results should remain broadly stable "
+            "unless the underlying records change."
+        )
+        self.assertEqual(pred["projection"], expected)
+        self.assertEqual(pred["heuristicEstimate"], expected)
+        self.assertEqual(pred["shortTerm"], "stable")
+        self.assertEqual(pred["futureTrends"], [expected])
+
+    def test_build_fallback_prediction_dict_without_records(self):
+        """Regression guard: report_generator.py's and admin_pipeline.py's
+        fallback-prediction blocks previously drifted to 3 different
+        "no records" phrasings across their projection/heuristicEstimate/
+        futureTrends fields — this pins the single canonical wording now
+        shared by both."""
+        pred = _build_fallback_prediction_dict("Leave", has_records=False)
+        self.assertEqual(pred["trend"], "Insufficient Data")
+        expected = "Future projection is unavailable because no Leave records were returned."
+        self.assertEqual(pred["projection"], expected)
+        self.assertEqual(pred["heuristicEstimate"], expected)
+        self.assertEqual(pred["futureTrends"], [expected])
 
     def test_generate_message_strips_prompt_echo(self):
         from message_engine import generate_message

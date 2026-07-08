@@ -199,6 +199,25 @@ def get_score(record: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def extract_chronological_key(record: Dict[str, Any]) -> Any:
+    """Resolve a sortable chronological key from a record's date/attempt/month-year fields."""
+    for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp"):
+        val = record.get(k)
+        if val:
+            return str(val)
+    for k in ("attempt", "attemptNo", "Attempt", "AttemptNo"):
+        val = safe_float(record.get(k))
+        if val is not None:
+            return val
+    month = record.get("month") or record.get("Month")
+    year = record.get("year") or record.get("Year")
+    if year is not None:
+        if month is not None:
+            return (year, month)
+        return year
+    return None
+
+
 def extract_record_id(record: Dict[str, Any]) -> Optional[str]:
     for key in _RECORD_KEY_CANDIDATES:
         value = record.get(key)

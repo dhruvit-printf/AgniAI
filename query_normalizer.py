@@ -63,17 +63,32 @@ _BANNER_PATTERNS = (
     r"(?i)\bverify before use\b\.?",
     r"(?i)agniai can make mistakes\.?\s*please verify before use\.?",
 )
+_BANNER_PATTERNS_RE = tuple(re.compile(p) for p in _BANNER_PATTERNS)
 _MESSAGE_PREFIXES = r"(?im)^(?:ws:|socket:|event:|message:)\s*"
+_MESSAGE_PREFIXES_RE = re.compile(_MESSAGE_PREFIXES)
+
+# Precompiled — these run on every normalize_query_detailed() call (some,
+# like _NON_ALPHA_RE, once per token), so avoiding re-compilation matters:
+# clean_query() is called from hot loops (e.g. scoring ~300 equipment-item
+# candidates per query in entity_extractor.py), not just once per user query.
+_WHITESPACE_RUN_RE = re.compile(r"[^\S\r\n]+")
+_REPEATED_PUNCT_RE = re.compile(r"([!?.,;:])\1{1,}")
+_PUNCT_SPACING_RE = re.compile(r"\s*([!?.,;:])\s*")
+_MULTI_SPACE_RE = re.compile(r"\s+")
+_CODE_FENCE_RE = re.compile(r"(?is)```.*?```")
+_HTML_TAG_RE = re.compile(r"(?is)<[^>]+>")
+_MD_HEADER_RE = re.compile(r"(?m)^#{1,6}\s*")
+_NON_ALPHA_RE = re.compile(r"[^a-zA-Z]")
 
 
 def _collapse_spaces(text: str) -> str:
-    text = re.sub(r"[^\S\r\n]+", " ", text)
+    text = _WHITESPACE_RUN_RE.sub(" ", text)
     # Collapse repeated punctuation ("???", "!!!!", ".....") BEFORE adding
     # trailing spacing around it — doing it after would leave the repeats
     # separated by spaces ("? ? ?") and unable to match as consecutive.
-    text = re.sub(r"([!?.,;:])\1{1,}", r"\1", text)
-    text = re.sub(r"\s*([!?.,;:])\s*", r"\1 ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    text = _REPEATED_PUNCT_RE.sub(r"\1", text)
+    text = _PUNCT_SPACING_RE.sub(r"\1 ", text)
+    return _MULTI_SPACE_RE.sub(" ", text).strip()
 
 
 def _apply_fuzzy_vocab(text: str) -> str:
@@ -87,8 +102,8 @@ def _apply_fuzzy_vocab(text: str) -> str:
 
 def _strip_banner_text(text: str) -> str:
     stripped = text
-    for pattern in _BANNER_PATTERNS:
-        stripped = re.sub(pattern, " ", stripped)
+    for pattern in _BANNER_PATTERNS_RE:
+        stripped = pattern.sub(" ", stripped)
     return stripped
 
 
@@ -180,7 +195,7 @@ def _split_concatenated_words(text: str) -> str:
     vocab = _vocab()
     out_tokens: List[str] = []
     for tok in text.split(" "):
-        core = re.sub(r"[^a-zA-Z]", "", tok)
+        core = _NON_ALPHA_RE.sub("", tok)
         if len(core) < 8 or core.lower() in vocab:
             out_tokens.append(tok)
             continue
@@ -245,7 +260,7 @@ def _fuzzy_correct_tokens(text: str) -> Tuple[str, List[str]]:
     corrections: List[str] = []
     out_words: List[str] = []
     for raw_word in text.split(" "):
-        core = re.sub(r"[^a-zA-Z]", "", raw_word)
+        core = _NON_ALPHA_RE.sub("", raw_word)
         if len(core) < 4 or not core.isalpha():
             out_words.append(raw_word)
             continue
@@ -311,11 +326,11 @@ def normalize_query_detailed(query: str) -> NormalizationResult:
         text = text.replace(char, "")
     text = unicodedata.normalize("NFC", text)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"(?is)```.*?```", " ", text)
-    text = re.sub(r"(?is)<[^>]+>", " ", text)
-    text = re.sub(_MESSAGE_PREFIXES, "", text)
+    text = _CODE_FENCE_RE.sub(" ", text)
+    text = _HTML_TAG_RE.sub(" ", text)
+    text = _MESSAGE_PREFIXES_RE.sub("", text)
     text = _strip_banner_text(text)
-    text = re.sub(r"(?m)^#{1,6}\s*", "", text)
+    text = _MD_HEADER_RE.sub("", text)
     text = text.replace("â€™", "'").replace("â€œ", '"').replace("â€", '"')
     text = text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
 

@@ -82,51 +82,50 @@ def _sanitize_value(key: str, value: Any) -> Any:
     return value
 
 
-def _sanitize_dict(data: Dict, depth: int = 0) -> Dict:
+def _sanitize_dict(data: Dict[str, Any], depth: int = 0) -> Dict[str, Any]:
     """Recursively sanitize a dict, redacting sensitive keys."""
     if depth > 5:
         return data
-    result = {}
-    for k, v in data.items():
-        sanitized_v = _sanitize_value(k, v)
-        if isinstance(sanitized_v, dict):
-            sanitized_v = _sanitize_dict(sanitized_v, depth + 1)
-        elif isinstance(sanitized_v, list):
-            sanitized_v = [
+    result: Dict[str, Any] = {}
+    for key, value in data.items():
+        sanitized_value = _sanitize_value(key, value)
+        if isinstance(sanitized_value, dict):
+            sanitized_value = _sanitize_dict(sanitized_value, depth + 1)
+        elif isinstance(sanitized_value, list):
+            sanitized_value = [
                 _sanitize_dict(item, depth + 1) if isinstance(item, dict) else item
-                for item in sanitized_v
+                for item in sanitized_value
             ]
-        result[k] = sanitized_v
+        result[key] = sanitized_value
     return result
 
 
-def before_send(event: Dict, hint: Dict) -> Optional[Dict]:
+def before_send(event: Dict[str, Any], hint: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Sentry before_send hook — sanitizes the event before transmission.
     Returns None to drop the event, or the sanitized event to send.
     """
     try:
-        # Sanitize extra/context data
         if "extra" in event:
             event["extra"] = _sanitize_dict(event.get("extra", {}))
 
-        # Sanitize breadcrumbs
         breadcrumbs = event.get("breadcrumbs", {}).get("values", [])
         for crumb in breadcrumbs:
-            if "data" in crumb and isinstance(crumb["data"], dict):
-                crumb["data"] = _sanitize_dict(crumb["data"])
+            data = crumb.get("data")
+            if isinstance(data, dict):
+                crumb["data"] = _sanitize_dict(data)
 
-        # Sanitize request data
         request_data = event.get("request", {})
-        if "data" in request_data and isinstance(request_data["data"], dict):
-            request_data["data"] = _sanitize_dict(request_data["data"])
-        if "headers" in request_data and isinstance(request_data["headers"], dict):
-            request_data["headers"] = _sanitize_dict(request_data["headers"])
+        if isinstance(request_data, dict):
+            data = request_data.get("data")
+            if isinstance(data, dict):
+                request_data["data"] = _sanitize_dict(data)
+            headers = request_data.get("headers")
+            if isinstance(headers, dict):
+                request_data["headers"] = _sanitize_dict(headers)
 
-        # Sanitize user context
         if "user" in event:
             user = event["user"]
-            # Keep only safe user fields
             safe_user = {}
             if "id" in user:
                 safe_user["id"] = user["id"]
@@ -205,8 +204,8 @@ def capture_exception(exc: Exception, *, trace_id: str = "N/A", **context) -> No
 
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("trace_id", trace_id)
-            for k, v in context.items():
-                scope.set_extra(k, str(v))
+            for key, value in context.items():
+                scope.set_extra(key, str(value))
             sentry_sdk.capture_exception(exc)
     except Exception:
         pass
@@ -220,8 +219,8 @@ def capture_message(message: str, level: str = "info", **context) -> None:
         import sentry_sdk
 
         with sentry_sdk.push_scope() as scope:
-            for k, v in context.items():
-                scope.set_extra(k, str(v))
+            for key, value in context.items():
+                scope.set_extra(key, str(value))
             sentry_sdk.capture_message(message, level=level)
     except Exception:
         pass

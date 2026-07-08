@@ -61,6 +61,49 @@ def _progress(sid: str, stage: str, message: str) -> None:
         logger.exception("Failed to send progress event to sid=%s: %s", sid, exc)
 
 
+def _emit_error(sid: str, message: str, *, done: bool = False) -> None:
+    """Send a standard error payload to the client."""
+    ws_manager.send_json(sid, {"type": "error", "message": message})
+    if done:
+        ws_manager.send_json(sid, {"done": True})
+
+
+def _emit_result_payload(sid: str, response_payload: Dict[str, Any]) -> None:
+    """Stream the intro/result/done sequence for a successful pipeline run."""
+    ws_manager.send_json(
+        sid,
+        {
+            "type": "intro",
+            "introMessage": response_payload.get("message", ""),
+            "message": response_payload.get("message", ""),
+        },
+    )
+    ws_manager.send_json(sid, {"type": "result", "response": response_payload})
+    ws_manager.send_json(sid, {"type": "done"})
+
+
+def _build_log_payload(
+    *,
+    message: str,
+    trace_id: str,
+    session_id: str,
+    query_type: str,
+    duration_ms: Any = None,
+    **extra: Any,
+) -> Dict[str, Any]:
+    """Create a consistent structured log payload for WebSocket requests."""
+    payload = {
+        "message": message,
+        "question": message[:200],
+        "trace_id": trace_id,
+        "session_id": session_id,
+        "query_type": query_type,
+        "duration_ms": duration_ms,
+    }
+    payload.update(extra)
+    return payload
+
+
 # =============================================================================
 # PIPELINE RUNNER
 # =============================================================================
@@ -82,14 +125,13 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
     # Structured entry log
     logger.info(
         json.dumps(
-            {
-                "message": "WebSocket admin query entry",
-                "question": message[:200],
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "query_type": "N/A",
-                "duration_ms": None,
-            }
+            _build_log_payload(
+                message="WebSocket admin query entry",
+                trace_id=trace_id,
+                session_id=session_id,
+                query_type="N/A",
+                duration_ms=None,
+            )
         )
     )
 
@@ -116,24 +158,16 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
         if result_type == "error":
             logger.error(
                 json.dumps(
-                    {
-                        "message": "WebSocket admin query error response",
-                        "question": message[:200],
-                        "trace_id": trace_id,
-                        "session_id": session_id,
-                        "query_type": "error",
-                        "duration_ms": duration_ms,
-                    }
+                    _build_log_payload(
+                        message="WebSocket admin query error response",
+                        trace_id=trace_id,
+                        session_id=session_id,
+                        query_type="error",
+                        duration_ms=duration_ms,
+                    )
                 )
             )
-            ws_manager.send_json(
-                sid,
-                {
-                    "type": "error",
-                    "message": "Failed to process request.",
-                },
-            )
-            ws_manager.send_json(sid, {"done": True})
+            _emit_error(sid, "Failed to process request.", done=True)
             return
 
         # ── Stream response sections ────────────────────────────────────────
@@ -141,55 +175,40 @@ def _run_pipeline(sid: str, message: str, body: Dict, trace_id: str) -> None:
 
         logger.info(
             json.dumps(
-                {
-                    "question": message[:200],
-                    "query_type": (response_payload.get("metadata") or {}).get(
+                _build_log_payload(
+                    message="WebSocket admin query success",
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    query_type=(response_payload.get("metadata") or {}).get(
                         "queryType"
                     )
                     or result.get("type"),
-                    "intent_formed": extract_primary_widget_title(
+                    duration_ms=None,
+                    intent_formed=extract_primary_widget_title(
                         response_payload.get("formattedData")
                     ),
-                }
+                )
             )
         )
 
         # Stream a minimal intro, then the full final payload, then a completion signal.
-        ws_manager.send_json(
-            sid,
-            {
-                "type": "intro",
-                "introMessage": response_payload.get("message", ""),
-                "message": response_payload.get("message", ""),
-            },
-        )
-        ws_manager.send_json(
-            sid,
-            {
-                "type": "result",
-                "response": response_payload,
-            },
-        )
-        ws_manager.send_json(sid, {"type": "done"})
+        _emit_result_payload(sid, response_payload)
 
     except Exception as exc:
         duration_ms = round((time.time() - start_time) * 1000, 2)
         logger.error(
             json.dumps(
-                {
-                    "message": "WebSocket pipeline error",
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "query_type": "error",
-                    "duration_ms": duration_ms,
-                    "error": str(exc),
-                }
+                _build_log_payload(
+                    message="WebSocket pipeline error",
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    query_type="error",
+                    duration_ms=duration_ms,
+                    error=str(exc),
+                )
             )
         )
-        ws_manager.send_json(
-            sid, {"type": "error", "message": "Failed to process request."}
-        )
-        ws_manager.send_json(sid, {"done": True})
+        _emit_error(sid, "Failed to process request.", done=True)
 
 
 def register_socketio_events(socketio: SocketIO) -> None:
@@ -232,21 +251,16 @@ def register_socketio_events(socketio: SocketIO) -> None:
         sid = flask_request.sid  # type: ignore[attr-defined]
 
         if not isinstance(data, dict):
-            ws_manager.send_json(sid, {"type": "error", "message": "Invalid payload."})
+            _emit_error(sid, "Invalid payload.")
             return
 
         message = (data.get("message") or "").strip()
         if not message:
-            ws_manager.send_json(
-                sid, {"type": "error", "message": "Message cannot be empty."}
-            )
+            _emit_error(sid, "Message cannot be empty.")
             return
 
         if len(message) > 2000:
-            ws_manager.send_json(
-                sid,
-                {"type": "error", "message": "Message exceeds maximum allowed length."},
-            )
+            _emit_error(sid, "Message exceeds maximum allowed length.")
             return
 
         # ── Immediately acknowledge receipt ────────────────────────────────

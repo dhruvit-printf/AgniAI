@@ -16,28 +16,24 @@ from typing import Any, Dict, List, Optional
 
 from conversation_detector import is_conversational_query, normalize_text
 
-_SECTION_ALIASES = {
-    "bpet": "BPET",
-    "bept": "BPET",
-    "ppt": "PPT",
-    "firing": "Firing",
-    "drill": "Drill",
-}
-
 _PERFORMANCE_SECTIONS = {"BPET", "PPT", "Firing", "Drill"}
-_GRADING_VALUES = ("excellent", "good", "sat", "fail", "unsat")
 
 # Strong, mostly-unambiguous compare verbs/phrases. Deliberately excludes bare
 # "against"/"between"/"across"/"among" (used as range/membership words
 # elsewhere) and "more than"/"less than"/"greater than"/"fewer than" (numeric
 # filters, e.g. "agniveers with more than 5 days leave" must NOT become a
 # comparison — see test_09_more_than_5_days_leave_not_comparison).
+# " vs " is padded (not bare "vs") so it only matches as a standalone word
+# surrounded by spaces — avoids false positives on "vs." at a sentence end,
+# "vs,", or "vs" appearing inside an unrelated token. Shared with
+# intent_engine/query_planner.py — this is the single canonical source, do
+# not redefine a second copy there.
 _COMPARISON_MARKERS = (
     "compare",
     "comparison",
     "versus",
     "difference between",
-    "vs",
+    " vs ",
     "compared to",
     "compared with",
     "compare with",
@@ -387,48 +383,6 @@ class QueryUnderstanding:
         payload = asdict(self)
         payload["confidence"] = round(float(self.confidence), 2)
         return payload
-
-
-def _extract_section(text: str) -> Optional[str]:
-    for token, label in _SECTION_ALIASES.items():
-        if re.search(rf"\b{re.escape(token)}\b", text):
-            return label
-    return None
-
-
-def _extract_grading(text: str) -> Optional[str]:
-    for phrase in _GRADING_VALUES:
-        if re.search(rf"\b{phrase}\b", text):
-            return phrase.title() if phrase != "unsat" else "UNSAT"
-    return None
-
-
-def _extract_bmi_category(text: str) -> Optional[str]:
-    for token in ("obese", "overweight", "underweight", "normal"):
-        if re.search(rf"\b{token}\b", text):
-            return token.title()
-    return None
-
-
-def _extract_blood_group(text: str) -> Optional[str]:
-    match = re.search(
-        r"\b(?:blood\s*group|bg)\s*((?:AB|A|B|O)[+-])\b", text, re.IGNORECASE
-    )
-    if match:
-        return match.group(1).upper()
-    for token in ("ab+", "ab-", "a+", "a-", "b+", "b-", "o+", "o-"):
-        if re.search(rf"\b{re.escape(token)}\b", text, re.IGNORECASE):
-            return token.upper()
-    return None
-
-
-def _extract_number(text: str) -> Optional[int]:
-    match = re.search(r"\b(\d+)\b", text)
-    return int(match.group(1)) if match else None
-
-
-def _has_phrase(text: str, phrase: str) -> bool:
-    return phrase in text
 
 
 def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:

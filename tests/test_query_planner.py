@@ -1,9 +1,20 @@
 import unittest
 
+import query_understanding_engine
+from intent_engine import query_planner
 from intent_engine.query_planner import QueryType, plan_query
 
 
 class TestQueryPlanner(unittest.TestCase):
+
+    def test_comparison_markers_share_single_source(self):
+        """Regression guard: query_planner._COMPARISON_KEYWORDS must stay an
+        import of query_understanding_engine._COMPARISON_MARKERS, not an
+        independently re-typed copy that can silently re-diverge."""
+        self.assertIs(
+            query_planner._COMPARISON_KEYWORDS,
+            query_understanding_engine._COMPARISON_MARKERS,
+        )
 
     def test_simple_query(self):
         plan = plan_query("Show top 10 performers in PPT")

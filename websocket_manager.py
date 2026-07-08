@@ -13,7 +13,6 @@ This module is purely infrastructure — no business logic lives here.
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 from typing import Any, Dict, Optional
@@ -27,13 +26,11 @@ class WebSocketManager:
     def __init__(self) -> None:
         self._clients: Dict[str, str] = {}  # sid → session_id
         self._lock = threading.RLock()
-        self._socketio = None  # set via init()
+        self._socketio: Optional[Any] = None  # set via init()
 
-    def init(self, socketio) -> None:
+    def init(self, socketio: Any) -> None:
         """Attach the Flask-SocketIO instance (called once at startup)."""
         self._socketio = socketio
-
-    # ── Registration ──────────────────────────────────────────────────────
 
     def register(self, sid: str, session_id: Optional[str] = None) -> None:
         """Record a newly connected client."""
@@ -46,8 +43,6 @@ class WebSocketManager:
         with self._lock:
             self._clients.pop(sid, None)
         logger.debug("WebSocket client unregistered: sid=%s", sid)
-
-    # ── Messaging ─────────────────────────────────────────────────────────
 
     def send(self, sid: str, event: str, data: Any) -> bool:
         """
@@ -73,8 +68,6 @@ class WebSocketManager:
         The frontend reads `event.data` and routes by `payload["type"]`.
         """
         return self.send(sid, "message", payload)
-
-    # ── Introspection ─────────────────────────────────────────────────────
 
     @property
     def active_count(self) -> int:

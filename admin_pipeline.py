@@ -53,7 +53,11 @@ from normalized_models import extract_records as _extract_records
 from query_normalizer import admin_normalize_query, clean_query
 from intent_engine.query_intelligence_engine import process_query as qie_process
 from query_understanding_engine import understand_query
-from report_generator import generate_report, get_fallback_report
+from report_generator import (
+    _build_fallback_prediction_dict,
+    generate_report,
+    get_fallback_report,
+)
 from response_builder import build_response
 from result_combiner import combine_results
 from schedule_enrichment import enrich_schedule_by_company
@@ -1900,33 +1904,9 @@ def execute_admin_query(
                         combined_result, qtype_str, primary_intent
                     )
                     records = _extract_records(combined_result)
-                    pred_cat = str(primary_intent.get("category") or "Agniveer").strip()
-                    if pred_cat.lower() in ("unclear", "unknown", "none"):
-                        pred_cat = "Agniveer"
-                    else:
-                        pred_cat = pred_cat[0].upper() + pred_cat[1:]
-
-                    report["prediction"] = {
-                        "trend": "Stable" if records else "Insufficient Data",
-                        "projection": (
-                            f"Future {pred_cat} results should remain broadly stable unless the underlying records change."
-                            if records
-                            else f"Future projection is unavailable because no {pred_cat} records were returned."
-                        ),
-                        "heuristicEstimate": (
-                            f"Future {pred_cat} results should remain broadly stable unless the underlying records change."
-                            if records
-                            else f"Future projection is unavailable because no {pred_cat} records were returned."
-                        ),
-                        "shortTerm": "stable",
-                        "futureTrends": [
-                            (
-                                f"Future {pred_cat} results should remain broadly stable unless the underlying records change."
-                                if records
-                                else f"No stable trend can be estimated because no {pred_cat} records were returned."
-                            )
-                        ],
-                    }
+                    report["prediction"] = _build_fallback_prediction_dict(
+                        primary_intent.get("category"), bool(records)
+                    )
                 report_duration = time.time() - report_start
                 logger.info(
                     json.dumps(

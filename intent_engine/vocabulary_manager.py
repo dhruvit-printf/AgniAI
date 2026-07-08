@@ -7,7 +7,8 @@ and serves them for spell correction, canonical mapping, and fuzzy searching.
 """
 from __future__ import annotations
 import re
-from typing import FrozenSet, Dict, Optional, Set
+from types import MappingProxyType
+from typing import FrozenSet, Mapping, Optional, Set
 
 from intent_engine.intent_schema import (
     BMI_CATEGORIES,
@@ -88,11 +89,11 @@ class VocabularyManager:
         self._domain_vocab = frozenset(words)
         return self._domain_vocab
 
-    def get_fuzzy_vocab(self) -> Dict[str, str]:
-        return dict(FUZZY_VOCAB)
-        
-    def get_unit_aliases(self) -> Dict[str, str]:
-        return dict(UNIT_ALIASES)
+    def get_fuzzy_vocab(self) -> Mapping[str, str]:
+        return MappingProxyType(FUZZY_VOCAB)
+
+    def get_unit_aliases(self) -> Mapping[str, str]:
+        return MappingProxyType(UNIT_ALIASES)
         
 # Global Instance
 vocab_manager = VocabularyManager()

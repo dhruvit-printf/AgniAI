@@ -1,11 +1,12 @@
-"""Shared fetch helpers for entity resolution with caching disabled."""
+"""Shared fetch helpers for entity resolution, backed by a TTL in-memory cache."""
 
 from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 import requests as _requests
@@ -23,6 +24,8 @@ _COMPANY_URL = f"{_DOTNET_BASE}/api/CompanyDetails/Get"
 _PLATOON_URL = f"{_DOTNET_BASE}/api/PlatoonDetails/Get"
 
 _VERIFY_SSL = resolve_dotnet_verify_ssl(logger)
+
+_DEFAULT_TTL_SECONDS = int(os.getenv("ENTITY_CACHE_TTL_SECONDS", "300"))
 
 
 def _headers() -> Dict[str, str]:
@@ -45,12 +48,29 @@ def _extract_list(payload: Any) -> List[Dict[str, Any]]:
 
 @dataclass
 class _CacheEntry:
-    data: Optional[List[Dict[str, Any]]] = None
+    data: List[Dict[str, Any]] = field(default_factory=list)
+    fetched_at: float = 0.0
+
+    def is_fresh(self, ttl_seconds: float) -> bool:
+        return (time.time() - self.fetched_at) < ttl_seconds
 
 
 class EntityCache:
-    def __init__(self) -> None:
+    """TTL in-memory cache for entity directories fetched from .NET.
+
+    Each directory (agniveers/companies/platoons) is cached independently for
+    ``ttl_seconds``. Access to the cache table is guarded by a lock; the
+    underlying HTTP fetch itself is not, so a slow .NET call cannot stall
+    other cache reads/writes. On fetch failure, a still-held stale entry is
+    served instead of an empty list so a transient .NET blip doesn't make
+    entity resolution behave as if the directory were empty.
+    """
+
+    def __init__(self, ttl_seconds: int = _DEFAULT_TTL_SECONDS) -> None:
         self._session = _requests.Session()
+        self.ttl_seconds = ttl_seconds
+        self._entries: Dict[str, _CacheEntry] = {}
+        self._lock = threading.Lock()
 
     def _fetch(self, url: str, trace_id: Optional[str] = None) -> List[Dict[str, Any]]:
         start = time.time()
@@ -82,11 +102,30 @@ class EntityCache:
         force_refresh: bool = False,
         trace_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        if not force_refresh:
+            with self._lock:
+                entry = self._entries.get(key)
+                if entry is not None and entry.is_fresh(self.ttl_seconds):
+                    return list(entry.data)
+
         try:
-            return list(self._fetch(url, trace_id=trace_id))
+            data = list(self._fetch(url, trace_id=trace_id))
         except Exception as exc:
             logger.warning("Entity fetch failed for %s: %s", key, exc)
+            with self._lock:
+                stale = self._entries.get(key)
+            if stale is not None:
+                logger.warning(
+                    "Serving stale cached %s (%d records) after fetch failure",
+                    key,
+                    len(stale.data),
+                )
+                return list(stale.data)
             return []
+
+        with self._lock:
+            self._entries[key] = _CacheEntry(data=data, fetched_at=time.time())
+        return list(data)
 
     def get_agniveers(
         self, *, force_refresh: bool = False, trace_id: Optional[str] = None
@@ -123,10 +162,12 @@ class EntityCache:
         return self.preload(trace_id=trace_id)
 
     def invalidate(self) -> None:
-        return None
+        with self._lock:
+            self._entries.clear()
 
     def snapshot(self) -> Dict[str, List[Dict[str, Any]]]:
-        return {}
+        with self._lock:
+            return {key: list(entry.data) for key, entry in self._entries.items()}
 
 
 ENTITY_CACHE = EntityCache()

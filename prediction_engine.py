@@ -25,75 +25,17 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 from grounding_utils import ground_and_sanitize as _ground_and_sanitize
+from intelligence_common import HIGH_SCORE_THRESHOLD, LOW_SCORE_THRESHOLD
+from intelligence_common import _extract_nested_scores, _extract_scores
+from intelligence_common import _record_label
 from utils import categorical_breakdown as _categorical_breakdown
 from utils import get_score as _get_score
-from utils import safe_float as _safe_float
 
-# ── Tunable thresholds ─────────────────────────────────────────────────────────
-LOW_SCORE_THRESHOLD: float = 50.0
-HIGH_SCORE_THRESHOLD: float = 75.0
 MOMENTUM_SIGNAL: float = 2.0  # abs momentum above this = meaningful trend
 MOMENTUM_STRONG: float = 5.0  # abs momentum above this = strong trend
 
 
-# ── Statistical helpers ────────────────────────────────────────────────────────
-
-
-def _extract_nested_scores(record: Dict[str, Any]) -> List[float]:
-    """
-    Recursively extract scores from the .NET nested structure:
-      attempts → sections → subItems → grading → score
-    Returns the maximum score found (best attempt), or empty list if none.
-    """
-    collected: List[float] = []
-    top = _get_score(record)
-    if top is not None:
-        collected.append(top)
-    for attempt in record.get("attempts") or []:
-        for section in attempt.get("sections") or []:
-            s = _safe_float(section.get("score") or section.get("totalScore"))
-            if s is not None:
-                collected.append(s)
-            for sub in section.get("subItems") or []:
-                sub_s = _safe_float(sub.get("score") or sub.get("marksObtained"))
-                if sub_s is not None:
-                    collected.append(sub_s)
-    return collected
-
-
-def _extract_scores(records: List[Any]) -> List[float]:
-    """
-    Extract one representative score per record, preserving encounter order.
-    Encounter order is critical for momentum calculation.
-    """
-    scores: List[float] = []
-    for r in records:
-        if not isinstance(r, dict):
-            continue
-        nested = _extract_nested_scores(r)
-        if nested:
-            scores.append(max(nested))
-        else:
-            s = _get_score(r)
-            if s is not None:
-                scores.append(s)
-    return scores
-
-
 # ── Named record helpers (who needs help, who is excelling) ───────────────────
-
-_NAME_FIELDS = ("fullName", "name", "agniveerName", "recruiterName")
-_ID_FIELDS = ("agniveerNo", "agniveerNumber", "enrollmentNo")
-
-
-def _record_label(record: Dict[str, Any]) -> Optional[str]:
-    for f in _NAME_FIELDS:
-        if record.get(f):
-            return str(record[f])
-    for f in _ID_FIELDS:
-        if record.get(f):
-            return str(record[f])
-    return None
 
 
 def _named_score_records(records: List[Any]) -> List[Dict[str, Any]]:

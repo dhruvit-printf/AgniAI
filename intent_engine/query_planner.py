@@ -10,14 +10,26 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from query_understanding_engine import propagate_lead_in_across_parts, understand_query
+from query_understanding_engine import (
+    _COMPARISON_MARKERS as _COMPARISON_KEYWORDS,
+    propagate_lead_in_across_parts,
+    understand_query,
+)
 from utils import build_filters_from_entities
 
 from .admin_intent import classify_admin_intent, format_admin_payload
 from .entity_extractor import detect_query_number_override
 from .intent_classifier import detect_query_response_type_override
+from .intent_schema import UNIT_ALIASES
 
 logger = logging.getLogger(__name__)
+
+# Canonical section/unit vocabulary shared by _is_semantic_comparison and
+# _extract_comparison_components (previously two independently hand-typed,
+# drifting copies each — one of which was stale: missing golf-zulu and
+# including a non-canonical "vanguard" entry).
+_COMPARISON_SECTIONS: Tuple[str, ...] = ("bpet", "bept", "ppt", "firing", "drill")
+_COMPARISON_UNITS: Tuple[str, ...] = tuple(UNIT_ALIASES.keys())
 
 
 def _normalise(text: str) -> str:
@@ -86,34 +98,6 @@ class QueryPlan:
             d["comparisonExecutionPlan"] = self.comparison_execution_plan
         return d
 
-
-_COMPARISON_KEYWORDS: List[str] = [
-    "compare",
-    "comparison",
-    " vs ",
-    "versus",
-    "compared to",
-    "compared with",
-    "difference between",
-    "contrast",
-    "compare with",
-    "compare against",
-    "contrasting",
-    "differentiate",
-    "different from",
-    "in comparison with",
-    "in comparison to",
-    "in contrast to",
-    "rank against",
-    "relative performance",
-    "head to head",
-    "side by side",
-    "similar to",
-    "unlike",
-    "identical to",
-    "equivalent to",
-    "same as",
-]
 
 
 _CATEGORY_SIGNALS: Dict[str, List[str]] = {
@@ -518,7 +502,7 @@ def _is_semantic_comparison(
     # Multiple sections
     sections_found = {
         s
-        for s in {"bpet", "bept", "ppt", "firing", "drill"}
+        for s in _COMPARISON_SECTIONS
         if re.search(r"\b" + re.escape(s) + r"\b", text_lower)
     }
     if len(sections_found) >= 2 and not _section_with_grading:
@@ -527,7 +511,7 @@ def _is_semantic_comparison(
     # Multiple companies/units
     companies_found = {
         u
-        for u in {"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "vanguard"}
+        for u in _COMPARISON_UNITS
         if re.search(r"\b" + re.escape(u) + r"\b", text_lower)
     }
     if len(companies_found) >= 2:
@@ -695,14 +679,12 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
         return components
 
     # 1. Sections
-    sections = ["bpet", "bept", "ppt", "firing", "drill"]
-    sec_matches = find_matches(sections, text_lower)
+    sec_matches = find_matches(list(_COMPARISON_SECTIONS), text_lower)
     if len({m[2] for m in sec_matches}) >= 2:
         return split_on_matches(query_text, sec_matches)
 
     # 2. Company/Units
-    companies = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "vanguard"]
-    coy_matches = find_matches(companies, text_lower)
+    coy_matches = find_matches(list(_COMPARISON_UNITS), text_lower)
     if len({m[2] for m in coy_matches}) >= 2:
         return split_on_matches(query_text, coy_matches)
 

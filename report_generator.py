@@ -38,6 +38,47 @@ def _has_negative_copy(text: Optional[str]) -> bool:
     return any(marker in lowered for marker in NEGATIVE_REPORT_PHRASES)
 
 
+def _normalize_prediction_category(category: Optional[str]) -> str:
+    """Normalize a category label for fallback prediction text: falsy/
+    unclear/unknown/none -> "Agniveer", otherwise Title-cased first letter.
+
+    Shared with admin_pipeline.py's equivalent block (previously an
+    independently-maintained duplicate of this exact logic).
+    """
+    pred_cat = str(category or "Agniveer").strip()
+    if pred_cat.lower() in ("unclear", "unknown", "none"):
+        return "Agniveer"
+    return pred_cat[0].upper() + pred_cat[1:]
+
+
+def _build_fallback_prediction_dict(
+    category: Optional[str], has_records: bool
+) -> Dict[str, Any]:
+    """Build the fallback "prediction" shape (trend/projection/
+    heuristicEstimate/shortTerm/futureTrends) used when no real
+    prediction_engine output is available.
+
+    Shared by report_generator.py and admin_pipeline.py — previously two
+    independently-maintained copies that had drifted to three different
+    "no records" phrasings across their fields.
+    """
+    pred_cat = _normalize_prediction_category(category)
+    if has_records:
+        text = (
+            f"Future {pred_cat} results should remain broadly stable "
+            f"unless the underlying records change."
+        )
+    else:
+        text = f"Future projection is unavailable because no {pred_cat} records were returned."
+    return {
+        "trend": "Stable" if has_records else "Insufficient Data",
+        "projection": text,
+        "heuristicEstimate": text,
+        "shortTerm": "stable",
+        "futureTrends": [text],
+    }
+
+
 def _build_data_grounded_report(
     combined_result: Any,
     query_type: str,
@@ -250,17 +291,6 @@ def _build_data_grounded_report(
             "The score distribution is based on the actual returned values."
         )
 
-    pred_cat = category.strip() if category else "Agniveer"
-    if pred_cat.lower() in ("unclear", "unknown", "none"):
-        pred_cat = "Agniveer"
-    else:
-        pred_cat = pred_cat[0].upper() + pred_cat[1:]
-
-    if cnt > 0:
-        projection = f"Future {pred_cat} results should remain broadly stable unless the underlying records change."
-    else:
-        projection = f"A reliable prediction is not available because no {pred_cat} records were returned."
-
     return {
         "message": message,
         "analysis": {
@@ -269,13 +299,7 @@ def _build_data_grounded_report(
             "insights": insights,
             "predictions": [],
         },
-        "prediction": {
-            "trend": "Stable" if cnt > 0 else "Insufficient Data",
-            "projection": projection,
-            "heuristicEstimate": projection,
-            "shortTerm": "stable",
-            "futureTrends": [projection],
-        },
+        "prediction": _build_fallback_prediction_dict(category, cnt > 0),
         "conclusion": {
             "summary": f"The {category_label} search returned {cnt} records and the result set is ready for review.",
         },

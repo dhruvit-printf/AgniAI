@@ -11,7 +11,11 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class IntentModel(BaseModel):
+class _BaseModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+
+class IntentModel(_BaseModel):
     # extra="ignore": understand_query adds "query_type" to the intent dict;
     # any other unexpected keys from future classify_admin_intent changes are
     # silently dropped rather than causing drift warnings on every request.
@@ -61,7 +65,7 @@ class IntentModel(BaseModel):
     days: Optional[int] = None
 
 
-class DotNetPayloadModel(BaseModel):
+class DotNetPayloadModel(_BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     commandId: Optional[int] = 0
@@ -100,8 +104,7 @@ class DotNetPayloadModel(BaseModel):
     givenCondition: Optional[str] = None
 
 
-class DotNetResponseModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class DotNetResponseModel(_BaseModel):
 
     success: Optional[bool] = None
     commandLabel: Optional[str] = None
@@ -111,10 +114,7 @@ class DotNetResponseModel(BaseModel):
     records: Optional[List[Dict[str, Any]]] = None
 
 
-class CombinedResponseModel(BaseModel):
-    model_config = ConfigDict(
-        extra="ignore"
-    )  # was "forbid" — same reasoning as DotNetResponseModel
+class CombinedResponseModel(_BaseModel):
 
     success: Optional[bool] = None
     status: Optional[bool] = None
@@ -147,8 +147,7 @@ class CombinedResponseModel(BaseModel):
     filterDepth: Optional[int] = None
 
 
-class AnalysisModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # was "forbid" — safe to relax
+class AnalysisModel(_BaseModel):
 
     insights: List[str] = Field(default_factory=list)
     summary: str = ""
@@ -157,8 +156,7 @@ class AnalysisModel(BaseModel):
     predictions: List[str] = Field(default_factory=list)
 
 
-class PredictionModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # was "forbid" — safe to relax
+class PredictionModel(_BaseModel):
 
     trend: str = ""
     projection: Optional[str] = None
@@ -167,29 +165,25 @@ class PredictionModel(BaseModel):
     futureTrends: List[str] = Field(default_factory=list)
 
 
-class ConclusionModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # was "forbid" — safe to relax
+class ConclusionModel(_BaseModel):
 
     summary: str = ""
     bullets: List[str] = Field(default_factory=list)
 
 
-class SuggestedQuestionModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class SuggestedQuestionModel(_BaseModel):
 
     question: str
 
 
-class WidgetModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class WidgetModel(_BaseModel):
 
     section: str = ""
     widgetType: str = ""
     type: Optional[str] = None
 
 
-class MetadataModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class MetadataModel(_BaseModel):
 
     requestId: str = ""
     traceId: str = ""
@@ -226,64 +220,54 @@ class MetadataModel(BaseModel):
     response_assembly_ms: Optional[float] = None
 
 
-class CardItem(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class CardItem(_BaseModel):
     title: str
     subtitle: str
     value: str
     description: str
 
 
-class CardData(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class CardData(_BaseModel):
     cards: List[CardItem]
 
 
-class TableColumn(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class TableColumn(_BaseModel):
     key: str
     label: str
 
 
-class TableData(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class TableData(_BaseModel):
     columns: List[TableColumn]
     rows: List[Dict[str, Any]]
 
 
-class BarChartData(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class BarChartData(_BaseModel):
     xKey: str
     yKey: str
     rows: List[Dict[str, Any]]
 
 
-class SeriesItem(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class SeriesItem(_BaseModel):
     key: str
     label: str
 
 
-class LineChartData(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class LineChartData(_BaseModel):
     xKey: str
     series: List[SeriesItem]
     rows: List[Dict[str, Any]]
 
 
-class PieChartItem(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class PieChartItem(_BaseModel):
     label: str
     value: Any
 
 
-class PieChartData(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class PieChartData(_BaseModel):
     rows: List[PieChartItem]
 
 
-class FormattedData(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class FormattedData(_BaseModel):
     type: str
     title: str
     data: Optional[Dict[str, Any]] = None
@@ -298,7 +282,7 @@ class FormattedData(BaseModel):
     metric: Optional[str] = None
 
 
-class WidgetItem(BaseModel):
+class WidgetItem(_BaseModel):
     """Single self-contained widget in a multi-widget response."""
 
     model_config = ConfigDict(extra="allow")
@@ -309,7 +293,7 @@ class WidgetItem(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict)
 
 
-class FinalResponse(BaseModel):
+class FinalResponse(_BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     status: bool

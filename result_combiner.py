@@ -7,13 +7,13 @@ result_combiner.py
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from compare_engine import compare_datasets
 from cross_filter_engine import cross_filter_datasets
+from utils import extract_chronological_key as _extract_chronological_key
 from utils import extract_records as _normalize_records
 from utils import get_score as _utils_get_score
-from utils import safe_float as _utils_safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -28,25 +28,6 @@ def _extract_records(data: Any) -> List[Dict]:
     return _normalize_records(data)
 
 
-def _extract_agniveer_ids(records: List[Dict]) -> Set[str]:
-    ids: Set[str] = set()
-    for record in records:
-        val = record.get("agniveerNo")
-        if val is not None:
-            ids.add(str(val).strip())
-        else:
-            for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-                fallback_val = record.get(key)
-                if fallback_val is not None:
-                    ids.add(str(fallback_val).strip())
-                    break
-    return ids
-
-
-def _safe_float(value: Any) -> Optional[float]:
-    return _utils_safe_float(value)
-
-
 # =============================================================================
 # AGGREGATE HELPER
 # =============================================================================
@@ -59,24 +40,6 @@ _GROUP_FIELD_MAP: Dict[str, List[str]] = {
     "platoon": ["platoonName", "platoon"],
     "batch": ["batchName", "batch"],
 }
-
-_SCORE_FIELDS = [
-    "bestTotal",
-    "totalMarks",
-    "score",
-    "Score",
-    "omrInputTotal",
-    "marksObtained",
-]
-
-
-def _get_field(record: Dict, *keys) -> Any:
-    for key in keys:
-        val = record.get(key)
-        if val is not None:
-            return val
-    return None
-
 
 def _get_score(record: Dict) -> Optional[float]:
     return _utils_get_score(record)
@@ -183,24 +146,6 @@ def merge_results(labeled_results: List[Tuple[str, Any]]) -> Dict[str, Any]:
 # =============================================================================
 # COMPARISON
 # =============================================================================
-
-
-def _extract_chronological_key(record: Dict) -> Any:
-    for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp"):
-        val = record.get(k)
-        if val:
-            return str(val)
-    for k in ("attempt", "attemptNo", "Attempt", "AttemptNo"):
-        val = _safe_float(record.get(k))
-        if val is not None:
-            return val
-    month = record.get("month") or record.get("Month")
-    year = record.get("year") or record.get("Year")
-    if year is not None:
-        if month is not None:
-            return (year, month)
-        return year
-    return None
 
 
 def process_trend(raw_results: List[Any], intent: Dict[str, Any]) -> Dict[str, Any]:
@@ -356,7 +301,7 @@ def combine_results(
     comparison_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Perform the result combination phase.fix
+    Perform the result combination phase.
     Delegates to appropriate intersection/comparison/merge/trend/distribution strategy based on qtype_str.
     """
     if qtype_str == "cross_filter":

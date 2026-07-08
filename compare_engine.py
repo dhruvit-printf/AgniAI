@@ -7,6 +7,7 @@ Compare engine for comparing N-way datasets side-by-side.
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from utils import extract_chronological_key as _extract_chronological_key
 from utils import extract_records as _normalize_records
 from utils import get_score as _get_score
 from utils import safe_float as _safe_float
@@ -26,24 +27,6 @@ def _is_flat_summary_dict(data: Any) -> bool:
         if isinstance(value, (dict, list)):
             return False
     return True
-
-
-def _extract_chronological_key(record: Dict) -> Any:
-    for k in ("date", "Date", "createdDate", "CreatedDate", "timestamp", "Timestamp"):
-        val = record.get(k)
-        if val:
-            return str(val)
-    for k in ("attempt", "attemptNo", "Attempt", "AttemptNo"):
-        val = _safe_float(record.get(k))
-        if val is not None:
-            return val
-    month = record.get("month") or record.get("Month")
-    year = record.get("year") or record.get("Year")
-    if year is not None:
-        if month is not None:
-            return (year, month)
-        return year
-    return None
 
 
 def _extract_summary_metrics(data: Any) -> Dict[str, Any]:

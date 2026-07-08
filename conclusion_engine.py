@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+from intelligence_common import _percentile, _record_label
 from utils import categorical_breakdown as _categorical_breakdown
 from utils import get_score as _get_score
 
@@ -26,6 +27,10 @@ from utils import get_score as _get_score
 
 
 def _extract_scores(records: List[Any]) -> List[float]:
+    # Deliberately the SIMPLE (non-nested-aware) variant — does NOT check
+    # nested attempts/sections/subItems the way analysis_engine.py's and
+    # prediction_engine.py's shared _extract_scores does (see
+    # intelligence_common.py's module docstring for why this isn't merged).
     return [
         s
         for s in (_get_score(r) for r in records if isinstance(r, dict))
@@ -34,19 +39,6 @@ def _extract_scores(records: List[Any]) -> List[float]:
 
 
 # ── Named record helpers (who to call out in the conclusion) ──────────────────
-
-_NAME_FIELDS = ("fullName", "name", "agniveerName", "recruiterName")
-_ID_FIELDS = ("agniveerNo", "agniveerNumber", "enrollmentNo")
-
-
-def _record_label(record: Dict[str, Any]) -> Optional[str]:
-    for f in _NAME_FIELDS:
-        if record.get(f):
-            return str(record[f])
-    for f in _ID_FIELDS:
-        if record.get(f):
-            return str(record[f])
-    return None
 
 
 def _named_score_records(records: List[Any]) -> List[Dict[str, Any]]:
@@ -59,15 +51,6 @@ def _named_score_records(records: List[Any]) -> List[Dict[str, Any]]:
         if label and score is not None:
             out.append({"label": label, "score": score})
     return out
-
-
-def _percentile(sorted_data: List[float], pct: float) -> float:
-    if not sorted_data:
-        return 0.0
-    n = len(sorted_data)
-    idx = (pct / 100) * (n - 1)
-    lo, hi = int(idx), min(int(idx) + 1, n - 1)
-    return round(sorted_data[lo] + (idx - lo) * (sorted_data[hi] - sorted_data[lo]), 2)
 
 
 def _std_dev(scores: List[float]) -> float:

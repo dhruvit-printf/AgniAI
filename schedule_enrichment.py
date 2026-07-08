@@ -39,8 +39,10 @@ def _extract_platoon_names(records: List[Dict[str, Any]]) -> List[str]:
         if not name:
             continue
         cleaned = str(name).strip()
+        if not cleaned:
+            continue
         key = cleaned.lower()
-        if cleaned and key not in seen:
+        if key not in seen:
             seen.add(key)
             names.append(cleaned)
     return names
@@ -57,14 +59,15 @@ def _resolve_company_ids(
     for name in platoon_names:
         resolved = resolve_platoon(name, trace_id=trace_id, session_id=session_id)
         company_id = resolved.get("CompanyId")
-        if company_id is not None and company_id not in seen:
-            seen.add(company_id)
-            company_ids.append(company_id)
-        elif company_id is None:
+        if company_id is None:
             logger.info(
                 "schedule_enrichment: could not resolve company for platoon %r",
                 name,
             )
+            continue
+        if company_id not in seen:
+            seen.add(company_id)
+            company_ids.append(company_id)
     return company_ids
 
 
@@ -130,8 +133,7 @@ def enrich_schedule_by_company(
             merged_from_date = company_payload.get("fromDate")
             merged_to_date = company_payload.get("toDate")
 
-        for entry in company_payload.get("byCompany") or []:
-            merged_by_company.append(entry)
+        merged_by_company.extend(company_payload.get("byCompany") or [])
 
     if not merged_by_company:
         return None

@@ -674,3 +674,19 @@ def test_noise_like_query_is_not_forced_into_performance():
     assert r["category"] is None
     assert r["operation"] is None
     assert r["confidence"] == "low"
+
+
+def test_schedule_compare_fallthrough_remaps_to_valid_operation():
+    """Regression test: format_admin_payload's Compare-remap fallthrough
+    previously remapped Schedule to the invalid operation string "Today"
+    (not in OPERATIONS_BY_CATEGORY["Schedule"]); it must remap to the real
+    default "bytoday" instead, matching intent_classifier.py's own default.
+    """
+    intent_result = {
+        "category": "Schedule",
+        "operation": "Compare",
+        "subcategory": None,
+        "responseType": None,
+    }
+    payload = format_admin_payload(intent_result)
+    assert payload.get("operation") == "bytoday"

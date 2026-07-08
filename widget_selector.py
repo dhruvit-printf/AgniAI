@@ -10,6 +10,9 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from widget_types import COMPARE_CHART_OVERRIDE_MAP
+from widget_types import canonical_widget_type as _canonical
+
 
 def _slug(text: str) -> str:
     t = re.sub(r"[^a-zA-Z0-9\s]", "", str(text or "")).strip()
@@ -19,21 +22,6 @@ def _slug(text: str) -> str:
 def _title(category: str, operation: str = "") -> str:
     parts = [p.strip() for p in (category, operation) if p and p.strip()]
     return " ".join(parts) or "Results"
-
-
-def _canonical(wt: str) -> str:
-    _ALIASES: Dict[str, str] = {
-        "BAR_CHART": "CHART_BAR",
-        "LINE_CHART": "CHART_LINE",
-        "AREA_CHART": "CHART_LINE",
-        "RADIAL_CHART": "CHART_LINE",
-        "PIE_CHART": "CHART_PIE",
-        "DONUT_CHART": "CHART_PIE",
-        "COMPARE_BAR_CHART": "COMPARE_CHART_BAR",
-        "COMPARE_LINE_CHART": "COMPARE_CHART_LINE",
-        "COMPARE_PIE_CHART": "COMPARE_CHART_PIE",
-    }
-    return _ALIASES.get((wt or "").upper(), (wt or "TABLE").upper())
 
 
 @dataclass
@@ -75,14 +63,7 @@ class WidgetSelector:
             qt = (query_type or "").strip().lower()
             if qt in ("compare", "comparison"):
                 override = comparison_chart_override.strip().lower()
-                mapped = {
-                    "line": "COMPARE_CHART_LINE",
-                    "bar": "COMPARE_CHART_BAR",
-                    "pie": "COMPARE_CHART_PIE",
-                    "donut": "COMPARE_CHART_PIE",
-                    "radial": "COMPARE_CHART_LINE",
-                    "area": "COMPARE_CHART_LINE",
-                }.get(override, "COMPARE_TABLE")
+                mapped = COMPARE_CHART_OVERRIDE_MAP.get(override, "COMPARE_TABLE")
                 plan = [{"type": mapped}]
 
         if not plan and primary_widget_type:

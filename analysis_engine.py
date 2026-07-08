@@ -22,27 +22,15 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 from grounding_utils import ground_and_sanitize as _ground_and_sanitize
+from intelligence_common import HIGH_SCORE_THRESHOLD, LOW_SCORE_THRESHOLD
+from intelligence_common import _extract_nested_scores, _extract_scores
+from intelligence_common import _percentile, _record_label
 from normalized_models import humanize_category
 from utils import categorical_breakdown as _categorical_breakdown
 from utils import get_score as _get_score
-from utils import safe_float as _safe_float
-
-# ── Tunable thresholds ─────────────────────────────────────────────────────────
-LOW_SCORE_THRESHOLD: float = 50.0
-HIGH_SCORE_THRESHOLD: float = 75.0
 
 
 # ── Statistical helpers ────────────────────────────────────────────────────────
-
-
-def _percentile(sorted_data: List[float], pct: float) -> float:
-    """Return the pct-th percentile (0–100) of a pre-sorted list."""
-    if not sorted_data:
-        return 0.0
-    n = len(sorted_data)
-    idx = (pct / 100) * (n - 1)
-    lo, hi = int(idx), min(int(idx) + 1, n - 1)
-    return round(sorted_data[lo] + (idx - lo) * (sorted_data[hi] - sorted_data[lo]), 2)
 
 
 def _score_distribution(scores: List[float]) -> Dict[str, int]:
@@ -56,68 +44,9 @@ def _score_distribution(scores: List[float]) -> Dict[str, int]:
     }
 
 
-def _extract_nested_scores(record: Dict[str, Any]) -> List[float]:
-    """
-    Recursively pull scores from the .NET nested structure:
-      attempts → sections → subItems → grading → score
-    Falls back to top-level score via get_score().
-    """
-    collected: List[float] = []
-    top = _get_score(record)
-    if top is not None:
-        collected.append(top)
-
-    for attempt in record.get("attempts") or []:
-        for section in attempt.get("sections") or []:
-            s = _safe_float(section.get("score") or section.get("totalScore"))
-            if s is not None:
-                collected.append(s)
-            for sub in section.get("subItems") or []:
-                sub_s = _safe_float(sub.get("score") or sub.get("marksObtained"))
-                if sub_s is not None:
-                    collected.append(sub_s)
-    return collected
-
-
-def _extract_scores(records: List[Any], preserve_order: bool = True) -> List[float]:
-    """
-    Extract scores from a list of records.
-    preserve_order=True  → encounter order (for momentum / trend use)
-    preserve_order=False → sorted ascending (for percentile / stats use)
-    """
-    scores: List[float] = []
-    for r in records:
-        if not isinstance(r, dict):
-            continue
-        # Try nested extraction first, fall back to flat get_score
-        nested = _extract_nested_scores(r)
-        if nested:
-            # Use the best (max) score from nested attempts as the record's score
-            scores.append(max(nested))
-        else:
-            s = _get_score(r)
-            if s is not None:
-                scores.append(s)
-    if not preserve_order:
-        scores.sort()
-    return scores
-
-
 # ── Named record helpers (individual-level insight) ───────────────────────────
 
-_NAME_FIELDS = ("fullName", "name", "agniveerName", "recruiterName")
-_ID_FIELDS = ("agniveerNo", "agniveerNumber", "enrollmentNo")
 _UNIT_FIELDS = ("platoonName", "platoon", "company", "unit", "class", "batchName")
-
-
-def _record_label(record: Dict[str, Any]) -> Optional[str]:
-    for f in _NAME_FIELDS:
-        if record.get(f):
-            return str(record[f])
-    for f in _ID_FIELDS:
-        if record.get(f):
-            return str(record[f])
-    return None
 
 
 def _record_unit(record: Dict[str, Any]) -> Optional[str]:

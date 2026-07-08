@@ -29,6 +29,15 @@ from typing import Any, Dict, List, Union
 _ALLOWED_WIDGET_KEYS = ("type", "title", "data")
 
 
+def _normalize_text(value: Any) -> Any:
+    """Normalize string-like values without changing the public response shape."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
 def _clean_widget(widget: Any) -> Dict[str, Any]:
     if not isinstance(widget, dict):
         return {}
@@ -38,7 +47,7 @@ def _clean_widget(widget: Any) -> Dict[str, Any]:
 def _clean_formatted_data(formatted: Any) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
     """Preserve single-widget objects and lists of widgets."""
     if isinstance(formatted, list):
-        cleaned = [_clean_widget(w) for w in formatted if isinstance(w, dict)]
+        cleaned = [_clean_widget(widget) for widget in formatted if isinstance(widget, dict)]
         if len(cleaned) == 1:
             return cleaned[0]
         return cleaned
@@ -52,19 +61,18 @@ def public_response_view(payload: Dict[str, Any]) -> Dict[str, Any]:
         payload = {}
 
     formatted = _clean_formatted_data(payload.get("formattedData"))
-    raw_meta = (
-        payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    )
-    session_id = raw_meta.get("sessionId") or payload.get("sessionId") or ""
+    metadata = payload.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    session_id = metadata.get("sessionId") or payload.get("sessionId") or ""
 
     return {
         "status": bool(payload.get("status", True)),
-        "message": (payload.get("message") or "").strip(),
+        "message": _normalize_text(payload.get("message")),
         "formattedData": formatted,
-        "summary": (payload.get("summary") or ""),
-        "analysis": (payload.get("analysis") or ""),
-        "prediction": (payload.get("prediction") or ""),
-        "conclusion": (payload.get("conclusion") or ""),
+        "summary": _normalize_text(payload.get("summary")),
+        "analysis": _normalize_text(payload.get("analysis")),
+        "prediction": _normalize_text(payload.get("prediction")),
+        "conclusion": _normalize_text(payload.get("conclusion")),
         "suggestedQuestions": list(payload.get("suggestedQuestions") or []),
         "dotnetPayload": payload.get("dotnetPayload"),
         "sessionId": session_id,

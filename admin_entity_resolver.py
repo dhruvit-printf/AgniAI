@@ -285,8 +285,11 @@ def resolve_company_id(
     company_name: str,
     trace_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    *,
+    companies: Optional[List[Dict]] = None,
 ) -> Optional[int]:
-    companies = _fetch_companies(trace_id=trace_id)
+    if companies is None:
+        companies = _fetch_companies(trace_id=trace_id)
     for co in companies:
         stored = str(_get_field(co, "companyName", "CompanyName", "name", "Name") or "")
         if stored and _name_matches(stored, company_name):
@@ -301,8 +304,11 @@ def resolve_platoon_id(
     company_id: Optional[int] = None,
     trace_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    *,
+    platoons: Optional[List[Dict]] = None,
 ) -> Optional[int]:
-    platoons = _fetch_platoons(trace_id=trace_id)
+    if platoons is None:
+        platoons = _fetch_platoons(trace_id=trace_id)
     candidates = []
     for pl in platoons:
         stored = str(_get_field(pl, "platoonName", "PlatoonName", "name", "Name") or "")
@@ -364,6 +370,12 @@ def resolve_entities_from_query(
     result["batchName"] = batch_mention
     result["agniveerNo"] = agniveer_mention
 
+    # Fetched once and reused for every lookup below (resolve_*_id calls,
+    # the authoritative directory scan, and the name backfill) instead of
+    # each one re-fetching the same directory independently.
+    companies = _fetch_companies(trace_id=trace_id)
+    platoons = _fetch_platoons(trace_id=trace_id)
+
     # `extract_company_mention`/`extract_platoon_mention` are a positional
     # heuristic (the word(s) next to "company"/"platoon") — they can pick up
     # stray query vocabulary as part of the name (see _NOISE_WORDS) and they
@@ -373,7 +385,7 @@ def resolve_entities_from_query(
     # first and, when it finds anything, wins over the positional guess.
     if company_mention:
         result["companyId"] = resolve_company_id(
-            company_mention, trace_id=trace_id, session_id=session_id
+            company_mention, trace_id=trace_id, session_id=session_id, companies=companies
         )
     elif result["companyId"] is None:
         result["companyId"] = existing_company_id
@@ -384,6 +396,7 @@ def resolve_entities_from_query(
             company_id=result["companyId"],
             trace_id=trace_id,
             session_id=session_id,
+            platoons=platoons,
         )
     elif result["platoonId"] is None:
         result["platoonId"] = existing_platoon_id
@@ -447,7 +460,6 @@ def resolve_entities_from_query(
     # found anything. This always runs — and wins when it finds a match —
     # because it can only ever match a name that genuinely exists, whereas
     # the heuristic above can misfire on stray words near "company"/"platoon".
-    companies = _fetch_companies(trace_id=trace_id)
     best_match_len = 0
     directory_company_id = None
     for co in companies:
@@ -469,7 +481,6 @@ def resolve_entities_from_query(
     if directory_company_id is not None:
         result["companyId"] = directory_company_id
 
-    platoons = _fetch_platoons(trace_id=trace_id)
     best_match_len = 0
     directory_platoon_id = None
     for pl in platoons:
@@ -495,7 +506,6 @@ def resolve_entities_from_query(
         result["platoonId"] = directory_platoon_id
 
     if result["companyId"] is not None:
-        companies = _fetch_companies(trace_id=trace_id)
         for co in companies:
             cid = _get_field(co, "companyId", "CompanyId", "id", "Id")
             if cid is not None and int(cid) == result["companyId"]:
@@ -505,7 +515,6 @@ def resolve_entities_from_query(
                 break
 
     if result["platoonId"] is not None:
-        platoons = _fetch_platoons(trace_id=trace_id)
         for pl in platoons:
             pid = _get_field(pl, "platoonId", "PlatoonId", "id", "Id")
             if pid is not None and int(pid) == result["platoonId"]:

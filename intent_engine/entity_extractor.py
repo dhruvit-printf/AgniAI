@@ -28,8 +28,6 @@ from .intent_schema import (
     SUBSECTION_ALIASES,
     SUBSECTIONS_BY_SECTION,
     UNIT_ALIASES,
-    CATEGORY_KEYWORDS,
-    OPERATION_SYNONYMS,
 )
 
 _BLOOD_GROUPS_SORTED = sorted(BLOOD_GROUPS, key=len, reverse=True)
@@ -185,27 +183,6 @@ def detect_query_number_override(raw_query: str) -> Optional[int]:
     just whichever fragment's own text happened to contain it.
     """
     return _extract_number(raw_query)
-
-
-def _extract_category(query: str) -> Optional[str]:
-    query_lower = _normalise(query)
-    for category, keywords in CATEGORY_KEYWORDS.items():
-        for keyword in keywords:
-            phrase = _normalise(keyword)
-            if re.search(rf"\b{re.escape(phrase)}\b", query_lower):
-                return category
-    return None
-
-
-def _extract_operation(query: str) -> Optional[str]:
-    query_lower = _normalise(query)
-    for category, ops in OPERATION_SYNONYMS.items():
-        for operation, keywords in ops.items():
-            for keyword in keywords:
-                phrase = _normalise(keyword)
-                if re.search(rf"\b{re.escape(phrase)}\b", query_lower):
-                    return operation
-    return None
 
 
 def _extract_section(query: str) -> Optional[str]:
@@ -952,8 +929,5 @@ def extract_entities(
         or resolved_entities.get("agniveer_no")
         or resolved_entities.get("agniveerNo")
     )
-
-    result["Operation"] = _extract_operation(raw_query)
-    result["Category"] = _extract_category(raw_query)
 
     return result

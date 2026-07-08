@@ -494,6 +494,13 @@ class TestEntityExtractionEdgeCases:
         e = _entities("who got satisfactory grade")
         assert e.get("grading") == "SAT"
 
+    def test_no_dead_operation_category_keys(self):
+        """extract_entities must not resurrect the unused Operation/Category
+        keys (dead code — nothing downstream ever read them)."""
+        e = _entities("show attendance for company 1")
+        assert "Operation" not in e
+        assert "Category" not in e
+
     def test_blood_group_o_positive(self):
         e = _entities("agniveers with blood group O+")
         assert e.get("bloodGroup") == "O+"

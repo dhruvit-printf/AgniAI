@@ -113,39 +113,10 @@ def build_response(
             return value
         return value
 
-    # If it is a COMPARISON query:
-    if meta.get("queryType") == "COMPARISON":
-        # formattedData is a list of comparison widgets from build_comparison_widgets()
-        fd = _normalize_formatted_data(formatted_data)
-
-        response = {
-            "status": True,
-            "message": message or "",
-            "formattedData": fd,
-            "summary": summary,
-            "analysis": _to_str(analysis),
-            "prediction": _to_str(prediction),
-            "conclusion": _to_str(conclusion),
-            "suggestedQuestions": suggested_questions or [],
-            "dotnetPayload": dotnet_payload,
-            "metadata": meta,
-            "overallConfidence": round(float(overall_confidence or 0.0), 2),
-            "partialFailure": bool(partial_failure),
-            "failedSections": (
-                failed_sections if isinstance(failed_sections, list) else []
-            ),
-        }
-        if not _has_data(fd):
-            response.pop("formattedData", None)
-        return response
-
-    # For other query types
+    # This path serves every query type, including COMPARISON — comparison
+    # responses need no special-cased construction, they use the exact same
+    # shape as every other query type.
     fd = _normalize_formatted_data(formatted_data)
-
-    # Preserve dotnetPayload exactly as passed:
-    #   - None   → no .NET query was executed (conversational / greeting)
-    #   - dict/list → the exact payload sent to the .NET API
-    resolved_dotnet_payload = dotnet_payload
 
     response = {
         "status": True,
@@ -158,14 +129,15 @@ def build_response(
         "conclusion": _to_str(conclusion),
         "suggestedQuestions": suggested_questions or [],
         # Exact .NET request payload; None when no backend call was made
-        "dotnetPayload": resolved_dotnet_payload,
+        # (conversational/greeting), dict/list when one or more calls were made.
+        "dotnetPayload": dotnet_payload,
         "metadata": meta,
         "overallConfidence": round(float(overall_confidence or 0.0), 2),
         "partialFailure": bool(partial_failure),
         "failedSections": failed_sections if isinstance(failed_sections, list) else [],
     }
-    
+
     if not _has_data(fd):
         response.pop("formattedData", None)
-        
+
     return response

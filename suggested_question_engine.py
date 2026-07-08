@@ -137,18 +137,6 @@ SUBCATEGORY_ALIASES: Dict[str, Dict[str, str]] = {
     },
 }
 
-QTYPE_NORMALIZE: Dict[str, str] = {
-    "compare": "compare",
-    "comparison": "compare",
-    "cross_filter": "cross_filter",
-    "crossfilter": "cross_filter",
-    "multi_independent": "multi_independent",
-    "multiindependent": "multi_independent",
-    "analytics": "analytics",
-    "simple": "simple",
-    "filter": "simple",
-}
-
 # Entity patterns used to personalize bank questions against the live context
 _AGNIVEER_RE = re.compile(r"\bA\d{5,8}[A-Z]?\b")
 _BATCH_RE = re.compile(r"\bbatch\s+\d+\b", re.IGNORECASE)
@@ -423,24 +411,10 @@ def _merge_with_fallback(bank_questions: List[str], fallback_fn, n: int = 4) -> 
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Query-type level fallback generators (context-enriched, from v2)
+# Fallback generator (context-enriched, from v2) — cross-filter is the only
+# suggestion style offered (see generate_suggested_questions), so this is
+# the only fallback generator still reachable.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-def _questions_for_compare(ctx: Dict[str, Any]) -> List[str]:
-    left = ctx.get("left_label") or "Side A"
-    right = ctx.get("right_label") or "Side B"
-    batch = _fmt_batch(ctx)
-    platoon = _fmt_platoon(ctx)
-    questions = [
-        f"Compare Drill and Firing performance for {batch}.",
-        f"Compare BEPT and PPT scores between {left} and {right}.",
-        f"Show score distribution comparison for {platoon}.",
-        f"Compare {left} and {right} with the overall {batch} average.",
-    ]
-    if ctx.get("avg_score") is not None:
-        questions.append(f"Which agniveers in {left} are below the {right} average?")
-    return questions[:4]
 
 
 def _questions_for_cross_filter(ctx: Dict[str, Any]) -> List[str]:
@@ -461,236 +435,16 @@ def _questions_for_cross_filter(ctx: Dict[str, Any]) -> List[str]:
     return questions[:4]
 
 
-def _questions_for_multi_independent(ctx: Dict[str, Any]) -> List[str]:
-    batch = _fmt_batch(ctx)
-    return [
-        f"Show the top 5 performers and the top 5 leave takers in {batch}.",
-        "Show active medical cases and current attendance summary.",
-        f"List overdue equipment and pending police verifications for {batch}.",
-        "Show monthly attendance statistics and blood group distribution.",
-    ]
-
-
-def _questions_for_analytics(ctx: Dict[str, Any], category: str) -> List[str]:
-    batch = _fmt_batch(ctx)
-    section = _fmt_section(ctx)
-    trend = ctx.get("trend_hint", "stable")
-    at_risk = ctx.get("at_risk_count", 0)
-    high = ctx.get("high_performer_count", 0)
-
-    questions = [
-        f"Show trend analysis for {category} in {batch}.",
-        f"Predict future performance for {section} based on current scores.",
-        f"Show score distribution for {category} across all batches.",
-    ]
-    if trend == "falling":
-        questions.insert(
-            0, f"Which agniveers in {batch} show a declining {category} trend?"
-        )
-    if at_risk:
-        questions.insert(
-            0,
-            f"Show the {at_risk} at-risk agniveer(s) in {batch} below passing threshold.",
-        )
-    if high:
-        questions.append(f"Show the top {high} high-performer(s) (>75) in {section}.")
-    return questions[:4]
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Category-level fallback generators (context-enriched, from v2)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-def _questions_performance(ctx: Dict[str, Any], subcategory: str) -> List[str]:
-    section = _fmt_section(ctx)
-    batch = _fmt_batch(ctx)
-    platoon = _fmt_platoon(ctx)
-    avg = ctx.get("avg_score")
-    at_risk = ctx.get("at_risk_count", 0)
-    high = ctx.get("high_performer_count", 0)
-    trend = ctx.get("trend_hint", "stable")
-
-    base: List[str] = []
-
-    if subcategory == "TopPerformers":
-        base = [
-            f"Who are the top 10 performers overall in {batch}?",
-            f"Show the lowest scoring agniveers in {platoon}.",
-            f"Who are the lowest performers in {section}?",
-            f"Compare {section}'s top performers with another section.",
-        ]
-        if trend == "falling":
-            base.insert(1, f"Why is the top performer average declining in {batch}?")
-
-    elif subcategory == "LowestPerformers":
-        base = [
-            f"Who scored highest in BEPT in {batch}?",
-            f"Show the top 5 performers in Firing for {platoon}.",
-            f"Who are the top performers in {section}?",
-            f"Compare {section}'s lowest performers with another section.",
-        ]
-        if at_risk:
-            base.insert(
-                0,
-                f"Show {at_risk} below-passing agniveer(s) in {batch} who need intervention.",
-            )
-
-    else:
-        base = [
-            f"Who are the top 10 performers overall in {batch}?",
-            f"Show the lowest scoring agniveers in {platoon}.",
-            f"Who are the lowest performers in {section}?",
-            f"Compare {section} with another section.",
-        ]
-        if avg is not None:
-            base.append(f"Which agniveers are above the {batch} average of {avg}?")
-        if high:
-            base.append(f"Show all {high} high-performer(s) above 75 in {section}.")
-
-    return base[:4]
-
-
-def _questions_leave(ctx: Dict[str, Any]) -> List[str]:
-    batch = _fmt_batch(ctx)
-    section = _fmt_section(ctx)
-    return [
-        f"Who has taken the most leave in {batch}?",
-        f"Which agniveers are currently on leave in {section}?",
-        f"Who took the most leaves in {section} this month?",
-        "Show all absconded leave records.",
-        f"Show leave trend for {batch} over the past 3 months.",
-    ][:4]
-
-
-def _questions_medical(ctx: Dict[str, Any]) -> List[str]:
-    batch = _fmt_batch(ctx)
-    section = _fmt_section(ctx)
-    return [
-        f"Show active medical cases in {batch}.",
-        "Which agniveers are obese?",
-        f"Show BMI outliers and fitness analysis for {section}.",
-        "Give blood group distribution.",
-        f"Show medical trend for {batch} over the past month.",
-    ][:4]
-
-
-def _questions_attendance(ctx: Dict[str, Any]) -> List[str]:
-    batch = _fmt_batch(ctx)
-    section = _fmt_section(ctx)
-    return [
-        f"Show monthly attendance statistics for {batch}.",
-        "Give weekly attendance report.",
-        f"Show monthly attendance statistics for {section}.",
-        "Show today's attendance.",
-        f"Which agniveers in {batch} have attendance below 75%?",
-    ][:4]
-
-
-def _questions_equipment(ctx: Dict[str, Any]) -> List[str]:
-    batch = _fmt_batch(ctx)
-    return [
-        f"Show overall equipment statistics for {batch}.",
-        "Which equipment is overdue for return?",
-        "Show returned equipment.",
-        "Show overdue equipment returns.",
-    ]
-
-
-def _questions_verification(ctx: Dict[str, Any]) -> List[str]:
-    batch = _fmt_batch(ctx)
-    return [
-        f"Which agniveers in {batch} are pending verification?",
-        "Show sent verification records.",
-        "Show verified agniveers.",
-        f"Show pending verification list for {batch}.",
-    ]
-
-
-def _questions_skills_roster(ctx: Dict[str, Any]) -> List[str]:
-    sport = ctx.get("sport_name") or "the sport"
-    platoon = _fmt_platoon(ctx)
-    batch = _fmt_batch(ctx)
-    return [
-        f"Show all sports players in {batch}.",
-        "List cricket players.",
-        f"Show roster by sport for {sport} in {platoon}.",
-        "List all Class A agniveers.",
-    ]
-
-
-def _questions_strength(ctx: Dict[str, Any]) -> List[str]:
-    batch = _fmt_batch(ctx)
-    platoon = _fmt_platoon(ctx)
-    return [
-        f"Show complete strength breakdown for {batch}.",
-        f"Give company-wise strength report for {batch}.",
-        f"Show platoon-wise strength for {platoon}.",
-        "Show present and absent counts.",
-    ]
-
-
-def _questions_overall(ctx: Dict[str, Any]) -> List[str]:
-    batch = _fmt_batch(ctx)
-    avg = ctx.get("avg_score")
-    trend = ctx.get("trend_hint", "stable")
-    questions = [
-        f"Show top overall performers in {batch}.",
-        "Rank agniveers using composite score.",
-        f"Which batch has the best overall performance compared to {batch}?",
-        f"Show top 20 overall agniveers in {batch}.",
-    ]
-    if avg is not None and trend == "falling":
-        questions.insert(0, f"Why is the overall average ({avg}) declining in {batch}?")
-    return questions[:4]
-
-
-def _generic_fallback(ctx: Dict[str, Any], category: str) -> List[str]:
-    batch = _fmt_batch(ctx)
-    section = _fmt_section(ctx, fallback=category)
-    avg = ctx.get("avg_score")
-
-    fallback = [
-        f"Show average score for {category} in {batch}.",
-        f"List all records in {section}.",
-        f"Show section-wise distribution for {category}.",
-    ]
-    if avg is not None:
-        fallback.append(
-            f"Which agniveers in {batch} are above the {category} average of {avg}?"
-        )
-    if ctx.get("at_risk_count"):
-        fallback.insert(
-            0,
-            f"Show {ctx['at_risk_count']} at-risk agniveer(s) below 50 in {section}.",
-        )
-    return fallback[:4]
-
-
 def _fallback_for(qtype: str, category: str, subcategory: str, ctx: Dict[str, Any]):
-    """Return a zero-arg callable producing the v2-style generated questions."""
-    if qtype in ("compare",):
-        return lambda: _questions_for_compare(ctx)
-    if qtype == "cross_filter":
-        return lambda: _questions_for_cross_filter(ctx)
-    if qtype == "multi_independent":
-        return lambda: _questions_for_multi_independent(ctx)
-    if qtype == "analytics":
-        return lambda: _questions_for_analytics(ctx, category)
+    """Return a zero-arg callable producing the v2-style generated questions.
 
-    dispatch = {
-        "PERFORMANCE": lambda: _questions_performance(ctx, subcategory),
-        "LEAVE": lambda: _questions_leave(ctx),
-        "MEDICAL": lambda: _questions_medical(ctx),
-        "ATTENDANCE": lambda: _questions_attendance(ctx),
-        "EQUIPMENT": lambda: _questions_equipment(ctx),
-        "VERIFICATION": lambda: _questions_verification(ctx),
-        "SKILLS": lambda: _questions_skills_roster(ctx),
-        "STRENGTH": lambda: _questions_strength(ctx),
-        "OVERALL": lambda: _questions_overall(ctx),
-    }
-    bank_category = _resolve_bank_category(category) or (category or "").upper()
-    return dispatch.get(bank_category, lambda: _generic_fallback(ctx, category))
+    Cross-filter is the only suggestion style ever requested by
+    generate_suggested_questions (see its docstring), so this always
+    resolves to the cross-filter generator. qtype/category/subcategory are
+    kept as parameters for call-site stability, even though only ctx is
+    actually used.
+    """
+    return lambda: _questions_for_cross_filter(ctx)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

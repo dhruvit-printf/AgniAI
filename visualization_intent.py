@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, List, Optional
 
+from widget_types import COMPARE_CHART_OVERRIDE_MAP
+
 
 def _flatten_records(data: Any) -> List[Dict[str, Any]]:
     if isinstance(data, dict):
@@ -126,13 +128,15 @@ def _comparison_widgets(override: Optional[str]) -> List[Dict[str, Any]]:
         return _widget_list("COMPARE_TABLE")
 
     normalized = override.strip().lower()
-    if normalized == "bar":
-        return _widget_list("COMPARE_CHART_BAR", "COMPARE_TABLE")
-    if normalized in {"line", "area", "radial"}:
-        return _widget_list("COMPARE_CHART_LINE")
-    if normalized in {"pie", "donut"}:
-        return _widget_list("COMPARE_CHART_PIE")
-    return _widget_list("COMPARE_TABLE")
+    widget_type = COMPARE_CHART_OVERRIDE_MAP.get(normalized)
+    if widget_type is None:
+        return _widget_list("COMPARE_TABLE")
+    if widget_type == "COMPARE_CHART_BAR":
+        # Bar comparisons additionally get a companion table — a decision
+        # local to this caller, not shared with widget_selector.py/
+        # widget_engine.py's copies of the type-string mapping above.
+        return _widget_list(widget_type, "COMPARE_TABLE")
+    return _widget_list(widget_type)
 
 
 def _plan_widgets(

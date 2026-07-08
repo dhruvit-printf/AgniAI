@@ -41,6 +41,26 @@ _MONTH_YEAR_RE = re.compile(
     r"aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
     r"(?:\s+(\d{4}))?$"
 )
+_COMMON_DATE_FORMATS = (
+    "%d/%m/%Y",
+    "%d-%m-%Y",
+    "%d.%m.%Y",
+    "%d/%m/%y",
+    "%d-%m-%y",
+    "%d.%m.%y",
+    "%d %B %Y",
+    "%d %b %Y",
+    "%d %B %y",
+    "%d %b %y",
+    "%d-%B-%Y",
+    "%d-%b-%Y",
+    "%d/%B/%Y",
+    "%d/%b/%Y",
+    "%d-%B-%y",
+    "%d-%b-%y",
+    "%d/%B/%y",
+    "%d/%b/%y",
+)
 
 
 def _iso(dt: Optional[datetime]) -> Optional[str]:
@@ -104,12 +124,25 @@ def _phrase_to_dates(
 
     m = _SLASH_DATE_RE.match(text)
     if m:
-        # Domain convention: DD/MM/YYYY (or DD-MM-YYYY).
         day, month, year = (int(g) for g in m.groups())
         try:
             return datetime(year, month, day), None, None
         except ValueError:
             return None, None, None
+
+    if re.fullmatch(r"\d{1,2}[/-]\d{1,2}[/-]\d{2}(?:\d{2})?", text):
+        for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%m-%y"):
+            try:
+                return datetime.strptime(text, fmt), None, None
+            except ValueError:
+                continue
+
+    if re.fullmatch(r"\d{1,2}(?:\s|[./-])(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s|[./-])\d{2,4}", text):
+        for fmt in _COMMON_DATE_FORMATS:
+            try:
+                return datetime.strptime(text, fmt), None, None
+            except ValueError:
+                continue
 
     m = _MONTH_YEAR_RE.match(text)
     if m:

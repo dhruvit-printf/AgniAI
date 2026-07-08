@@ -161,6 +161,29 @@ class TestFilteredComparison(unittest.TestCase):
         frags = [op.raw_fragment for op in plan.operations]
         self.assertTrue(any("sikh" in f.lower() for f in frags))
 
+    def test_compare_golf_and_hotel_units_now_detected(self):
+        """Regression test: query_planner previously hardcoded only a stale
+        7-unit list (alpha..foxtrot plus a non-canonical "vanguard"), missing
+        golf-zulu. Comparing golf/hotel units must now be detected, matching
+        the canonical intent_schema.UNIT_ALIASES list used elsewhere in the
+        pipeline (e.g. entity extraction already recognizes "golf unit")."""
+        plan = plan_query("Compare attendance for golf company and hotel company")
+        self.assertEqual(plan.query_type, QueryType.COMPARISON)
+        self.assertEqual(len(plan.operations), 2)
+
+    def test_vanguard_no_longer_falsely_registers_as_a_unit(self):
+        """"vanguard" was never a canonical unit name (not in
+        intent_schema.UNIT_ALIASES) — a query mentioning it alongside one
+        real unit, with no explicit "compare"/"vs" keyword, must not be
+        treated as a two-unit comparison purely off the multi-unit heuristic
+        (the mechanism this fix touches). Deliberately avoids the word
+        "compare" so the assertion isolates the unit-list fix from the
+        separate semantic-fragment fallback splitter further down plan_query.
+        """
+        plan = plan_query("attendance for vanguard and alpha company")
+        self.assertEqual(plan.query_type, QueryType.SIMPLE)
+        self.assertEqual(len(plan.operations), 1)
+
     def test_compare_results_with_record_lists(self):
         """compare_results() must extract metrics from record lists, not just dicts."""
         set_a = [

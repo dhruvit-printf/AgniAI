@@ -82,7 +82,7 @@ def _comparison_fallback_operation(category: Optional[str]) -> str:
         "Skills": "BySport",
         "Strength": "StrengthBreakdown",
         "Overall": "OverallPerformance",
-        "Schedule": "Today",
+        "Schedule": "bytoday",
         "personaldetail": "info",
         "disqualified": "removed",
     }
