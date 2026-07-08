@@ -299,45 +299,38 @@ def classify_admin_intent(
         _eq_type = entities.get("equipmentType")
 
         if not entities.get("equipmentName"):
-            # No specific item mentioned — check if the user is asking about a
-            # type of equipment (issued / procured) generically.
-            if _eq_type == "Issued" and operation != "Returned":
-                subcategory = "IssuedItems"
-                operation = "ByName"
-            elif _eq_type == "Procured" and operation != "Returned":
-                subcategory = "ProcuredItems"
-                operation = "ByName"
-            elif any(kw in _nq for kw in {"overdue"}):
-                subcategory = "HoldingEquipment"
-                operation = "Holding"
+            _has_item = False
         else:
-            # Specific item name mentioned — decide operation from query context
-            if any(
-                kw in _nq
-                for kw in {
-                    "currently holding",
-                    "holding",
-                }
-            ):
-                subcategory = _eq_type or "HoldingEquipment"
-                operation = "Holding"
-            elif any(
-                kw in _nq
-                for kw in {"poor condition", "returned", "damaged", "broken"}
-            ):
-                subcategory = "PoorConditionEquipment"
-                operation = "Returned"
-            elif any(kw in _nq for kw in {"stats", "summary", "overview"}):
-                subcategory = "EquipmentSummary"
-                operation = "Stats"
-            else:
-                # Default: use the item's type as subcategory (IssuedItems / ProcuredItems)
-                # or fall back to EquipmentSearch if type is unknown.
+            _has_item = True
+
+        if any(kw in _nq for kw in {"currently holding", "holding", "overdue", "are issued", "has issued", "have issued"}):
+            subcategory = "HoldingEquipment"
+            operation = "Holding"
+        elif any(kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}):
+            subcategory = "PoorConditionEquipment"
+            operation = "Returned"
+        elif any(kw in _nq for kw in {"stats", "summary", "overview"}):
+            subcategory = "EquipmentSummary"
+            operation = "Stats"
+        elif subcategory == "AgniveerWiseEquipment":
+            pass
+        else:
+            if _has_item:
                 if _eq_type in ("Issued", "Procured"):
                     subcategory = f"{_eq_type}Items"
                 else:
-                    subcategory = _eq_type or "EquipmentSearch"
+                    subcategory = "EquipmentSearch"
                 operation = "ByName"
+            else:
+                if _eq_type == "Issued":
+                    subcategory = "IssuedItems"
+                    operation = "ByName"
+                elif _eq_type == "Procured":
+                    subcategory = "ProcuredItems"
+                    operation = "ByName"
+                else:
+                    subcategory = "EquipmentSearch"
+                    operation = "ByName"
 
 
     # Schedule override: a specific calendar date → bydate schedule.

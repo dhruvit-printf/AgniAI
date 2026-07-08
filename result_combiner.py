@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 
 from compare_engine import compare_datasets
 from cross_filter_engine import cross_filter_datasets
+from universal_normalizer import normalize_response
 from utils import extract_chronological_key as _extract_chronological_key
-from utils import extract_records as _normalize_records
 from utils import get_score as _utils_get_score
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 def _extract_records(data: Any) -> List[Dict]:
     """Pull the list of records out of any .NET wrapper shape."""
-    return _normalize_records(data)
+    return normalize_response(data)
 
 
 # =============================================================================

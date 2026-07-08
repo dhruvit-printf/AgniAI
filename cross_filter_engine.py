@@ -10,7 +10,7 @@ their fields from each dataset into a single unified record.
 import logging
 from typing import Any, Dict, List, Optional, Set
 
-from utils import extract_records as _normalize_records
+from universal_normalizer import normalize_response
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ _ID_FIELD_PRIORITY = (
 
 def _extract_records(data: Any) -> List[Dict]:
     """Pull the list of records out of any .NET wrapper shape."""
-    return _normalize_records(data)
+    return normalize_response(data)
 
 
 def _get_record_id(record: Dict) -> Optional[str]:
@@ -228,13 +228,18 @@ def _build_no_overlap_message(
     counts: List[int], labels: Optional[List[str]]
 ) -> str:
     """
-    Distinguish "a condition genuinely returned nothing" (payload is null —
-    keep the message a plain "no records found") from "every condition
-    matched records on its own, they just don't overlap" (give the user the
-    real reason instead of implying the data doesn't exist).
+    Distinguish "a condition genuinely returned nothing" from
+    "every condition matched records on its own, they just don't overlap".
     """
-    if not counts or any(c == 0 for c in counts):
+    if not counts:
         return "No matching records found."
+        
+    if any(c == 0 for c in counts):
+        if labels and len(labels) == len(counts):
+            empty_labels = [label for label, count in zip(labels, counts) if count == 0]
+            parts = " and ".join(empty_labels)
+            return f"The condition for '{parts}' produced no records, resulting in an empty intersection."
+        return "One or more conditions produced no records, resulting in an empty intersection."
 
     if labels and len(labels) == len(counts):
         parts = ", ".join(
