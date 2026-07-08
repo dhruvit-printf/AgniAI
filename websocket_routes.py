@@ -26,7 +26,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from flask_socketio import SocketIO
 
@@ -88,11 +88,11 @@ def _build_log_payload(
     trace_id: str,
     session_id: str,
     query_type: str,
-    duration_ms: Any = None,
+    duration_ms: Optional[float] = None,
     **extra: Any,
 ) -> Dict[str, Any]:
     """Create a consistent structured log payload for WebSocket requests."""
-    payload = {
+    payload: Dict[str, Any] = {
         "message": message,
         "question": message[:200],
         "trace_id": trace_id,

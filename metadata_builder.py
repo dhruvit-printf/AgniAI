@@ -47,37 +47,52 @@ def build_metadata(
         "responseAssemblyMs", "response_assembly_duration", "response_assembly_ms"
     )
 
+    planner_ms = round(planner_ms, 2)
+    intent_ms = round(intent_ms, 2)
+    dotnet_ms = round(dotnet_ms, 2)
+    combiner_ms = round(combiner_ms, 2)
+    report_ms = round(report_ms, 2)
+    total_ms = round(total_ms, 2)
+    execution_ms = round(execution_ms or total_ms, 2)
+    analysis_ms = round(analysis_ms, 2)
+    prediction_ms = round(prediction_ms, 2)
+    conclusion_ms = round(conclusion_ms, 2)
+    entity_resolution_ms = round(entity_resolution_ms, 2)
+    planning_ms = round(planning_ms, 2)
+    widget_ms = round(widget_ms, 2)
+    response_assembly_ms = round(response_assembly_ms, 2)
+
     return {
         "sessionId": session_id,
         "confidence": round(float(confidence), 2),
         "queryType": query_type,
         "operationCount": int(operation_count),
         "timings": {
-            "plannerMs": round(planner_ms, 2),
-            "intentMs": round(intent_ms, 2),
-            "dotnetMs": round(dotnet_ms, 2),
-            "combinerMs": round(combiner_ms, 2),
-            "reportMs": round(report_ms, 2),
-            "totalMs": round(total_ms, 2),
+            "plannerMs": planner_ms,
+            "intentMs": intent_ms,
+            "dotnetMs": dotnet_ms,
+            "combinerMs": combiner_ms,
+            "reportMs": report_ms,
+            "totalMs": total_ms,
         },
-        "executionTimeMs": round(execution_ms or total_ms, 2),
-        "plannerDurationMs": round(planner_ms, 2),
-        "intentDurationMs": round(intent_ms, 2),
-        "dotnetDurationMs": round(dotnet_ms, 2),
-        "combineDurationMs": round(combiner_ms, 2),
-        "totalDurationMs": round(total_ms, 2),
-        "analysisDurationMs": round(analysis_ms, 2),
-        "predictionDurationMs": round(prediction_ms, 2),
-        "conclusionDurationMs": round(conclusion_ms, 2),
-        "entityResolutionMs": round(entity_resolution_ms, 2),
-        "planningMs": round(planning_ms, 2),
-        "widgetMs": round(widget_ms, 2),
-        "responseAssemblyMs": round(response_assembly_ms, 2),
+        "executionTimeMs": execution_ms,
+        "plannerDurationMs": planner_ms,
+        "intentDurationMs": intent_ms,
+        "dotnetDurationMs": dotnet_ms,
+        "combineDurationMs": combiner_ms,
+        "totalDurationMs": total_ms,
+        "analysisDurationMs": analysis_ms,
+        "predictionDurationMs": prediction_ms,
+        "conclusionDurationMs": conclusion_ms,
+        "entityResolutionMs": entity_resolution_ms,
+        "planningMs": planning_ms,
+        "widgetMs": widget_ms,
+        "responseAssemblyMs": response_assembly_ms,
         # Legacy snake_case for backward-compat
-        "planner_duration": round(planner_ms, 2),
-        "intent_duration": round(intent_ms, 2),
-        "dotnet_duration": round(dotnet_ms, 2),
-        "combiner_duration": round(combiner_ms, 2),
-        "report_duration": round(report_ms, 2),
-        "total_duration": round(total_ms, 2),
+        "planner_duration": planner_ms,
+        "intent_duration": intent_ms,
+        "dotnet_duration": dotnet_ms,
+        "combiner_duration": combiner_ms,
+        "report_duration": report_ms,
+        "total_duration": total_ms,
     }

@@ -1938,7 +1938,14 @@ def _build_widget_data(
 
     # ── Primary CARD (from raw records) ─────────────────────────────────────
     if wt == "CARD":
-        records = _extract_records(combined_result, deep_flatten=True)
+        if hint == "section" and isinstance(combined_result, dict):
+            records: List[Dict[str, Any]] = []
+            for sec in combined_result.get("sections") or []:
+                if isinstance(sec, dict) and sec.get("label") == spec.section_label:
+                    records = flatten_records(sec.get("data") or [], deep_flatten=True)
+                    break
+        else:
+            records = _extract_records(combined_result, deep_flatten=True)
         return build_card_data(records, spec.title)
 
     # ── TABLE — left/right/section/primary (hint-dependent data selection,
@@ -1993,7 +2000,7 @@ def _build_widget_data(
         "CHART_LINE": lambda: build_line_chart_data(chart_source),
         "CHART_PIE": lambda: build_pie_chart_data(chart_source, intent=intent),
         "ATTENDANCE_CALENDAR": lambda: build_attendance_calendar_data(
-            combined_result, intent
+            chart_source, intent
         ),
     }
     if wt in chart_builders:
@@ -2039,7 +2046,26 @@ def build_widget_list(
     )
 
     widgets: List[Dict[str, Any]] = []
-    for spec in specs:
+    section_labels: List[str] = []
+    if query_type == "multi_independent" and isinstance(combined_result, dict):
+        sections = combined_result.get("sections") or []
+        if isinstance(sections, list):
+            section_labels = [
+                str(sec.get("label") or "") if isinstance(sec, dict) else ""
+                for sec in sections
+            ]
+
+    for index, spec in enumerate(specs):
+        if (
+            query_type == "multi_independent"
+            and isinstance(combined_result, dict)
+            and not spec.section_label
+            and index < len(section_labels)
+            and section_labels[index]
+        ):
+            spec.section_label = section_labels[index]
+            spec.source_hint = "section"
+
         try:
             data = _build_widget_data(
                 spec, combined_result, query_type, intent, analysis

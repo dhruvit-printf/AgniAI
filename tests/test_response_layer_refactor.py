@@ -3,7 +3,7 @@ import unittest
 
 from response_builder import build_response
 from schemas import FinalResponseModel
-from widget_engine import build_formatted_data, validate_payload
+from widget_engine import build_formatted_data, build_widget_list, validate_payload
 
 
 class TestResponseLayerRefactor(unittest.TestCase):
@@ -125,6 +125,81 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertEqual(data["queryType"], "cross_filter")
         self.assertEqual(data["degraded"], True)
         self.assertEqual(data["failedFilters"], ["filter1"])
+
+    def test_multi_independent_card_sections_use_their_own_records(self):
+        combined = {
+            "sections": [
+                {
+                    "label": "Top Performers",
+                    "data": [{"name": "Amit", "score": 95}],
+                },
+                {
+                    "label": "Leave Takers",
+                    "data": [{"name": "Kapil", "days": 10}],
+                },
+            ]
+        }
+
+        widgets = build_widget_list(
+            combined,
+            query_type="multi_independent",
+            intent={"category": "Performance", "subcategory": "Top"},
+            visualization_intent={"widgets": [{"type": "CARD"}, {"type": "CARD"}]},
+        )
+
+        self.assertEqual(len(widgets), 2)
+        self.assertEqual(widgets[0]["data"]["cards"][0]["title"], "Amit")
+        self.assertEqual(widgets[1]["data"]["cards"][0]["title"], "Kapil")
+
+    def test_multi_independent_chart_sections_use_their_own_records(self):
+        combined = {
+            "sections": [
+                {
+                    "label": "Top Performers",
+                    "data": [{"name": "Amit", "score": 95}],
+                },
+                {
+                    "label": "Leave Takers",
+                    "data": [{"name": "Kapil", "days": 10}],
+                },
+            ]
+        }
+
+        widgets = build_widget_list(
+            combined,
+            query_type="multi_independent",
+            intent={"category": "Performance", "subcategory": "Top"},
+            visualization_intent={"widgets": [{"type": "CHART_PIE"}, {"type": "CHART_PIE"}]},
+        )
+
+        self.assertEqual(len(widgets), 2)
+        self.assertEqual(widgets[0]["data"].get("rows", [{}])[0].get("label"), "Amit")
+        self.assertEqual(widgets[1]["data"].get("rows", [{}])[0].get("label"), "Kapil")
+
+    def test_multi_independent_attendance_calendar_sections_use_their_own_records(self):
+        combined = {
+            "sections": [
+                {
+                    "label": "Top Performers",
+                    "data": [{"date": "2026-07-01", "present": True}],
+                },
+                {
+                    "label": "Leave Takers",
+                    "data": [{"date": "2026-07-02", "present": False}],
+                },
+            ]
+        }
+
+        widgets = build_widget_list(
+            combined,
+            query_type="multi_independent",
+            intent={"category": "Performance", "subcategory": "Top"},
+            visualization_intent={"widgets": [{"type": "ATTENDANCE_CALENDAR"}, {"type": "ATTENDANCE_CALENDAR"}]},
+        )
+
+        self.assertEqual(len(widgets), 2)
+        self.assertEqual(widgets[0]["data"]["days"][0]["date"], "2026-07-01")
+        self.assertEqual(widgets[1]["data"]["days"][0]["date"], "2026-07-02")
 
     def test_row_serialization_preserves_nested(self):
         # Verify nested structures are preserved as JSON strings (Issue 4)

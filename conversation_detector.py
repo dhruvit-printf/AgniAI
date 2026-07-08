@@ -35,33 +35,6 @@ _DISCLAIMER_PHRASES = (
     "as an ai",
 )
 
-_ADMIN_PHRASES = (
-    "top performer",
-    "top performers",
-    "highest performer",
-    "highest performers",
-    "best performer",
-    "best performers",
-    "football players",
-    "cricket players",
-    "players currently on leave",
-    "who plays",
-    "who is on leave",
-    "currently on leave",
-    "active medical",
-    "grade distribution",
-    "grading summary",
-    "monthly attendance",
-    "weekly attendance",
-    "pass percentage",
-    "fail percentage",
-    "compare",
-    "bpet",
-    "ppt",
-    "firing",
-    "drill",
-)
-
 _ADMIN_CONTEXT_WORDS = {
     "current",
     "currently",
@@ -124,23 +97,33 @@ _ADMIN_CONTEXT_WORDS = {
 }
 
 
+_MULTI_WORD_CONVERSATIONAL_PHRASES = tuple(
+    phrase for phrase in _CONVERSATIONAL_PHRASES if " " in phrase
+)
+_SINGLE_WORD_CONVERSATIONAL_PATTERNS = tuple(
+    re.compile(rf"\b{re.escape(phrase)}\b")
+    for phrase in _CONVERSATIONAL_PHRASES
+    if " " not in phrase
+)
+_TOKEN_PATTERN = re.compile(r"[a-z0-9']+")
+
+
 def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
 
 
 def _contains_conversational_phrase(text: str) -> bool:
-    for phrase in _CONVERSATIONAL_PHRASES:
-        if " " in phrase:
-            if phrase in text:
-                return True
-        else:
-            if re.search(rf"\b{re.escape(phrase)}\b", text):
-                return True
+    for phrase in _MULTI_WORD_CONVERSATIONAL_PHRASES:
+        if phrase in text:
+            return True
+    for pattern in _SINGLE_WORD_CONVERSATIONAL_PATTERNS:
+        if pattern.search(text):
+            return True
     return False
 
 
 def _contains_admin_signal(text: str) -> bool:
-    tokens = re.findall(r"[a-z0-9']+", text)
+    tokens = _TOKEN_PATTERN.findall(text)
     return any(token in _ADMIN_CONTEXT_WORDS for token in tokens)
 
 
@@ -207,28 +190,3 @@ def build_conversational_response(
         "failedSections": [],
     }
     return payload
-
-
-def conversational_reply(query: str, body: Dict[str, Any] | None = None) -> str:
-    body = body or {}
-    name = (
-        body.get("fullName")
-        or body.get("adminName")
-        or body.get("userName")
-        or body.get("name")
-        or "Officer"
-    )
-    cleaned = normalize_text(query).rstrip("!?.,;")
-    if cleaned in {"hi", "hello", "hey"}:
-        return f"Hello, {name}. How can I help you today?"
-    if "thank" in cleaned:
-        return "You're welcome. I'm here if you need anything else."
-    if "who are you" in cleaned or "what are you" in cleaned:
-        return "I am AgniAI, your assistant for data review and reporting."
-    if "how are you" in cleaned:
-        return "I am ready to help with your questions."
-    if "weather" in cleaned:
-        return "I can help with data and reports, but I cannot check the weather."
-    if "joke" in cleaned:
-        return "I am focused on data work, but I can help with reports or analysis."
-    return "I can help with data, reports, and analysis."
