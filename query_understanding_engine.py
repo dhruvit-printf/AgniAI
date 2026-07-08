@@ -18,6 +18,19 @@ from conversation_detector import is_conversational_query, normalize_text
 
 _PERFORMANCE_SECTIONS = {"BPET", "PPT", "Firing", "Drill"}
 
+# BPET/PPT/Firing/Drill all share the single "Performance" entry in
+# _CATEGORY_SIGNALS (intent_engine/query_planner.py), so a query naming two of
+# them ("whose PPT grade is Excellent and BPET grade is Good") only ever
+# registers as ONE detected category even though it states two distinct,
+# independently-fetched conditions. This lets the cross_filter/multi_independent
+# gates below recognize that case without conflating it with a genuinely
+# single-condition Performance query ("show top BPET performers").
+_PERFORMANCE_SECTION_TOKENS = tuple(name.lower() for name in _PERFORMANCE_SECTIONS)
+
+
+def _distinct_performance_sections(text: str) -> int:
+    return len({tok for tok in _PERFORMANCE_SECTION_TOKENS if tok in text})
+
 # Strong, mostly-unambiguous compare verbs/phrases. Deliberately excludes bare
 # "against"/"between"/"across"/"among" (used as range/membership words
 # elsewhere) and "more than"/"less than"/"greater than"/"fewer than" (numeric
@@ -86,6 +99,17 @@ _MULTI_INDEPENDENT_MARKERS = (
     "then",
     "next",
     "later",
+    "combined with",
+    "and separately",
+    "show both",
+    "display both",
+    "provide both",
+    "give both",
+    "both",
+    "separately",
+    "independently",
+    "alongside",
+    "together",
 )
 _CROSS_FILTER_MARKERS = (
     "who has",
@@ -150,7 +174,70 @@ _CROSS_FILTER_MARKERS = (
     "provided ",
     "whenever ",
     "depending on",
-    "from "
+    "from ",
+)
+
+# Status/eligibility adjectives — split out from _CROSS_FILTER_MARKERS above
+# because they're weaker evidence: each is a common standalone word (unlike
+# "whose "/"having "/"belonging to", which are unambiguously relative-clause
+# grammar). Like every marker above, they still rely on the >= 2 categories /
+# performance-sections gate for safety — "Show pending verification." stays
+# simple because only one category is present. But being weaker, a hit here
+# (and only here — see the trailing-report-noun override below) can be
+# overridden when the later clause names its own report/analytics noun,
+# e.g. "Show rejected verification and equipment summary." is two independent
+# reports despite "rejected" matching here, whereas "Show rejected
+# verification candidates and issued equipment." has no such trailing report
+# noun and stays cross-filter.
+_CROSS_FILTER_STATUS_MARKERS = (
+    "inside ",
+    "falling under",
+    "classified as",
+    "qualifying",
+    "eligible",
+    "not eligible",
+    "pending",
+    "rejected",
+    "verified",
+    "issued",
+    "holding",
+    "returned",
+    "assigned",
+    "completed",
+    "failed",
+    "passed",
+    "present",
+    "absent",
+    "hospitalized",
+    "hospitalised",
+    "diagnosed",
+    "disqualified",
+    "selected",
+    "remaining",
+    "existing",
+    "available",
+    "currently",
+    "still",
+    "already",
+    "yet",
+    "but not",
+    "instead of",
+)
+
+# A later clause naming its own report/analytics noun signals an independent
+# output request, not a filter condition on the first clause's subject — used
+# to override a _CROSS_FILTER_STATUS_MARKERS-only hit (see above).
+_REPORT_OUTPUT_MARKERS = (
+    "summary",
+    "statistics",
+    "count",
+    "average",
+    "report",
+    "overview",
+    "breakdown",
+    "distribution",
+    "analysis",
+    "trend",
 )
 
 # A clause introduced by a multi-independent marker ("additionally", "then",
@@ -167,9 +254,16 @@ _DEPENDENT_BACKREF_MARKERS = (
     "any of them",
     "of them",
     "among them",
+    "among those",
     "between them",
+    "out of them",
+    "from them",
+    "within them",
     "for those",
     "of these",
+    "only those",
+    "only these",
+    "only the",
     "from the above",
     "using these",
     "these selected",
@@ -177,6 +271,13 @@ _DEPENDENT_BACKREF_MARKERS = (
     "the selected",
     "the same agniveers",
     "same set",
+    "who also",
+    "who are also",
+    "who have also",
+    "who still",
+    "who currently",
+    "who already",
+    "who yet",
 )
 
 _VALIDATION_VERB_RE = re.compile(r"\b(?:check|confirm|verify|see|find)\s+(?:whether|if)\b")
@@ -251,7 +352,11 @@ def _build_sport_filter_re() -> "re.Pattern[str]":
 _SPORT_FILTER_RE = _build_sport_filter_re()
 
 
-def _has_cross_filter_marker(text: str) -> bool:
+def _has_strong_cross_filter_marker(text: str) -> bool:
+    """True for unambiguous relative-clause grammar (whose/having/belonging
+    to/...) as opposed to the weaker standalone status words in
+    _CROSS_FILTER_STATUS_MARKERS — see that tuple's docstring comment.
+    """
     if any(marker in text for marker in _CROSS_FILTER_MARKERS):
         return True
     if _CLASS_FILTER_RE.search(text):
@@ -259,6 +364,12 @@ def _has_cross_filter_marker(text: str) -> bool:
     if _SPORT_FILTER_RE.search(text):
         return True
     return bool(_CROSS_FILTER_GENERIC_CONNECTORS.search(text))
+
+
+def _has_cross_filter_marker(text: str) -> bool:
+    if _has_strong_cross_filter_marker(text):
+        return True
+    return any(marker in text for marker in _CROSS_FILTER_STATUS_MARKERS)
 _RANKING_MARKERS = (
     "rank",
     "top",
@@ -1088,12 +1199,28 @@ def understand_query(query: str) -> Dict[str, Any]:
 
     # cross_filter requires a marker AND at least 2 distinct inferred categories
     _cross_marker_hit = _has_cross_filter_marker(text)
+    _cross_marker_strong = _has_strong_cross_filter_marker(text)
     cross_filter_intent = False
     if _cross_marker_hit:
         from intent_engine.query_planner import _detect_categories as _dc
         _cf_cats = _dc(text)
-        if len(set(_cf_cats[:3])) >= 2:
+        if len(set(_cf_cats[:3])) >= 2 or _distinct_performance_sections(text) >= 2:
             cross_filter_intent = True
+
+    # A later clause naming its own report/analytics noun ("...and equipment
+    # summary") is asking for an independent output, not filtering the first
+    # clause's subject — even though a weak status word (rejected/issued/...)
+    # matched above. Only overrides a STATUS-only hit; an unambiguous strong
+    # marker (whose/having/belonging to/...) is trusted even with a trailing
+    # report noun.
+    if cross_filter_intent and not _cross_marker_strong and " and " in text:
+        _cf_clause_parts = [
+            part.strip(" ,") for part in text.split(" and ") if part.strip(" ,")
+        ]
+        if len(_cf_clause_parts) >= 2 and any(
+            marker in _cf_clause_parts[-1] for marker in _REPORT_OUTPUT_MARKERS
+        ):
+            cross_filter_intent = False
 
     # "which <group> has the most/highest/lowest ..." asks to RANK groups by
     # a single metric (a distribution/group-by question) — not to intersect
@@ -1108,7 +1235,10 @@ def understand_query(query: str) -> Dict[str, Any]:
         for part in clause_parts:
             clause_entities = extract_entities(part, semantic={})
             clause_categories.append(_infer_category(part, clause_entities))
-        return len({cat for cat in clause_categories if cat})
+        distinct = len({cat for cat in clause_categories if cat})
+        if distinct < 2:
+            distinct = max(distinct, _distinct_performance_sections(" ".join(clause_parts)))
+        return distinct
 
     # Every multi-independent marker — even weak ones like "also"/"then" — is
     # gated by requiring the clauses split on it to reference >= 2 distinct
@@ -1119,7 +1249,7 @@ def understand_query(query: str) -> Dict[str, Any]:
     dependent_intent = False
     # First pass: does splitting on ANY marker reveal a dependent
     # back-reference in a later clause? Checked across every marker (not just
-    # the first one present) because a 3+ clause chain — "Find the top 20
+    # the first oyne present) because a 3+ clause chain — "Find the top 20
     # performers. Then tell me which of them are medically unfit. Also show
     # their attendance." — only exposes the "of them" back-reference when
     # split on "then"; splitting on the earlier-matching "also" first would

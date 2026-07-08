@@ -152,6 +152,32 @@ class TestResponseLayerRefactor(unittest.TestCase):
         self.assertEqual(widgets[1]["data"]["cards"][0]["title"], "Kapil")
         self.assertNotEqual(widgets[0]["id"], widgets[1]["id"])
 
+    def test_multi_independent_sections_with_same_label_get_distinct_ids(self):
+        # Two sections sharing an identical label (e.g. both fall back to the
+        # same category name) must still produce distinct widget ids.
+        combined = {
+            "sections": [
+                {
+                    "label": "Attendance",
+                    "data": [{"name": "Amit", "score": 95}],
+                },
+                {
+                    "label": "Attendance",
+                    "data": [{"name": "Kapil", "score": 80}],
+                },
+            ]
+        }
+
+        widgets = build_widget_list(
+            combined,
+            query_type="multi_independent",
+            intent={"category": "Attendance", "subcategory": "Summary"},
+            visualization_intent={"widgets": [{"type": "CARD"}, {"type": "CARD"}]},
+        )
+
+        self.assertEqual(len(widgets), 2)
+        self.assertNotEqual(widgets[0]["id"], widgets[1]["id"])
+
     def test_multi_independent_chart_sections_use_their_own_records(self):
         combined = {
             "sections": [

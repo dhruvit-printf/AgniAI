@@ -2073,8 +2073,6 @@ def build_widget_list(
             and isinstance(combined_result, dict)
             and resolved_section_label
         ):
-            from widget_selector import WidgetSelector
-
             spec.widget_id = WidgetSelector._widget_id(
                 spec.widget_type,
                 "",

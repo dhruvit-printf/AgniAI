@@ -106,13 +106,13 @@ class WidgetSelector:
             return widget_type.lower()
         if widget_type == "CARD":
             if base:
-                return f"{base}_card"
+                return f"{base}_card_{index}"
             return f"{cat_slug}_{op_slug}_card" if op_slug else f"{cat_slug}_card"
         if widget_type == "TABLE":
             if base:
-                return f"{base}_table"
+                return f"{base}_table_{index}"
             return f"{cat_slug}_{op_slug}_table" if op_slug else f"{cat_slug}_table"
         suffix = widget_type.lower().replace("chart_", "").replace("_chart", "")
         if base:
-            return f"{base}_{suffix}"
+            return f"{base}_{suffix}_{index}"
         return f"{cat_slug}_{op_slug}_{suffix}" if op_slug else f"{cat_slug}_{suffix}"
