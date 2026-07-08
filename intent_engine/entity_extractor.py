@@ -391,16 +391,16 @@ def _extract_equipment_item(query: str) -> Optional[str]:
 
 
 def _extract_equipment_type(query: str) -> Optional[str]:
-    """Extract equipment type (IssuedItems / ProcuredItems) from query keywords."""
+    """Extract equipment type (Issued / Procured) from query keywords."""
     query_lower = _normalise(query)
     _ISSUED_HINTS = ("issued", "issue", "currently issued")
     _PROCURED_HINTS = ("procured", "purchased", "bought")
     for hint in _ISSUED_HINTS:
         if hint in query_lower:
-            return "IssuedItems"
+            return "Issued"
     for hint in _PROCURED_HINTS:
         if hint in query_lower:
-            return "ProcuredItems"
+            return "Procured"
     return None
 
 def _extract_date_patterns(query: str) -> Optional[str]:
@@ -886,9 +886,9 @@ def extract_entities(
     eq_type = _extract_equipment_type(raw_query)
     if eq_type is None and result["equipmentName"]:
         if result["equipmentName"] in ISSUED_EQUIPMENT_ITEMS:
-            eq_type = "IssuedItems"
+            eq_type = "Issued"
         elif result["equipmentName"] in PROCURED_EQUIPMENT_ITEMS:
-            eq_type = "ProcuredItems"
+            eq_type = "Procured"
     result["equipmentType"] = eq_type
     result["unitName"] = _extract_unit_name(raw_query)
     result["attemptNo"] = _extract_attempt_no(raw_query)

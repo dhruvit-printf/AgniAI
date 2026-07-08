@@ -818,6 +818,14 @@ class ConversationContextEngine:
                     "user_message",
                     "timestamp",
                     "payload_summary",
+                    "companyId",
+                    "company_id",
+                    "platoonId",
+                    "platoon_id",
+                    "batchId",
+                    "batch_id",
+                    "commandId",
+                    "command_id",
                 ):
                     # Normalize keys to camelCase for backend payload mapping
                     camel_key = "".join(

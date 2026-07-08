@@ -43,9 +43,9 @@ def _item_category(item_name: Optional[str]) -> Optional[str]:
         return None
     item_name = item_name.strip()
     if item_name in ISSUED_EQUIPMENT_ITEMS:
-        return "IssuedItems"
+        return "Issued"
     if item_name in PROCURED_EQUIPMENT_ITEMS:
-        return "ProcuredItems"
+        return "Procured"
     return None
 
 
@@ -301,10 +301,10 @@ def classify_admin_intent(
         if not entities.get("equipmentName"):
             # No specific item mentioned — check if the user is asking about a
             # type of equipment (issued / procured) generically.
-            if _eq_type == "IssuedItems" and operation != "Returned":
+            if _eq_type == "Issued" and operation != "Returned":
                 subcategory = "IssuedItems"
                 operation = "ByName"
-            elif _eq_type == "ProcuredItems" and operation != "Returned":
+            elif _eq_type == "Procured" and operation != "Returned":
                 subcategory = "ProcuredItems"
                 operation = "ByName"
             elif any(kw in _nq for kw in {"overdue"}):
@@ -333,7 +333,10 @@ def classify_admin_intent(
             else:
                 # Default: use the item's type as subcategory (IssuedItems / ProcuredItems)
                 # or fall back to EquipmentSearch if type is unknown.
-                subcategory = _eq_type or "EquipmentSearch"
+                if _eq_type in ("Issued", "Procured"):
+                    subcategory = f"{_eq_type}Items"
+                else:
+                    subcategory = _eq_type or "EquipmentSearch"
                 operation = "ByName"
 
 

@@ -960,18 +960,6 @@ def execute_admin_query(
                         logger.info(f"Category shift ({old_cat} -> {new_cat}). Dropping conversational filters.")
                         carry_forward_filters.clear()
                     else:
-                        if existing_co is None:
-                            existing_co = prev_intent.get("company_id") or prev_intent.get(
-                                "companyId"
-                            )
-                        if existing_pl is None:
-                            existing_pl = prev_intent.get("platoon_id") or prev_intent.get(
-                                "platoonId"
-                            )
-                        if existing_ba is None:
-                            existing_ba = prev_intent.get("batch_id") or prev_intent.get(
-                                "batchId"
-                            )
                         resolved_agniveer_no = prev_intent.get(
                             "agniveer_no"
                         ) or prev_intent.get("agniveerNo")

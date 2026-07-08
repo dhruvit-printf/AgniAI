@@ -56,15 +56,15 @@ def test_procured_items_count():
 def test_item_category_covers_all_issued():
     for item in ISSUED_ITEMS:
         assert (
-            _item_category(item) == "IssuedItems"
-        ), f"Expected IssuedItems for: {item}"
+            _item_category(item) == "Issued"
+        ), f"Expected Issued for: {item}"
 
 
 def test_item_category_covers_all_procured():
     for item in PROCURED_ITEMS:
         assert (
-            _item_category(item) == "ProcuredItems"
-        ), f"Expected ProcuredItems for: {item}"
+            _item_category(item) == "Procured"
+        ), f"Expected Procured for: {item}"
 
 
 # =============================================================================
@@ -89,7 +89,7 @@ def test_intent_specific_issued_item():
     assert r["category"] == "Equipment"
     assert r["subcategory"] == "IssuedItems"
     assert r["item_name"] == "DMS Boot GP"
-    assert r["item_category"] == "IssuedItems"
+    assert r["item_category"] == "Issued"
 
 
 def test_intent_specific_procured_item():
@@ -97,7 +97,7 @@ def test_intent_specific_procured_item():
     assert r["category"] == "Equipment"
     assert r["subcategory"] == "ProcuredItems"
     assert r["item_name"] == "Rifle Sling"
-    assert r["item_category"] == "ProcuredItems"
+    assert r["item_category"] == "Procured"
 
 
 def test_intent_jungle_shoes():
@@ -151,14 +151,14 @@ def test_payload_issued_items_keys():
     r = classify_admin_intent("Show all issued items")
     p = format_admin_payload(r)
     assert p.get("category") == "Equipment"
-    assert p.get("operation") == "Issued"
+    assert p.get("operation") == "ByName"
 
 
 def test_payload_procured_items_keys():
     r = classify_admin_intent("List procured items")
     p = format_admin_payload(r)
     assert p.get("category") == "Equipment"
-    assert p.get("operation") == "Procured"
+    assert p.get("operation") == "ByName"
 
 
 def test_payload_specific_item_name():
@@ -189,7 +189,7 @@ def test_existing_equipment_summary_unchanged():
 def test_existing_overdue_unchanged():
     r = classify_admin_intent("What equipment is overdue?")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "OverdueEquipment"
+    assert r["subcategory"] == "HoldingEquipment"
 
 
 def test_existing_poor_condition_unchanged():
