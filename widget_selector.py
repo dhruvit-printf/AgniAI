@@ -71,10 +71,14 @@ class WidgetSelector:
         if not plan:
             plan = [{"type": "TABLE"}]
 
+        def_title = _title(category, operation)
+        if isinstance(combined_result, dict) and combined_result.get("commandLabel"):
+            def_title = str(combined_result["commandLabel"])
+
         specs: List[WidgetSpec] = []
         for index, descriptor in enumerate(plan):
             widget_type = _canonical(descriptor.get("type") or "TABLE")
-            title = str(descriptor.get("title") or _title(category, operation))
+            title = str(descriptor.get("title") or def_title)
             source_hint = str(descriptor.get("source_hint") or "primary")
             section_label = str(descriptor.get("section_label") or "")
             widget_id = str(

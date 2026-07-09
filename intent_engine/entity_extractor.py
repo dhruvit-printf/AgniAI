@@ -228,6 +228,14 @@ _GRADING_AMBIGUOUS = frozenset({"good", "excellent", "satisfactory", "sat", "fai
 
 def _extract_grading(query: str) -> Optional[str]:
     query_lower = _normalise(query)
+    
+    # Grading neutrality: if both pass and fail concepts are mentioned, return None
+    # to avoid falsely narrowing to just one of them.
+    has_pass = any(w in query_lower for w in ("pass", "passed", "passing"))
+    has_fail = any(w in query_lower for w in ("fail", "failed", "failing"))
+    if has_pass and has_fail:
+        return None
+        
     has_grading_context = any(w in query_lower for w in _GRADING_CONTEXT_WORDS)
     for key, value in GRADING_CATEGORIES.items():
         phrase = _normalise(key)
@@ -882,14 +890,9 @@ def extract_entities(
     result["sport"] = _extract_sport(raw_query)
     result["class"] = _extract_class(raw_query)
     result["equipmentName"] = _extract_equipment_item(raw_query)
-    # equipmentType: first try to extract from keywords ("issued"/"procured"),
-    # then fall back to deriving from the matched equipment item name.
+    # equipmentType: only extract if explicitly mentioned ("issued"/"procured" keywords).
+    # We do NOT fallback to deriving from the matched equipment item name per user request.
     eq_type = _extract_equipment_type(raw_query)
-    if eq_type is None and result["equipmentName"]:
-        if result["equipmentName"] in ISSUED_EQUIPMENT_ITEMS:
-            eq_type = "Issued"
-        elif result["equipmentName"] in PROCURED_EQUIPMENT_ITEMS:
-            eq_type = "Procured"
     result["equipmentType"] = eq_type
     result["unitName"] = _extract_unit_name(raw_query)
     result["attemptNo"] = _extract_attempt_no(raw_query)

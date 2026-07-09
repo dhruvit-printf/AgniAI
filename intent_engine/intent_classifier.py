@@ -370,16 +370,35 @@ def _score_operation(
         score += 20 if _phrase_score(query_text, "currently absent") else 0
     if category == "Performance" and operation == "Top":
         score += 20 if _phrase_score(query_text, "who scored highest") else 0
+    if category == "Performance" and operation == "Bottom":
+        score += 40 if _phrase_score(query_text, "needs improvement") else 0
+        score += 40 if _phrase_score(query_text, "need improvement") else 0
+    if category == "Performance" and operation == "Improvement":
+        score -= 50 if _phrase_score(query_text, "needs improvement") else 0
+        score -= 50 if _phrase_score(query_text, "need improvement") else 0
     if category == "Distribution" and operation == "TopUnit":
         score += 25 if _phrase_score(query_text, "most agniveers") else 0
     if category == "Equipment" and operation == "Search":
         score += 8 if _phrase_score(query_text, "search") else 0
     if category == "Equipment" and operation == "Returned":
         score += 8 if _phrase_score(query_text, "poor condition") else 0
+        # If they haven't returned it, they are still holding it
+        if _phrase_score(query_text, "haven't returned") or _phrase_score(query_text, "not returned") or _phrase_score(query_text, "has not returned") or _phrase_score(query_text, "hasn't returned"):
+            score -= 60
     if category == "Equipment" and operation == "Holding":
         score += 8 if _phrase_score(query_text, "currently holding") else 0
+        if _phrase_score(query_text, "haven't returned") or _phrase_score(query_text, "not returned") or _phrase_score(query_text, "has not returned") or _phrase_score(query_text, "hasn't returned"):
+            score += 60
+        # If the user explicitly asks about issued/procured equipment, they want Holding stats, not ByName
+        if _entity_present(entities, "equipmentType"):
+            score += 40
+        score += 30 if _phrase_score(query_text, "issued") else 0
+        score += 30 if _phrase_score(query_text, "procured") else 0
     if category == "Equipment" and operation == "AgniveerWise":
         score += 8 if _entity_present(entities, "equipmentName") else 0
+        # Penalize AgniveerWise (ByName) if they are explicitly asking for Issued/Procured counts
+        if _entity_present(entities, "equipmentType") or _phrase_score(query_text, "issued") or _phrase_score(query_text, "procured"):
+            score -= 50
     if category == "Medical" and operation == "BMI":
         score += 10 if _entity_present(entities, "bmiCategory") else 0
     if category == "Medical" and operation == "BloodGroup":

@@ -345,19 +345,11 @@ def classify_admin_intent(
                 subcategory = "EquipmentSummary"
                 operation = "Stats"
             else:
-                # Default: use the item's type as subcategory (IssuedItems / ProcuredItems)
-                # or fall back to EquipmentSearch if type is unknown.
-                if _eq_type in ("Issued", "Procured"):
-                    subcategory = f"{_eq_type}Items"
-                else:
-                    subcategory = "EquipmentSearch"
-                operation = "ByName"
-            else:
                 if _eq_type == "Issued":
-                    subcategory = "IssuedItems"
+                    subcategory = "Issued"
                     operation = "ByName"
                 elif _eq_type == "Procured":
-                    subcategory = "ProcuredItems"
+                    subcategory = "Procured"
                     operation = "ByName"
                 else:
                     subcategory = "EquipmentSearch"

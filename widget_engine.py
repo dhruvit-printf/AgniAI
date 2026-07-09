@@ -406,29 +406,27 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
         # 1. Title
         title_cands = ["fullName", "name"]
         id_key = _find_key([r], ["id"])
-        card_title = f"Record {r.get(id_key, '')}" if id_key else "Details"
+        card_title = title if title else (f"Record {r.get(id_key, '')}" if id_key else "Details")
         k = _find_key([r], title_cands)
         if k:
             card_title = r[k]
             used_keys.add(k)
 
-        # 2. Subtitle
-        sub_cands = ["subtitle", "subTitle", "label", "grade"]
-        subtitle = ""
-        k = _find_key([r], sub_cands)
-        if k:
-            subtitle = r[k]
-            used_keys.add(k)
-
-        # 3. Value
-        val_cands = ["bestTotal", "score", "marksObtained", "count", "status", "leaveStatus"]
+        # 2. Value
         card_value = ""
-        k = _find_key([r], val_cands)
-        if k:
-            card_value = r[k]
-            used_keys.add(k)
+        count_key = next((k for k in r.keys() if k.lower().endswith("count") and k.lower() != "count"), None)
+        
+        if count_key:
+            card_value = r[count_key]
+            used_keys.add(count_key)
+        else:
+            val_cands = ["bestTotal", "score", "marksObtained", "count", "status", "leaveStatus", "totalAgniveers"]
+            k = _find_key([r], val_cands)
+            if k:
+                card_value = r[k]
+                used_keys.add(k)
 
-        # 4. Description
+        # 3. Description
         desc_key = _find_key([r], ["description", "details"])
         description = str(r.get(desc_key, "") or "") if desc_key else ""
         if desc_key:
@@ -438,7 +436,6 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
 
         card_obj = {
             "title": str(card_title),
-            "subtitle": str(subtitle),
             "value": str(card_value),
             "description": str(description),
         }
@@ -451,7 +448,6 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
         cards.append(
             {
                 "title": title,
-                "subtitle": "",
                 "value": "No records found.",
                 "description": "",
             }
@@ -1428,7 +1424,6 @@ def build_summary_card_from_analysis(
     def _card(title: str, value: Any) -> Dict[str, Any]:
         return {
             "title": title,
-            "subtitle": "",
             "value": str(value),
             "description": "",
         }
@@ -1946,6 +1941,22 @@ def _build_widget_data(
                     break
         else:
             records = _extract_records(combined_result, deep_flatten=True)
+            
+        raw_query = str(intent.get("raw_query") or "").strip().lower()
+        if raw_query.startswith("how many ") or raw_query.startswith("count "):
+            val = str(len(records))
+            if len(records) == 1:
+                r = records[0]
+                # If the single record is an aggregate response from .NET, use the count value instead.
+                count_key = next((k for k in r.keys() if k.lower().endswith("count") and k.lower() != "count"), None)
+                if count_key:
+                    val = str(r[count_key])
+                else:
+                    k = _find_key([r], ["count", "totalAgniveers", "value"])
+                    if k:
+                        val = str(r[k])
+            return {"cards": [{"title": spec.title or "Total Count", "value": val, "description": ""}]}
+
         return build_card_data(records, spec.title)
 
     # ── TABLE — left/right/section/primary (hint-dependent data selection,

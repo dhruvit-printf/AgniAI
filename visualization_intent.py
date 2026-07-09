@@ -181,6 +181,10 @@ def _plan_widgets(
             }
             return _widget_list(chart_map.get(chart_type or "", "CHART_BAR"))
 
+    t_lower = text.lower()
+    if t_lower.startswith("how many ") or t_lower.startswith("count "):
+        return _widget_list("CARD")
+
     if comparison or query_type in {"compare", "comparison"}:
         override = intent.get("comparison_chart_override")
         return _comparison_widgets(override)
@@ -237,9 +241,13 @@ def _plan_widgets(
     # "attempt wise breakdown" is extremely common phrasing for this exact
     # operation, so it must not fall into the generic "breakdown" ->
     # CHART_PIE sniffing below meant for categories with no specific mapping.
-    if (category, operation) != ("Performance", "attemptwise") and category != "Strength" and (
-        query_type == "distribution"
-        or any(token in text for token in ("distribution", "breakdown", "percentage", "share"))
+    if (
+        (category, operation) != ("Performance", "attemptwise")
+        and category not in ("Strength", "Attendance")
+        and (
+            query_type == "distribution"
+            or any(token in text for token in ("distribution", "breakdown", "percentage", "share"))
+        )
     ):
         return _widget_list(*(["CHART_PIE", "TABLE"] if response_type == "Detailed" else ["CHART_PIE"]))
 
