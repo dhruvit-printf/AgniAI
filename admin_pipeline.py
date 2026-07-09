@@ -181,8 +181,23 @@ def _filter_dotnet_data_by_agniveer_no(dotnet_data: Any, target_no: str) -> None
                     
         if is_match:
             filtered_list.append(row)
-            
+
     dotnet_data["data"] = filtered_list
+
+
+def _normalize_dotnet_leg(dotnet_data: Any) -> Any:
+    """Single canonical normalization step for one .NET response leg — used by
+    every query type (simple, cross-filter, multi-operation) so there is one
+    place that decides how a raw .NET payload (dict envelope or bare list)
+    becomes normalized records, instead of each call site re-implementing it."""
+    if isinstance(dotnet_data, dict) and "data" in dotnet_data:
+        norm_res = normalize_response(dotnet_data)
+        if norm_res or isinstance(dotnet_data.get("data"), list):
+            dotnet_data["data"] = norm_res
+        return dotnet_data
+    if isinstance(dotnet_data, list):
+        return normalize_response(dotnet_data)
+    return dotnet_data
 
 
 def map_query_type(qt: QueryType) -> str:
@@ -1418,12 +1433,7 @@ def execute_admin_query(
                                 failed_filters.append(category)
                             else:
                                 ensure_agniveer_no_in_data(dotnet_data)
-                                if isinstance(dotnet_data, dict) and "data" in dotnet_data:
-                                    norm_res = normalize_response(dotnet_data)
-                                    if norm_res or isinstance(dotnet_data.get("data"), list):
-                                        dotnet_data["data"] = norm_res
-                                elif isinstance(dotnet_data, list):
-                                    dotnet_data = normalize_response(dotnet_data)
+                                dotnet_data = _normalize_dotnet_leg(dotnet_data)
                                 raw_results.append(dotnet_data)
                                 label = op.intent_result.get(
                                     "category", f"Query {idx + 1}"
@@ -1474,12 +1484,7 @@ def execute_admin_query(
                                 _target_no = op.intent_result.get("agniveer_no") or resolved_agniveer_no
                                 if _target_no:
                                     _filter_dotnet_data_by_agniveer_no(dotnet_data, _target_no)
-                                if isinstance(dotnet_data, dict) and "data" in dotnet_data:
-                                    norm_res = normalize_response(dotnet_data)
-                                    if norm_res or isinstance(dotnet_data.get("data"), list):
-                                        dotnet_data["data"] = norm_res
-                                elif isinstance(dotnet_data, list):
-                                    dotnet_data = normalize_response(dotnet_data)
+                                dotnet_data = _normalize_dotnet_leg(dotnet_data)
                                 raw_results.append(dotnet_data)
                                 labeled_results.append((label, dotnet_data))
 
@@ -1810,13 +1815,8 @@ def execute_admin_query(
                     _target_no = primary_intent.get("agniveer_no") or resolved_agniveer_no
                     if _target_no:
                         _filter_dotnet_data_by_agniveer_no(dotnet_data, _target_no)
-                        
-                    if isinstance(dotnet_data, dict) and "data" in dotnet_data:
-                        norm_res = normalize_response(dotnet_data)
-                        if norm_res or isinstance(dotnet_data.get("data"), list):
-                            dotnet_data["data"] = norm_res
-                    elif isinstance(dotnet_data, list):
-                        dotnet_data = normalize_response(dotnet_data)
+
+                    dotnet_data = _normalize_dotnet_leg(dotnet_data)
 
                     # Validate DotNetResponseModel
                     if dotnet_data is not None:

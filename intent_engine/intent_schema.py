@@ -67,7 +67,6 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Least",
             "Current",
             "Absconded",
-            "Threshold",
         ]
     ),
     "Medical": frozenset(
@@ -3097,7 +3096,7 @@ SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "CurrentLeaveStatus": "Current",
     "AbscondedPerson": "Absconded",
     "LeaveType": "LeaveType",
-    "Threshold": "Threshold",
+    "Threshold": "Current",
     "BMIAnalysis": "BMI",
     "DiseaseStatistics": "Disease",
     "BloodGroup": "BloodGroup",
@@ -3150,7 +3149,6 @@ OPERATION_TO_PAYLOAD_FIELD: Dict[str, str] = {
     "Least": "Least",
     "Current": "Current",
     "Absconded": "Absconded",
-    "Threshold": "Threshold",
     "BMI": "BMI",
     "BloodGroup": "BloodGroup",
     "Disease": "Disease",
@@ -3197,7 +3195,6 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Leave", "Current"): "CurrentLeaveStatus",
     ("Leave", "Absconded"): "AbscondedPerson",
     ("Leave", "LeaveType"): "LeaveType",
-    ("Leave", "Threshold"): "Threshold",
     ("Medical", "BMI"): "BMIAnalysis",
     ("Medical", "Disease"): "DiseaseStatistics",
     ("Medical", "BloodGroup"): "BloodGroup",

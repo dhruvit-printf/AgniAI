@@ -114,20 +114,86 @@ def _resolve_duplicates(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return list(resolved.values())
 
 
+def _fallback_raw_rows(response: Any) -> List[Dict[str, Any]]:
+    """Used only when no agniveer-shaped record was found anywhere in the tree.
+
+    Some responses are legitimately row-per-something-other-than-agniveer
+    (per-date attendance, per-section score averages, per-blood-group
+    counts, ...) — every row lacks an agniveerNo, so `_walk` correctly finds
+    zero Agniveer records, but the rows themselves are still the real answer
+    and must not be silently discarded. Fall back to the raw list of dict
+    rows (unwrapping one "data" envelope if present) instead of returning [].
+    """
+    candidate = response
+    if isinstance(response, dict) and "data" in response:
+        candidate = response["data"]
+    if isinstance(candidate, list):
+        return [dict(item) for item in candidate if isinstance(item, dict)]
+    return []
+
+
+def _merge_single_entity_response(response: Any) -> Optional[List[Dict[str, Any]]]:
+    """Handle "one specific agniveer, several named sections" shapes — e.g.
+    Equipment/AgniveerWise ({profile, summary, currentlyHolding, returnedHistory})
+    or Medical/Individual ({profile, bmi, stats, medicalHistory}).
+
+    `_walk` already finds the one agniveer record (from the "profile" section)
+    but, by design, skips every sibling section/list because none of their
+    rows carry their own agniveerNo — so the summary stats and the actual
+    equipment/medical-history rows never make it into the result. Since there
+    is exactly one agniveer in play here, merge every sibling section/list
+    into that single record instead of losing them.
+    """
+    candidate = response.get("data") if isinstance(response, dict) else response
+    if not isinstance(candidate, dict):
+        return None
+
+    primary_key = next(
+        (
+            key
+            for key, value in candidate.items()
+            if isinstance(value, dict) and _is_agniveer_record(value)
+        ),
+        None,
+    )
+    if primary_key is None:
+        return None
+
+    merged: Dict[str, Any] = dict(candidate[primary_key])
+    for key, value in candidate.items():
+        if key == primary_key:
+            continue
+        if isinstance(value, list):
+            rows = [item for item in value if isinstance(item, dict)]
+            if rows:
+                merged[key] = rows
+        elif value is not None or key not in merged:
+            merged[key] = value
+
+    return [merged]
+
+
 def normalize_response(response: Any, base_metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """
     Universally normalize any .NET API response into a flat list of canonical Agniveer records.
-    
+
     Args:
         response: The arbitrary JSON structure from the API.
-        base_metadata: Optional dictionary of metadata (like category, operation, index) 
+        base_metadata: Optional dictionary of metadata (like category, operation, index)
                        to stamp onto every extracted record.
     """
     raw_records: List[Dict[str, Any]] = []
     _walk(response, parent_context={}, records=raw_records)
-    
+
     resolved = _resolve_duplicates(raw_records)
-    
+
+    if not resolved:
+        resolved = _fallback_raw_rows(response)
+    elif len(resolved) == 1:
+        enriched = _merge_single_entity_response(response)
+        if enriched is not None:
+            resolved = enriched
+
     if base_metadata:
         for record in resolved:
             for k, v in base_metadata.items():
