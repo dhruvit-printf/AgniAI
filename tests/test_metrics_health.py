@@ -85,10 +85,6 @@ class TestMetricsHealth(unittest.TestCase):
         self.assertIn("# TYPE errors_total counter", text)
         self.assertIn('errors_total{query_type="comparison"} 1', text)
 
-        self.assertIn("# HELP active_websockets", text)
-        self.assertIn("# TYPE active_websockets gauge", text)
-        self.assertIn("active_websockets 0", text)
-
         self.assertIn("# HELP pipeline_duration", text)
         self.assertIn("# TYPE pipeline_duration summary", text)
         self.assertIn("pipeline_duration_sum 150.0", text)

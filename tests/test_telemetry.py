@@ -145,7 +145,6 @@ class TestSpanConstants:
 
         constants = [
             telemetry.SPAN_HTTP_REQUEST,
-            telemetry.SPAN_WEBSOCKET_REQUEST,
             telemetry.SPAN_EXECUTE_ADMIN_QUERY,
             telemetry.SPAN_PLAN_QUERY,
             telemetry.SPAN_CLASSIFY_ADMIN_INTENT,

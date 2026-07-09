@@ -22,7 +22,6 @@ from urllib.parse import urlparse
 import requests as _requests
 from flask import Flask, Response, g, jsonify, request, stream_with_context
 from flask_cors import CORS
-from flask_socketio import SocketIO
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
@@ -102,10 +101,6 @@ from rag import (
 # ── Sentry (CRITICAL FIX: wire in at import time) ─────────────────────────
 from sentry_integration import init_sentry
 from swagger_ui import swagger_bp
-
-# ── WebSocket ──────────────────────────────────────────────────────────────
-from websocket_manager import ws_manager
-from websocket_routes import register_socketio_events
 
 init_sentry()
 
@@ -192,17 +187,6 @@ CORS(
 # ── Register blueprints ────────────────────────────────────────────────────
 app.register_blueprint(admin_bp)
 app.register_blueprint(swagger_bp)
-
-# ── Socket.IO (WebSocket) ──────────────────────────────────────────────────
-socketio = SocketIO(
-    app,
-    cors_allowed_origins=_allowed_origins,
-    async_mode="threading",
-    logger=False,
-    engineio_logger=False,
-)
-ws_manager.init(socketio)
-register_socketio_events(socketio)
 
 # ── Shared state ───────────────────────────────────────────────────────────
 _memory = ConversationMemory()
@@ -1440,7 +1424,6 @@ if __name__ == "__main__":
     logger.info("Chat endpoint http://localhost:5000/api/chat  [POST]")
     logger.info("Upload        http://localhost:5000/api/upload  [POST multipart]")
     logger.info("Admin chat    http://localhost:5000/api/admin/chat  [POST]")
-    logger.info("Admin WS      ws://localhost:5000/socket.io  [WebSocket]")
     logger.info("Swagger UI    http://localhost:5000/docs")
     logger.info("CORS          origins=* (all frontends allowed)")
     if API_SECRET_KEY:
@@ -1450,4 +1433,4 @@ if __name__ == "__main__":
     else:
         logger.info("Knowledge base ready: %s vectors.", stats_data["vectors"])
 
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)

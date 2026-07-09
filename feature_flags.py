@@ -44,9 +44,6 @@ class FeatureFlags(BaseSettings):
     ENABLE_STREAMING: bool = True
     """Enable SSE token streaming on /api/chat."""
 
-    ENABLE_WEBSOCKET: bool = True
-    """Enable Socket.IO WebSocket transport for admin chatbot."""
-
     # ── Observability ──────────────────────────────────────────────────────
     ENABLE_METRICS: bool = True
     """Expose Prometheus metrics at /metrics."""

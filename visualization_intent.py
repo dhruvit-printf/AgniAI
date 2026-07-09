@@ -75,7 +75,7 @@ _SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
     ("Performance", "grading"): ["TABLE"],
     ("Performance", "gradingsummary"): ["CHART_BAR"],
     ("Performance", "average"): ["CHART_PIE"],
-    ("Performance", "attemptwise"): ["CHART_LINE"],
+    ("Performance", "attemptwise"): ["TABLE"],
     ("Performance", "bestattempt"): ["TABLE"],
     ("Performance", "trend"): ["CHART_LINE"],
     ("Leave", "most"): ["CHART_PIE"],
@@ -91,7 +91,7 @@ _SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
     ("Attendance", "daily"): ["ATTENDANCE_CALENDAR"],
     ("Attendance", "present"): ["CHART_PIE"],
     ("Attendance", "summary"): ["CHART_LINE"],
-    ("Strength", "strengthbreakdown"): ["CHART_LINE"],
+    ("Strength", ""): ["CARD"],
     ("Verification", "pending"): ["CARD"],
     ("Verification", "sent"): ["CARD"],
     ("Verification", "notresponded"): ["CARD"],
@@ -237,7 +237,7 @@ def _plan_widgets(
     # "attempt wise breakdown" is extremely common phrasing for this exact
     # operation, so it must not fall into the generic "breakdown" ->
     # CHART_PIE sniffing below meant for categories with no specific mapping.
-    if (category, operation) != ("Performance", "attemptwise") and (
+    if (category, operation) != ("Performance", "attemptwise") and category != "Strength" and (
         query_type == "distribution"
         or any(token in text for token in ("distribution", "breakdown", "percentage", "share"))
     ):

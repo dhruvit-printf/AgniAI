@@ -62,14 +62,16 @@ def _legacy_type(
     category: Optional[str], operation: Optional[str], subcategory: Optional[str]
 ) -> Optional[str]:
     """Pure lookup — no inference.  Returns the deprecated visualization hint."""
-    if not category or not subcategory:
+    if not category:
         return None
-    op_key = operation or SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory)
+    op_key = operation or (SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory) if subcategory else None)
     return INTENT_TYPE_DEFAULTS.get((category, op_key))
 
 
-def _comparison_fallback_operation(category: Optional[str]) -> str:
+def _comparison_fallback_operation(category: Optional[str]) -> Optional[str]:
     """Choose a category-safe fallback for planner compare fallthroughs."""
+    if category == "Strength":
+        return None
     fallback_by_category = {
         # Category-specific overview/list style defaults that already exist in schema.
         "Performance": "Top",
@@ -80,7 +82,6 @@ def _comparison_fallback_operation(category: Optional[str]) -> str:
         "Equipment": "Stats",
         "Distribution": "Latest",
         "Skills": "BySport",
-        "Strength": "StrengthBreakdown",
         "Overall": "OverallPerformance",
         "Schedule": "bytoday",
         "personaldetail": "info",
@@ -90,7 +91,8 @@ def _comparison_fallback_operation(category: Optional[str]) -> str:
         return fallback_by_category[category]
     if category and "Summary" in OPERATIONS_BY_CATEGORY.get(category, frozenset()):
         return "Summary"
-    return next(iter(OPERATIONS_BY_CATEGORY.get(category, ("Summary",))), "Summary")
+    ops = OPERATIONS_BY_CATEGORY.get(category, frozenset())
+    return next(iter(ops), "Summary") if ops else None
 
 
 def _filter_entities_for_category(
@@ -297,25 +299,54 @@ def classify_admin_intent(
     if category == "Equipment":
         _nq = _normalise(raw_query)
         _eq_type = entities.get("equipmentType")
+        
+        # Ensure equipmentType is strictly Issued/Procured (not IssuedItems/ProcuredItems)
+        if _eq_type in ("IssuedItems", "ProcuredItems"):
+            _eq_type = _eq_type.replace("Items", "")
+            entities["equipmentType"] = _eq_type
 
         if not entities.get("equipmentName"):
-            _has_item = False
+            # No specific item mentioned — check if the user is asking about a
+            # type of equipment (issued / procured) generically.
+            if any(kw in _nq for kw in {"currently holding", "holding", "where"}):
+                subcategory = "HoldingEquipment"
+                operation = "Holding"
+            elif any(kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}):
+                subcategory = "PoorConditionEquipment"
+                operation = "Returned"
+            elif _eq_type == "Issued" and operation != "Returned":
+                subcategory = "IssuedItems"
+                operation = "ByName"
+            elif _eq_type == "Procured" and operation != "Returned":
+                subcategory = "ProcuredItems"
+                operation = "ByName"
+            elif any(kw in _nq for kw in {"overdue"}):
+                subcategory = "HoldingEquipment"
+                operation = "Holding"
         else:
-            _has_item = True
-
-        if any(kw in _nq for kw in {"currently holding", "holding", "overdue", "are issued", "has issued", "have issued"}):
-            subcategory = "HoldingEquipment"
-            operation = "Holding"
-        elif any(kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}):
-            subcategory = "PoorConditionEquipment"
-            operation = "Returned"
-        elif any(kw in _nq for kw in {"stats", "summary", "overview"}):
-            subcategory = "EquipmentSummary"
-            operation = "Stats"
-        elif subcategory == "AgniveerWiseEquipment":
-            pass
-        else:
-            if _has_item:
+            # Specific item name mentioned — decide operation from query context
+            if any(
+                kw in _nq
+                for kw in {
+                    "currently holding",
+                    "holding",
+                    "where"
+                }
+            ):
+                subcategory = _eq_type or "HoldingEquipment"
+                operation = "Holding"
+            elif any(
+                kw in _nq
+                for kw in {"poor condition", "returned", "damaged", "broken"}
+            ):
+                subcategory = "PoorConditionEquipment"
+                operation = "Returned"
+            elif any(kw in _nq for kw in {"stats", "summary", "overview"}):
+                subcategory = "EquipmentSummary"
+                operation = "Stats"
+            else:
+                # Default: use the item's type as subcategory (IssuedItems / ProcuredItems)
+                # or fall back to EquipmentSearch if type is unknown.
                 if _eq_type in ("Issued", "Procured"):
                     subcategory = f"{_eq_type}Items"
                 else:

@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 import requests
 
 import dotnet_executor
-import websocket_routes
 from admin_pipeline import execute_admin_query
 from dotnet_executor import CircuitBreaker, _call_dotnet
 
@@ -257,17 +256,6 @@ class TestReliability(unittest.TestCase):
                 progress_callback=bad_progress,
             )
             self.assertEqual(result["type"], "query")
-
-    def test_websocket_progress_protection(self):
-        # Test that _progress doesn't raise exception even if send_json raises exception
-        with patch("websocket_routes.ws_manager.send_json") as mock_send:
-            mock_send.side_effect = Exception("Socket disconnected")
-
-            # Call _progress - should not raise exception
-            try:
-                websocket_routes._progress("dummy_sid", "planner", "test message")
-            except Exception as exc:
-                self.fail(f"_progress raised an exception: {exc}")
 
 
 if __name__ == "__main__":

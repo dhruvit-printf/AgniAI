@@ -3,8 +3,8 @@ admin_pipeline.py
 =================
 Single source of truth for the AgniAI admin query execution pipeline.
 
-Both HTTP (admin_routes.py) and WebSocket (websocket_routes.py) call
-execute_admin_query() — the ONLY orchestration function.
+admin_routes.py (HTTP transport) calls execute_admin_query() — the ONLY
+orchestration function.
 
 This module owns:
   - .NET API configuration and communication
@@ -145,6 +145,43 @@ def ensure_agniveer_no_in_data(
 
         for value in data.values():
             ensure_agniveer_no_in_data(value, max_depth - 1, visited)
+
+
+def _filter_dotnet_data_by_agniveer_no(dotnet_data: Any, target_no: str) -> None:
+    """In-place filter of .NET response rows when the backend ignores the agniveerNo parameter."""
+    if not target_no or not isinstance(dotnet_data, dict):
+        return
+        
+    data_list = dotnet_data.get("data")
+    if not isinstance(data_list, list):
+        return
+        
+    target_no = str(target_no).strip().lower()
+    filtered_list = []
+    
+    for row in data_list:
+        if not isinstance(row, dict):
+            filtered_list.append(row)
+            continue
+            
+        is_match = False
+        # 1) Check standard keys
+        for key in ("agniveerNo", "agniveer_no", "AgniveerNo", "AgniveerId", "id", "Id"):
+            if str(row.get(key, "")).strip().lower() == target_no:
+                is_match = True
+                break
+                
+        # 2) Check pivot keys like Data_{Name}_AgniveerNo if not found yet
+        if not is_match:
+            for key, val in row.items():
+                if str(key).lower().endswith("agniveerno") and str(val).strip().lower() == target_no:
+                    is_match = True
+                    break
+                    
+        if is_match:
+            filtered_list.append(row)
+            
+    dotnet_data["data"] = filtered_list
 
 
 def map_query_type(qt: QueryType) -> str:
@@ -784,8 +821,7 @@ def execute_admin_query(
     """
     Execute the complete admin query pipeline.
 
-    This is the ONLY orchestration function. Both HTTP and WebSocket
-    transports call this function.
+    This is the ONLY orchestration function. The HTTP transport calls it.
     """
     if not trace_id:
         trace_id = uuid.uuid4().hex
@@ -1428,6 +1464,9 @@ def execute_admin_query(
                                 labeled_results.append((label, data_placeholder))
                             else:
                                 ensure_agniveer_no_in_data(dotnet_data)
+                                _target_no = op.intent_result.get("agniveer_no") or resolved_agniveer_no
+                                if _target_no:
+                                    _filter_dotnet_data_by_agniveer_no(dotnet_data, _target_no)
                                 raw_results.append(dotnet_data)
                                 labeled_results.append((label, dotnet_data))
 
@@ -1755,6 +1794,9 @@ def execute_admin_query(
                         }
 
                     ensure_agniveer_no_in_data(dotnet_data)
+                    _target_no = primary_intent.get("agniveer_no") or resolved_agniveer_no
+                    if _target_no:
+                        _filter_dotnet_data_by_agniveer_no(dotnet_data, _target_no)
 
                     # Validate DotNetResponseModel
                     if dotnet_data is not None:
