@@ -29,6 +29,7 @@ from intelligence_common import HIGH_SCORE_THRESHOLD, LOW_SCORE_THRESHOLD
 from intelligence_common import _extract_nested_scores, _extract_scores
 from intelligence_common import _record_label
 from utils import categorical_breakdown as _categorical_breakdown
+from utils import numeric_distribution_breakdown as _numeric_distribution_breakdown
 from utils import get_score as _get_score
 
 MOMENTUM_SIGNAL: float = 2.0  # abs momentum above this = meaningful trend
@@ -656,6 +657,11 @@ def generate_predictions(
             else:
                 short_term = "stable"
                 breakdown = _categorical_breakdown(target_records)
+                # Pre-aggregated category->count shapes (e.g. a Grading
+                # Summary {"DRILL (AMT)": {"Excellent": 188, ...}}) collapse
+                # to a single opaque record upstream, so total_points here
+                # would misreport "1" instead of the real total graded.
+                numeric_distribution = None if breakdown else _numeric_distribution_breakdown(target_records)
                 if breakdown:
                     top = breakdown["breakdown"][0]
                     share = (
@@ -674,6 +680,28 @@ def generate_predictions(
                         future_trends.append(
                             f"{att['count']} record(s) marked {att['value']} should be resolved "
                             f"or monitored before the next cycle."
+                        )
+                elif numeric_distribution:
+                    total_graded = numeric_distribution["total"]
+                    top = numeric_distribution["breakdown"][0]
+                    share = (
+                        round((top["count"] / total_graded) * 100, 1) if total_graded else 0
+                    )
+                    confidence = "Medium"
+                    future_trends.append(
+                        f"By {numeric_distribution['field']}, {top['value']} accounts for "
+                        f"{top['count']} of {total_graded} graded record(s) ({share}%) and is "
+                        f"expected to remain the dominant grade next cycle."
+                    )
+                    if numeric_distribution["attention"]:
+                        att = numeric_distribution["attention"][0]
+                        future_trends.append(
+                            f"{att['count']} record(s) marked {att['value']} should be resolved "
+                            f"or monitored before the next cycle."
+                        )
+                    else:
+                        future_trends.append(
+                            "No grade category in this breakdown is flagged for attention."
                         )
                 else:
                     future_trends.append(

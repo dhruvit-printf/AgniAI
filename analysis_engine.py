@@ -27,6 +27,7 @@ from intelligence_common import _extract_nested_scores, _extract_scores
 from intelligence_common import _percentile, _record_label
 from normalized_models import humanize_category
 from utils import categorical_breakdown as _categorical_breakdown
+from utils import numeric_distribution_breakdown as _numeric_distribution_breakdown
 from utils import get_score as _get_score
 
 
@@ -526,6 +527,34 @@ def generate_analysis(
                     stats["group_breakdown"] = groups
             else:
                 category_label = humanize_category(category).lower()
+
+                # Pre-aggregated category->count shapes (e.g. a Grading
+                # Summary {"DRILL (AMT)": {"Excellent": 188, ...}}) collapse
+                # to a single opaque record upstream, so len(all_records)
+                # would misreport "1" instead of the real total graded —
+                # check before falling back to the record-count wording.
+                numeric_distribution = _numeric_distribution_breakdown(all_records)
+                if numeric_distribution:
+                    total = numeric_distribution["total"]
+                    parts = ", ".join(
+                        f"{item['count']} {item['value']}"
+                        for item in numeric_distribution["breakdown"]
+                    )
+                    summary = (
+                        f"Matched {total} graded {category_label} records — "
+                        f"by {numeric_distribution['field']}: {parts}."
+                    )
+                    insights = [f"Breakdown by {numeric_distribution['field']}: {parts}."]
+                    if numeric_distribution["attention"]:
+                        att = ", ".join(
+                            f"{a['count']} {a['value']}" for a in numeric_distribution["attention"]
+                        )
+                        insights.append(
+                            f"{att} — flagged for follow-up out of {total} records."
+                        )
+                    stats["categorical_breakdown"] = numeric_distribution
+                    return _analysis_payload(summary, insights, stats)
+
                 summary = f"Matched {len(all_records)} {category_label} records."
                 insights = [
                     f"The query returned {len(all_records)} {category_label} records."

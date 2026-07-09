@@ -368,6 +368,64 @@ def categorical_breakdown(
     }
 
 
+def numeric_distribution_breakdown(
+    records: List[Dict[str, Any]],
+    limit: int = 8,
+) -> Optional[Dict[str, Any]]:
+    """
+    Detect a pre-aggregated category->count shape, e.g. a Grading Summary
+    like {"DRILL (AMT)": {"Excellent": 188, "Good": 393, "SAT": 1}}.
+
+    `categorical_breakdown` only looks at string-valued fields across many
+    records, so it can't see this — here a single record's field holds a
+    dict whose *values* are already numeric counts per category. Sum those
+    leaves to get the real total (e.g. 582 graded, not "1 record") instead
+    of letting callers fall through to `len(records)`.
+    """
+    label: Optional[str] = None
+    counts: Dict[str, float] = {}
+
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        for k, v in r.items():
+            if not isinstance(v, dict) or not v:
+                continue
+            leaves = {
+                str(sub_k): sub_v
+                for sub_k, sub_v in v.items()
+                if isinstance(sub_v, (int, float)) and not isinstance(sub_v, bool)
+            }
+            if not leaves or len(leaves) != len(v):
+                continue  # not a pure category->count dict
+            label = label or k
+            for sub_k, sub_v in leaves.items():
+                counts[sub_k] = counts.get(sub_k, 0) + sub_v
+
+    if not counts:
+        return None
+
+    ranked = sorted(counts.items(), key=lambda kv: -kv[1])[:limit]
+    total = sum(counts.values())
+    total = int(total) if float(total).is_integer() else round(total, 2)
+
+    attention = [
+        {"value": val, "count": (int(cnt) if float(cnt).is_integer() else cnt)}
+        for val, cnt in ranked
+        if any(kw in val.lower() for kw in _ATTENTION_KEYWORDS)
+    ]
+
+    return {
+        "field": label,
+        "breakdown": [
+            {"value": v, "count": (int(c) if float(c).is_integer() else c)}
+            for v, c in ranked
+        ],
+        "total": total,
+        "attention": attention,
+    }
+
+
 def has_any_data(records: List[Dict[str, Any]]) -> bool:
     """Check if the list of records contains any non-empty data."""
     if not records:

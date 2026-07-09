@@ -137,6 +137,7 @@ Each field is a plain string of complete sentences. No markdown, no bullets, no 
 2. Every person, unit, batch, or platoon you name must appear in the facts.
 3. If a detail is not in the facts, you do not know it. Never fill gaps.
 4. If the facts show 0 records: every field states plainly that no records matched and suggests widening the filter or date range. Prediction and conclusion become one sentence each.
+5. Score/average/pass-fail vocabulary ("average", "assessed", "passing mark", "conditioning plan", "re-test", "performing at a ... level") belongs ONLY to records that actually carry a numeric score in the facts (an "average_score" figure or an "Avg score:" bullet). Many modules have no score at all — Leave, Medical, Equipment, Attendance. If GROUNDING FACTS contains no score data, do not use that vocabulary anywhere, and do not invent an average or a pass/fail verdict. Describe the real fields present instead (dates, types, counts, names) in plain language suited to that module.
 
 ## FIELD BLUEPRINTS — EACH FIELD HAS ONE JOB
 
@@ -170,15 +171,17 @@ The one thing a commanding officer must retain if they read nothing else. Writte
 - multi_independent: "message" gives a one-line verdict per section, sharpest finding first; "summary" names the section that most needs attention.
 
 ## QUALITY BAR — WORKED EXAMPLE
-Given facts (abbreviated): 12 performance records, avg 68.4, range 41.0-91.0, tight cluster; Rakesh Kumar 91.0 top; Ramesh Yadav 41.0 and Vikram Joshi 47.5 below the 50 passing mark; trend Stable, confidence Medium, next-cycle estimate ~69.0; recovery path: structured physical conditioning.
+This example uses placeholder names ("Recruit Alpha" etc.) precisely so you cannot mistake them for real data — never reuse these placeholders, or any other name, unless that exact name appears in GROUNDING FACTS below.
 
-{{"message": "Batch 12 is performing at a moderate level — 12 Agniveers assessed with an average of 68.4. Rakesh Kumar leads the batch at 91.0, while Ramesh Yadav at 41.0 and Vikram Joshi at 47.5 sit below the passing mark and need intervention. The rest of the batch is grouped comfortably in the middle band. The full score breakdown is charted below.", "analysis": "Scores cluster tightly around the 68.4 average, which makes the two failing results stand out as individual problems rather than a batch-wide weakness. Rakesh Kumar's 91.0 is well clear of the field and sets the benchmark. The gap between him and the two lowest scorers spans the entire 41.0-91.0 range, so the headline average masks a wide floor-to-ceiling spread.", "prediction": "The batch should hold near 69.0 next cycle — momentum is flat and confidence in that call is medium. The deciding factor is whether Yadav and Joshi respond to conditioning before the next assessment; their recovery alone would lift the batch floor meaningfully.", "conclusion": "The batch is on track overall, but two trainees need attention now. Put Yadav and Joshi on the structured physical conditioning plan and re-test them at the next cycle.", "summary": "Batch 12 averages 68.4 and is stable, but Ramesh Yadav and Vikram Joshi are below the passing mark — conditioning intervention before the next cycle is the priority."}}
+Given facts (abbreviated): 12 performance records, avg 68.4, range 41.0-91.0, tight cluster; Recruit Alpha 91.0 top; Recruit Bravo 41.0 and Recruit Charlie 47.5 below the 50 passing mark; trend Stable, confidence Medium, next-cycle estimate ~69.0; recovery path: structured physical conditioning.
+
+{{"message": "Batch 12 is performing at a moderate level — 12 Agniveers assessed with an average of 68.4. Recruit Alpha leads the batch at 91.0, while Recruit Bravo at 41.0 and Recruit Charlie at 47.5 sit below the passing mark and need intervention. The rest of the batch is grouped comfortably in the middle band. The full score breakdown is charted below.", "analysis": "Scores cluster tightly around the 68.4 average, which makes the two failing results stand out as individual problems rather than a batch-wide weakness. Recruit Alpha's 91.0 is well clear of the field and sets the benchmark. The gap between them and the two lowest scorers spans the entire 41.0-91.0 range, so the headline average masks a wide floor-to-ceiling spread.", "prediction": "The batch should hold near 69.0 next cycle — momentum is flat and confidence in that call is medium. The deciding factor is whether Bravo and Charlie respond to conditioning before the next assessment; their recovery alone would lift the batch floor meaningfully.", "conclusion": "The batch is on track overall, but two trainees need attention now. Put Bravo and Charlie on the structured physical conditioning plan and re-test them at the next cycle.", "summary": "Batch 12 averages 68.4 and is stable, but Recruit Bravo and Recruit Charlie are below the passing mark — conditioning intervention before the next cycle is the priority."}}
 
 Note what the example does: answer first, names early, bad news up front, each field doing a different job, no field copying another, every number traceable to the facts.
 
 ## BEFORE YOU RETURN — SELF-CHECK
 1. Valid JSON object, exactly five keys, nothing outside the braces.
-2. Every number, name, and recommended action MUST exist in GROUNDING FACTS. If the facts lack names or specific problems, do NOT copy names like "Yadav" or "Joshi" from the example, and do NOT invent schedule/training plans.
+2. Every number, name, and recommended action MUST exist in GROUNDING FACTS. The example's placeholder names ("Recruit Alpha", "Recruit Bravo", "Recruit Charlie") are NOT real data — never copy them, or invent any other name/schedule/training plan, unless GROUNDING FACTS names that exact person.
 3. No banned opener or banned form anywhere.
 4. No repeated sentence across fields.
 5. Every field ends with terminal punctuation.
@@ -332,12 +335,52 @@ def _numbers_in(text: str) -> set:
     return {_canon(n) for n in re.findall(r"\b\d+(?:\.\d+)?\b", text)}
 
 
-def _validate_field(text: str, allowed_numbers: set) -> bool:
-    """A field passes if every number > 10 (and not a year) exists in facts."""
+# Names baked into the prompt's worked example (narrative_engine.py's
+# QUALITY BAR section) — a model can copy these verbatim into an unrelated
+# response despite the prompt's self-check instructions not to. Reject any
+# field that contains one; it has zero grounding in real facts by definition.
+_FIXTURE_NAME_PHRASES = (
+    "recruit alpha", "recruit bravo", "recruit charlie",
+    # Retired literal names from an earlier revision of the worked example —
+    # kept here in case a cached/older prompt is still in play somewhere.
+    "rakesh kumar", "ramesh yadav", "vikram joshi",
+)
+
+# The worked example's scaffolding is Performance-flavored ("average",
+# "assessed", "conditioning plan"...). When a record set has no numeric
+# score (Leave, Medical, Equipment, ...), the model has been seen mimicking
+# that scaffolding anyway — e.g. inventing "an average of 0" for a leave
+# record. Reject any of these phrases when the facts carry no score data.
+_PERFORMANCE_ONLY_PHRASES = (
+    "average of", "an average", "assessed with", "passing mark",
+    "conditioning plan", "re-test", "performing at a", "the failure",
+    "is a failure",
+)
+
+
+def _has_score_data(facts: Dict[str, Any]) -> bool:
+    stats = (facts.get("analysis_facts") or {}).get("statistics") or {}
+    if isinstance(stats, dict) and stats.get("average_score") is not None:
+        return True
+    bullets = (facts.get("conclusion_facts") or {}).get("bullets") or []
+    text = " ".join(str(b) for b in bullets).lower()
+    return "avg score" in text or "average score" in text
+
+
+def _validate_field(text: str, allowed_numbers: set, has_score_data: bool = True) -> bool:
+    """A field passes if every number > 10 (and not a year) exists in facts,
+    it doesn't contain a name lifted from the prompt's worked example, and —
+    when the facts carry no numeric score — it doesn't borrow the worked
+    example's score/pass-fail vocabulary either."""
     if not text or len(text.strip()) < 10:
         return False
     stripped = text.strip()
     if stripped[-1] not in ".!?":
+        return False
+    lowered = stripped.lower()
+    if any(phrase in lowered for phrase in _FIXTURE_NAME_PHRASES):
+        return False
+    if not has_score_data and any(phrase in lowered for phrase in _PERFORMANCE_ONLY_PHRASES):
         return False
     for n in _numbers_in(stripped):
         try:
@@ -537,10 +580,11 @@ def generate_narratives(
         raw = resp.json().get("message", {}).get("content", "")
         parsed = _extract_json(raw)
 
+        has_score_data = _has_score_data(facts)
         if isinstance(parsed, dict):
             for f in _FIELDS:
                 candidate = _scrub(str(parsed.get(f) or ""))
-                if _validate_field(candidate, allowed_numbers):
+                if _validate_field(candidate, allowed_numbers, has_score_data):
                     llm_fields[f] = candidate
                 else:
                     logger.debug(

@@ -19,7 +19,32 @@ logger = logging.getLogger(__name__)
 
 from intelligence_common import _percentile, _record_label
 from utils import categorical_breakdown as _categorical_breakdown
+from utils import numeric_distribution_breakdown as _numeric_distribution_breakdown
 from utils import get_score as _get_score
+
+_RAW_DETAIL_SKIP_KEYS = frozenset(
+    {"id", "agniveerid", "agniveerno", "photopath"}
+)
+
+
+def _describe_single_record(record: Dict[str, Any], limit: int = 5) -> str:
+    """Render a handful of a lone record's own fields as 'key: value' pairs
+    when no score/categorical/numeric breakdown applies (e.g. a single Leave
+    or Medical record) — gives real grounded content instead of nothing but
+    a bare record count, which otherwise leaves the LLM nothing to describe
+    and invites it to fall back on Performance-flavored score language that
+    doesn't apply to this record at all."""
+    parts = []
+    for k, v in record.items():
+        key_l = k.lower()
+        if key_l.startswith("__") or key_l in _RAW_DETAIL_SKIP_KEYS:
+            continue
+        if v is None or v == "" or isinstance(v, (dict, list)):
+            continue
+        parts.append(f"{k}: {v}")
+        if len(parts) >= limit:
+            break
+    return ", ".join(parts)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Statistical helpers
@@ -484,6 +509,40 @@ def generate_conclusion(
             scores = sorted(_extract_scores(records))
             summary = f"Query lookup for {category.lower()} records is complete."
 
+            # A category->count aggregate (e.g. a Grading Summary shaped as
+            # {"DRILL (AMT)": {"Excellent": 188, "Good": 393, "SAT": 1}}) has
+            # no numeric per-record scores and collapses to a single opaque
+            # record upstream, so `cnt` above would misreport "1 record"
+            # instead of the real 582 graded — check for it before emitting
+            # the record-count bullet, not after.
+            numeric_distribution = None if scores else _numeric_distribution_breakdown(records)
+
+            if numeric_distribution:
+                cnt = numeric_distribution["total"]
+                parts = ", ".join(
+                    f"{item['value']}: {item['count']}"
+                    for item in numeric_distribution["breakdown"]
+                )
+                bullets.append(
+                    f"Found {cnt} graded {category.lower()} record(s) — "
+                    f"breakdown by {numeric_distribution['field']}: {parts}."
+                )
+                if numeric_distribution["attention"]:
+                    att = ", ".join(
+                        f"{a['count']} {a['value']}" for a in numeric_distribution["attention"]
+                    )
+                    bullets.append(
+                        f"Overall verdict: {att} out of {cnt} record(s) flagged in this "
+                        f"breakdown need follow-up."
+                    )
+                else:
+                    bullets.append(
+                        "Overall verdict: no category in this breakdown is flagged for "
+                        "concern; this dataset has no distinct failing/attention tier."
+                    )
+                bullets = bullets[:5]
+                return {"summary": summary, "bullets": bullets}
+
             bullets.append(f"Found {cnt} matching {category.lower()} record(s).")
 
             if scores:
@@ -556,6 +615,14 @@ def generate_conclusion(
                             "Overall verdict: no records in this set are flagged for "
                             "immediate attention."
                         )
+                elif len(records) == 1:
+                    detail = _describe_single_record(records[0])
+                    if detail:
+                        bullets.append(f"Record detail — {detail}.")
+                    bullets.append(
+                        "Overall verdict: a single record was found; no aggregate trend "
+                        "applies."
+                    )
 
         # Cap at 5 bullets to allow named highlights plus a closing verdict
         bullets = bullets[:5]

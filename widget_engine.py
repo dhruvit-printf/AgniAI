@@ -1906,6 +1906,21 @@ def _build_widget_data(
                     k = _find_key([r], ["count", "totalAgniveers", "value"])
                     if k:
                         val = str(r[k])
+                    else:
+                        # Category->count distribution (e.g. Grading Summary
+                        # {"DRILL (AMT)": {"Excellent": 188, "Good": 393, "SAT": 1}})
+                        # — sum the nested numeric leaves for the real total
+                        # instead of reporting "1" for the single wrapper record.
+                        leaves = [
+                            sub_v
+                            for v in r.values()
+                            if isinstance(v, dict)
+                            for sub_v in v.values()
+                            if isinstance(sub_v, (int, float)) and not isinstance(sub_v, bool)
+                        ]
+                        if leaves:
+                            total = sum(leaves)
+                            val = str(int(total) if float(total).is_integer() else total)
             return {"cards": [{"title": spec.title or "Total Count", "value": val, "description": ""}]}
 
         return build_card_data(records, spec.title)
