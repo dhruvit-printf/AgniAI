@@ -238,7 +238,7 @@ def _plan_widgets(
     # operation, so it must not fall into the generic "breakdown" ->
     # CHART_PIE sniffing below meant for categories with no specific mapping.
     if (category, operation) != ("Performance", "attemptwise") and category != "Strength" and (
-        query_type == "simple"
+        query_type == "distribution"
         or any(token in text for token in ("distribution", "breakdown", "percentage", "share"))
     ):
         return _widget_list(*(["CHART_PIE", "TABLE"] if response_type == "Detailed" else ["CHART_PIE"]))

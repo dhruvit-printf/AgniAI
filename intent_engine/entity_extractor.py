@@ -584,7 +584,7 @@ def _extract_batch_id(query: str) -> Optional[int]:
 def _extract_agniveer_no(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     match = re.search(
-        r"agniveer\s+(?:no\.?|no\.?\s+)?([a-z]?\d+[a-z]?)", query_lower, re.IGNORECASE
+        r"agniveer\s*(?:no\.?)?\s*([a-z]?\d+[a-z]?)", query_lower, re.IGNORECASE
     )
     if match:
         return match.group(1).upper()
