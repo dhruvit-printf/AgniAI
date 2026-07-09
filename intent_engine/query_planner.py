@@ -780,7 +780,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         return QueryPlan(QueryType.SIMPLE, [], 0.0, raw_query, "Empty query")
 
     if semantic.get("conversational"):
-        op = _build_sub_operation(q)
+        op = _build_sub_operation(raw_query)
         return QueryPlan(
             QueryType.SIMPLE,
             [op],
@@ -875,7 +875,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         return ops
 
     if qtype == "comparison":
-        ops = _ops_from_semantic_fragments(q)
+        ops = _ops_from_semantic_fragments(raw_query)
         valid_ops = [
             op
             for op in ops
@@ -914,7 +914,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             )
 
     if qtype == "multi_independent":
-        ops = _ops_from_semantic_fragments(q)
+        ops = _ops_from_semantic_fragments(raw_query)
         valid_ops = [op for op in ops if op.intent_result.get("category")]
         if len(valid_ops) >= 2:
             combined_filters = {}
@@ -939,7 +939,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             )
 
     if qtype == "cross_filter":
-        ops = _ops_from_semantic_fragments(q)
+        ops = _ops_from_semantic_fragments(raw_query)
         # Schedule is a standalone category (timetable/agenda), never a filter condition
         valid_ops = [
             op
@@ -1004,7 +1004,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             )
 
     if qtype == "trend":
-        op = _build_sub_operation(q)
+        op = _build_sub_operation(raw_query)
         filters = build_filters_from_entities(op.intent_result.get("filters", {}))
         return QueryPlan(
             QueryType.TREND,
@@ -1016,7 +1016,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         )
 
     if qtype == "distribution":
-        op = _build_sub_operation(q)
+        op = _build_sub_operation(raw_query)
         filters = build_filters_from_entities(op.intent_result.get("filters", {}))
         return QueryPlan(
             QueryType.DISTRIBUTION,
@@ -1027,7 +1027,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             filters=filters,
         )
 
-    op = _build_sub_operation(q)
+    op = _build_sub_operation(raw_query)
     filters = build_filters_from_entities(op.intent_result.get("filters", {}))
     # semantic.get("confidence") alone badly under-represents queries that
     # classify_intent() already resolved correctly and confidently (e.g.

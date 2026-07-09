@@ -137,6 +137,37 @@ def extract_records(data: Any) -> List[Dict]:
         if members:
             return members
 
+    # Single-entity, multi-section shape: one sibling dict IS the record
+    # (has its own canonical ID, e.g. "profile") while other dict siblings
+    # are scalar-only descriptive sections (e.g. "bmi", "stats") and any
+    # list sibling is an unrelated collection with a different cardinality
+    # (e.g. "medicalHistory" — one row per visit, not one row per person).
+    # Without this check, the "direct list of dicts anywhere" scan below
+    # would grab that unrelated list and silently discard the entity's own
+    # fields — merge the entity + its sections into one row instead, and
+    # summarize any sibling list as a `<key>Count` column.
+    primary_key = next(
+        (
+            key
+            for key, value in data.items()
+            if isinstance(value, dict) and extract_record_id(value) is not None
+        ),
+        None,
+    )
+    if primary_key is not None:
+        merged: Dict[str, Any] = {}
+        for key, value in data.items():
+            if key == primary_key and isinstance(value, dict):
+                merged.update(value)
+            elif isinstance(value, dict) and not _contains_record_list(value):
+                merged.update(value)
+            elif isinstance(value, list):
+                list_records = [item for item in value if isinstance(item, dict)]
+                if list_records:
+                    merged[f"{key}Count"] = len(list_records)
+        if merged and has_any_data([merged]):
+            return [merged]
+
     # A direct list of dicts anywhere in this object is a genuine multi-row
     # result (e.g. Schedule's "byCompany") — check every value for one
     # before considering any dict sibling, since descending into just the

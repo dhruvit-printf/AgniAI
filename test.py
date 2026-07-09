@@ -1,7 +1,5 @@
-from intent_engine.intent_classifier import classify_intent
-from intent_engine.entity_extractor import extract_entities
-
-raw_query = "Which Agniveers haven't returned their kit?"
-entities = extract_entities(raw_query)
-intent = classify_intent(raw_query, entities)
-print("Resolved Intent:", intent)
+import requests
+import json
+resp = requests.post('http://127.0.0.1:5000/api/chat', json={'message': 'Give me the overall performance report for this batch.', 'sessionId': 'test'}).json()
+with open('overall_resp.json', 'w', encoding='utf-8') as f:
+    json.dump(resp, f, indent=2, ensure_ascii=False)

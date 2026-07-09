@@ -308,7 +308,10 @@ def classify_admin_intent(
         if not entities.get("equipmentName"):
             # No specific item mentioned — check if the user is asking about a
             # type of equipment (issued / procured) generically.
-            if any(kw in _nq for kw in {"currently holding", "holding", "where"}):
+            if any(kw in _nq for kw in {"haven't returned", "not returned", "has not returned", "hasn't returned"}):
+                subcategory = "HoldingEquipment"
+                operation = "Holding"
+            elif any(kw in _nq for kw in {"currently holding", "holding", "where"}):
                 subcategory = "HoldingEquipment"
                 operation = "Holding"
             elif any(kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}):
@@ -325,7 +328,10 @@ def classify_admin_intent(
                 operation = "Holding"
         else:
             # Specific item name mentioned — decide operation from query context
-            if any(
+            if any(kw in _nq for kw in {"haven't returned", "not returned", "has not returned", "hasn't returned"}):
+                subcategory = _eq_type or "HoldingEquipment"
+                operation = "Holding"
+            elif any(
                 kw in _nq
                 for kw in {
                     "currently holding",

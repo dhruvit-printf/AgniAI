@@ -335,12 +335,21 @@ def _score_category(
         score += 35
     if category == "Performance" and _phrase_score(query_text, "grade distribution"):
         score += 25
-    if category == "Overall" and _phrase_score(query_text, "overall performance"):
+    if category == "Overall":
         # "overall performance ranking" otherwise loses to Performance —
         # "performance" alone is a strong, common Performance keyword, but
         # "overall performance" as a compound phrase means the composite
         # ranking, not a Performance-category lookup.
-        score += 60
+        overall_phrases = [
+            "overall performance", 
+            "overall performing", 
+            "overall performer", 
+            "best overall", 
+            "across all activities"
+        ]
+        for phrase in overall_phrases:
+            if _phrase_score(query_text, phrase):
+                score += 80
     return score
 
 
