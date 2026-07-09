@@ -114,6 +114,21 @@ def _resolve_duplicates(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return list(resolved.values())
 
 
+def _find_first_list_of_dicts(node: Any) -> Optional[List[Dict[str, Any]]]:
+    """Recursively search a JSON tree for the first list containing dict rows."""
+    if isinstance(node, list):
+        rows = [item for item in node if isinstance(item, dict)]
+        if rows:
+            return rows
+        return None
+    if isinstance(node, dict):
+        for value in node.values():
+            found = _find_first_list_of_dicts(value)
+            if found is not None:
+                return found
+    return None
+
+
 def _fallback_raw_rows(response: Any) -> List[Dict[str, Any]]:
     """Used only when no agniveer-shaped record was found anywhere in the tree.
 
@@ -123,12 +138,19 @@ def _fallback_raw_rows(response: Any) -> List[Dict[str, Any]]:
     zero Agniveer records, but the rows themselves are still the real answer
     and must not be silently discarded. Fall back to the raw list of dict
     rows (unwrapping one "data" envelope if present) instead of returning [].
+
+    The rows aren't always directly at `response["data"]` — aggregate shapes
+    like `data: {"attemptSummary": [...]}` nest the real list one or more
+    levels deeper, so search the whole subtree for the first list of dicts.
     """
     candidate = response
     if isinstance(response, dict) and "data" in response:
         candidate = response["data"]
     if isinstance(candidate, list):
         return [dict(item) for item in candidate if isinstance(item, dict)]
+    found = _find_first_list_of_dicts(candidate)
+    if found is not None:
+        return [dict(item) for item in found]
     return []
 
 
