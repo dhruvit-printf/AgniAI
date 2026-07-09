@@ -87,11 +87,7 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Summary",
         ]
     ),
-    "Strength": frozenset(
-        [
-            "StrengthBreakdown",
-        ]
-    ),
+    "Strength": frozenset([]),
     "Verification": frozenset(
         [
             "Pending",
@@ -905,6 +901,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "highest number of leaves",
         ),
         "Least": (
+            "who hasn't taken any leave yet",
             "who takes the least leave",
             "who's hardly ever off",
             "who never misses",
@@ -1229,39 +1226,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
         ),
     },
     "Strength": {
-        "StrengthBreakdown": (
-            "how many people do we have",
-            "total count",
-            "how many in each section",
-            "headcount",
-            "how many people total",
-            "how many people do we have",
-            "total count",
-            "how many in each section",
-            "headcount",
-            "how many people total",
-            "strength",
-            "strength breakdown",
-            "breakdown of strength",
-            "headcount",
-            "headcount breakdown",
-            "breakdown of headcount",
-            "strength summary",
-            "summary of strength",
-            "current strength",
-            "strength by section",
-            "section strength",
-            "manpower breakdown",
-            "breakdown of manpower",
-            "numbers by section",
-            "unit strength",
-            "personnel count",
-            "count of personnel",
-            "how many in each section",
-            "how many agniveers are in each section",
-            "manpower count",
-            "count of manpower",
-        ),
     },
     "Equipment": {
         "Stats": (
@@ -1859,6 +1823,13 @@ LEAVE_TYPES: Dict[str, str] = {
     "leave risk": "Threshold",
     "critical leave": "Threshold",
     "noleave": "NoLeave",
+    "no leave": "NoLeave",
+    "hasn't taken any leave": "NoLeave",
+    "hasnt taken any leave": "NoLeave",
+    "has not taken any leave": "NoLeave",
+    "not taken any leave": "NoLeave",
+    "zero leave": "NoLeave",
+    "without leave": "NoLeave",
 }
 
 # =============================================================================
@@ -2452,9 +2423,6 @@ FUZZY_VOCAB: Dict[str, str] = {
     "sumary": "Summary",
     "summry": "Summary",
     "sumarry": "Summary",
-    "strenghtbreakdown": "StrengthBreakdown",
-    "strengthbrakdown": "StrengthBreakdown",
-    "strenghbreakdown": "StrengthBreakdown",
     "pendng": "Pending",
     "pendign": "Pending",
     "pendding": "Pending",
@@ -3088,7 +3056,7 @@ INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Attendance", "Daily"): "Calendar UI",
     ("Attendance", "Present"): "Pie Chart",
     ("Attendance", "Summary"): "Tabular",
-    ("Strength", "StrengthBreakdown"): "Line Chart",
+    ("Strength", None): "Card",
     ("Verification", "Pending"): "Tabular",
     ("Verification", "Sent"): "Tabular",
     ("Verification", "NotResponded"): "Tabular",
@@ -3139,8 +3107,6 @@ SUBCATEGORY_TO_OPERATION: Dict[str, str] = {
     "DailyAttendance": "Daily",
     "PresentToday": "Present",
     "AttendanceSummary": "Summary",
-    "StrengthBreakdown": "StrengthBreakdown",
-    "Strength": "StrengthBreakdown",
     "PendingVerification": "Pending",
     "CompletedVerification": "Completed",
     "NotRespondedVerification": "NotResponded",
@@ -3193,7 +3159,6 @@ OPERATION_TO_PAYLOAD_FIELD: Dict[str, str] = {
     "Weekly": "Weekly",
     "Daily": "Daily",
     "Present": "Present",
-    "StrengthBreakdown": "StrengthBreakdown",
     "bytoday": "bytoday",
     "bycompany": "bycompany",
     "bydate": "bydate",
@@ -3242,7 +3207,6 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Attendance", "Daily"): "DailyAttendance",
     ("Attendance", "Present"): "PresentToday",
     ("Attendance", "Summary"): "AttendanceSummary",
-    ("Strength", "StrengthBreakdown"): "StrengthBreakdown",
     ("Verification", "Pending"): "PendingVerification",
     ("Verification", "Sent"): "SentVerification",
     ("Verification", "NotResponded"): "NotRespondedVerification",

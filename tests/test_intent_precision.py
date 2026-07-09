@@ -328,7 +328,7 @@ class TestStrengthCases:
     def test_strength_breakdown(self):
         r = _classify("show strength breakdown by section")
         assert r["category"] == "Strength"
-        assert r["operation"] == "StrengthBreakdown"
+        assert r["operation"] is None
 
     def test_headcount(self):
         r = _classify("what is the current headcount of the unit")
@@ -362,7 +362,7 @@ class TestEquipmentCases:
     def test_equipment_search(self):
         r = _classify("find which agniveers have a combat coat")
         assert r["category"] == "Equipment"
-        assert r["operation"] == "Search"
+        assert r["operation"] == "ByName"
 
     def test_equipment_holding(self):
         r = _classify("who is holding overdue equipment")

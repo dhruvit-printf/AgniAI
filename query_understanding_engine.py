@@ -697,8 +697,6 @@ def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
         return "attemptwise"
     if "best attempt" in text:
         return "bestattempt"
-    if any(token in text for token in ("strength breakdown", "headcount", "current strength", "strength")):
-        return "strengthbreakdown"
     if any(
         token in text
         for token in (
@@ -789,8 +787,6 @@ def _build_user_goal(
         return "review medical BMI records"
     if operation == "bloodgroup":
         return "review blood group records"
-    if operation == "strengthbreakdown":
-        return "review strength breakdown"
     if operation == "search":
         return "search equipment records"
     if operation == "returned":

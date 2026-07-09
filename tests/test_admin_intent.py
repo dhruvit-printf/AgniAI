@@ -304,8 +304,8 @@ def test_present_today():
 def test_strength_breakdown():
     r = classify_admin_intent("Give me the strength breakdown")
     assert r["category"] == "Strength"
-    assert r["subcategory"] == "StrengthBreakdown"
-    assert r["type"] == "Line Chart"
+    assert r["subcategory"] is None
+    assert r["type"] == "Card"
 
 
 # =============================================================================

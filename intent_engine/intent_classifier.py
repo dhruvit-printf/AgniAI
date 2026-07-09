@@ -384,8 +384,6 @@ def _score_operation(
         score += 10 if _entity_present(entities, "bmiCategory") else 0
     if category == "Medical" and operation == "BloodGroup":
         score += 10 if _entity_present(entities, "bloodGroup") else 0
-    if category == "Strength" and operation == "StrengthBreakdown":
-        score += 10 if _entity_present(entities, "section") else 0
     if category == "Schedule" and operation == "bytoday":
         # Bare "schedule" is a weak, generic signal — don't let it outscore
         # Company/Date/Agniveer when the query actually names one of those
@@ -786,9 +784,6 @@ def _should_entity_override_operation(
             return True, "BySport", "sport entity present without operation"
         if not classified_operation and _entity_present(entities, "class"):
             return True, "ByClass", "class entity present without operation"
-
-    if category == "Strength" and not classified_operation:
-        return True, "StrengthBreakdown", "Strength query default operation"
 
     if category == "Overall" and not classified_operation:
         return True, "OverallPerformance", "Overall query default operation"

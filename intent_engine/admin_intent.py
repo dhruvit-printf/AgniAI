@@ -62,14 +62,16 @@ def _legacy_type(
     category: Optional[str], operation: Optional[str], subcategory: Optional[str]
 ) -> Optional[str]:
     """Pure lookup — no inference.  Returns the deprecated visualization hint."""
-    if not category or not subcategory:
+    if not category:
         return None
-    op_key = operation or SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory)
+    op_key = operation or (SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory) if subcategory else None)
     return INTENT_TYPE_DEFAULTS.get((category, op_key))
 
 
-def _comparison_fallback_operation(category: Optional[str]) -> str:
+def _comparison_fallback_operation(category: Optional[str]) -> Optional[str]:
     """Choose a category-safe fallback for planner compare fallthroughs."""
+    if category == "Strength":
+        return None
     fallback_by_category = {
         # Category-specific overview/list style defaults that already exist in schema.
         "Performance": "Top",
@@ -80,7 +82,6 @@ def _comparison_fallback_operation(category: Optional[str]) -> str:
         "Equipment": "Stats",
         "Distribution": "Latest",
         "Skills": "BySport",
-        "Strength": "StrengthBreakdown",
         "Overall": "OverallPerformance",
         "Schedule": "bytoday",
         "personaldetail": "info",
@@ -90,7 +91,8 @@ def _comparison_fallback_operation(category: Optional[str]) -> str:
         return fallback_by_category[category]
     if category and "Summary" in OPERATIONS_BY_CATEGORY.get(category, frozenset()):
         return "Summary"
-    return next(iter(OPERATIONS_BY_CATEGORY.get(category, ("Summary",))), "Summary")
+    ops = OPERATIONS_BY_CATEGORY.get(category, frozenset())
+    return next(iter(ops), "Summary") if ops else None
 
 
 def _filter_entities_for_category(

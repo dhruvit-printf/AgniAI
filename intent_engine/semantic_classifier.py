@@ -73,6 +73,9 @@ _CATALOG: List[Tuple[str, str, str]] = [
     ("Leave", "Most", "top leave takers in the company"),
     ("Leave", "Least", "agniveers with least days absent"),
     ("Leave", "Least", "who is most regular with attendance"),
+    ("Leave", "Least", "who hasn't taken any leave yet"),
+    ("Leave", "Least", "who has not taken any leave"),
+    ("Leave", "Least", "agniveers with no leave"),
     ("Leave", "Current", "who is currently on leave"),
     ("Leave", "Current", "show leave status for today"),
     ("Leave", "Absconded", "list absconded agniveers"),
@@ -96,9 +99,9 @@ _CATALOG: List[Tuple[str, str, str]] = [
     ("Attendance", "Summary", "attendance summary for the batch"),
     ("Attendance", "Summary", "overall attendance overview"),
     # Strength
-    ("Strength", "StrengthBreakdown", "strength breakdown by section"),
-    ("Strength", "StrengthBreakdown", "how many agniveers in each platoon"),
-    ("Strength", "StrengthBreakdown", "current headcount of the unit"),
+    ("Strength", None, "strength breakdown by section"),
+    ("Strength", None, "how many agniveers in each platoon"),
+    ("Strength", None, "current headcount of the unit"),
     # Verification
     ("Verification", "Pending", "show pending verification requests"),
     ("Verification", "Sent", "list verification requests that were sent"),
