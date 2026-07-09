@@ -423,7 +423,12 @@ _CROSS_FILTER_MARKERS = (
     "associated with",
     "connected to",
     "linked to",
-)
+
+    "waiting",
+    "awaiting",
+    "waiting for",
+    "awaiting for",
+    )
 
 # Status/eligibility adjectives — split out from _CROSS_FILTER_MARKERS above
 # because they're weaker evidence: each is a common standalone word (unlike
@@ -470,7 +475,10 @@ _CROSS_FILTER_STATUS_MARKERS = (
     "yet",
     "but not",
     "instead of",
-)
+
+    "waiting",
+    "awaiting",
+    )
 
 # A later clause naming its own report/analytics noun signals an independent
 # output request, not a filter condition on the first clause's subject — used

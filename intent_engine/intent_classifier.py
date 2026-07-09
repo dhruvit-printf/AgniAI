@@ -419,7 +419,7 @@ def _score_operation(
         # but should resolve to Company, not the bare Today default).
         has_more_specific_signal = (
             _entity_present(entities, "agniveerNo", "date")
-            or bool(re.search(r"\b(company|coy)\b", query_text, re.IGNORECASE))
+            or bool(re.search(r"\b(company)\b", query_text, re.IGNORECASE))
         )
         score += 10 if _phrase_score(query_text, "schedule") and not has_more_specific_signal else 0
     if category == "Attendance" and operation in {
@@ -795,7 +795,7 @@ def _should_entity_override_operation(
             return True, "byagniveer", "Schedule query for a specific agniveer"
         if is_specific_date:
             return True, "bydate", "Schedule query for a specific date"
-        if re.search(r"\b(company|coy)\b", query_text, re.IGNORECASE):
+        if re.search(r"\b(company)\b", query_text, re.IGNORECASE):
             return True, "bycompany", "Schedule query mentions a company"
         return True, "bytoday", "Schedule query default operation"
 

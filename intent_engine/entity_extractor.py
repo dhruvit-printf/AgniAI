@@ -146,7 +146,6 @@ def _extract_number(query: str) -> Optional[int]:
 
     blocked_prefixes = (
         "company",
-        "coy",
         "batch",
         "platoon",
         "plt",
@@ -578,7 +577,7 @@ def _extract_numeric_id(query: str, id_pattern: str) -> Optional[int]:
 
 
 def _extract_company_id(query: str) -> Optional[int]:
-    return _extract_numeric_id(query, "company|coy")
+    return _extract_numeric_id(query, "company")
 
 
 def _extract_platoon_id(query: str) -> Optional[int]:

@@ -1504,6 +1504,8 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "they didn't answer",
             "still no response",
             "not responded",
+            "not received a response",
+            "has not received a response",
             "no response",
             "awaiting response",
             "no reply",
