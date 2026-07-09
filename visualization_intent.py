@@ -232,9 +232,9 @@ def _plan_widgets(
     if query_type == "cross_filter":
         return _widget_list("TABLE")
 
-    if trend or query_type == "trend" or any(
+    if category != "Attendance" and (trend or query_type == "trend" or any(
         token in text for token in ("trend", "timeline", "over months", "over time", "growth")
-    ):
+    )):
         return _widget_list(*(["CHART_LINE", "TABLE"] if response_type == "Detailed" else ["CHART_LINE"]))
 
     # AttemptWise is always a line chart (attempt-over-attempt progression) —

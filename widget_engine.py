@@ -1077,6 +1077,60 @@ def build_attendance_calendar_data(
     }
 
 
+def build_attendance_bar_chart_data(combined_result: Any, intent: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Builds a multi-series bar chart for Attendance queries, bucketing by Weekly or Monthly.
+    """
+    intent = intent or {}
+    records = _extract_records(combined_result, deep_flatten=False)
+
+    date_key = _find_key(records, ["date", "attendanceDate", "day"])
+    present_key = _find_key(
+        records, ["isPresent", "present", "attended", "attendanceStatus", "status"]
+    )
+
+    operation = intent.get("operation", "").lower()
+    is_weekly = (operation == "weekly")
+
+    buckets = {}
+    for r in records:
+        raw_date = r.get(date_key) if date_key else None
+        parsed = _parse_calendar_date(raw_date)
+        if not parsed:
+            continue
+        
+        if is_weekly:
+            iso_year, iso_week, _ = parsed.isocalendar()
+            bucket_key = f"{iso_year}-W{iso_week:02d}"
+        else:
+            bucket_key = f"{parsed.year}-{parsed.month:02d}"
+
+        raw_present = r.get(present_key) if present_key else None
+        is_present = _coerce_is_present(raw_present)
+        
+        if bucket_key not in buckets:
+            buckets[bucket_key] = {"present": 0, "absent": 0}
+        
+        if is_present:
+            buckets[bucket_key]["present"] += 1
+        else:
+            buckets[bucket_key]["absent"] += 1
+
+    rows = []
+    for bucket_key in sorted(buckets.keys()):
+        rows.append({
+            "period": bucket_key,
+            "present": buckets[bucket_key]["present"],
+            "absent": buckets[bucket_key]["absent"],
+        })
+
+    return {
+        "xKey": "period",
+        "yKeys": ["present", "absent"],
+        "rows": rows
+    }
+
+
 def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
     if inferred_type == "TABLE":
         if "sides" in data or "sections" in data:
@@ -1966,7 +2020,7 @@ def _build_widget_data(
         return _build_compare_bar(combined_result)
 
     chart_builders: Dict[str, Any] = {
-        "CHART_BAR": lambda: build_bar_chart_data(chart_source),
+        "CHART_BAR": (lambda: build_attendance_bar_chart_data(chart_source, intent)) if str(intent.get("category", "")).lower() == "attendance" else (lambda: build_bar_chart_data(chart_source)),
         "CHART_LINE": lambda: build_line_chart_data(chart_source),
         "CHART_PIE": lambda: build_pie_chart_data(chart_source, intent=intent),
         "ATTENDANCE_CALENDAR": lambda: build_attendance_calendar_data(
