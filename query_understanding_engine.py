@@ -237,9 +237,11 @@ _CROSS_FILTER_MARKERS = (
     "holding",
     "possessing",
     "carrying",
+    "keeping",
     "owning",
     "assigned",
     "issued",
+    "issued with",
     "allocated",
     "given",
     "them",
@@ -1013,7 +1015,20 @@ def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
         return "search"
     if any(token in text for token in ("returned", "poor condition", "damaged", "broken")):
         return "returned"
-    if any(token in text for token in ("overdue", "currently issued", "currently holding", "holding", "issued")):
+    if any(
+        token in text
+        for token in (
+            "overdue",
+            "currently issued",
+            "currently holding",
+            "holding",
+            "issued",
+            "possessing",
+            "carrying",
+            "keeping",
+            "issued with",
+        )
+    ):
         return "holding"
     if "current leave" in text or "leave today" in text or "on leave" in text:
         return "current"

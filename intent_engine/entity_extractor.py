@@ -172,6 +172,42 @@ def _extract_number(query: str) -> Optional[int]:
     match = re.search(r"\brank\s+(\d+)\b", text)
     if match:
         return int(match.group(1))
+        
+    blocked_suffixes = (
+        "days",
+        "day",
+        "marks",
+        "percent",
+        "percentage",
+        "score",
+        "kg",
+        "cm",
+        "times",
+    )
+    
+    # Generic fallback: find any standalone number that isn't preceded by blocked prefixes
+    # and isn't a likely year/id.
+    for match in re.finditer(r"\b(\d+)\b", text):
+        num = int(match.group(1))
+        
+        # Skip likely years or large numbers (e.g., Agniveer numbers) if it's > 1000
+        if 2000 <= num <= 2100 or num > 1000:
+            continue
+            
+        start_before = max(0, match.start() - 24)
+        context_before = text[start_before : match.start()].strip()
+        
+        end_after = min(len(text), match.end() + 24)
+        context_after = text[match.end() : end_after].strip()
+        
+        if any(context_before.endswith(prefix) for prefix in blocked_prefixes):
+            continue
+            
+        if any(context_after.startswith(suffix) for suffix in blocked_suffixes):
+            continue
+            
+        return num
+        
     return None
 
 

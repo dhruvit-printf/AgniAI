@@ -7,10 +7,10 @@ SINGLE SOURCE OF TRUTH for all AgniAI intent formation business rules.
 This module contains all domain-specific data structures, enumerations, and
 mappings that were previously hardcoded across admin_intent.py. By centralizing
 this configuration, we ensure:
-
+BI
 1. Deterministic intent formation
-2. Easy maintenance and updates
-3. Consistency across the pipeline
+2. Easy maintenance and updatesF
+3. Consistency across the BIF
 4. Version-controlled schema changes
 
 All modules that need business data MUST import from here, NOT hardcode lists.
@@ -1525,6 +1525,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "done",
             "verification completed",
             "all clear",
+            "cleared",
             "verified",
             "all verified",
             "fully verified",
@@ -1532,6 +1533,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "closed out",
             "wrapped up",
             "finished verification",
+            "finished",
         ),
         "Rejected": (
             "got rejected",
@@ -1786,6 +1788,9 @@ SUBSECTION_ALIASES: Dict[str, Tuple[str, ...]] = {
 GRADING_CATEGORIES: Dict[str, str] = {
     "exceptionally well": "ExceptionallyWell",
     "excellent": "Excellent",
+    "top grade": "Excellent",
+    "highest grade": "Excellent",
+    "best grade": "Excellent",
     "good": "Good",
     "sat": "SAT",
     "satisfactory": "SAT",
@@ -1846,6 +1851,7 @@ BMI_CATEGORIES: Dict[str, str] = {
     # they only activate when the query also contains "bmi", "weight", or "fitness".
     "fittest": "Normal",
     "fit": "Normal",
+    "are fit": "Normal",
     "most fit": "Normal",
     "physically fit": "Normal",
 }
