@@ -428,7 +428,53 @@ _CROSS_FILTER_MARKERS = (
     "awaiting",
     "waiting for",
     "awaiting for",
-    )
+    
+    # NLP conversational patterns requested by the user
+    "which of",
+    "out of",
+    "find",
+    "show",
+    "show me",
+    "list",
+    "give me",
+    "fetch",
+    "get",
+    "retrieve",
+    "identify",
+    "tell me",
+    "can you",
+    "could you",
+    "would you",
+    "i want",
+    "i need",
+    "i'm looking for",
+    "i'd like to know",
+    "help me find",
+    "are there any",
+    "do we have",
+    "is there anyone",
+    "let me know",
+    "display",
+    "provide",
+    "return",
+    
+    # State and membership phrases
+    "included in",
+    "present in",
+    "listed in",
+    "identified as",
+    "classified as",
+    "recognized as",
+    "marked as",
+    "registered as",
+    "recorded as",
+    
+    # Relative pronouns with nouns
+    "those who",
+    "people who",
+    "candidates who",
+    "personnel who",
+)
 
 # Status/eligibility adjectives — split out from _CROSS_FILTER_MARKERS above
 # because they're weaker evidence: each is a common standalone word (unlike
