@@ -75,19 +75,19 @@ def test_item_category_covers_all_procured():
 def test_intent_issued_items_overview():
     r = classify_admin_intent("Show me all issued items")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "IssuedItems"
+    assert r["subcategory"] == "HoldingEquipment"
 
 
 def test_intent_procured_items_overview():
     r = classify_admin_intent("List all procured items")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "ProcuredItems"
+    assert r["subcategory"] == "HoldingEquipment"
 
 
 def test_intent_specific_issued_item():
     r = classify_admin_intent("Is the DMS Boot GP issued to all agniveers?")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "IssuedItems"
+    assert r["subcategory"] == "Issued"
     assert r["item_name"] == "DMS Boot GP"
     assert r["item_category"] == "Issued"
 
@@ -95,7 +95,7 @@ def test_intent_specific_issued_item():
 def test_intent_specific_procured_item():
     r = classify_admin_intent("Has the Rifle Sling been procured?")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "ProcuredItems"
+    assert r["subcategory"] == "Procured"
     assert r["item_name"] == "Rifle Sling"
     assert r["item_category"] == "Procured"
 
@@ -103,42 +103,42 @@ def test_intent_specific_procured_item():
 def test_intent_jungle_shoes():
     r = classify_admin_intent("Do we have jungle shoes in the procured list?")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "ProcuredItems"
+    assert r["subcategory"] == "Procured"
     assert r["item_name"] == "Jungle Shoes"
 
 
 def test_intent_mug_steel():
     r = classify_admin_intent("mug steel — is it issued?")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "IssuedItems"
+    assert r["subcategory"] == "Issued"
     assert r["item_name"] == "Mug Steel"
 
 
 def test_intent_swimming_costumes():
     r = classify_admin_intent("Show swimming costumes availability")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "ProcuredItems"
+    assert r["subcategory"] == "EquipmentSearch"
     assert r["item_name"] == "Swimming Costumes"
 
 
 def test_intent_blanket():
     r = classify_admin_intent("Is blanket an issued item?")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "IssuedItems"
+    assert r["subcategory"] == "Issued"
     assert r["item_name"] == "Blanket"
 
 
 def test_intent_health_card():
     r = classify_admin_intent("health card details")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "ProcuredItems"
+    assert r["subcategory"] == "EquipmentSearch"
     assert r["item_name"] == "Health Card"
 
 
 def test_intent_kit_bag():
     r = classify_admin_intent("kit bag issued or not")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "IssuedItems"
+    assert r["subcategory"] == "Issued"
     assert r["item_name"] == "Kit Bag"
 
 
@@ -151,14 +151,14 @@ def test_payload_issued_items_keys():
     r = classify_admin_intent("Show all issued items")
     p = format_admin_payload(r)
     assert p.get("category") == "Equipment"
-    assert p.get("operation") == "ByName"
+    assert p.get("operation") == "Holding"
 
 
 def test_payload_procured_items_keys():
     r = classify_admin_intent("List procured items")
     p = format_admin_payload(r)
     assert p.get("category") == "Equipment"
-    assert p.get("operation") == "ByName"
+    assert p.get("operation") == "Holding"
 
 
 def test_payload_specific_item_name():

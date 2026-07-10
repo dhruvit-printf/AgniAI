@@ -318,11 +318,11 @@ def classify_admin_intent(
                 subcategory = "PoorConditionEquipment"
                 operation = "Returned"
             elif _eq_type == "Issued" and operation != "Returned":
-                subcategory = "IssuedItems"
-                operation = "ByName"
+                subcategory = "HoldingEquipment"
+                operation = "Holding"
             elif _eq_type == "Procured" and operation != "Returned":
-                subcategory = "ProcuredItems"
-                operation = "ByName"
+                subcategory = "HoldingEquipment"
+                operation = "Holding"
             elif any(kw in _nq for kw in {"overdue"}):
                 subcategory = "HoldingEquipment"
                 operation = "Holding"
