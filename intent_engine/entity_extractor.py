@@ -889,9 +889,12 @@ def extract_entities(
     result["sport"] = _extract_sport(raw_query)
     result["class"] = _extract_class(raw_query)
     result["equipmentName"] = _extract_equipment_item(raw_query)
-    # equipmentType: only extract if explicitly mentioned ("issued"/"procured" keywords).
-    # We do NOT fallback to deriving from the matched equipment item name per user request.
     eq_type = _extract_equipment_type(raw_query)
+    if not eq_type and result["equipmentName"]:
+        if result["equipmentName"] in ISSUED_EQUIPMENT_ITEMS:
+            eq_type = "Issued"
+        elif result["equipmentName"] in PROCURED_EQUIPMENT_ITEMS:
+            eq_type = "Procured"
     result["equipmentType"] = eq_type
     result["unitName"] = _extract_unit_name(raw_query)
     result["attemptNo"] = _extract_attempt_no(raw_query)

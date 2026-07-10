@@ -117,7 +117,7 @@ def test_intent_mug_steel():
 def test_intent_swimming_costumes():
     r = classify_admin_intent("Show swimming costumes availability")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "EquipmentSearch"
+    assert r["subcategory"] == "Procured"
     assert r["item_name"] == "Swimming Costumes"
 
 
@@ -131,7 +131,7 @@ def test_intent_blanket():
 def test_intent_health_card():
     r = classify_admin_intent("health card details")
     assert r["category"] == "Equipment"
-    assert r["subcategory"] == "EquipmentSearch"
+    assert r["subcategory"] == "Procured"
     assert r["item_name"] == "Health Card"
 
 

@@ -333,16 +333,6 @@ def classify_admin_intent(
                 operation = "Holding"
             elif any(
                 kw in _nq
-                for kw in {
-                    "currently holding",
-                    "holding",
-                    "where"
-                }
-            ):
-                subcategory = _eq_type or "HoldingEquipment"
-                operation = "Holding"
-            elif any(
-                kw in _nq
                 for kw in {"poor condition", "returned", "damaged", "broken"}
             ):
                 subcategory = "PoorConditionEquipment"
