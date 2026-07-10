@@ -1341,7 +1341,7 @@ def _extract_sub_requests(
         if current:
             and_parts = [
                 p.strip(" ,")
-                for p in re.split(r"\band\b", current, flags=re.IGNORECASE)
+                for p in re.split(r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", current, flags=re.IGNORECASE)
                 if p.strip(" ,")
             ]
             parts.extend(and_parts)
@@ -1350,7 +1350,7 @@ def _extract_sub_requests(
             for p in parts:
                 and_parts = [
                     ap.strip(" ,")
-                    for ap in re.split(r"\band\b", p, flags=re.IGNORECASE)
+                    for ap in re.split(r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", p, flags=re.IGNORECASE)
                     if ap.strip(" ,")
                 ]
                 new_parts.extend(and_parts)
@@ -1392,7 +1392,7 @@ def _extract_sub_requests(
         if "," in text:
             parts = [
                 part.strip(" ,")
-                for part in re.split(r"\s*,\s*|\s+\band\b\s+", text)
+                for part in re.split(r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", text)
                 if part.strip(" ,")
             ]
         if len(parts) < 2:
