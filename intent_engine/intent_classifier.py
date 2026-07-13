@@ -747,7 +747,7 @@ def _should_entity_override_operation(
         ):
             return True, "BloodGroup", "bloodGroup entity present"
         if not classified_operation and _entity_present(entities, "medicalStatus"):
-            return True, "Summary", "medicalStatus entity present without operation"
+            return True, "Individual", "medicalStatus entity present without operation"
         if not classified_operation and _entity_present(entities, "agniveerNo"):
             # .NET rejects Medical calls with no operation at all ("Unknown
             # medical operation ''"). A query naming a specific agniveer
@@ -801,11 +801,12 @@ def _should_entity_override_operation(
 
     if category == "Equipment" and not classified_operation:
         if _entity_present(entities, "equipmentName"):
-            return True, "Search", "equipmentName entity present without operation"
+            return True, "ByName", "equipmentName entity present without operation"
         if _phrase_score(query_text, "overdue"):
             return True, "Holding", "equipment overdue phrase present"
         if _phrase_score(query_text, "search") or _phrase_score(query_text, "find"):
-            return True, "Search", "equipment search phrase present"
+            return True, "ByName", "equipment search phrase present"
+        return True, "Holding", "equipment query default operation"
 
     if category in ("Skills",):
         if not classified_operation and _entity_present(entities, "sport"):
