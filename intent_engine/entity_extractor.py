@@ -766,10 +766,7 @@ _MEDICAL_CONTEXT_WORDS = frozenset(
 )
 
 
-def _extract_diagnose(query: str) -> Optional[str]:
-    query_lower = _normalise(query)
-    has_medical_context = any(w in query_lower for w in _MEDICAL_CONTEXT_WORDS)
-    diseases = (
+_KNOWN_DISEASES = (
         "viral fever",
         "covid-19",
         "swine flu",
@@ -863,8 +860,13 @@ def _extract_diagnose(query: str) -> Optional[str]:
         "sciatica",
         "spasm",
         "fatigue",
-    )
-    for d in diseases:
+)
+
+
+def _extract_diagnose(query: str) -> Optional[str]:
+    query_lower = _normalise(query)
+    has_medical_context = any(w in query_lower for w in _MEDICAL_CONTEXT_WORDS)
+    for d in _KNOWN_DISEASES:
         if not re.search(rf"\b{re.escape(d)}\b", query_lower):
             continue
         # Ambiguous terms require a medical context word

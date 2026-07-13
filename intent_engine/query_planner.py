@@ -72,6 +72,36 @@ class SubOperation:
         return d
 
 
+_GROUPING_OPERATIONS = frozenset({"ByName", "ByUnit", "BySport", "ByClass"})
+
+
+def _is_leftover_subject_op(op: "SubOperation") -> bool:
+    """True for a bare-subject fragment left over from splitting a compound
+    query (e.g. "show agniveers" split off "...who failed Firing and still
+    have issued equipment"). Such a fragment carries no real entity, so it
+    lands either on the literal "AgniveerWise" operation or, via the
+    low-confidence semantic fallback, on a "By*" grouping operation
+    (ByClass/BySport/ByUnit/ByName) that is structurally meaningless without
+    its target entity (e.g. "Skills/ByClass" with no class value). Only
+    "By*" operations are checked for a missing entity — other operations
+    (e.g. "Medical/Individual" from "suffered from fever") are legitimate
+    even when the entity extractor didn't capture a distinct filter value,
+    so they must not be swept up by this check.
+    """
+    operation = op.intent_result.get("operation")
+    if operation == "AgniveerWise":
+        return True
+    if operation not in _GROUPING_OPERATIONS:
+        return False
+    filters = op.intent_result.get("filters") or {}
+    discriminating = {
+        key: value
+        for key, value in filters.items()
+        if key != "operation" and value not in (None, "", [], {})
+    }
+    return not discriminating
+
+
 @dataclass
 class QueryPlan:
     query_type: QueryType
@@ -151,6 +181,7 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
     ],
     "Medical": [
         "medical",
+        "medically",
         "hospital",
         "bmi",
         "disease",
@@ -340,8 +371,26 @@ def _extend_equipment_category_signals() -> None:
     _CATEGORY_SIGNALS["Equipment"] = base + additions
 
 
+def _extend_medical_category_signals() -> None:
+    """Extend _CATEGORY_SIGNALS["Medical"] with every curated disease name
+    (see entity_extractor's `_KNOWN_DISEASES`), mirroring the sports/
+    equipment extensions above — a query naming a disease not in the
+    hand-picked subset here ("kidney stone", "chicken pox", "food
+    poisoning", ...) otherwise registers zero Medical signal, so the
+    cross-filter gate never sees the 2 categories it needs to split, and the
+    diagnose filter that WAS correctly extracted ends up silently dropped
+    against whatever single category the query fell back to.
+    """
+    from .entity_extractor import _KNOWN_DISEASES
+
+    base = _CATEGORY_SIGNALS["Medical"]
+    additions = [name for name in _KNOWN_DISEASES if name not in base]
+    _CATEGORY_SIGNALS["Medical"] = base + additions
+
+
 _extend_skills_category_signals()
 _extend_equipment_category_signals()
+_extend_medical_category_signals()
 
 
 def _detect_categories(text_lower: str) -> List[str]:
@@ -883,6 +932,9 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             or op.intent_result.get("section")
             or op.intent_result.get("sport")
         ]
+        if len([op for op in valid_ops if not _is_leftover_subject_op(op)]) >= 2:
+            valid_ops = [op for op in valid_ops if not _is_leftover_subject_op(op)]
+
         if len(valid_ops) >= 2:
             combined_filters = {}
             for op in valid_ops:
@@ -947,6 +999,9 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             if op.intent_result.get("category")
             and op.intent_result.get("category") != "Schedule"
         ]
+        if len([op for op in valid_ops if not _is_leftover_subject_op(op)]) >= 2:
+            valid_ops = [op for op in valid_ops if not _is_leftover_subject_op(op)]
+
         if len(valid_ops) >= 2:
             for op in valid_ops:
                 if op.intent_result.get(

@@ -1237,6 +1237,121 @@ def _apply_shared_trailing_suffix(left: str, right: str) -> str:
     return " ".join(p for p in pieces if p).strip()
 
 
+def _match_known_disease_prefix(text: str) -> Optional[str]:
+    """Return the longest curated disease name (see entity_extractor's
+    `_KNOWN_DISEASES`) that `text` starts with, or None. Multi-word disease
+    names ("viral fever", "kidney stone", "chicken pox", ...) must not be
+    split across fragments by a naive single-word grab after "with"/"from",
+    so the caller uses this to know exactly how many words the diagnosis
+    value spans.
+    """
+    from intent_engine.entity_extractor import _KNOWN_DISEASES
+
+    stripped = text.lstrip()
+    stripped_lower = stripped.lower()
+    best: Optional[str] = None
+    for d in _KNOWN_DISEASES:
+        if not stripped_lower.startswith(d):
+            continue
+        end = len(d)
+        if end < len(stripped_lower) and stripped_lower[end].isalnum():
+            continue  # partial word match, e.g. "flu" inside "fluster"
+        if best is None or len(d) > len(best):
+            best = d
+    return stripped[: len(best)] if best else None
+
+
+# Status/state words that determine WHICH operation a category resolves to
+# (e.g. Verification/Completed vs Verification/Pending). Used only to pull a
+# cutpoint in `_split_by_category_signal` back so this word stays attached to
+# the fragment it governs — see that function's docstring.
+_STATUS_ADJECTIVES = frozenset({
+    "completed", "pending", "rejected", "sent", "unverified",
+    "overdue", "issued", "procured", "returned", "unassigned", "distributed",
+    "top", "bottom", "highest", "lowest", "best", "worst",
+    "improved", "improvement", "dropped", "drop",
+    "failed", "fail", "passed", "pass",
+    "medically", "medical", "currently",
+})
+
+_SINGLE_WORD_CATEGORY_SIGNALS: Optional[Dict[str, str]] = None
+
+
+def _single_word_category_signals() -> Dict[str, str]:
+    """Bare single-word category signal -> category, built once from
+    `_CATEGORY_SIGNALS` (query_planner.py's category keyword table). A word
+    that names more than one category (ambiguous) is dropped rather than
+    guessed."""
+    global _SINGLE_WORD_CATEGORY_SIGNALS
+    if _SINGLE_WORD_CATEGORY_SIGNALS is not None:
+        return _SINGLE_WORD_CATEGORY_SIGNALS
+    from intent_engine.query_planner import _CATEGORY_SIGNALS
+
+    mapping: Dict[str, str] = {}
+    ambiguous: set = set()
+    for cat, signals in _CATEGORY_SIGNALS.items():
+        if cat == "Schedule":
+            continue
+        for sig in signals:
+            if " " in sig:
+                continue
+            if sig in mapping and mapping[sig] != cat:
+                ambiguous.add(sig)
+            else:
+                mapping[sig] = cat
+    for sig in ambiguous:
+        mapping.pop(sig, None)
+    _SINGLE_WORD_CATEGORY_SIGNALS = mapping
+    return mapping
+
+
+def _split_by_category_signal(text: str) -> Optional[List[str]]:
+    """Fallback split for a cross-filter remainder that still names two
+    distinct categories but has no "and"/comma to cut on — e.g. "are present
+    today completed police verification?" (Attendance + Verification) or
+    "fever are currently on leave?" (Medical + Leave). Without this, the
+    whole remainder is classified as a single fragment and whichever
+    category scores highest wins, silently dropping the other condition.
+
+    Finds the two categories' earliest single-word signal positions and cuts
+    between them, pulling the cutpoint back over any immediately-preceding
+    status word ("completed", "pending", ...) within a small window so the
+    operation-determining word stays with its own category's fragment
+    instead of being stranded on the wrong side of the cut.
+    """
+    signals = _single_word_category_signals()
+    words = list(re.finditer(r"[a-zA-Z0-9']+", text))
+    if len(words) < 3:
+        return None
+    norm_words = [w.group(0).lower() for w in words]
+
+    positions: Dict[str, int] = {}
+    for i, w in enumerate(norm_words):
+        cat = signals.get(w)
+        if cat and cat not in positions:
+            positions[cat] = i
+    if len(positions) != 2:
+        return None
+
+    ordered = sorted(positions.items(), key=lambda kv: kv[1])
+    cut_word_idx = ordered[1][1]
+    window = 3
+    start_scan = max(0, cut_word_idx - window)
+    for i in range(cut_word_idx - 1, start_scan - 1, -1):
+        if norm_words[i] in _STATUS_ADJECTIVES:
+            cut_word_idx = i
+
+    if cut_word_idx <= 0 or cut_word_idx >= len(words):
+        return None
+
+    cut_char = words[cut_word_idx].start()
+    left = text[:cut_char].strip(" ,")
+    right = text[cut_char:].strip(" ,")
+    if not left or not right:
+        return None
+    return [left, right]
+
+
 def _extract_sub_requests(
     text: str,
     category: Optional[str],
@@ -1348,8 +1463,47 @@ def _extract_sub_requests(
             # an empty lead and keep trying the remaining separators (e.g.
             # "among") instead of accepting the degenerate split.
             if len(split_parts) > 1 and split_parts[0].strip(" ,"):
-                parts.append(split_parts[0].strip(" ,"))
-                current = " ".join(split_parts[1:])
+                lead = split_parts[0].strip(" ,")
+                remainder = " ".join(split_parts[1:]).strip()
+                # "diagnosed with fever" / "suffering from fever" / "suffered
+                # from fever" — the value right after "with"/"from" names the
+                # medical condition itself and is what "diagnosed"/"suffering"
+                # /"suffered" is about. Left where the generic split above
+                # puts it, it gets handed to whatever clause follows instead
+                # (e.g. "...diagnosed" / "fever are currently on leave"),
+                # losing the condition from the diagnosis leg entirely and
+                # producing an incomplete Medical operation with no disease
+                # value. Pull it back onto the diagnosis fragment.
+                if sep == r"\bwith\b" and re.search(
+                    r"\bdiagnosed\s*$", lead, flags=re.IGNORECASE
+                ):
+                    disease = _match_known_disease_prefix(remainder)
+                    if disease:
+                        lead = f"{lead} with {disease}"
+                        remainder = remainder[len(disease):].strip()
+                    else:
+                        value_match = re.match(r"(\S+)\s*(.*)", remainder, flags=re.DOTALL)
+                        if value_match and value_match.group(1):
+                            lead = f"{lead} with {value_match.group(1)}"
+                            remainder = value_match.group(2).strip()
+                elif sep in (r"\bsuffering\b", r"\bsuffered\b"):
+                    from_match = re.match(
+                        r"from\s+(.*)", remainder, flags=re.IGNORECASE | re.DOTALL
+                    )
+                    if from_match:
+                        after_from = from_match.group(1)
+                        verb = "suffering" if sep == r"\bsuffering\b" else "suffered"
+                        disease = _match_known_disease_prefix(after_from)
+                        if disease:
+                            lead = f"{lead} {verb} from {disease}"
+                            remainder = after_from[len(disease):].strip()
+                        else:
+                            single_match = re.match(r"(\S+)\s*(.*)", after_from, flags=re.DOTALL)
+                            if single_match and single_match.group(1):
+                                lead = f"{lead} {verb} from {single_match.group(1)}"
+                                remainder = single_match.group(2).strip()
+                parts.append(lead)
+                current = remainder
                 break
         else:
             # "currently on leave"-style phrases are handled by a dedicated
@@ -1405,6 +1559,15 @@ def _extract_sub_requests(
                 for p in re.split(r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", current, flags=re.IGNORECASE)
                 if p.strip(" ,")
             ]
+            if len(and_parts) < 2:
+                # No explicit "and"/comma, but the remainder can still smuggle
+                # a second category's whole clause with no connector at all
+                # (e.g. "are present today completed police verification?").
+                # Left unsplit, only the highest-scoring category survives
+                # classification and the other condition is silently dropped.
+                cat_split = _split_by_category_signal(current)
+                if cat_split:
+                    and_parts = cat_split
             parts.extend(and_parts)
         else:
             new_parts = []
