@@ -63,6 +63,11 @@ class FeatureFlags(BaseSettings):
     ENABLE_PROMETHEUS: bool = True
     """Register prometheus_client metrics (requires prometheus_client installed)."""
 
+    # ── Text-to-SQL backend ────────────────────────────────────────────────
+    ENABLE_SQL_EXECUTOR: bool = False
+    """Route unclassifiable / low-confidence queries to the text-to-SQL backend
+    instead of RAG. OFF by default (introduces a direct DB dependency)."""
+
     def degrade_gracefully(self, feature: str) -> bool:
         """
         Return the flag value for *feature*, logging a warning if the flag

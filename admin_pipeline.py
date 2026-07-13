@@ -27,7 +27,6 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
 from audit_logger import set_audit_context, write_audit_log
@@ -47,12 +46,11 @@ from intent_engine.admin_intent import (
     format_admin_payload,
 )
 from intent_engine.intent_schema import agniveer_no_required
+from intent_engine.query_intelligence_engine import process_query as qie_process
 from intent_engine.query_planner import QueryType, plan_query
-from universal_normalizer import normalize_response
 from metadata_builder import build_metadata
 from normalized_models import extract_records as _extract_records
 from query_normalizer import admin_normalize_query, clean_query
-from intent_engine.query_intelligence_engine import process_query as qie_process
 from query_understanding_engine import understand_query
 from report_generator import (
     _build_fallback_prediction_dict,
@@ -88,6 +86,7 @@ from telemetry import (
     trace_context,
     trace_id_var,
 )
+from universal_normalizer import normalize_response
 from visualization_intent import build_visualization_intent
 
 logger = logging.getLogger(__name__)
@@ -152,33 +151,43 @@ def _filter_dotnet_data_by_agniveer_no(dotnet_data: Any, target_no: str) -> None
     """In-place filter of .NET response rows when the backend ignores the agniveerNo parameter."""
     if not target_no or not isinstance(dotnet_data, dict):
         return
-        
+
     data_list = dotnet_data.get("data")
     if not isinstance(data_list, list):
         return
-        
+
     target_no = str(target_no).strip().lower()
     filtered_list = []
-    
+
     for row in data_list:
         if not isinstance(row, dict):
             filtered_list.append(row)
             continue
-            
+
         is_match = False
         # 1) Check standard keys
-        for key in ("agniveerNo", "agniveer_no", "AgniveerNo", "AgniveerId", "id", "Id"):
+        for key in (
+            "agniveerNo",
+            "agniveer_no",
+            "AgniveerNo",
+            "AgniveerId",
+            "id",
+            "Id",
+        ):
             if str(row.get(key, "")).strip().lower() == target_no:
                 is_match = True
                 break
-                
+
         # 2) Check pivot keys like Data_{Name}_AgniveerNo if not found yet
         if not is_match:
             for key, val in row.items():
-                if str(key).lower().endswith("agniveerno") and str(val).strip().lower() == target_no:
+                if (
+                    str(key).lower().endswith("agniveerno")
+                    and str(val).strip().lower() == target_no
+                ):
                     is_match = True
                     break
-                    
+
         if is_match:
             filtered_list.append(row)
 
@@ -256,7 +265,9 @@ _SINGLE_AGNIVEER_OPERATIONS = frozenset(
 )
 
 
-def _allows_agniveer_carry_forward(category: Optional[str], operation: Optional[str]) -> bool:
+def _allows_agniveer_carry_forward(
+    category: Optional[str], operation: Optional[str]
+) -> bool:
     return category == "personaldetail" or operation in _SINGLE_AGNIVEER_OPERATIONS
 
 
@@ -313,10 +324,13 @@ def _agniveer_no_missing_response(session_id: str) -> Dict[str, Any]:
 def _get_session_id(data: Dict) -> str:
     """Extract session ID from request body or headers."""
     import uuid as _uuid
+
     session_id = (data.get("session_id") or data.get("sessionId") or "").strip()
     if not session_id:
         session_id = _uuid.uuid4().hex
-        logger.warning("request without session_id — generated ephemeral id %s", session_id)
+        logger.warning(
+            "request without session_id — generated ephemeral id %s", session_id
+        )
     return session_id
 
 
@@ -872,12 +886,15 @@ def execute_admin_query(
     comparison_datasets_info: List[Any] = []
     failed_filters: List[Any] = []
     widget_start: float = 0.0
+    sql_served: bool = False
     response_dotnet_payload: Any = []
 
     request_id = uuid.uuid4().hex
     if not session_id or session_id == "admin-default":
         session_id = uuid.uuid4().hex
-        logger.warning(f"No persistent sessionId provided. Assigned random session ID: {session_id}. Conversational memory disabled for this request.")
+        logger.warning(
+            f"No persistent sessionId provided. Assigned random session ID: {session_id}. Conversational memory disabled for this request."
+        )
 
     token_req = request_id_var.set(request_id)
     token_trace = trace_id_var.set(trace_id)
@@ -923,8 +940,6 @@ def execute_admin_query(
 
     # Initialise entity dict so it's always bound when add_interaction() fires
     resolved_entities: Dict[str, Any] = dict(_ctx_resolution.resolved_entities or {})
-
-
 
     try:
         message = clean_query(user_query or "").strip()
@@ -1008,8 +1023,15 @@ def execute_admin_query(
                     new_cat = semantic_understanding.get("category")
                     old_cat = prev_intent.get("category")
 
-                    if new_cat and old_cat and new_cat != old_cat and new_cat != "Unknown":
-                        logger.info(f"Category shift ({old_cat} -> {new_cat}). Dropping conversational filters.")
+                    if (
+                        new_cat
+                        and old_cat
+                        and new_cat != old_cat
+                        and new_cat != "Unknown"
+                    ):
+                        logger.info(
+                            f"Category shift ({old_cat} -> {new_cat}). Dropping conversational filters."
+                        )
                         carry_forward_filters.clear()
                     else:
                         resolved_agniveer_no = prev_intent.get(
@@ -1118,10 +1140,13 @@ def execute_admin_query(
                     op_agniveer_no = (
                         op.intent_result.get("agniveer_no") or resolved_agniveer_no
                     )
-                    if agniveer_no_required(
-                        op.intent_result.get("category"),
-                        op.intent_result.get("operation"),
-                    ) and not op_agniveer_no:
+                    if (
+                        agniveer_no_required(
+                            op.intent_result.get("category"),
+                            op.intent_result.get("operation"),
+                        )
+                        and not op_agniveer_no
+                    ):
                         return _agniveer_no_missing_response(session_id)
 
                 intent_duration = time.time() - intent_start
@@ -1301,8 +1326,7 @@ def execute_admin_query(
                             if (
                                 peer_err
                                 or peer_data is None
-                                or peer_op.intent_result.get("category")
-                                == "Schedule"
+                                or peer_op.intent_result.get("category") == "Schedule"
                             ):
                                 continue
                             enriched = enrich_schedule_by_company(
@@ -1481,9 +1505,14 @@ def execute_admin_query(
                                 labeled_results.append((label, data_placeholder))
                             else:
                                 ensure_agniveer_no_in_data(dotnet_data)
-                                _target_no = op.intent_result.get("agniveer_no") or resolved_agniveer_no
+                                _target_no = (
+                                    op.intent_result.get("agniveer_no")
+                                    or resolved_agniveer_no
+                                )
                                 if _target_no:
-                                    _filter_dotnet_data_by_agniveer_no(dotnet_data, _target_no)
+                                    _filter_dotnet_data_by_agniveer_no(
+                                        dotnet_data, _target_no
+                                    )
                                 dotnet_data = _normalize_dotnet_leg(dotnet_data)
                                 raw_results.append(dotnet_data)
                                 labeled_results.append((label, dotnet_data))
@@ -1553,215 +1582,136 @@ def execute_admin_query(
                     )
                 )
 
-                # Low-confidence or unrecognised query
+                # Low-confidence or unrecognised query — try the SQL backend
+                # (when enabled) before giving up; only bail out to the
+                # "unclear" conversational fallback if that also fails.
+                sql_served = False
                 if primary_intent.get("category") is None or float(
                     query_plan.confidence
                 ) < float(os.getenv("INTENT_CONFIDENCE_THRESHOLD", "0.35")):
-                    intent_duration = time.time() - intent_start
-                    unrecognised_msg = (
-                        "I couldn't understand the query clearly. "
-                        "Could you please rephrase it?"
-                    )
+                    sql_data: Any = None
+                    sql_err: Optional[str] = None
+                    sql_fetch_start = time.time()
+                    if get_flags().ENABLE_SQL_EXECUTOR:
+                        try:
+                            from sql_query_plan import run_sql_plan
 
-                    total_duration = time.time() - start_time
-                    durations = {
-                        "entity_resolution_ms": round(
-                            entity_resolution_duration * 1000, 2
-                        ),
-                        "planning_ms": round(planning_duration * 1000, 2),
-                        "planner_duration": round(planner_duration * 1000, 2),
-                        "intent_duration": round(intent_duration * 1000, 2),
-                        "dotnet_duration": round(dotnet_duration * 1000, 2),
-                        "combiner_duration": round(combiner_duration * 1000, 2),
-                        "widget_duration": 0.0,
-                        "response_assembly_duration": 0.0,
-                        "report_duration": round(report_duration * 1000, 2),
-                        "total_duration": round(total_duration * 1000, 2),
-                    }
-
-                    response_payload = build_conversation_payload(
-                        unrecognised_msg,
-                        session_id=session_id,
-                        query_type="unclear",
-                    )
-                    response_payload.setdefault("metadata", {})
-                    response_payload["metadata"].setdefault("timings", {})
-                    response_payload["metadata"]["timings"].update(
-                        {
-                            "entityResolutionMs": round(
-                                entity_resolution_duration * 1000
-                            ),
-                            "planningMs": round(planning_duration * 1000),
-                            "plannerDurationMs": round(planner_duration * 1000),
-                            "intentDurationMs": round(intent_duration * 1000),
-                            "dotnetDurationMs": 0,
-                            "combineDurationMs": 0,
-                            "widgetMs": 0,
-                            "responseAssemblyMs": 0,
-                            "analysisDurationMs": 0,
-                            "predictionDurationMs": 0,
-                            "conclusionDurationMs": 0,
-                            "totalDurationMs": round(total_duration * 1000),
-                            "executionTimeMs": round(total_duration * 1000),
-                        }
-                    )
-                    response_payload["metadata"].setdefault("metrics", {})
-                    response_payload["metadata"]["metrics"]["confidence"] = round(
-                        float(query_plan.confidence), 2
-                    )
-                    response_payload["intent"] = {
-                        "category": primary_intent.get("category") or "unclear",
-                        "confidence": round(float(query_plan.confidence), 2),
-                        "operation": primary_intent.get("operation"),
-                        "query_type": "unrecognised",
-                    }
-
-                    logger.info(
-                        json.dumps(
-                            {
-                                "message": "Admin pipeline complete",
-                                "question": user_query,
-                                "query_type": "unrecognised",
-                                "intent_formed": primary_intent,
-                                "trace_id": trace_id,
-                            }
-                        )
-                    )
-
-                    metrics_collector.inc_requests("unrecognised")
-                    metrics_collector.record_duration(
-                        "planner_duration", durations["planner_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "intent_duration", durations["intent_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "dotnet_duration", durations["dotnet_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "report_duration", durations["report_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "pipeline_duration", durations["total_duration"]
-                    )
-
-                    if total_duration > SLOW_QUERY_THRESHOLD:
-                        logger.warning(
-                            json.dumps(
-                                {
-                                    "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                                    "trace_id": trace_id,
-                                    "session_id": session_id,
-                                    "query_type": "unrecognised",
-                                    "duration_ms": round(total_duration * 1000, 2),
-                                }
+                            sql_data, sql_err = run_sql_plan(
+                                query_plan, message, primary_intent
                             )
+                        except Exception as sql_exc:
+                            sql_data, sql_err = None, str(sql_exc)
+                        metrics_collector.record_sql_latency(
+                            time.time() - sql_fetch_start
                         )
-
-                    write_audit_log(
-                        trace_id=trace_id,
-                        session_id=session_id,
-                        query_type="unrecognised",
-                        query_duration=durations["total_duration"],
-                        success=True,
-                    )
-
-                    combined_message = response_payload.get("message", "")
-                    metrics_collector.inc_success("unrecognised")
-                    return {
-                        "type": "unrecognised",
-                        "response_payload": response_payload,
-                        "combined_message": combined_message,
-                    }
-
-                # Categories like personaldetail (always) and Attendance
-                # (except Present) require an agniveerNo before calling .NET.
-                _primary_agniveer_no = (
-                    primary_intent.get("agniveer_no") or resolved_agniveer_no
-                )
-                if agniveer_no_required(
-                    primary_intent.get("category"), primary_intent.get("operation")
-                ) and not _primary_agniveer_no:
-                    return _agniveer_no_missing_response(session_id)
-
-                dotnet_payload = format_admin_payload(primary_intent)
-                dotnet_payload.update(id_filters)
-                for k, v in carry_forward_filters.items():
-                    if dotnet_payload.get(k) in (None, ""):
-                        dotnet_payload[k] = v
-                if _allows_agniveer_carry_forward(
-                    primary_intent.get("category"), primary_intent.get("operation")
-                ):
-                    if full_name:
-                        dotnet_payload["fullName"] = full_name
-                    # Wire in agniveerNo from entity resolution if not already set by intent
-                    if resolved_agniveer_no and not dotnet_payload.get("agniveerNo"):
-                        dotnet_payload["agniveerNo"] = resolved_agniveer_no
-
-                # ── Rule 9: strip empty/zero/null ID fields before sending ──
-                dotnet_payload = _strip_empty_id_fields(dotnet_payload)
-
-                # Validate DotNetPayloadModel
-                _validate_model_payload(
-                    DotNetPayloadModel, dotnet_payload, "single.dotnet_payload"
-                )
-
-                if (
-                    query_plan.query_type == QueryType.ANALYTICS
-                    and query_plan.operations
-                ):
-                    op = query_plan.operations[0]
-                    if getattr(op, "group_by", None):
-                        dotnet_payload["groupBy"] = op.group_by
-                    if query_plan.analytics_hint:
-                        dotnet_payload["analyticsHint"] = query_plan.analytics_hint
-
-                response_dotnet_payload = [dict(dotnet_payload)]
-
-                intent_duration = time.time() - intent_start
-
-                # ── Step 3: Execute .NET API Call ─────────────────────────────
-                with span(SPAN_CALL_DOTNET, trace_id=trace_id):
-                    dotnet_start = time.time()
-                    _notify("dotnet")
-
-                    logger.info(
-                        json.dumps(
-                            {
-                                "message": "Sending simple request to .NET",
-                                "trace_id": trace_id,
-                                "session_id": session_id,
-                                "query_type": qtype_str,
-                            }
-                        )
-                    )
-
-                    with trace_context(request_id, trace_id, session_id):
-                        dotnet_data, dotnet_error = _call_dotnet(
-                            dotnet_payload,
-                            trace_id=trace_id,
-                            session_id=session_id,
-                            query_type=qtype_str,
-                        )
-                    if dotnet_error:
-                        sanitized_error = _sanitize_error(dotnet_error)
-                        logger.warning(
-                            json.dumps(
-                                {
-                                    "message": "Admin .NET call failed",
-                                    "trace_id": trace_id,
-                                    "session_id": session_id,
-                                    "query_type": qtype_str,
-                                    "error": sanitized_error,
-                                }
+                        if sql_err:
+                            logger.info(
+                                json.dumps(
+                                    {
+                                        "message": "SQL backend could not answer; falling back",
+                                        "trace_id": trace_id,
+                                        "session_id": session_id,
+                                    }
+                                )
                             )
+
+                    if sql_data is not None and not sql_err:
+                        sql_served = True
+                        raw_results = [sql_data]
+                        labeled_results = [
+                            (primary_intent.get("category", "Result"), sql_data)
+                        ]
+                        response_dotnet_payload = [{"backend": "sql"}]
+                        dotnet_duration = time.time() - sql_fetch_start
+                        set_audit_context(backend="sql")
+                        intent_duration = time.time() - intent_start
+                    else:
+                        intent_duration = time.time() - intent_start
+                        unrecognised_msg = (
+                            "I couldn't understand the query clearly. "
+                            "Could you please rephrase it?"
                         )
 
-                        metrics_collector.inc_requests(qtype_str)
-                        metrics_collector.inc_errors(qtype_str)
                         total_duration = time.time() - start_time
+                        durations = {
+                            "entity_resolution_ms": round(
+                                entity_resolution_duration * 1000, 2
+                            ),
+                            "planning_ms": round(planning_duration * 1000, 2),
+                            "planner_duration": round(planner_duration * 1000, 2),
+                            "intent_duration": round(intent_duration * 1000, 2),
+                            "dotnet_duration": round(dotnet_duration * 1000, 2),
+                            "combiner_duration": round(combiner_duration * 1000, 2),
+                            "widget_duration": 0.0,
+                            "response_assembly_duration": 0.0,
+                            "report_duration": round(report_duration * 1000, 2),
+                            "total_duration": round(total_duration * 1000, 2),
+                        }
+
+                        response_payload = build_conversation_payload(
+                            unrecognised_msg,
+                            session_id=session_id,
+                            query_type="unclear",
+                        )
+                        response_payload.setdefault("metadata", {})
+                        response_payload["metadata"].setdefault("timings", {})
+                        response_payload["metadata"]["timings"].update(
+                            {
+                                "entityResolutionMs": round(
+                                    entity_resolution_duration * 1000
+                                ),
+                                "planningMs": round(planning_duration * 1000),
+                                "plannerDurationMs": round(planner_duration * 1000),
+                                "intentDurationMs": round(intent_duration * 1000),
+                                "dotnetDurationMs": 0,
+                                "combineDurationMs": 0,
+                                "widgetMs": 0,
+                                "responseAssemblyMs": 0,
+                                "analysisDurationMs": 0,
+                                "predictionDurationMs": 0,
+                                "conclusionDurationMs": 0,
+                                "totalDurationMs": round(total_duration * 1000),
+                                "executionTimeMs": round(total_duration * 1000),
+                            }
+                        )
+                        response_payload["metadata"].setdefault("metrics", {})
+                        response_payload["metadata"]["metrics"]["confidence"] = round(
+                            float(query_plan.confidence), 2
+                        )
+                        response_payload["intent"] = {
+                            "category": primary_intent.get("category") or "unclear",
+                            "confidence": round(float(query_plan.confidence), 2),
+                            "operation": primary_intent.get("operation"),
+                            "query_type": "unrecognised",
+                        }
+
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "message": "Admin pipeline complete",
+                                    "question": user_query,
+                                    "query_type": "unrecognised",
+                                    "intent_formed": primary_intent,
+                                    "trace_id": trace_id,
+                                }
+                            )
+                        )
+
+                        metrics_collector.inc_requests("unrecognised")
                         metrics_collector.record_duration(
-                            "pipeline_duration", round(total_duration * 1000, 2)
+                            "planner_duration", durations["planner_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "intent_duration", durations["intent_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "dotnet_duration", durations["dotnet_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "report_duration", durations["report_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "pipeline_duration", durations["total_duration"]
                         )
 
                         if total_duration > SLOW_QUERY_THRESHOLD:
@@ -1771,7 +1721,7 @@ def execute_admin_query(
                                         "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
                                         "trace_id": trace_id,
                                         "session_id": session_id,
-                                        "query_type": qtype_str,
+                                        "query_type": "unrecognised",
                                         "duration_ms": round(total_duration * 1000, 2),
                                     }
                                 )
@@ -1780,71 +1730,202 @@ def execute_admin_query(
                         write_audit_log(
                             trace_id=trace_id,
                             session_id=session_id,
-                            query_type=qtype_str,
-                            query_duration=round(total_duration * 1000, 2),
-                            success=False,
-                            error_type="dotnet_error",
+                            query_type="unrecognised",
+                            query_duration=durations["total_duration"],
+                            success=True,
                         )
 
-                        # Every .NET call failure — a transient outage or a
-                        # rejected request — is surfaced as one friendly,
-                        # conversational message. The raw status/body is only
-                        # ever written to the log above, never to the user.
-                        unavailable_msg = _BACKEND_UNAVAILABLE_MESSAGE
-                        availability_payload = build_conversation_payload(
-                            unavailable_msg,
-                            session_id=session_id,
-                            query_type="service_unavailable",
-                        )
-                        availability_payload.setdefault("metadata", {})
-                        availability_payload["metadata"].setdefault("timings", {})
-                        availability_payload["metadata"]["timings"][
-                            "dotnetDurationMs"
-                        ] = round(dotnet_duration * 1000, 2)
-                        availability_payload["metadata"][
-                            "executionTimeMs"
-                        ] = round(total_duration * 1000)
+                        combined_message = response_payload.get("message", "")
+                        metrics_collector.inc_success("unrecognised")
                         return {
-                            "type": "service_unavailable",
-                            "response_payload": availability_payload,
-                            "combined_message": unavailable_msg,
-                            "execution_time_ms": round(total_duration * 1000),
+                            "type": "unrecognised",
+                            "response_payload": response_payload,
+                            "combined_message": combined_message,
                         }
 
-                    ensure_agniveer_no_in_data(dotnet_data)
-                    _target_no = primary_intent.get("agniveer_no") or resolved_agniveer_no
-                    if _target_no:
-                        _filter_dotnet_data_by_agniveer_no(dotnet_data, _target_no)
+                # Categories like personaldetail (always) and Attendance
+                # (except Present) require an agniveerNo before calling .NET.
+                _primary_agniveer_no = (
+                    primary_intent.get("agniveer_no") or resolved_agniveer_no
+                )
+                if (
+                    agniveer_no_required(
+                        primary_intent.get("category"), primary_intent.get("operation")
+                    )
+                    and not _primary_agniveer_no
+                ):
+                    return _agniveer_no_missing_response(session_id)
 
-                    dotnet_data = _normalize_dotnet_leg(dotnet_data)
+                if not sql_served:
+                    dotnet_payload = format_admin_payload(primary_intent)
+                    dotnet_payload.update(id_filters)
+                    for k, v in carry_forward_filters.items():
+                        if dotnet_payload.get(k) in (None, ""):
+                            dotnet_payload[k] = v
+                    if _allows_agniveer_carry_forward(
+                        primary_intent.get("category"), primary_intent.get("operation")
+                    ):
+                        if full_name:
+                            dotnet_payload["fullName"] = full_name
+                        # Wire in agniveerNo from entity resolution if not already set by intent
+                        if resolved_agniveer_no and not dotnet_payload.get(
+                            "agniveerNo"
+                        ):
+                            dotnet_payload["agniveerNo"] = resolved_agniveer_no
 
-                    # Validate DotNetResponseModel
-                    if dotnet_data is not None:
-                        if isinstance(dotnet_data, dict):
-                            _validate_model_payload(
-                                DotNetResponseModel,
-                                dotnet_data,
-                                "single.dotnet_response",
-                            )
-                        elif isinstance(dotnet_data, list):
-                            _validate_model_payload(
-                                DotNetResponseModel,
+                    # ── Rule 9: strip empty/zero/null ID fields before sending ──
+                    dotnet_payload = _strip_empty_id_fields(dotnet_payload)
+
+                    # Validate DotNetPayloadModel
+                    _validate_model_payload(
+                        DotNetPayloadModel, dotnet_payload, "single.dotnet_payload"
+                    )
+
+                    if (
+                        query_plan.query_type == QueryType.ANALYTICS
+                        and query_plan.operations
+                    ):
+                        op = query_plan.operations[0]
+                        if getattr(op, "group_by", None):
+                            dotnet_payload["groupBy"] = op.group_by
+                        if query_plan.analytics_hint:
+                            dotnet_payload["analyticsHint"] = query_plan.analytics_hint
+
+                    response_dotnet_payload = [dict(dotnet_payload)]
+
+                    intent_duration = time.time() - intent_start
+
+                    # ── Step 3: Execute .NET API Call ─────────────────────────────
+                    with span(SPAN_CALL_DOTNET, trace_id=trace_id):
+                        dotnet_start = time.time()
+                        _notify("dotnet")
+
+                        logger.info(
+                            json.dumps(
                                 {
-                                    "success": True,
-                                    "commandLabel": primary_intent.get("subcategory")
-                                    or primary_intent.get("category")
-                                    or "",
-                                    "data": dotnet_data,
-                                    "message": "",
-                                },
-                                "single.dotnet_response_list",
+                                    "message": "Sending simple request to .NET",
+                                    "trace_id": trace_id,
+                                    "session_id": session_id,
+                                    "query_type": qtype_str,
+                                }
+                            )
+                        )
+
+                        with trace_context(request_id, trace_id, session_id):
+                            dotnet_data, dotnet_error = _call_dotnet(
+                                dotnet_payload,
+                                trace_id=trace_id,
+                                session_id=session_id,
+                                query_type=qtype_str,
+                            )
+                        if dotnet_error:
+                            sanitized_error = _sanitize_error(dotnet_error)
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "message": "Admin .NET call failed",
+                                        "trace_id": trace_id,
+                                        "session_id": session_id,
+                                        "query_type": qtype_str,
+                                        "error": sanitized_error,
+                                    }
+                                )
                             )
 
-                    raw_results = [dotnet_data]
-                    labeled_results = [
-                        (primary_intent.get("category", "Result"), dotnet_data)
-                    ]
-                    dotnet_duration = time.time() - dotnet_start
+                            metrics_collector.inc_requests(qtype_str)
+                            metrics_collector.inc_errors(qtype_str)
+                            total_duration = time.time() - start_time
+                            metrics_collector.record_duration(
+                                "pipeline_duration", round(total_duration * 1000, 2)
+                            )
+
+                            if total_duration > SLOW_QUERY_THRESHOLD:
+                                logger.warning(
+                                    json.dumps(
+                                        {
+                                            "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                                            "trace_id": trace_id,
+                                            "session_id": session_id,
+                                            "query_type": qtype_str,
+                                            "duration_ms": round(
+                                                total_duration * 1000, 2
+                                            ),
+                                        }
+                                    )
+                                )
+
+                            write_audit_log(
+                                trace_id=trace_id,
+                                session_id=session_id,
+                                query_type=qtype_str,
+                                query_duration=round(total_duration * 1000, 2),
+                                success=False,
+                                error_type="dotnet_error",
+                            )
+
+                            # Every .NET call failure — a transient outage or a
+                            # rejected request — is surfaced as one friendly,
+                            # conversational message. The raw status/body is only
+                            # ever written to the log above, never to the user.
+                            unavailable_msg = _BACKEND_UNAVAILABLE_MESSAGE
+                            availability_payload = build_conversation_payload(
+                                unavailable_msg,
+                                session_id=session_id,
+                                query_type="service_unavailable",
+                            )
+                            availability_payload.setdefault("metadata", {})
+                            availability_payload["metadata"].setdefault("timings", {})
+                            availability_payload["metadata"]["timings"][
+                                "dotnetDurationMs"
+                            ] = round(dotnet_duration * 1000, 2)
+                            availability_payload["metadata"]["executionTimeMs"] = round(
+                                total_duration * 1000
+                            )
+                            return {
+                                "type": "service_unavailable",
+                                "response_payload": availability_payload,
+                                "combined_message": unavailable_msg,
+                                "execution_time_ms": round(total_duration * 1000),
+                            }
+
+                        ensure_agniveer_no_in_data(dotnet_data)
+                        _target_no = (
+                            primary_intent.get("agniveer_no") or resolved_agniveer_no
+                        )
+                        if _target_no:
+                            _filter_dotnet_data_by_agniveer_no(dotnet_data, _target_no)
+
+                        dotnet_data = _normalize_dotnet_leg(dotnet_data)
+
+                        # Validate DotNetResponseModel
+                        if dotnet_data is not None:
+                            if isinstance(dotnet_data, dict):
+                                _validate_model_payload(
+                                    DotNetResponseModel,
+                                    dotnet_data,
+                                    "single.dotnet_response",
+                                )
+                            elif isinstance(dotnet_data, list):
+                                _validate_model_payload(
+                                    DotNetResponseModel,
+                                    {
+                                        "success": True,
+                                        "commandLabel": primary_intent.get(
+                                            "subcategory"
+                                        )
+                                        or primary_intent.get("category")
+                                        or "",
+                                        "data": dotnet_data,
+                                        "message": "",
+                                    },
+                                    "single.dotnet_response_list",
+                                )
+
+                        raw_results = [dotnet_data]
+                        labeled_results = [
+                            (primary_intent.get("category", "Result"), dotnet_data)
+                        ]
+                        dotnet_duration = time.time() - dotnet_start
 
         # ── Step 4: Result Combiner ───────────────────────────────────────────
         with span(SPAN_COMBINE_RESULTS, trace_id=trace_id):
@@ -2188,7 +2269,9 @@ def execute_admin_query(
         except Exception as widget_exc:
             import traceback as _tb
 
-            widget_duration = time.time() - widget_start if 'widget_start' in locals() else 0.0
+            widget_duration = (
+                time.time() - widget_start if "widget_start" in locals() else 0.0
+            )
             logger.error(
                 json.dumps(
                     {
@@ -2207,11 +2290,13 @@ def execute_admin_query(
             )
 
         if not formatted_data_payload:
-            formatted_data_payload = [{
-                "type": "null",
-                "title": "No Data Available",
-                "data": [],
-            }]
+            formatted_data_payload = [
+                {
+                    "type": "null",
+                    "title": "No Data Available",
+                    "data": [],
+                }
+            ]
 
         # ── Step 6b: Build suggested questions (independent) ──────────────
         suggested = []
@@ -2447,7 +2532,11 @@ def execute_admin_query(
                 )
             )
 
-        write_audit_log(question=user_query, intent=primary_intent)
+        write_audit_log(
+            question=user_query,
+            intent=primary_intent,
+            backend="sql" if sql_served else "dotnet",
+        )
 
         # Validate FinalResponseModel and MetadataModel
         if "metadata" in response_payload:
@@ -2458,8 +2547,6 @@ def execute_admin_query(
 
         combined_message = response_payload.get("message", "")
         metrics_collector.inc_success(qtype_str)
-
-
 
         return {
             "type": "query",
