@@ -348,14 +348,19 @@ def classify_ollama_constrained(query: str) -> Dict[str, Any]:
 
     try:
         import requests  # type: ignore
-        from config import OLLAMA_BASE_URL  # type: ignore
+        from config import OLLAMA_URL  # type: ignore
         resp = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={"model": "mistral", "prompt": prompt, "stream": False},
+            OLLAMA_URL,
+            json={
+                "model": "mistral",
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "options": {"temperature": 0.1, "num_predict": 50},
+            },
             timeout=10,
         )
         resp.raise_for_status()
-        raw = resp.json().get("response", "").strip()
+        raw = resp.json().get("message", {}).get("content", "").strip()
         # Extract JSON block
         import re
         m = re.search(r"\{.*?\}", raw, re.DOTALL)

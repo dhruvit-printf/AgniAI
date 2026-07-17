@@ -36,6 +36,7 @@ _COMMON_WORDS: FrozenSet[str] = frozenset(
         "current", "status", "summary", "detail", "details", "and", "with",
         "from", "to", "count", "number", "total", "overall", "each", "per",
         "result", "results", "record", "records", "score", "scores", "data",
+        "compare", "comparison", "difference", "versus", "vs", "between",
     }
 )
 

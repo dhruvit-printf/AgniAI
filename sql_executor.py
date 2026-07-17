@@ -154,6 +154,9 @@ HARD RULES — these are NON-NEGOTIABLE. Break one and the query is rejected.
       outputs DISTINCT AgniveerId; the final SELECT INNER JOINs every CTE back
       to AgniveerMaster on a.Id (intersection), displaying a.AgniveerNo.
   R5. NEVER select UserMaster.Password, LoginToken.*, or DefaultLog.
+  R6. AGNIVEER ID JOIN RULE: The primary key of AgniveerMaster is `a.Id`.
+      You MUST write `ON <othertable>.AgniveerId = a.Id`.
+      NEVER write `a.AgniveerId` - that column does not exist on AgniveerMaster!
 """
 
 if SQL_SERVER_2008_COMPAT:
@@ -326,7 +329,19 @@ _GENERATION_SYSTEM = (
     "Given the schema and a question, output ONE SQL Server SELECT statement "
     "and NOTHING else — no prose, no markdown, no comments, no semicolons. "
     "Obey every HARD RULE. If the question cannot be answered from the schema, "
-    "output exactly: CANNOT_ANSWER"
+    "output exactly: CANNOT_ANSWER.\n\n"
+    "Example 1:\n"
+    "QUESTION: Top 10 performers in BPET\n"
+    "SQL: SELECT TOP 10 a.AgniveerNo, a.FullName, bt.BestTotal FROM AgniveerMaster a INNER JOIN vw_AgniveerBestAttemptTotals bt ON a.Id = bt.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND bt.Section = 'BPET' ORDER BY bt.BestTotal DESC\n\n"
+    "Example 2:\n"
+    "QUESTION: Which Agniveers play volleyball?\n"
+    "SQL: SELECT a.AgniveerNo, a.FullName FROM AgniveerMaster a WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND a.Sports = 'Volleyball'\n\n"
+    "Example 3:\n"
+    "QUESTION: bpet scores.\n"
+    "SQL: SELECT a.AgniveerNo, a.FullName, bt.BestTotal FROM AgniveerMaster a INNER JOIN vw_AgniveerBestAttemptTotals bt ON a.Id = bt.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND bt.Section = 'BPET'\n\n"
+    "Example 4:\n"
+    "QUESTION: PPT grades for Alpha company\n"
+    "SQL: SELECT a.AgniveerNo, a.FullName, sg.Grade FROM AgniveerMaster a INNER JOIN vw_AgniveerSectionGrades sg ON a.Id = sg.AgniveerId INNER JOIN PlatoonMaster p ON a.PlatoonId = p.Id INNER JOIN CompanyMaster c ON p.CompanyId = c.Id WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND sg.SectionName = 'PPT' AND c.Name = 'Alpha'"
 )
 
 # ── Safety validator ───────────────────────────────────────────────────────
@@ -408,7 +423,10 @@ def _extract_sql(text: str) -> str:
     t = re.sub(r"```(?:sql)?", "", t, flags=re.IGNORECASE).strip()
     # Keep from the first SELECT/WITH onward.
     m = re.search(r"\b(with|select)\b", t, re.IGNORECASE)
-    return t[m.start() :].strip() if m else t
+    sql = t[m.start() :].strip() if m else t
+    # Fix common LLM hallucination where it thinks AgniveerMaster has AgniveerId
+    sql = re.sub(r'\ba\.AgniveerId\b', 'a.Id', sql, flags=re.IGNORECASE)
+    return sql
 
 
 def _to_section(
@@ -451,7 +469,7 @@ def run_readonly(sql: str) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str
         return rows, None
     except Exception as exc:
         # Never leak the raw SQL / connection details to the caller.
-        logger.warning("SQL execution error: %s", type(exc).__name__)
+        logger.warning("SQL execution error: %s | %s\nQuery: %s", type(exc).__name__, str(exc), sql)
         return None, "The generated query could not be executed against the database."
 
 
@@ -472,6 +490,7 @@ def execute_sql_query(
     `question` is the raw NL query; `intent` is the classifier output (used
     for the golden fast-path and as a hint).
     """
+    logger.warning(f"[DEBUG SQL EXECUTOR] question: {question!r} | intent: {intent}")
     # 1) Golden fast-path — deterministic, no LLM.
     if intent:
         key = (
