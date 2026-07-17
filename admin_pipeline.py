@@ -1257,6 +1257,13 @@ def execute_admin_query(
                 sql_served = True
                 set_audit_context(backend="sql")
                 response_dotnet_payload = [{"backend": "sql"}]
+                
+                sql_queries = [s.get("sql") for s in sql_raw if isinstance(s, dict) and s.get("sql")]
+                if sql_queries:
+                    if len(sql_queries) == 1:
+                        response_dotnet_payload[0]["sqlQuery"] = sql_queries[0]
+                    else:
+                        response_dotnet_payload[0]["sqlQueries"] = sql_queries
 
                 for section in sql_raw:
                     ensure_agniveer_no_in_data(section)
@@ -1281,7 +1288,11 @@ def execute_admin_query(
                             "id": f"dataset_{idx + 1}",
                             "label": label,
                             "intent": {},
-                            "dotnetPayload": {"backend": "sql"},
+                            "dotnetPayload": (
+                                {"backend": "sql", "sqlQuery": data.get("sql")}
+                                if isinstance(data, dict) and data.get("sql")
+                                else {"backend": "sql"}
+                            ),
                             "rawData": data,
                             "metadata": {
                                 "endpoint": "sql",

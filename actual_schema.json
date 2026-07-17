@@ -1,0 +1,1382 @@
+{
+  "__EFMigrationsHistory": {
+    "MigrationId": {
+      "type": "",
+      "nullable": true
+    },
+    "ProductVersion": {
+      "type": "",
+      "nullable": false
+    }
+  },
+  "AgniveerAttendanceMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "AttendanceDateTime": {
+      "type": "",
+      "nullable": false
+    },
+    "IsPresent": {
+      "type": "",
+      "nullable": false
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "MarkedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "AgniveerEquipment": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "EquipmentId": {
+      "type": "",
+      "nullable": true
+    },
+    "Type": {
+      "type": "",
+      "nullable": true
+    },
+    "GivenDateTime": {
+      "type": "",
+      "nullable": true
+    },
+    "ReturnDateTime": {
+      "type": "",
+      "nullable": true
+    },
+    "GivenCondition": {
+      "type": "",
+      "nullable": true
+    },
+    "ReturnCondition": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "AgniveerLeaveMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "OnAnnualLeave": {
+      "type": "",
+      "nullable": false
+    },
+    "OnMedicalLeave": {
+      "type": "",
+      "nullable": false
+    },
+    "OnSickLeave": {
+      "type": "",
+      "nullable": false
+    },
+    "IsHospitalized": {
+      "type": "",
+      "nullable": false
+    },
+    "IsAbscondedLeave": {
+      "type": "",
+      "nullable": false
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "MarkedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "FromDate": {
+      "type": "",
+      "nullable": true
+    },
+    "ToDate": {
+      "type": "",
+      "nullable": true
+    },
+    "OnATTN'C'": {
+      "type": "",
+      "nullable": false
+    },
+    "OnEX PPG": {
+      "type": "",
+      "nullable": false
+    },
+    "MedicalRecordId": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "AgniveerMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "FullName": {
+      "type": "",
+      "nullable": false
+    },
+    "AgniveerNo": {
+      "type": "",
+      "nullable": false
+    },
+    "DateOfBirth": {
+      "type": "",
+      "nullable": true
+    },
+    "DateOfJoining": {
+      "type": "",
+      "nullable": true
+    },
+    "Address": {
+      "type": "",
+      "nullable": true
+    },
+    "MobileNo": {
+      "type": "",
+      "nullable": true
+    },
+    "EroName": {
+      "type": "",
+      "nullable": true
+    },
+    "NextOfKin": {
+      "type": "",
+      "nullable": true
+    },
+    "Class": {
+      "type": "",
+      "nullable": true
+    },
+    "BloodGroup": {
+      "type": "",
+      "nullable": true
+    },
+    "Height": {
+      "type": "",
+      "nullable": true
+    },
+    "Weight": {
+      "type": "",
+      "nullable": true
+    },
+    "EyeSight": {
+      "type": "",
+      "nullable": true
+    },
+    "PlatoonId": {
+      "type": "",
+      "nullable": true
+    },
+    "IsActive": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "PhotoPath": {
+      "type": "",
+      "nullable": true
+    },
+    "District": {
+      "type": "",
+      "nullable": true
+    },
+    "Email": {
+      "type": "",
+      "nullable": true
+    },
+    "EnrolledId": {
+      "type": "",
+      "nullable": true
+    },
+    "HouseNo": {
+      "type": "",
+      "nullable": true
+    },
+    "IdMarkI": {
+      "type": "",
+      "nullable": true
+    },
+    "IdMarkI1": {
+      "type": "",
+      "nullable": true
+    },
+    "MainCategory": {
+      "type": "",
+      "nullable": true
+    },
+    "PinCode": {
+      "type": "",
+      "nullable": true
+    },
+    "PoliceStation": {
+      "type": "",
+      "nullable": true
+    },
+    "PostOffice": {
+      "type": "",
+      "nullable": true
+    },
+    "Qualification": {
+      "type": "",
+      "nullable": true
+    },
+    "State": {
+      "type": "",
+      "nullable": true
+    },
+    "Tehsil": {
+      "type": "",
+      "nullable": true
+    },
+    "Village": {
+      "type": "",
+      "nullable": true
+    },
+    "BatchId": {
+      "type": "",
+      "nullable": true
+    },
+    "Awards": {
+      "type": "",
+      "nullable": true
+    },
+    "Certificate": {
+      "type": "",
+      "nullable": true
+    },
+    "Hobby": {
+      "type": "",
+      "nullable": true
+    },
+    "Skill": {
+      "type": "",
+      "nullable": true
+    },
+    "Sports": {
+      "type": "",
+      "nullable": true
+    },
+    "IsDisqualified": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "SponserUnitId": {
+      "type": "",
+      "nullable": true
+    },
+    "DisqualifiedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "AgniveerPlatoonHistory": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": false
+    },
+    "PlatoonId": {
+      "type": "",
+      "nullable": false
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": false
+    },
+    "EndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "AgniveerRelationMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "RelationName": {
+      "type": "",
+      "nullable": true
+    },
+    "RelationType": {
+      "type": "",
+      "nullable": true
+    },
+    "DistributionId": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "AgniveerScoreAttempt": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "SubItemId": {
+      "type": "",
+      "nullable": true
+    },
+    "AttemptNo": {
+      "type": "",
+      "nullable": true
+    },
+    "MarksObtained": {
+      "type": "",
+      "nullable": true
+    },
+    "IsBestAttempt": {
+      "type": "",
+      "nullable": true
+    },
+    "AttemptedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "EvaluatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "AgniveerSectionResult": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "SectionId": {
+      "type": "",
+      "nullable": true
+    },
+    "AttemptNo": {
+      "type": "",
+      "nullable": true
+    },
+    "OmrInputTotal": {
+      "type": "",
+      "nullable": true
+    },
+    "Grading": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "SubItemTotalMarks": {
+      "type": "",
+      "nullable": true
+    },
+    "ExceptionalMarks": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "BatchMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "BatchName": {
+      "type": "",
+      "nullable": false
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": true
+    },
+    "TrainingEndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Status": {
+      "type": "",
+      "nullable": true
+    },
+    "ServiceEndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "DisplayOrder": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "CompanyCommanderHistory": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "CompanyId": {
+      "type": "",
+      "nullable": false
+    },
+    "CommanderId": {
+      "type": "",
+      "nullable": false
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": false
+    },
+    "EndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "CompanyCommandingOfficerHistory": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "CompanyId": {
+      "type": "",
+      "nullable": false
+    },
+    "CommandingOfficerId": {
+      "type": "",
+      "nullable": false
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": false
+    },
+    "EndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "CompanyMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "Name": {
+      "type": "",
+      "nullable": false
+    },
+    "CompanyCommanderId": {
+      "type": "",
+      "nullable": true
+    },
+    "CommandingOfficerId": {
+      "type": "",
+      "nullable": true
+    },
+    "IsActive": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "CompanySchedule": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "Pd": {
+      "type": "",
+      "nullable": true
+    },
+    "TimeRange": {
+      "type": "",
+      "nullable": true
+    },
+    "Code": {
+      "type": "",
+      "nullable": true
+    },
+    "Type": {
+      "type": "",
+      "nullable": true
+    },
+    "Details": {
+      "type": "",
+      "nullable": true
+    },
+    "Location": {
+      "type": "",
+      "nullable": true
+    },
+    "Resp": {
+      "type": "",
+      "nullable": true
+    },
+    "ScheduleDate": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "CompanyId": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "DeletedNotification": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "IssueType": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "DistributionHistoryMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "DistributionId": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": false
+    },
+    "Rank": {
+      "type": "",
+      "nullable": false
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "TeamId": {
+      "type": "",
+      "nullable": true
+    },
+    "Location": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdateCount": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "DistributionMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "Name": {
+      "type": "",
+      "nullable": false
+    },
+    "DograPercentage": {
+      "type": "",
+      "nullable": true
+    },
+    "OICPercentage": {
+      "type": "",
+      "nullable": true
+    },
+    "SikhPercentage": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "EquipmentMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "Name": {
+      "type": "",
+      "nullable": false
+    },
+    "Category": {
+      "type": "",
+      "nullable": true
+    },
+    "Description": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Type": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "FilesMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "Files": {
+      "type": "",
+      "nullable": true
+    },
+    "Url": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "LoginToken": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "UserId": {
+      "type": "",
+      "nullable": false
+    },
+    "UserName": {
+      "type": "",
+      "nullable": false
+    },
+    "JwtToken": {
+      "type": "",
+      "nullable": false
+    },
+    "RefreshToken": {
+      "type": "",
+      "nullable": false
+    },
+    "ExpiryDate": {
+      "type": "",
+      "nullable": false
+    },
+    "CreatedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "IsRevoked": {
+      "type": "",
+      "nullable": false
+    }
+  },
+  "MedicalRecordMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": false
+    },
+    "DoctorId": {
+      "type": "",
+      "nullable": false
+    },
+    "Type": {
+      "type": "",
+      "nullable": true
+    },
+    "VisitDate": {
+      "type": "",
+      "nullable": true
+    },
+    "FollowUpDate": {
+      "type": "",
+      "nullable": true
+    },
+    "HospitalNameLocation": {
+      "type": "",
+      "nullable": true
+    },
+    "AdmitDate": {
+      "type": "",
+      "nullable": true
+    },
+    "DischargeDate": {
+      "type": "",
+      "nullable": true
+    },
+    "TreatmentGiven": {
+      "type": "",
+      "nullable": true
+    },
+    "Prescriptions": {
+      "type": "",
+      "nullable": true
+    },
+    "Diagnosis": {
+      "type": "",
+      "nullable": true
+    },
+    "BloodPressure": {
+      "type": "",
+      "nullable": true
+    },
+    "HeartRate": {
+      "type": "",
+      "nullable": true
+    },
+    "Weight": {
+      "type": "",
+      "nullable": true
+    },
+    "Height": {
+      "type": "",
+      "nullable": true
+    },
+    "EyeSight": {
+      "type": "",
+      "nullable": true
+    },
+    "Status": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "FromDate": {
+      "type": "",
+      "nullable": true
+    },
+    "LeaveType": {
+      "type": "",
+      "nullable": true
+    },
+    "ToDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "PlatoonCommanderHistory": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "PlatoonId": {
+      "type": "",
+      "nullable": false
+    },
+    "CommanderId": {
+      "type": "",
+      "nullable": false
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": false
+    },
+    "EndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "PlatoonCompanyHistory": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "PlatoonId": {
+      "type": "",
+      "nullable": false
+    },
+    "CompanyId": {
+      "type": "",
+      "nullable": false
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": false
+    },
+    "EndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "PlatoonMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "Name": {
+      "type": "",
+      "nullable": false
+    },
+    "PlatoonNo": {
+      "type": "",
+      "nullable": false
+    },
+    "PlatoonCommanderId": {
+      "type": "",
+      "nullable": true
+    },
+    "CompanyId": {
+      "type": "",
+      "nullable": true
+    },
+    "IsActive": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "PoliceVerificationMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniveerId": {
+      "type": "",
+      "nullable": false
+    },
+    "PoliceStation": {
+      "type": "",
+      "nullable": true
+    },
+    "SentDate": {
+      "type": "",
+      "nullable": true
+    },
+    "ReceivedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Status": {
+      "type": "",
+      "nullable": false
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "RoleMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "Role": {
+      "type": "",
+      "nullable": false
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "ScoreSectionMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "SectionName": {
+      "type": "",
+      "nullable": false
+    },
+    "DisplayOrder": {
+      "type": "",
+      "nullable": false
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "IsExceptional": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "ScoreSubItemMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "SectionId": {
+      "type": "",
+      "nullable": true
+    },
+    "Name": {
+      "type": "",
+      "nullable": false
+    },
+    "MaxMarks": {
+      "type": "",
+      "nullable": true
+    },
+    "Cutoff": {
+      "type": "",
+      "nullable": true
+    },
+    "DisplayOrder": {
+      "type": "",
+      "nullable": false
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "UserMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "Email": {
+      "type": "",
+      "nullable": true
+    },
+    "ContactNo": {
+      "type": "",
+      "nullable": true
+    },
+    "Password": {
+      "type": "",
+      "nullable": true
+    },
+    "Username": {
+      "type": "",
+      "nullable": true
+    },
+    "FullName": {
+      "type": "",
+      "nullable": true
+    },
+    "AgniVeerId": {
+      "type": "",
+      "nullable": true
+    },
+    "IsActive": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "UserRole": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "UserId": {
+      "type": "",
+      "nullable": false
+    },
+    "RoleId": {
+      "type": "",
+      "nullable": false
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  }
+}

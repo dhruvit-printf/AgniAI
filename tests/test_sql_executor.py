@@ -92,6 +92,48 @@ class TestValidateSqlBlocks:
         assert validate_sql("SHOW TABLES") is not None
 
 
+class TestValidateSqlBestAttemptRule:
+    """R7 (business_rules.LLM_HARD_RULES): aggregating MarksObtained from
+    AgniveerScoreAttempt without scoping to one attempt per Agniveer/sub-item
+    double-counts retakes. Regression for a real generated query that summed
+    marks for a sport filter without `IsBestAttempt = 1`."""
+
+    def test_blocks_marks_sum_without_best_attempt_or_attempt_no(self):
+        sql = (
+            "SELECT a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS BestTotal "
+            "FROM AgniveerMaster a "
+            "INNER JOIN AgniveerScoreAttempt sa ON a.Id = sa.AgniveerId "
+            "WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) "
+            "AND a.Sports = 'Volleyball' "
+            "GROUP BY a.AgniveerNo, a.FullName ORDER BY BestTotal DESC"
+        )
+        err = validate_sql(sql)
+        assert err is not None
+        assert "MarksObtained" in err
+
+    def test_allows_marks_sum_with_is_best_attempt(self):
+        sql = (
+            "SELECT a.AgniveerNo, SUM(sa.MarksObtained) AS BestTotal "
+            "FROM AgniveerMaster a "
+            "INNER JOIN AgniveerScoreAttempt sa ON a.Id = sa.AgniveerId "
+            "WHERE sa.IsBestAttempt = 1 AND a.Sports = 'Volleyball' "
+            "GROUP BY a.AgniveerNo"
+        )
+        assert validate_sql(sql) is None
+
+    def test_allows_marks_sum_grouped_by_attempt_no(self):
+        sql = (
+            "SELECT sa.AgniveerId, sa.AttemptNo, SUM(sa.MarksObtained) AS TotalMarks "
+            "FROM AgniveerScoreAttempt sa "
+            "GROUP BY sa.AgniveerId, sa.AttemptNo"
+        )
+        assert validate_sql(sql) is None
+
+    def test_allows_query_without_marks_column(self):
+        sql = "SELECT AgniveerId, AttemptedDate FROM AgniveerScoreAttempt"
+        assert validate_sql(sql) is None
+
+
 # ── _extract_sql — fence / prose stripping ──────────────────────────────────
 
 
@@ -161,6 +203,62 @@ class TestToSection:
 # ── Golden fast-path (Task 7) ────────────────────────────────────────────────
 
 
+class TestGoldenQueryKeysAreReachable:
+    """Regression guard for the bug where GOLDEN_QUERIES was keyed by
+    (category, subcategory, operation) but subcategory is entirely derived
+    from (category, operation) via CATEGORY_OPERATION_TO_SUBCATEGORY — a
+    typo'd subcategory string silently made an entry unreachable forever,
+    with no error and no failing test, because the old tests only ever
+    looked GOLDEN_QUERIES entries up by their own (matching) key instead of
+    driving a real question through the classifier. GOLDEN_QUERIES is now
+    keyed by (category, operation) only, so the only way this can regress is
+    an operation string that doesn't exist for its category — this test
+    catches that class of typo directly.
+    """
+
+    @pytest.mark.parametrize("key", list(GOLDEN_QUERIES.keys()))
+    def test_operation_is_valid_for_category(self, key):
+        from intent_engine.intent_schema import OPERATIONS_BY_CATEGORY
+
+        category, operation = key
+        if category == "Strength":
+            # Strength has no operations — its one golden entry uses "".
+            assert operation == ""
+            return
+        valid_operations = OPERATIONS_BY_CATEGORY.get(category, frozenset())
+        assert operation in valid_operations, (
+            f"{key}: {operation!r} is not a valid operation for category "
+            f"{category!r} (valid: {sorted(valid_operations)}) — this golden "
+            "query can never be reached by the real classifier."
+        )
+
+    @pytest.mark.parametrize(
+        "question,expected_key",
+        [
+            ("who are the top performers", ("Performance", "Top")),
+            ("verification requests still pending", ("Verification", "Pending")),
+            ("today's training schedule", ("Schedule", "bytoday")),
+            ("who is currently absconded", ("Leave", "Absconded")),
+            ("bmi distribution of all agniveers", ("Medical", "BMI")),
+        ],
+    )
+    def test_real_classifier_output_hits_golden_path(self, question, expected_key):
+        """Drives a real question through the actual intent pipeline (the
+        same one admin_pipeline.py uses) instead of a hand-built intent dict,
+        so a future key/subcategory mismatch fails here instead of silently
+        falling through to the LLM path in production."""
+        from intent_engine.admin_intent import classify_admin_intent
+
+        intent = classify_admin_intent(question)
+        key = (intent.get("category"), intent.get("operation"))
+        assert key == expected_key, (
+            f"question {question!r} classified as {key}, expected "
+            f"{expected_key} — check intent_schema.py's category/operation "
+            "keyword tables and CATEGORY_OPERATION_TO_SUBCATEGORY"
+        )
+        assert key in GOLDEN_QUERIES, f"{key} is missing from GOLDEN_QUERIES"
+
+
 class TestGoldenQueries:
     @pytest.mark.parametrize("key", list(GOLDEN_QUERIES.keys()))
     def test_golden_query_passes_validator(self, key):
@@ -176,7 +274,7 @@ class TestGoldenQueries:
         assert stripped.startswith("select") or stripped.startswith("with")
 
     def test_golden_query_never_calls_llm(self):
-        key = ("Performance", "TopPerformers", "Top")
+        key = ("Performance", "Top")
         assert key in GOLDEN_QUERIES
         with (
             patch("sql_executor.generate_sql") as mock_generate,
@@ -197,7 +295,7 @@ class TestGoldenQueries:
 
     def test_golden_query_top_n_substitution_is_safe(self):
         rendered = _render_golden_query(
-            GOLDEN_QUERIES[("Performance", "TopPerformers", "Top")],
+            GOLDEN_QUERIES[("Performance", "Top")],
             {"number": "3; DROP TABLE AgniveerMaster"},
         )
         # Non-numeric input falls back to the safe default; never interpolated raw.
@@ -249,9 +347,15 @@ class TestExecuteSqlQuery:
             assert data is None
             assert err
 
-    def test_no_raw_sql_in_returned_section(self):
-        """The section returned to the caller must never contain the raw SQL
-        text — only rows/records/count, mirroring the .NET no-leak invariant."""
+    def test_executed_sql_is_surfaced_for_dotnet_payload_transparency(self):
+        """The section returned to the caller carries the executed SQL under
+        `sql` — admin_pipeline.py reads section["sql"] to populate the
+        `dotnetPayload.sqlQuery` transparency field (the SQL-backend analog
+        of the pre-migration "exact .NET request payload" debug field
+        documented in response_builder.py). This is intentional exposure to
+        admin/debug consumers, not a leak: validate_sql() already rejects
+        any query touching denied tables/columns before it ever reaches
+        run_readonly(), so the executed SQL text itself is safe to surface."""
         sql_text = "SELECT AgniveerNo, FullName FROM AgniveerMaster WHERE Height > 170"
         with (
             patch("sql_executor.generate_sql") as mock_gen,
@@ -261,5 +365,5 @@ class TestExecuteSqlQuery:
             mock_run.return_value = ([{"agniveerNo": "A1", "fullName": "X"}], None)
             data, err = execute_sql_query(question="tall agniveers", intent=None)
             assert err is None
-            assert sql_text not in str(data)
-            assert set(data.keys()) == {"success", "records", "data", "count"}
+            assert data["sql"] == sql_text
+            assert set(data.keys()) == {"success", "records", "data", "count", "sql"}

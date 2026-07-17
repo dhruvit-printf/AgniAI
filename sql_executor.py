@@ -54,254 +54,632 @@ DENIED_COLUMNS = {
 }
 DENIED_TABLES = {"logintoken", "defaultlog"}
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  SCHEMA CARD — curated, NOT a raw INFORMATION_SCHEMA dump.
-#  This is the single source the generator sees. The three landmines that an
-#  LLM will otherwise get wrong are stated as hard rules, not left to inference.
-# ─────────────────────────────────────────────────────────────────────────────
-SCHEMA_CARD = r"""
-DATABASE: DB_Agni (Microsoft SQL Server)
 
-CORE ENTITY
-  AgniveerMaster a  (PK a.Id bigint)
-    a.AgniveerNo, a.FullName, a.BatchId, a.PlatoonId, a.MainCategory, a.Class,
-    a.DateOfBirth, a.DateOfJoining, a.Height, a.Weight, a.BloodGroup,
-    a.Skill, a.Sports, a.District, a.State, a.IsActive, a.IsDisqualified,
-    a.Address, a.MobileNo, a.EroName, a.NextOfKin, a.Email, a.PinCode,
-    a.PoliceStation, a.PostOffice, a.Qualification, a.Tehsil, a.Village,
-    a.Awards, a.Certificate, a.Hobby, a.SponserUnitId, a.DisqualifiedDate
 
-ORG HIERARCHY (join map)
-  Agniveer -> Platoon -> Company :  a.PlatoonId = p.Id ,  p.CompanyId = c.Id
-  Agniveer -> Batch (independent axis) :  a.BatchId = b.Id
-    PlatoonMaster  p (p.Id, p.Name, p.PlatoonNo, p.CompanyId)
-    CompanyMaster  c (c.Id, c.Name)
-    BatchMaster    b (b.Id, b.BatchName)
-
-DOMAIN TABLES (all join to AgniveerMaster on <table>.AgniveerId = a.Id)
-  AgniveerAttendanceMaster (AgniveerId, AttendanceDateTime, IsPresent bit, MarkedBy)
-  AgniveerLeaveMaster      (AgniveerId, FromDate, ToDate, OnAnnualLeave bit,
-                            OnMedicalLeave bit, OnSickLeave bit,
-                            [OnATTN'C'] bit, [OnEX PPG] bit, IsHospitalized bit,
-                            IsAbscondedLeave bit)
-  MedicalRecordMaster m    (AgniveerId, Type, Status, VisitDate, Diagnosis,
-                            TreatmentGiven, LeaveType, BloodPressure, HeartRate)
-  PoliceVerificationMaster (AgniveerId, PoliceStation, SentDate, ReceivedDate, Status)
-  ScoreSectionMaster   s   (Id, SectionName, IsExceptional bit)
-  ScoreSubItemMaster       (Id, SectionId, Name, MaxMarks, Cutoff)
-  AgniveerScoreAttempt     (AgniveerId, SubItemId, AttemptNo, MarksObtained,
-                            IsBestAttempt bit)
-  AgniveerSectionResult    (AgniveerId, SectionId, AttemptNo, OmrInputTotal,
-                            SubItemTotalMarks, ExceptionalMarks, Grading)
-  EquipmentMaster e        (Id, Name, Category, Type)
-  AgniveerEquipment        (AgniveerId, EquipmentId, Type, GivenDateTime,
-                            ReturnDateTime, GivenCondition, ReturnCondition)
-  DistributionMaster d     (Id, Name)
-  AgniveerRelationMaster   (AgniveerId, DistributionId)
-  CompanySchedule          (CompanyId, ScheduleDate, Pd, TimeRange, Code, Type, Details, Location, Resp)
-  AgniveerPlatoonHistory   (AgniveerId, PlatoonId, StartDate, EndDate)
-  DistributionHistoryMaster (AgniveerId, DistributionId, Rank, TeamId, Location)
-  PlatoonCompanyHistory    (PlatoonId, CompanyId, StartDate, EndDate)
-  CompanyCommanderHistory  (CompanyId, CommanderId, StartDate, EndDate)
-  PlatoonCommanderHistory  (PlatoonId, CommanderId, StartDate, EndDate)
-  CompanyCommandingOfficerHistory (CompanyId, CommandingOfficerId, StartDate, EndDate)
-  UserMaster               (Id, FullName, Username, Email, ContactNo, AgniVeerId, IsActive)
-
-DERIVED VIEWS (dbo schema) — the DB, not this prompt, is the source of truth
-for computed business rules. Each view below already applies logic that is
-easy to get wrong from raw tables (best-attempt scoring, dynamic-max
-grading, leave day-count math, BMI bucketing, equipment condition ranking,
-leave-aware attendance, verification status). See db/derived_views.sql for
-the exact definitions.
-  vw_AgniveerBestAttemptTotals   (AgniveerId, Section, BestTotal)
-  vw_AgniveerSectionGrades       (AgniveerId, SectionId, SectionName,
-                                  BestTotal, DynamicMax, Percentage, Grade)
-  vw_AgniveerLeaveDayCounts      (AgniveerId, LeaveType, FromDate, ToDate,
-                                  LeaveCount)
-  vw_AgniveerLeaveThreshold      (AgniveerId, IsThreshold, Reason)
-  vw_AgniveerBmi                 (AgniveerId, AvgHeight, AvgWeight, Bmi,
-                                  BmiCategory)
-  vw_EquipmentDegraded           (AssignmentId, AgniveerId, EquipmentName,
-                                  IsDegraded)
-  vw_AgniveerAttendanceStatus    (AgniveerId, Date, IsPresent)
-  vw_AgniveerVerificationStatus  (AgniveerId, Status, PoliceStation,
-                                  SentDate, ReceivedDate, DaysSinceSent)
-
-HARD RULES — these are NON-NEGOTIABLE. Break one and the query is rejected.
-  R0. VIEWS FIRST: for grading, dynamic-max percentage, leave-day counts or
-      thresholds, BMI, equipment degradation, leave-aware attendance, or
-      verification status, you MUST select from the matching view above and
-      MUST NOT recompute that logic yourself from AgniveerScoreAttempt,
-      AgniveerSectionResult, MedicalRecordMaster, AgniveerLeaveMaster, or
-      AgniveerEquipment. A raw-table query that reinvents view logic is a
-      rejected answer even if the numbers happen to match.
-  R1. ACTIVE FILTER: every query touching AgniveerMaster MUST include
-        (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
-      Exception: an explicit "disqualified agniveers" request inverts it to
-        (a.IsDisqualified = 1).
-  R2. SPECIAL COLUMNS: these two AgniveerLeaveMaster columns contain a
-      space / apostrophe and MUST be written bracket-quoted EXACTLY:
-        [OnATTN'C']   and   [OnEX PPG]
-      Never rename, alias-away, or unquote them. (Not needed when using
-      vw_AgniveerLeaveDayCounts / vw_AgniveerLeaveThreshold — those views
-      already expose a plain LeaveType string.)
-  R3. EXCEPTIONAL MARKS: when a section may be exceptional and the question
-      isn't already answerable from vw_AgniveerSectionGrades, use
-        CASE WHEN s.IsExceptional = 1
-             THEN COALESCE(r.ExceptionalMarks, 0.0)
-             ELSE r.SubItemTotalMarks END
-  R4. CROSS-FILTER shape: each independent condition becomes a CTE that
-      outputs DISTINCT AgniveerId; the final SELECT INNER JOINs every CTE back
-      to AgniveerMaster on a.Id (intersection), displaying a.AgniveerNo.
-  R5. NEVER select UserMaster.Password, LoginToken.*, or DefaultLog.
-  R6. AGNIVEER ID JOIN RULE: The primary key of AgniveerMaster is `a.Id`.
-      You MUST write `ON <othertable>.AgniveerId = a.Id`.
-      NEVER write `a.AgniveerId` - that column does not exist on AgniveerMaster!
-"""
-
-if SQL_SERVER_2008_COMPAT:
-    SCHEMA_CARD += (
-        "\nDIALECT: SQL Server 2008 target. DO NOT use STRING_AGG, "
-        "OFFSET/FETCH, IIF, CONCAT, or LAG/LEAD. Use TOP (n), "
-        "STUFF+FOR XML PATH for aggregation, ROW_NUMBER() for paging.\n"
-    )
-
-# Golden fast-path: (category, subcategory, operation) -> parameterized SQL.
+# Golden fast-path: (category, operation) -> parameterized SQL. `subcategory`
+# is deliberately not part of the key — it's fully derived from (category,
+# operation) via CATEGORY_OPERATION_TO_SUBCATEGORY in intent_schema.py, so
+# keying on it too was redundant and, in practice, error-prone (a typo'd
+# subcategory string silently made an entry unreachable with no error).
 # Fill this by porting AiCommandService.cs handlers over time. Anything found
 # here SKIPS the LLM entirely (deterministic, cheap, testable).
 #
 # Templates may contain the single placeholder {top_n} — the only thing ever
 # substituted into a golden query (see _render_golden_query below), and only
 # with a validated integer, so this can never introduce SQL injection.
-GOLDEN_QUERIES: Dict[Tuple[str, str, str], str] = {
-    (
-        "Performance",
-        "TopPerformers",
-        "Top",
-    ): """
-SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(bt.BestTotal) AS TotalMarks
+GOLDEN_QUERIES: Dict[Tuple[str, str], str] = {
+    ("Performance", "Top"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS TotalMarks
 FROM AgniveerMaster a
-INNER JOIN vw_AgniveerBestAttemptTotals bt ON bt.AgniveerId = a.Id
+INNER JOIN AgniveerScoreAttempt sa ON sa.AgniveerId = a.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND sa.IsBestAttempt = 1
 GROUP BY a.AgniveerNo, a.FullName
-ORDER BY SUM(bt.BestTotal) DESC
+ORDER BY SUM(sa.MarksObtained) DESC, a.AgniveerNo ASC
 """.strip(),
-    (
-        "Performance",
-        "LowestPerformers",
-        "Bottom",
-    ): """
-SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(bt.BestTotal) AS TotalMarks
+    ("Performance", "Bottom"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS TotalMarks
 FROM AgniveerMaster a
-INNER JOIN vw_AgniveerBestAttemptTotals bt ON bt.AgniveerId = a.Id
+INNER JOIN AgniveerScoreAttempt sa ON sa.AgniveerId = a.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND sa.IsBestAttempt = 1
 GROUP BY a.AgniveerNo, a.FullName
-ORDER BY SUM(bt.BestTotal) ASC
+ORDER BY SUM(sa.MarksObtained) ASC, a.AgniveerNo ASC
 """.strip(),
-    (
-        "Performance",
-        "AverageScore",
-        "Average",
-    ): """
-SELECT bt.Section AS SectionName, AVG(bt.BestTotal) AS AverageMarks,
-       COUNT(DISTINCT bt.AgniveerId) AS AgniveerCount
-FROM vw_AgniveerBestAttemptTotals bt
+    ("Performance", "Average"): """
+SELECT sec.SectionName, AVG(bt.BestTotal) AS AverageMarks, COUNT(DISTINCT a.Id) AS AgniveerCount
+FROM (
+    SELECT sa.AgniveerId, si.SectionId, SUM(sa.MarksObtained) AS BestTotal
+    FROM AgniveerScoreAttempt sa
+    INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+    WHERE sa.IsBestAttempt = 1
+    GROUP BY sa.AgniveerId, si.SectionId
+) bt
+INNER JOIN ScoreSectionMaster sec ON sec.Id = bt.SectionId
 INNER JOIN AgniveerMaster a ON a.Id = bt.AgniveerId
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
-GROUP BY bt.Section
-ORDER BY AVG(bt.BestTotal) DESC
+GROUP BY sec.SectionName
+ORDER BY AVG(bt.BestTotal) DESC, sec.SectionName ASC
 """.strip(),
-    (
-        "Attendance",
-        "AttendanceSummary",
-        "Summary",
-    ): """
+    ("Attendance", "Summary"): """
 SELECT a.AgniveerNo, a.FullName,
-       SUM(CASE WHEN att.IsPresent = 1 THEN 1 ELSE 0 END) AS PresentDays,
-       COUNT(att.Date) AS TotalDays
+       SUM(CASE 
+           WHEN EXISTS (
+               SELECT 1 FROM AgniveerLeaveMaster l 
+               WHERE l.AgniveerId = att.AgniveerId 
+                 AND l.FromDate IS NOT NULL 
+                 AND CAST(att.AttendanceDateTime AS DATE) >= CAST(l.FromDate AS DATE) 
+                 AND (l.ToDate IS NULL OR CAST(att.AttendanceDateTime AS DATE) <= CAST(l.ToDate AS DATE))
+           ) THEN 0
+           WHEN att.IsPresent = 1 THEN 1 
+           ELSE 0 
+       END) AS PresentDays,
+       COUNT(att.AttendanceDateTime) AS TotalDays
 FROM AgniveerMaster a
-INNER JOIN vw_AgniveerAttendanceStatus att ON att.AgniveerId = a.Id
+INNER JOIN AgniveerAttendanceMaster att ON att.AgniveerId = a.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
 GROUP BY a.AgniveerNo, a.FullName
 ORDER BY a.AgniveerNo
 """.strip(),
-    (
-        "Leave",
-        "CurrentLeaveStatus",
-        "Current",
-    ): """
-SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, l.FromDate, l.ToDate, l.LeaveType
+    ("Leave", "Current"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, l.FromDate, l.ToDate, 
+    CASE WHEN l.[OnEX PPG] = 1 THEN 'EX PPG' WHEN l.[OnATTN''C'] = 1 THEN 'ATTN''C' WHEN l.OnAnnualLeave = 1 THEN 'Annual' WHEN l.OnMedicalLeave = 1 THEN 'Medical' WHEN l.OnSickLeave = 1 THEN 'Sick' WHEN l.IsHospitalized = 1 THEN 'Hospitalized' WHEN l.IsAbscondedLeave = 1 THEN 'Absconded' ELSE 'Other' END AS LeaveType
 FROM AgniveerMaster a
-INNER JOIN vw_AgniveerLeaveDayCounts l ON l.AgniveerId = a.Id
+INNER JOIN AgniveerLeaveMaster l ON l.AgniveerId = a.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND l.FromDate IS NOT NULL AND l.ToDate IS NOT NULL
   AND CAST(GETDATE() AS DATE) BETWEEN CAST(l.FromDate AS DATE) AND CAST(l.ToDate AS DATE)
+ORDER BY l.FromDate DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Leave", "Most"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(CASE WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4 ELSE (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) END) AS TotalLeaveDays
+FROM AgniveerMaster a
+INNER JOIN AgniveerLeaveMaster l ON l.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND l.FromDate IS NOT NULL AND l.ToDate IS NOT NULL
+GROUP BY a.AgniveerNo, a.FullName
+ORDER BY SUM(CASE WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4 ELSE (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) END) DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Leave", "Least"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(CASE WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4 ELSE (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) END) AS TotalLeaveDays
+FROM AgniveerMaster a
+INNER JOIN AgniveerLeaveMaster l ON l.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND l.FromDate IS NOT NULL AND l.ToDate IS NOT NULL
+GROUP BY a.AgniveerNo, a.FullName
+ORDER BY SUM(CASE WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4 ELSE (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) END) ASC, a.AgniveerNo ASC
+""".strip(),
+    ("Leave", "Absconded"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, l.FromDate, l.ToDate, 
+    CASE WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4 ELSE (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) END AS LeaveCount
+FROM AgniveerMaster a
+INNER JOIN AgniveerLeaveMaster l ON l.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND l.FromDate IS NOT NULL AND l.ToDate IS NOT NULL
+  AND l.IsAbscondedLeave = 1
 ORDER BY l.FromDate DESC
 """.strip(),
-    (
-        "Medical",
-        "DiseaseStatistics",
-        "Disease",
-    ): """
+    ("Medical", "Disease"): """
 SELECT TOP ({top_n}) m.Diagnosis, COUNT(DISTINCT m.AgniveerId) AS AffectedCount
 FROM MedicalRecordMaster m
 INNER JOIN AgniveerMaster a ON a.Id = m.AgniveerId
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
   AND m.Diagnosis IS NOT NULL
 GROUP BY m.Diagnosis
-ORDER BY COUNT(DISTINCT m.AgniveerId) DESC
+ORDER BY COUNT(DISTINCT m.AgniveerId) DESC, m.Diagnosis ASC
 """.strip(),
-    (
-        "Verification",
-        "PendingVerification",
-        "Pending",
-    ): """
-SELECT a.AgniveerNo, a.FullName, vs.PoliceStation, vs.SentDate, vs.Status
+    ("Medical", "BMI"): """
+WITH MedicalAvg AS (
+    SELECT AgniveerId, AVG(Height) AS AvgHeight, AVG(Weight) AS AvgWeight
+    FROM MedicalRecordMaster
+    WHERE Height IS NOT NULL AND Weight IS NOT NULL
+    GROUP BY AgniveerId
+),
+Resolved AS (
+    SELECT
+        a.Id AS AgniveerId,
+        COALESCE(m.AvgHeight, a.Height) AS AvgHeight,
+        COALESCE(m.AvgWeight, a.Weight) AS AvgWeight
+    FROM AgniveerMaster a
+    LEFT JOIN MedicalAvg m ON m.AgniveerId = a.Id
+    WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+),
+BmiData AS (
+    SELECT AgniveerId,
+        CASE
+            WHEN AvgHeight IS NULL OR AvgWeight IS NULL OR AvgHeight <= 0 THEN NULL
+            WHEN AvgWeight / POWER(AvgHeight / 100.0, 2) < 18.5 THEN 'Underweight'
+            WHEN AvgWeight / POWER(AvgHeight / 100.0, 2) < 25   THEN 'Normal'
+            WHEN AvgWeight / POWER(AvgHeight / 100.0, 2) < 30   THEN 'Overweight'
+            ELSE 'Obese'
+        END AS BmiCategory
+    FROM Resolved
+)
+SELECT BmiCategory, COUNT(DISTINCT AgniveerId) AS AgniveerCount
+FROM BmiData
+WHERE BmiCategory IS NOT NULL
+GROUP BY BmiCategory
+ORDER BY COUNT(DISTINCT AgniveerId) DESC, BmiCategory ASC
+""".strip(),
+    ("Medical", "BloodGroup"): """
+SELECT a.BloodGroup, COUNT(DISTINCT a.Id) AS AgniveerCount
 FROM AgniveerMaster a
-INNER JOIN vw_AgniveerVerificationStatus vs ON vs.AgniveerId = a.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
-  AND vs.Status = 'Pending'
-ORDER BY vs.SentDate ASC
+  AND a.BloodGroup IS NOT NULL
+GROUP BY a.BloodGroup
+ORDER BY COUNT(DISTINCT a.Id) DESC, a.BloodGroup ASC
 """.strip(),
-    (
-        "Equipment",
-        "HoldingEquipment",
-        "Holding",
-    ): """
+    ("Verification", "Pending"): """
+WITH Latest AS (
+    SELECT AgniveerId, PoliceStation, SentDate, ReceivedDate, Status,
+        ROW_NUMBER() OVER (PARTITION BY AgniveerId ORDER BY SentDate DESC, Id DESC) AS rn
+    FROM PoliceVerificationMaster
+)
+SELECT a.AgniveerNo, a.FullName, l.PoliceStation, l.SentDate, 
+    CASE WHEN l.AgniveerId IS NULL THEN 'Pending'
+         WHEN l.Status = 'Sent' AND l.ReceivedDate IS NULL THEN 'NotResponded'
+         ELSE l.Status END AS Status
+FROM AgniveerMaster a
+LEFT JOIN Latest l ON l.AgniveerId = a.Id AND l.rn = 1
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND (l.AgniveerId IS NULL OR (CASE WHEN l.Status = 'Sent' AND l.ReceivedDate IS NULL THEN 'NotResponded' ELSE l.Status END) = 'Pending')
+ORDER BY l.SentDate ASC, a.AgniveerNo ASC
+""".strip(),
+    ("Verification", "Completed"): """
+WITH Latest AS (
+    SELECT AgniveerId, PoliceStation, SentDate, ReceivedDate, Status,
+        ROW_NUMBER() OVER (PARTITION BY AgniveerId ORDER BY SentDate DESC, Id DESC) AS rn
+    FROM PoliceVerificationMaster
+)
+SELECT a.AgniveerNo, a.FullName, l.PoliceStation, l.SentDate, l.ReceivedDate, l.Status
+FROM AgniveerMaster a
+INNER JOIN Latest l ON l.AgniveerId = a.Id AND l.rn = 1
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND l.Status = 'Completed'
+ORDER BY l.ReceivedDate DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Verification", "Rejected"): """
+WITH Latest AS (
+    SELECT AgniveerId, PoliceStation, SentDate, ReceivedDate, Status,
+        ROW_NUMBER() OVER (PARTITION BY AgniveerId ORDER BY SentDate DESC, Id DESC) AS rn
+    FROM PoliceVerificationMaster
+)
+SELECT a.AgniveerNo, a.FullName, l.PoliceStation, l.SentDate, l.ReceivedDate, l.Status
+FROM AgniveerMaster a
+INNER JOIN Latest l ON l.AgniveerId = a.Id AND l.rn = 1
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND l.Status = 'Rejected'
+ORDER BY l.ReceivedDate DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Verification", "Sent"): """
+WITH Latest AS (
+    SELECT AgniveerId, PoliceStation, SentDate, ReceivedDate, Status,
+        ROW_NUMBER() OVER (PARTITION BY AgniveerId ORDER BY SentDate DESC, Id DESC) AS rn
+    FROM PoliceVerificationMaster
+)
+SELECT a.AgniveerNo, a.FullName, l.PoliceStation, l.SentDate, l.Status
+FROM AgniveerMaster a
+INNER JOIN Latest l ON l.AgniveerId = a.Id AND l.rn = 1
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND l.Status = 'Sent'
+ORDER BY l.SentDate DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Verification", "NotResponded"): """
+WITH Latest AS (
+    SELECT AgniveerId, PoliceStation, SentDate, ReceivedDate, Status,
+        ROW_NUMBER() OVER (PARTITION BY AgniveerId ORDER BY SentDate DESC, Id DESC) AS rn
+    FROM PoliceVerificationMaster
+)
+SELECT a.AgniveerNo, a.FullName, l.PoliceStation, l.SentDate, 
+    CASE WHEN l.SentDate IS NOT NULL THEN DATEDIFF(DAY, l.SentDate, GETDATE()) ELSE NULL END AS DaysSinceSent,
+    'NotResponded' AS Status
+FROM AgniveerMaster a
+INNER JOIN Latest l ON l.AgniveerId = a.Id AND l.rn = 1
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND l.Status = 'Sent' AND l.ReceivedDate IS NULL
+ORDER BY CASE WHEN l.SentDate IS NOT NULL THEN DATEDIFF(DAY, l.SentDate, GETDATE()) ELSE NULL END DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Equipment", "Holding"): """
 SELECT a.AgniveerNo, a.FullName, e.Name AS EquipmentName, ae.GivenDateTime, ae.GivenCondition
 FROM AgniveerMaster a
 INNER JOIN AgniveerEquipment ae ON ae.AgniveerId = a.Id
 INNER JOIN EquipmentMaster e ON e.Id = ae.EquipmentId
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
   AND ae.ReturnDateTime IS NULL
-ORDER BY ae.GivenDateTime DESC
+ORDER BY ae.GivenDateTime DESC, a.AgniveerNo ASC
 """.strip(),
-    (
-        "Attendance",
-        "PresentToday",
-        "Present",
-    ): """
+    ("Equipment", "Returned"): """
+WITH Degraded AS (
+    SELECT ae.AgniveerId, e.Name AS EquipmentName
+    FROM AgniveerEquipment ae
+    INNER JOIN EquipmentMaster e ON e.Id = ae.EquipmentId
+    WHERE ae.ReturnDateTime IS NOT NULL
+      AND (CASE UPPER(ae.GivenCondition) WHEN 'GOOD' THEN 4 WHEN 'FAIR' THEN 3 WHEN 'POOR' THEN 2 WHEN 'DAMAGED' THEN 1 ELSE NULL END) >
+          (CASE UPPER(ae.ReturnCondition) WHEN 'GOOD' THEN 4 WHEN 'FAIR' THEN 3 WHEN 'POOR' THEN 2 WHEN 'DAMAGED' THEN 1 ELSE NULL END)
+)
+SELECT a.AgniveerNo, a.FullName, v.EquipmentName
+FROM AgniveerMaster a
+INNER JOIN Degraded v ON v.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+ORDER BY a.AgniveerNo
+""".strip(),
+    ("Attendance", "Present"): """
 SELECT a.AgniveerNo, a.FullName, p.Name AS Platoon, c.Name AS Company
 FROM AgniveerMaster a
-INNER JOIN vw_AgniveerAttendanceStatus att ON att.AgniveerId = a.Id
+INNER JOIN (
+    SELECT att.AgniveerId, CAST(att.AttendanceDateTime AS DATE) AS [Date],
+        CASE WHEN EXISTS (SELECT 1 FROM AgniveerLeaveMaster l WHERE l.AgniveerId = att.AgniveerId AND l.FromDate IS NOT NULL AND CAST(att.AttendanceDateTime AS DATE) >= CAST(l.FromDate AS DATE) AND (l.ToDate IS NULL OR CAST(att.AttendanceDateTime AS DATE) <= CAST(l.ToDate AS DATE))) THEN 0 ELSE att.IsPresent END AS IsPresent
+    FROM AgniveerAttendanceMaster att
+) att ON att.AgniveerId = a.Id
 LEFT JOIN PlatoonMaster p ON a.PlatoonId = p.Id
 LEFT JOIN CompanyMaster c ON p.CompanyId = c.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
   AND att.IsPresent = 1
-  AND CAST(att.Date AS DATE) = CAST(GETDATE() AS DATE)
-ORDER BY a.AgniveerNo
+  AND att.Date = CAST(GETDATE() AS DATE)
+ORDER BY a.AgniveerNo ASC
 """.strip(),
-    (
-        "Distribution",
-        "LatestDistribution",
-        "Latest",
-    ): """
+    ("Attendance", "Monthly"): """
+SELECT CAST(YEAR(att.Date) AS VARCHAR) + '-' + RIGHT('0' + CAST(MONTH(att.Date) AS VARCHAR), 2) AS MonthYear,
+       SUM(CASE WHEN att.IsPresent = 1 THEN 1 ELSE 0 END) AS TotalPresent,
+       COUNT(att.Date) AS TotalDays
+FROM (
+    SELECT att.AgniveerId, CAST(att.AttendanceDateTime AS DATE) AS [Date],
+        CASE WHEN EXISTS (SELECT 1 FROM AgniveerLeaveMaster l WHERE l.AgniveerId = att.AgniveerId AND l.FromDate IS NOT NULL AND CAST(att.AttendanceDateTime AS DATE) >= CAST(l.FromDate AS DATE) AND (l.ToDate IS NULL OR CAST(att.AttendanceDateTime AS DATE) <= CAST(l.ToDate AS DATE))) THEN 0 ELSE att.IsPresent END AS IsPresent
+    FROM AgniveerAttendanceMaster att
+) att
+INNER JOIN AgniveerMaster a ON a.Id = att.AgniveerId
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+GROUP BY YEAR(att.Date), MONTH(att.Date)
+ORDER BY YEAR(att.Date) DESC, MONTH(att.Date) DESC
+""".strip(),
+    ("Attendance", "Weekly"): """
+SELECT YEAR(att.Date) AS Year, DATEPART(week, att.Date) AS WeekNumber,
+       SUM(CASE WHEN att.IsPresent = 1 THEN 1 ELSE 0 END) AS TotalPresent,
+       COUNT(att.Date) AS TotalDays
+FROM (
+    SELECT att.AgniveerId, CAST(att.AttendanceDateTime AS DATE) AS [Date],
+        CASE WHEN EXISTS (SELECT 1 FROM AgniveerLeaveMaster l WHERE l.AgniveerId = att.AgniveerId AND l.FromDate IS NOT NULL AND CAST(att.AttendanceDateTime AS DATE) >= CAST(l.FromDate AS DATE) AND (l.ToDate IS NULL OR CAST(att.AttendanceDateTime AS DATE) <= CAST(l.ToDate AS DATE))) THEN 0 ELSE att.IsPresent END AS IsPresent
+    FROM AgniveerAttendanceMaster att
+) att
+INNER JOIN AgniveerMaster a ON a.Id = att.AgniveerId
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+GROUP BY YEAR(att.Date), DATEPART(week, att.Date)
+ORDER BY YEAR(att.Date) DESC, DATEPART(week, att.Date) DESC
+""".strip(),
+    ("Attendance", "Daily"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, att.Date, att.IsPresent
+FROM AgniveerMaster a
+INNER JOIN (
+    SELECT att.AgniveerId, CAST(att.AttendanceDateTime AS DATE) AS [Date],
+        CASE WHEN EXISTS (SELECT 1 FROM AgniveerLeaveMaster l WHERE l.AgniveerId = att.AgniveerId AND l.FromDate IS NOT NULL AND CAST(att.AttendanceDateTime AS DATE) >= CAST(l.FromDate AS DATE) AND (l.ToDate IS NULL OR CAST(att.AttendanceDateTime AS DATE) <= CAST(l.ToDate AS DATE))) THEN 0 ELSE att.IsPresent END AS IsPresent
+    FROM AgniveerAttendanceMaster att
+) att ON att.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND att.Date = CAST(GETDATE() AS DATE)
+ORDER BY a.AgniveerNo ASC
+""".strip(),
+    ("Distribution", "Latest"): """
 SELECT d.Name AS DistributionName, COUNT(DISTINCT r.AgniveerId) AS AgniveerCount
 FROM DistributionMaster d
 INNER JOIN AgniveerRelationMaster r ON r.DistributionId = d.Id
 INNER JOIN AgniveerMaster a ON a.Id = r.AgniveerId
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
 GROUP BY d.Name
-ORDER BY COUNT(DISTINCT r.AgniveerId) DESC
+ORDER BY COUNT(DISTINCT r.AgniveerId) DESC, d.Name ASC
+""".strip(),
+    ("Distribution", "ByUnit"): """
+SELECT a.AgniveerNo, a.FullName, d.Name AS DistributionName
+FROM AgniveerMaster a
+INNER JOIN AgniveerRelationMaster r ON a.Id = r.AgniveerId
+INNER JOIN DistributionMaster d ON r.DistributionId = d.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+ORDER BY d.Name ASC, a.AgniveerNo ASC
+""".strip(),
+    ("Distribution", "Unassigned"): """
+SELECT a.AgniveerNo, a.FullName, p.Name AS Platoon, c.Name AS Company
+FROM AgniveerMaster a
+LEFT JOIN AgniveerRelationMaster r ON a.Id = r.AgniveerId
+LEFT JOIN PlatoonMaster p ON a.PlatoonId = p.Id
+LEFT JOIN CompanyMaster c ON p.CompanyId = c.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND r.AgniveerId IS NULL
+ORDER BY a.AgniveerNo ASC
+""".strip(),
+    ("Skills", "BySport"): """
+SELECT a.AgniveerNo, a.FullName, p.Name AS Platoon, c.Name AS Company, a.Sports
+FROM AgniveerMaster a
+LEFT JOIN PlatoonMaster p ON a.PlatoonId = p.Id
+LEFT JOIN CompanyMaster c ON p.CompanyId = c.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND a.Sports IS NOT NULL AND a.Sports <> ''
+ORDER BY a.Sports ASC, a.AgniveerNo ASC
+""".strip(),
+    ("Skills", "ByClass"): """
+SELECT a.AgniveerNo, a.FullName, p.Name AS Platoon, c.Name AS Company, a.Class
+FROM AgniveerMaster a
+LEFT JOIN PlatoonMaster p ON a.PlatoonId = p.Id
+LEFT JOIN CompanyMaster c ON p.CompanyId = c.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND a.Class IS NOT NULL AND a.Class <> ''
+ORDER BY a.Class ASC, a.AgniveerNo ASC
+""".strip(),
+    ("Performance", "BestAttempt"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, sec.SectionName AS Section, SUM(sa.MarksObtained) AS BestTotal
+FROM AgniveerMaster a
+INNER JOIN AgniveerScoreAttempt sa ON sa.AgniveerId = a.Id
+INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+INNER JOIN ScoreSectionMaster sec ON sec.Id = si.SectionId
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND sa.IsBestAttempt = 1
+GROUP BY a.AgniveerNo, a.FullName, sec.SectionName
+ORDER BY SUM(sa.MarksObtained) DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Performance", "Grading"): """
+WITH AttemptedMax AS (
+    SELECT DISTINCT sa.AgniveerId, si.SectionId, si.Id AS SubItemId, si.MaxMarks
+    FROM AgniveerScoreAttempt sa
+    INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+),
+DynamicMax AS (
+    SELECT AgniveerId, SectionId, SUM(MaxMarks) AS DynamicMax
+    FROM AttemptedMax
+    GROUP BY AgniveerId, SectionId
+),
+BestTotals AS (
+    SELECT sa.AgniveerId, si.SectionId, SUM(sa.MarksObtained) AS BestTotal
+    FROM AgniveerScoreAttempt sa
+    INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+    WHERE sa.IsBestAttempt = 1
+    GROUP BY sa.AgniveerId, si.SectionId
+),
+Scored AS (
+    SELECT bt.AgniveerId, sec.SectionName, bt.BestTotal,
+        CASE WHEN dm.DynamicMax > 0 THEN 100.0 * bt.BestTotal / dm.DynamicMax ELSE NULL END AS Percentage,
+        CASE WHEN dm.DynamicMax IS NULL OR dm.DynamicMax = 0 THEN NULL
+             WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 90 THEN 'Exceptionally Well'
+             WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 75 THEN 'Excellent'
+             WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 60 THEN 'Good'
+             WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 45 THEN 'SAT'
+             ELSE 'Fail' END AS Grade
+    FROM BestTotals bt
+    INNER JOIN ScoreSectionMaster sec ON sec.Id = bt.SectionId
+    LEFT JOIN DynamicMax dm ON dm.AgniveerId = bt.AgniveerId AND dm.SectionId = bt.SectionId
+)
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, sg.SectionName, sg.Grade, sg.Percentage, sg.BestTotal
+FROM AgniveerMaster a
+INNER JOIN Scored sg ON sg.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+ORDER BY sg.Percentage DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Performance", "GradingSummary"): """
+WITH AttemptedMax AS (
+    SELECT DISTINCT sa.AgniveerId, si.SectionId, si.Id AS SubItemId, si.MaxMarks
+    FROM AgniveerScoreAttempt sa
+    INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+),
+DynamicMax AS (
+    SELECT AgniveerId, SectionId, SUM(MaxMarks) AS DynamicMax
+    FROM AttemptedMax
+    GROUP BY AgniveerId, SectionId
+),
+BestTotals AS (
+    SELECT sa.AgniveerId, si.SectionId, SUM(sa.MarksObtained) AS BestTotal
+    FROM AgniveerScoreAttempt sa
+    INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+    WHERE sa.IsBestAttempt = 1
+    GROUP BY sa.AgniveerId, si.SectionId
+),
+Scored AS (
+    SELECT bt.AgniveerId, sec.SectionName, 
+        CASE WHEN dm.DynamicMax IS NULL OR dm.DynamicMax = 0 THEN NULL
+             WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 90 THEN 'Exceptionally Well'
+             WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 75 THEN 'Excellent'
+             WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 60 THEN 'Good'
+             WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 45 THEN 'SAT'
+             ELSE 'Fail' END AS Grade
+    FROM BestTotals bt
+    INNER JOIN ScoreSectionMaster sec ON sec.Id = bt.SectionId
+    LEFT JOIN DynamicMax dm ON dm.AgniveerId = bt.AgniveerId AND dm.SectionId = bt.SectionId
+)
+SELECT sg.SectionName, sg.Grade, COUNT(DISTINCT a.Id) AS AgniveerCount
+FROM AgniveerMaster a
+INNER JOIN Scored sg ON sg.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+GROUP BY sg.SectionName, sg.Grade
+ORDER BY sg.SectionName, sg.Grade
+""".strip(),
+    ("Performance", "Improvement"): """
+WITH AttemptTotals AS (
+    SELECT sa.AgniveerId, sa.AttemptNo, SUM(sa.MarksObtained) AS TotalMarks
+    FROM AgniveerScoreAttempt sa
+    GROUP BY sa.AgniveerId, sa.AttemptNo
+),
+MinMaxAttempts AS (
+    SELECT AgniveerId, MIN(AttemptNo) as MinAttempt, MAX(AttemptNo) as MaxAttempt
+    FROM AttemptTotals
+    GROUP BY AgniveerId
+    HAVING MIN(AttemptNo) < MAX(AttemptNo)
+),
+ImprovementData AS (
+    SELECT m.AgniveerId, t1.TotalMarks AS FromTotal, t2.TotalMarks AS ToTotal,
+           (t2.TotalMarks - t1.TotalMarks) AS Improvement
+    FROM MinMaxAttempts m
+    INNER JOIN AttemptTotals t1 ON t1.AgniveerId = m.AgniveerId AND t1.AttemptNo = m.MinAttempt
+    INNER JOIN AttemptTotals t2 ON t2.AgniveerId = m.AgniveerId AND t2.AttemptNo = m.MaxAttempt
+)
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, i.FromTotal, i.ToTotal, i.Improvement,
+       CASE WHEN i.FromTotal > 0 THEN (i.Improvement * 100.0) / i.FromTotal ELSE NULL END AS ImprovementPercentage
+FROM AgniveerMaster a
+INNER JOIN ImprovementData i ON i.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND i.Improvement > 0
+ORDER BY i.Improvement DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Performance", "Drop"): """
+WITH AttemptTotals AS (
+    SELECT sa.AgniveerId, sa.AttemptNo, SUM(sa.MarksObtained) AS TotalMarks
+    FROM AgniveerScoreAttempt sa
+    GROUP BY sa.AgniveerId, sa.AttemptNo
+),
+MinMaxAttempts AS (
+    SELECT AgniveerId, MIN(AttemptNo) as MinAttempt, MAX(AttemptNo) as MaxAttempt
+    FROM AttemptTotals
+    GROUP BY AgniveerId
+    HAVING MIN(AttemptNo) < MAX(AttemptNo)
+),
+DropData AS (
+    SELECT m.AgniveerId, t1.TotalMarks AS FromTotal, t2.TotalMarks AS ToTotal,
+           (t1.TotalMarks - t2.TotalMarks) AS ScoreDrop
+    FROM MinMaxAttempts m
+    INNER JOIN AttemptTotals t1 ON t1.AgniveerId = m.AgniveerId AND t1.AttemptNo = m.MinAttempt
+    INNER JOIN AttemptTotals t2 ON t2.AgniveerId = m.AgniveerId AND t2.AttemptNo = m.MaxAttempt
+)
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, d.FromTotal, d.ToTotal, d.ScoreDrop
+FROM AgniveerMaster a
+INNER JOIN DropData d ON d.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND d.ScoreDrop > 0
+ORDER BY d.ScoreDrop DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Performance", "AttemptWise"): """
+WITH AttemptTotals AS (
+    SELECT sa.AgniveerId, sa.AttemptNo, SUM(sa.MarksObtained) AS TotalMarks
+    FROM AgniveerScoreAttempt sa
+    GROUP BY sa.AgniveerId, sa.AttemptNo
+),
+MaxTotals AS (
+    SELECT AgniveerId, MAX(TotalMarks) AS MaxTotal
+    FROM AttemptTotals
+    GROUP BY AgniveerId
+)
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, t.AttemptNo, t.TotalMarks
+FROM AgniveerMaster a
+INNER JOIN AttemptTotals t ON t.AgniveerId = a.Id
+INNER JOIN MaxTotals mt ON mt.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+ORDER BY mt.MaxTotal DESC, a.AgniveerNo ASC, t.AttemptNo ASC
+""".strip(),
+    ("Performance", "Trend"): """
+WITH AttemptedMax AS (
+    SELECT DISTINCT sa.AgniveerId, sa.AttemptNo, si.Id AS SubItemId, si.MaxMarks
+    FROM AgniveerScoreAttempt sa
+    INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+),
+DynamicMaxPerAttempt AS (
+    SELECT AgniveerId, AttemptNo, SUM(MaxMarks) AS DynamicMax
+    FROM AttemptedMax
+    GROUP BY AgniveerId, AttemptNo
+),
+TotalsPerAttempt AS (
+    SELECT AgniveerId, AttemptNo, SUM(MarksObtained) AS TotalObtained
+    FROM AgniveerScoreAttempt
+    GROUP BY AgniveerId, AttemptNo
+),
+Percentages AS (
+    SELECT t.AgniveerId, t.AttemptNo, t.TotalObtained, d.DynamicMax,
+           CASE WHEN d.DynamicMax > 0 THEN (t.TotalObtained * 100.0) / d.DynamicMax ELSE NULL END AS Pct
+    FROM TotalsPerAttempt t
+    INNER JOIN DynamicMaxPerAttempt d ON d.AgniveerId = t.AgniveerId AND d.AttemptNo = t.AttemptNo
+)
+SELECT p.AttemptNo, AVG(p.TotalObtained) AS AverageMarks, AVG(p.Pct) AS AveragePercentage, COUNT(DISTINCT p.AgniveerId) AS AgniveerCount
+FROM Percentages p
+INNER JOIN AgniveerMaster a ON a.Id = p.AgniveerId
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+GROUP BY p.AttemptNo
+ORDER BY p.AttemptNo ASC
+""".strip(),
+    ("Overall", "OverallPerformance"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS OverallMarks
+FROM AgniveerMaster a
+INNER JOIN AgniveerScoreAttempt sa ON sa.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+  AND sa.IsBestAttempt = 1
+GROUP BY a.AgniveerNo, a.FullName
+ORDER BY SUM(sa.MarksObtained) DESC, a.AgniveerNo ASC
+""".strip(),
+    ("Equipment", "AgniveerWise"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, COUNT(ae.Id) AS ItemsIssued, COUNT(CASE WHEN ae.ReturnDateTime IS NULL THEN 1 END) AS ItemsCurrentlyHeld
+FROM AgniveerMaster a
+INNER JOIN AgniveerEquipment ae ON ae.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+GROUP BY a.AgniveerNo, a.FullName
+ORDER BY a.AgniveerNo ASC
+""".strip(),
+    ("disqualified", "removed"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, a.DisqualifiedDate, a.Remarks, p.Name AS PlatoonName, c.Name AS CompanyName
+FROM AgniveerMaster a
+LEFT JOIN PlatoonMaster p ON a.PlatoonId = p.Id
+LEFT JOIN CompanyMaster c ON p.CompanyId = c.Id
+WHERE a.IsDisqualified = 1
+ORDER BY a.DisqualifiedDate DESC, a.AgniveerNo ASC
+""".strip(),
+    ("personaldetail", "info"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, a.DateOfBirth, a.DateOfJoining, a.MobileNo, a.Email, a.Address, a.BloodGroup, a.Class, p.Name AS PlatoonName, c.Name AS CompanyName
+FROM AgniveerMaster a
+LEFT JOIN PlatoonMaster p ON a.PlatoonId = p.Id
+LEFT JOIN CompanyMaster c ON p.CompanyId = c.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+ORDER BY a.AgniveerNo ASC
+""".strip(),
+    ("Medical", "Individual"): """
+WITH MedicalAvg AS (
+    SELECT AgniveerId, AVG(Height) AS AvgHeight, AVG(Weight) AS AvgWeight
+    FROM MedicalRecordMaster
+    WHERE Height IS NOT NULL AND Weight IS NOT NULL
+    GROUP BY AgniveerId
+),
+Resolved AS (
+    SELECT a.Id AS AgniveerId, COALESCE(m.AvgHeight, a.Height) AS AvgHeight, COALESCE(m.AvgWeight, a.Weight) AS AvgWeight
+    FROM AgniveerMaster a
+    LEFT JOIN MedicalAvg m ON m.AgniveerId = a.Id
+),
+BmiData AS (
+    SELECT AgniveerId, CASE WHEN AvgHeight IS NULL OR AvgWeight IS NULL OR AvgHeight <= 0 THEN NULL WHEN AvgWeight / POWER(AvgHeight / 100.0, 2) < 18.5 THEN 'Underweight' WHEN AvgWeight / POWER(AvgHeight / 100.0, 2) < 25 THEN 'Normal' WHEN AvgWeight / POWER(AvgHeight / 100.0, 2) < 30 THEN 'Overweight' ELSE 'Obese' END AS BmiCategory
+    FROM Resolved
+)
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, a.BloodGroup, b.BmiCategory, m.Diagnosis, m.Status, m.VisitDate
+FROM AgniveerMaster a
+LEFT JOIN BmiData b ON b.AgniveerId = a.Id
+LEFT JOIN MedicalRecordMaster m ON m.AgniveerId = a.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+ORDER BY a.AgniveerNo ASC, m.VisitDate DESC
+""".strip(),
+    ("Strength", ""): """
+SELECT TOP ({top_n}) c.Name AS CompanyName, p.Name AS PlatoonName, COUNT(a.Id) AS TotalStrength
+FROM AgniveerMaster a
+LEFT JOIN PlatoonMaster p ON a.PlatoonId = p.Id
+LEFT JOIN CompanyMaster c ON p.CompanyId = c.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+GROUP BY c.Name, p.Name
+ORDER BY c.Name ASC, p.Name ASC
+""".strip(),
+    ("Schedule", "bytoday"): """
+SELECT TOP ({top_n}) c.Name AS CompanyName, s.ScheduleDate, s.Pd, s.TimeRange, s.Code, s.Type, s.Details, s.Location, s.Resp
+FROM CompanySchedule s
+LEFT JOIN CompanyMaster c ON s.CompanyId = c.Id
+WHERE CAST(s.ScheduleDate AS DATE) = CAST(GETDATE() AS DATE)
+ORDER BY c.Name ASC, s.ScheduleDate ASC, s.Pd ASC
+""".strip(),
+    ("Schedule", "bycompany"): """
+SELECT TOP ({top_n}) c.Name AS CompanyName, s.ScheduleDate, s.Pd, s.TimeRange, s.Code, s.Type, s.Details, s.Location, s.Resp
+FROM CompanySchedule s
+LEFT JOIN CompanyMaster c ON s.CompanyId = c.Id
+ORDER BY s.ScheduleDate DESC, c.Name ASC, s.Pd ASC
+""".strip(),
+    ("Schedule", "bydate"): """
+SELECT TOP ({top_n}) c.Name AS CompanyName, s.ScheduleDate, s.Pd, s.TimeRange, s.Code, s.Type, s.Details, s.Location, s.Resp
+FROM CompanySchedule s
+LEFT JOIN CompanyMaster c ON s.CompanyId = c.Id
+ORDER BY s.ScheduleDate DESC, c.Name ASC, s.Pd ASC
+""".strip(),
+    ("Schedule", "byagniveer"): """
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, c.Name AS CompanyName, s.ScheduleDate, s.Pd, s.TimeRange, s.Code, s.Type, s.Details, s.Location
+FROM CompanySchedule s
+INNER JOIN CompanyMaster c ON s.CompanyId = c.Id
+INNER JOIN PlatoonMaster p ON p.CompanyId = c.Id
+INNER JOIN AgniveerMaster a ON a.PlatoonId = p.Id
+WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+ORDER BY s.ScheduleDate DESC, a.AgniveerNo ASC, s.Pd ASC
 """.strip(),
 }
 
@@ -312,11 +690,11 @@ def _render_golden_query(template: str, intent: Optional[Dict]) -> str:
     query is this validated integer — never raw user text — so this path
     can never introduce SQL injection."""
     intent = intent or {}
-    raw_n = intent.get("number") or intent.get("top_n") or 10
+    raw_n = intent.get("number") or intent.get("top_n")
     try:
-        top_n = int(raw_n)
+        top_n = int(raw_n) if raw_n is not None else SQL_MAX_ROWS
     except (TypeError, ValueError):
-        top_n = 10
+        top_n = SQL_MAX_ROWS
     top_n = max(1, min(top_n, SQL_MAX_ROWS))
     try:
         return template.format(top_n=top_n)
@@ -332,16 +710,19 @@ _GENERATION_SYSTEM = (
     "output exactly: CANNOT_ANSWER.\n\n"
     "Example 1:\n"
     "QUESTION: Top 10 performers in BPET\n"
-    "SQL: SELECT TOP 10 a.AgniveerNo, a.FullName, bt.BestTotal FROM AgniveerMaster a INNER JOIN vw_AgniveerBestAttemptTotals bt ON a.Id = bt.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND bt.Section = 'BPET' ORDER BY bt.BestTotal DESC\n\n"
+    "SQL: SELECT TOP 10 a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS BestTotal FROM AgniveerMaster a INNER JOIN AgniveerScoreAttempt sa ON a.Id = sa.AgniveerId INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId INNER JOIN ScoreSectionMaster sec ON sec.Id = si.SectionId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND sa.IsBestAttempt = 1 AND sec.SectionName = 'BPET' GROUP BY a.AgniveerNo, a.FullName ORDER BY BestTotal DESC\n\n"
     "Example 2:\n"
     "QUESTION: Which Agniveers play volleyball?\n"
     "SQL: SELECT a.AgniveerNo, a.FullName FROM AgniveerMaster a WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND a.Sports = 'Volleyball'\n\n"
     "Example 3:\n"
-    "QUESTION: bpet scores.\n"
-    "SQL: SELECT a.AgniveerNo, a.FullName, bt.BestTotal FROM AgniveerMaster a INNER JOIN vw_AgniveerBestAttemptTotals bt ON a.Id = bt.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND bt.Section = 'BPET'\n\n"
-    "Example 4:\n"
     "QUESTION: PPT grades for Alpha company\n"
-    "SQL: SELECT a.AgniveerNo, a.FullName, sg.Grade FROM AgniveerMaster a INNER JOIN vw_AgniveerSectionGrades sg ON a.Id = sg.AgniveerId INNER JOIN PlatoonMaster p ON a.PlatoonId = p.Id INNER JOIN CompanyMaster c ON p.CompanyId = c.Id WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND sg.SectionName = 'PPT' AND c.Name = 'Alpha'"
+    "SQL: WITH AttemptedMax AS (SELECT DISTINCT sa.AgniveerId, si.SectionId, SUM(si.MaxMarks) AS DynamicMax FROM AgniveerScoreAttempt sa INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId GROUP BY sa.AgniveerId, si.SectionId), BestTotals AS (SELECT sa.AgniveerId, si.SectionId, SUM(sa.MarksObtained) AS BestTotal FROM AgniveerScoreAttempt sa INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId WHERE sa.IsBestAttempt = 1 GROUP BY sa.AgniveerId, si.SectionId), Scored AS (SELECT bt.AgniveerId, sec.SectionName, CASE WHEN dm.DynamicMax IS NULL OR dm.DynamicMax = 0 THEN NULL WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 90 THEN 'Exceptionally Well' WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 75 THEN 'Excellent' WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 60 THEN 'Good' WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 45 THEN 'SAT' ELSE 'Fail' END AS Grade FROM BestTotals bt INNER JOIN ScoreSectionMaster sec ON sec.Id = bt.SectionId LEFT JOIN AttemptedMax dm ON dm.AgniveerId = bt.AgniveerId AND dm.SectionId = bt.SectionId) SELECT a.AgniveerNo, a.FullName, sg.Grade FROM AgniveerMaster a INNER JOIN PlatoonMaster p ON a.PlatoonId = p.Id INNER JOIN CompanyMaster c ON p.CompanyId = c.Id INNER JOIN Scored sg ON a.Id = sg.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND sg.SectionName = 'PPT' AND c.Name = 'Alpha'\n\n"
+    "Example 4:\n"
+    "QUESTION: failed firing and still have issued equipment\n"
+    "SQL: WITH AttemptedMax AS (SELECT DISTINCT sa.AgniveerId, si.SectionId, SUM(si.MaxMarks) AS DynamicMax FROM AgniveerScoreAttempt sa INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId GROUP BY sa.AgniveerId, si.SectionId), BestTotals AS (SELECT sa.AgniveerId, si.SectionId, SUM(sa.MarksObtained) AS BestTotal FROM AgniveerScoreAttempt sa INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId WHERE sa.IsBestAttempt = 1 GROUP BY sa.AgniveerId, si.SectionId), Scored AS (SELECT bt.AgniveerId, sec.SectionName, CASE WHEN dm.DynamicMax IS NULL OR dm.DynamicMax = 0 THEN NULL WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 90 THEN 'Exceptionally Well' WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 75 THEN 'Excellent' WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 60 THEN 'Good' WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 45 THEN 'SAT' ELSE 'Fail' END AS Grade FROM BestTotals bt INNER JOIN ScoreSectionMaster sec ON sec.Id = bt.SectionId LEFT JOIN AttemptedMax dm ON dm.AgniveerId = bt.AgniveerId AND dm.SectionId = bt.SectionId), FiringFail AS (SELECT AgniveerId FROM Scored WHERE SectionName = 'Firing' AND Grade = 'Fail'), HasEq AS (SELECT AgniveerId FROM AgniveerEquipment WHERE ReturnDateTime IS NULL) SELECT a.AgniveerNo, a.FullName FROM AgniveerMaster a INNER JOIN FiringFail f ON a.Id = f.AgniveerId INNER JOIN HasEq e ON a.Id = e.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)\n\n"
+    "Example 5:\n"
+    "QUESTION: Rank volleyball players by total marks\n"
+    "SQL: SELECT a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS BestTotal FROM AgniveerMaster a INNER JOIN AgniveerScoreAttempt sa ON a.Id = sa.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND sa.IsBestAttempt = 1 AND a.Sports = 'Volleyball' GROUP BY a.AgniveerNo, a.FullName ORDER BY BestTotal DESC"
 )
 
 # ── Safety validator ───────────────────────────────────────────────────────
@@ -353,6 +734,17 @@ _FORBIDDEN = re.compile(
 )
 _MULTI_STATEMENT = re.compile(r";\s*\S")  # a ';' followed by more content
 _COMMENT = re.compile(r"(--|/\*|\*/)")
+
+# R7 (business_rules.LLM_HARD_RULES): any query that touches
+# AgniveerScoreAttempt.MarksObtained MUST scope to a single attempt per
+# Agniveer/sub-item — either via `IsBestAttempt = 1` or by keying off
+# `AttemptNo` directly (e.g. a per-attempt trend/comparison). Without one of
+# these, summing/aggregating MarksObtained silently double/triple-counts
+# every retake, since AgniveerScoreAttempt has one row per attempt.
+_SCORE_ATTEMPT_TABLE = re.compile(r"\bagniveerscoreattempt\b", re.IGNORECASE)
+_MARKS_COLUMN = re.compile(r"\bmarksobtained\b", re.IGNORECASE)
+_BEST_ATTEMPT_GUARD = re.compile(r"\bisbestattempt\b", re.IGNORECASE)
+_ATTEMPT_NO_GUARD = re.compile(r"\battemptno\b", re.IGNORECASE)
 
 
 def validate_sql(sql: str) -> Optional[str]:
@@ -370,6 +762,18 @@ def validate_sql(sql: str) -> Optional[str]:
         return "Comments are not allowed."
     if _FORBIDDEN.search(low):
         return "Statement contains a forbidden keyword."
+
+    if (
+        _SCORE_ATTEMPT_TABLE.search(low)
+        and _MARKS_COLUMN.search(low)
+        and not _BEST_ATTEMPT_GUARD.search(low)
+        and not _ATTEMPT_NO_GUARD.search(low)
+    ):
+        return (
+            "Query uses AgniveerScoreAttempt.MarksObtained without scoping to a "
+            "single attempt (IsBestAttempt = 1 or AttemptNo) — would double-count "
+            "marks across retakes (R7)."
+        )
 
     for denied in DENIED_TABLES:
         if re.search(rf"\b{denied}\b", low):
@@ -389,6 +793,8 @@ def generate_sql(
     try:
         from config import DEFAULT_MODEL, ollama_session
         from ollama_cpu_chat import chat_with_fallback
+        from sql_schema_guard import generate_dynamic_schema_card
+        from business_rules import LLM_HARD_RULES
     except Exception as exc:  # pragma: no cover
         return None, f"LLM unavailable: {exc}"
 
@@ -396,7 +802,14 @@ def generate_sql(
     if intent:
         hint = f"\nCLASSIFIER HINT (may be partial): {intent}\n"
 
-    user = f"{SCHEMA_CARD}\n{hint}\nQUESTION: {question}\nSQL:"
+    dynamic_schema = generate_dynamic_schema_card()
+    
+    if SQL_SERVER_2008_COMPAT:
+        dialect_hint = "\nDIALECT: SQL Server 2008 target. DO NOT use STRING_AGG, OFFSET/FETCH, IIF, CONCAT, or LAG/LEAD. Use TOP (n), STUFF+FOR XML PATH for aggregation, ROW_NUMBER() for paging.\n"
+    else:
+        dialect_hint = ""
+
+    user = f"{dynamic_schema}\n{LLM_HARD_RULES}\n{dialect_hint}\n{hint}\nQUESTION: {question}\nSQL:"
     try:
         result = chat_with_fallback(
             ollama_session,
@@ -430,17 +843,20 @@ def _extract_sql(text: str) -> str:
 
 
 def _to_section(
-    rows: List[Dict[str, Any]], intent: Optional[Dict] = None
+    rows: List[Dict[str, Any]], intent: Optional[Dict] = None, sql: Optional[str] = None
 ) -> Dict[str, Any]:
     """Wrap flat rows in the same envelope shape the .NET path produces, so
     `universal_normalizer.normalize_response()` / `result_combiner._extract_records()`
     resolve the rows directly instead of falling back to raw-row scanning."""
-    return {
+    res = {
         "success": True,
         "records": rows,
         "data": rows,
         "count": len(rows),
     }
+    if sql:
+        res["sql"] = sql
+    return res
 
 
 # ── Read-only execution ────────────────────────────────────────────────────
@@ -490,12 +906,11 @@ def execute_sql_query(
     `question` is the raw NL query; `intent` is the classifier output (used
     for the golden fast-path and as a hint).
     """
-    logger.warning(f"[DEBUG SQL EXECUTOR] question: {question!r} | intent: {intent}")
+    logger.warning(f"[DEBUG SQL EXECUTOR] question: {question!r}")
     # 1) Golden fast-path — deterministic, no LLM.
     if intent:
         key = (
             str(intent.get("category") or ""),
-            str(intent.get("subcategory") or ""),
             str(intent.get("operation") or ""),
         )
         golden = GOLDEN_QUERIES.get(key)
@@ -505,9 +920,13 @@ def execute_sql_query(
         if golden and (
             intent.get("section")
             or intent.get("sport")
-            or intent.get("companyId")
-            or intent.get("platoonId")
-            or intent.get("batchId")
+            or intent.get("companyId") or intent.get("company_id")
+            or intent.get("platoonId") or intent.get("platoon_id")
+            or intent.get("batchId") or intent.get("batch_id")
+            or intent.get("agniveerNo") or intent.get("agniveer_no")
+            or intent.get("agniveerId")
+            or intent.get("leaveType")
+            or intent.get("date")
         ):
             golden = None
 
@@ -520,10 +939,12 @@ def execute_sql_query(
             if run_err:
                 return None, run_err
             metrics_hook("golden_hit")
-            return _to_section(rows or [], intent), None
+            return _to_section(rows or [], intent, sql=rendered), None
 
     # 2) Generate.
     sql, gen_err = generate_sql(question, intent)
+    if sql:
+        logger.warning(f"[DEBUG SQL EXECUTOR] Generated SQL:\n{sql}")
     if gen_err or sql is None:
         if gen_err == "CANNOT_ANSWER":
             metrics_hook("cannot_answer")
@@ -542,7 +963,7 @@ def execute_sql_query(
     if run_err:
         metrics_hook("exec_error")
         return None, run_err
-    return _to_section(rows or [], intent), None
+    return _to_section(rows or [], intent, sql=sql), None
 
 
 def metrics_hook(event: str) -> None:

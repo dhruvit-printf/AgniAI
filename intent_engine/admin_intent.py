@@ -521,15 +521,11 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     if n_val is None:
         n_val = intent_result.get("top_n")
 
-    # If no limit was provided from query or frontend, and operation implies ranking, default to 10.
-    if n_val is None and operation in {"Top", "Bottom", "Highest", "Lowest", "Best", "Worst"}:
-        n_val = 10
-
     try:
         if n_val is not None:
             n_val = int(n_val)
     except (ValueError, TypeError):
-        n_val = 10
+        n_val = None
 
     entities: Dict[str, Any] = {
         "n": n_val,

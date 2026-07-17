@@ -145,3 +145,54 @@ def run_schema_guard() -> Optional[Dict[str, Set[str]]]:
         logger.warning(warning)
 
     return build_allowlist(live_schema)
+
+
+def generate_dynamic_schema_card() -> str:
+    """Generate the dynamic SCHEMA_CARD using INFORMATION_SCHEMA and sys.foreign_keys."""
+    if not SQL_READONLY_CONN:
+        return "SCHEMA GENERATION FAILED"
+    
+    try:
+        import pyodbc
+        conn = pyodbc.connect(SQL_READONLY_CONN, timeout=SQL_COMMAND_TIMEOUT_S, autocommit=True)
+        cur = conn.cursor()
+        
+        # 1. Fetch tables and views
+        cur.execute("SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS")
+        schema = {}
+        for table, col in cur.fetchall():
+            if table.lower() not in DENIED_TABLES and f"{table.lower()}.{col.lower()}" not in DENIED_COLUMNS:
+                schema.setdefault(table, []).append(col)
+        
+        # 2. Fetch foreign keys
+        cur.execute("""
+            SELECT 
+                OBJECT_NAME(f.parent_object_id) AS TableName,
+                COL_NAME(fc.parent_object_id, fc.parent_column_id) AS ColumnName,
+                OBJECT_NAME(f.referenced_object_id) AS ReferenceTableName,
+                COL_NAME(fc.referenced_object_id, fc.referenced_column_id) AS ReferenceColumnName
+            FROM sys.foreign_keys AS f
+            INNER JOIN sys.foreign_key_columns AS fc 
+                ON f.object_id = fc.constraint_object_id
+        """)
+        fks = []
+        for p_tab, p_col, r_tab, r_col in cur.fetchall():
+            if p_tab in schema and r_tab in schema:
+                fks.append(f"{p_tab}.{p_col} = {r_tab}.{r_col}")
+                
+        conn.close()
+        
+        lines = ["DATABASE: DB_Agni (Microsoft SQL Server)", "", "TABLES AND VIEWS:"]
+        for table, cols in schema.items():
+            lines.append(f"  {table} ({', '.join(cols)})")
+            
+        lines.append("")
+        lines.append("RELATIONSHIPS (Foreign Keys):")
+        for fk in fks:
+            lines.append(f"  {fk}")
+            
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.error(f"Failed to generate dynamic schema: {exc}")
+        return "SCHEMA GENERATION FAILED"
+
