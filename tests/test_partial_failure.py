@@ -1,112 +1,110 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from admin_pipeline import execute_admin_query
-from intent_engine.query_planner import plan_query
-from result_combiner import combine_results
+from intent_engine.query_planner import QueryPlan, QueryType, SubOperation
+
+
+def _multi_independent_plan(message: str) -> QueryPlan:
+    op1 = SubOperation(
+        raw_fragment="attendance stats",
+        intent_result={"category": "Attendance", "operation": "Present"},
+        dotnet_payload={},
+    )
+    op2 = SubOperation(
+        raw_fragment="equipment overdue records",
+        intent_result={"category": "Equipment"},
+        dotnet_payload={},
+    )
+    return QueryPlan(
+        query_type=QueryType.MULTI_INDEPENDENT,
+        operations=[op1, op2],
+        confidence=0.9,
+        raw_query=message,
+        reasoning="test: forced multi_independent plan",
+    )
 
 
 class TestPartialFailure(unittest.TestCase):
+    """Post text-to-SQL migration, partial failure works differently than
+    the old parallel .NET-calls model:
 
-    @patch("admin_pipeline._call_dotnet")
+    - cross_filter is now ONE atomic SQL query (HARD RULE R4: CTE per
+      condition, intersected in a single SELECT) — if it fails, the whole
+      cross-filter fails together. There is no more "2 of 3 conditions
+      succeeded" degraded mode for cross_filter.
+    - compare issues one SQL call per side (sql_query_plan._fetch_compare)
+      and bubbles an error if EITHER side fails — there is no more
+      "unavailable" placeholder side for compare.
+    - multi_independent is the one shape that still degrades gracefully:
+      each leg is fetched independently and a failed leg becomes an
+      {"unavailable": True} placeholder rather than failing the whole
+      request (sql_query_plan._fetch_multi_independent).
+    """
+
     @patch("admin_pipeline.generate_report")
-    def test_cross_filter_secondary_failure(
-        self, mock_generate_report, mock_call_dotnet
+    @patch("admin_pipeline.fetch_sql_results")
+    @patch("admin_pipeline.plan_query")
+    def test_multi_independent_partial_failure_degrades_gracefully(
+        self, mock_plan_query, mock_fetch_sql, mock_generate_report
     ):
-        # 3-way cross filter: primary succeeds, secondary 1 fails, secondary 2 succeeds
-        # Let's say: "Show top performer in PPT who plays cricket and is currently on leave"
-        # All three legs run in parallel threads, so the mock must key off
-        # the actual payload (category) rather than call order — a plain
-        # sequential side_effect list races and is flaky.
-        def side_effect(payload, *args, **kwargs):
-            category = payload.get("category")
-            if category == "Performance":
-                return [{"agniveerNo": "101"}, {"agniveerNo": "102"}], None
-            if category == "Skills":
-                return None, "Connection error to Skills"
-            return [{"agniveerNo": "102"}, {"agniveerNo": "103"}], None
+        message = "Show attendance stats and equipment overdue records"
+        mock_plan_query.return_value = _multi_independent_plan(message)
 
-        mock_call_dotnet.side_effect = side_effect
+        attendance_section = {
+            "success": True,
+            "records": [{"agniveerNo": "101"}],
+            "data": [{"agniveerNo": "101"}],
+            "count": 1,
+        }
+        unavailable = {"unavailable": True}
+        mock_fetch_sql.return_value = (
+            [attendance_section, unavailable],
+            [("Attendance", attendance_section), ("Equipment", unavailable)],
+            None,
+        )
         mock_generate_report.return_value = {
             "introMessage": "Report.",
             "analysis": {"summary": "Analysis", "observations": [], "insights": []},
             "conclusion": {"summary": "Conclusion"},
         }
+
+        result = execute_admin_query(message, {})
+
+        self.assertEqual(result["type"], "query")
+        response_payload = result["response_payload"]
+        self.assertTrue(response_payload.get("partialFailure"))
+        self.assertEqual(response_payload.get("failedSections"), ["Equipment"])
+
+    @patch("admin_pipeline.fetch_sql_results")
+    def test_cross_filter_failure_is_all_or_nothing(self, mock_fetch_sql):
+        # R4: a cross-filter is one atomic query — a failure here means the
+        # whole cross-filter fails, never a partial intersection.
+        mock_fetch_sql.return_value = ([], [], "CANNOT_ANSWER")
 
         result = execute_admin_query(
-            "Show top performer in PPT who plays cricket and is currently on leave", {}
+            "Show top performer in PPT who plays cricket and is currently on leave",
+            {},
         )
 
-        self.assertEqual(result["type"], "query")
-        response_payload = result["response_payload"]
-        self.assertTrue(response_payload["status"])
+        self.assertEqual(result["type"], "unrecognised")
 
-        # A single widget is returned bare, not wrapped in a list — see
-        # response_builder.py's module docstring. degraded/failedFilters
-        # live directly inside that widget's data.
-        table_widget = response_payload["formattedData"]
-        self.assertEqual(table_widget["type"], "TABLE")
-        table_data = table_widget["data"]
-        self.assertTrue(table_data.get("degraded"))
-        self.assertEqual(table_data.get("failedFilters"), ["Skills"])
-        self.assertEqual(table_data["matchCount"], 1)
-        self.assertEqual(
-            table_data["row"][0].get("agniveerNo")
-            or table_data["row"][0].get("AgniveerNo"),
-            "102",
-        )
-
-    @patch("admin_pipeline._call_dotnet")
-    @patch("admin_pipeline.generate_report")
-    def test_comparison_side_failure(self, mock_generate_report, mock_call_dotnet):
-        # Comparison: one side succeeds, one side fails. Both sides run in
-        # parallel threads, so the mock must key off the actual payload
-        # (which section it's for) rather than assuming call order — a
-        # plain sequential side_effect list races and is flaky.
-        def side_effect(payload, *args, **kwargs):
-            if payload.get("section") == "PPT":
-                return [{"id": 1, "bestTotal": 95}], None
-            return None, "Timeout on BEPT"
-
-        mock_call_dotnet.side_effect = side_effect
-        mock_generate_report.return_value = {
-            "introMessage": "Report.",
-            "analysis": {"summary": "Analysis", "observations": [], "insights": []},
-            "conclusion": {"summary": "Conclusion"},
-        }
+    @patch("admin_pipeline.fetch_sql_results")
+    def test_compare_failure_is_all_or_nothing(self, mock_fetch_sql):
+        # Likewise, a compare bubbles an error if either side fails — there
+        # is no more "unavailable" placeholder side.
+        mock_fetch_sql.return_value = ([], [], "Timeout on BEPT")
 
         result = execute_admin_query("Compare PPT and BEPT", {})
 
-        self.assertEqual(result["type"], "query")
-        response_payload = result["response_payload"]
-        self.assertTrue(response_payload["status"])
+        self.assertEqual(result["type"], "unrecognised")
 
-        # A single widget is returned bare, not wrapped in a list — see
-        # response_builder.py's module docstring.
-        widget = response_payload["formattedData"]
-        self.assertEqual(widget["type"], "COMPARE_TABLE")
-
-        # PPT (left side) succeeds and has 1 row
-        left_table = widget["data"]["left"]
-        self.assertEqual(len(left_table["row"]), 1)
-
-        # BEPT (right side) failed — rendered as a single "unavailable"
-        # placeholder row rather than an empty table.
-        right_table = widget["data"]["right"]
-        self.assertEqual(len(right_table["row"]), 1)
-        self.assertTrue(right_table["row"][0].get("unavailable"))
-
-        # Failed sections metadata is populated
-        self.assertEqual(response_payload["failedSections"], ["BPET"])
-        self.assertTrue(response_payload["partialFailure"])
-
-    @patch("admin_pipeline._call_dotnet")
-    def test_all_intents_fail(self, mock_call_dotnet):
-        # All intents fail
-        mock_call_dotnet.side_effect = [(None, "Error 1"), (None, "Error 2")]
+    @patch("admin_pipeline.fetch_sql_results")
+    def test_all_intents_fail(self, mock_fetch_sql):
+        mock_fetch_sql.return_value = ([], [], "Error 1")
         result = execute_admin_query("Compare PPT and BEPT", {})
-        self.assertEqual(result["type"], "error")
-        self.assertIn("trouble reaching", result["error_message"].lower())
+        self.assertEqual(result["type"], "unrecognised")
+        self.assertIn("rephrase", result["response_payload"]["message"].lower())
 
 
 if __name__ == "__main__":

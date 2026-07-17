@@ -46,6 +46,16 @@ CURATED_TABLES: frozenset = frozenset(
         "AgniveerEquipment",
         "DistributionMaster",
         "AgniveerRelationMaster",
+        "CompanySchedule",
+        "AgniveerPlatoonHistory",
+        "DistributionHistoryMaster",
+        "PlatoonCompanyHistory",
+        "CompanyCommanderHistory",
+        "PlatoonCommanderHistory",
+        "CompanyCommandingOfficerHistory",
+        "UserMaster",
+        "RoleMaster",
+        "UserRole",
     }
 )
 

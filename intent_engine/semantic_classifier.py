@@ -348,9 +348,9 @@ def classify_ollama_constrained(query: str) -> Dict[str, Any]:
 
     try:
         import requests  # type: ignore
-        from config import OLLAMA_URL  # type: ignore
+        from config import OLLAMA_BASE_URL  # type: ignore
         resp = requests.post(
-            f"{OLLAMA_URL}/api/generate",
+            f"{OLLAMA_BASE_URL}/api/generate",
             json={"model": "mistral", "prompt": prompt, "stream": False},
             timeout=10,
         )

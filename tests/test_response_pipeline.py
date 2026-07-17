@@ -485,16 +485,19 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         msg = build_combined_message("Hello.", "", analysis, None)
         self.assertIn("Predictions:\n- Pred 1\n- Pred 2", msg)
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
     def test_formatted_data_is_populated_on_data_query(
-        self, mock_generate_report, mock_call_dotnet
+        self, mock_generate_report, mock_fetch_sql
     ):
         # Verification data query
-        mock_call_dotnet.return_value = (
-            [{"agniveerNo": "1", "fullName": "John Doe"}],
-            None,
-        )
+        section = {
+            "success": True,
+            "records": [{"agniveerNo": "1", "fullName": "John Doe"}],
+            "data": [{"agniveerNo": "1", "fullName": "John Doe"}],
+            "count": 1,
+        }
+        mock_fetch_sql.return_value = ([section], [("Result", section)], None)
         mock_generate_report.return_value = {
             "message": "Intro.",
             "analysis": {

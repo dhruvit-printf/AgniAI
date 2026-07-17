@@ -167,6 +167,17 @@ def classify_admin_intent(
       - Subcategory                       → CATEGORY_OPERATION_TO_SUBCATEGORY table (pure lookup)
 
     No re-inference is performed here.  Each field is set exactly once.
+
+    Post text-to-SQL migration: this is called from
+    intent_engine/query_planner.py._build_sub_operation() for every query
+    shape, and its output (category/operation/section/entities) is used as
+    the SQL generation hint (see sql_query_plan.fetch_sql_results /
+    sql_executor.generate_sql) — it no longer feeds a .NET call anywhere.
+    format_admin_payload()'s DTO output is now unused dead weight for that
+    reason (still computed by _build_sub_operation into
+    SubOperation.dotnet_payload, but nothing reads it) — left in place since
+    removing it means touching query_planner.py's hint-building, which is
+    deliberately out of scope for this pass.
     """
     raw_query = str(query or "").strip()
     resolved_entities = resolved_entities or {}

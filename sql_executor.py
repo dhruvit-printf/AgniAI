@@ -66,7 +66,10 @@ CORE ENTITY
   AgniveerMaster a  (PK a.Id bigint)
     a.AgniveerNo, a.FullName, a.BatchId, a.PlatoonId, a.MainCategory, a.Class,
     a.DateOfBirth, a.DateOfJoining, a.Height, a.Weight, a.BloodGroup,
-    a.Skill, a.Sports, a.District, a.State, a.IsActive, a.IsDisqualified
+    a.Skill, a.Sports, a.District, a.State, a.IsActive, a.IsDisqualified,
+    a.Address, a.MobileNo, a.EroName, a.NextOfKin, a.Email, a.PinCode,
+    a.PoliceStation, a.PostOffice, a.Qualification, a.Tehsil, a.Village,
+    a.Awards, a.Certificate, a.Hobby, a.SponserUnitId, a.DisqualifiedDate
 
 ORG HIERARCHY (join map)
   Agniveer -> Platoon -> Company :  a.PlatoonId = p.Id ,  p.CompanyId = c.Id
@@ -95,8 +98,43 @@ DOMAIN TABLES (all join to AgniveerMaster on <table>.AgniveerId = a.Id)
                             ReturnDateTime, GivenCondition, ReturnCondition)
   DistributionMaster d     (Id, Name)
   AgniveerRelationMaster   (AgniveerId, DistributionId)
+  CompanySchedule          (CompanyId, ScheduleDate, Pd, TimeRange, Code, Type, Details, Location, Resp)
+  AgniveerPlatoonHistory   (AgniveerId, PlatoonId, StartDate, EndDate)
+  DistributionHistoryMaster (AgniveerId, DistributionId, Rank, TeamId, Location)
+  PlatoonCompanyHistory    (PlatoonId, CompanyId, StartDate, EndDate)
+  CompanyCommanderHistory  (CompanyId, CommanderId, StartDate, EndDate)
+  PlatoonCommanderHistory  (PlatoonId, CommanderId, StartDate, EndDate)
+  CompanyCommandingOfficerHistory (CompanyId, CommandingOfficerId, StartDate, EndDate)
+  UserMaster               (Id, FullName, Username, Email, ContactNo, AgniVeerId, IsActive)
+
+DERIVED VIEWS (dbo schema) — the DB, not this prompt, is the source of truth
+for computed business rules. Each view below already applies logic that is
+easy to get wrong from raw tables (best-attempt scoring, dynamic-max
+grading, leave day-count math, BMI bucketing, equipment condition ranking,
+leave-aware attendance, verification status). See db/derived_views.sql for
+the exact definitions.
+  vw_AgniveerBestAttemptTotals   (AgniveerId, Section, BestTotal)
+  vw_AgniveerSectionGrades       (AgniveerId, SectionId, SectionName,
+                                  BestTotal, DynamicMax, Percentage, Grade)
+  vw_AgniveerLeaveDayCounts      (AgniveerId, LeaveType, FromDate, ToDate,
+                                  LeaveCount)
+  vw_AgniveerLeaveThreshold      (AgniveerId, IsThreshold, Reason)
+  vw_AgniveerBmi                 (AgniveerId, AvgHeight, AvgWeight, Bmi,
+                                  BmiCategory)
+  vw_EquipmentDegraded           (AssignmentId, AgniveerId, EquipmentName,
+                                  IsDegraded)
+  vw_AgniveerAttendanceStatus    (AgniveerId, Date, IsPresent)
+  vw_AgniveerVerificationStatus  (AgniveerId, Status, PoliceStation,
+                                  SentDate, ReceivedDate, DaysSinceSent)
 
 HARD RULES — these are NON-NEGOTIABLE. Break one and the query is rejected.
+  R0. VIEWS FIRST: for grading, dynamic-max percentage, leave-day counts or
+      thresholds, BMI, equipment degradation, leave-aware attendance, or
+      verification status, you MUST select from the matching view above and
+      MUST NOT recompute that logic yourself from AgniveerScoreAttempt,
+      AgniveerSectionResult, MedicalRecordMaster, AgniveerLeaveMaster, or
+      AgniveerEquipment. A raw-table query that reinvents view logic is a
+      rejected answer even if the numbers happen to match.
   R1. ACTIVE FILTER: every query touching AgniveerMaster MUST include
         (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
       Exception: an explicit "disqualified agniveers" request inverts it to
@@ -104,8 +142,11 @@ HARD RULES — these are NON-NEGOTIABLE. Break one and the query is rejected.
   R2. SPECIAL COLUMNS: these two AgniveerLeaveMaster columns contain a
       space / apostrophe and MUST be written bracket-quoted EXACTLY:
         [OnATTN'C']   and   [OnEX PPG]
-      Never rename, alias-away, or unquote them.
-  R3. EXCEPTIONAL MARKS: when a section may be exceptional, use
+      Never rename, alias-away, or unquote them. (Not needed when using
+      vw_AgniveerLeaveDayCounts / vw_AgniveerLeaveThreshold — those views
+      already expose a plain LeaveType string.)
+  R3. EXCEPTIONAL MARKS: when a section may be exceptional and the question
+      isn't already answerable from vw_AgniveerSectionGrades, use
         CASE WHEN s.IsExceptional = 1
              THEN COALESCE(r.ExceptionalMarks, 0.0)
              ELSE r.SubItemTotalMarks END
@@ -135,38 +176,37 @@ GOLDEN_QUERIES: Dict[Tuple[str, str, str], str] = {
         "TopPerformers",
         "Top",
     ): """
-SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(sr.SubItemTotalMarks) AS TotalMarks
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(bt.BestTotal) AS TotalMarks
 FROM AgniveerMaster a
-INNER JOIN AgniveerSectionResult sr ON sr.AgniveerId = a.Id
+INNER JOIN vw_AgniveerBestAttemptTotals bt ON bt.AgniveerId = a.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
 GROUP BY a.AgniveerNo, a.FullName
-ORDER BY SUM(sr.SubItemTotalMarks) DESC
+ORDER BY SUM(bt.BestTotal) DESC
 """.strip(),
     (
         "Performance",
         "LowestPerformers",
         "Bottom",
     ): """
-SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(sr.SubItemTotalMarks) AS TotalMarks
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(bt.BestTotal) AS TotalMarks
 FROM AgniveerMaster a
-INNER JOIN AgniveerSectionResult sr ON sr.AgniveerId = a.Id
+INNER JOIN vw_AgniveerBestAttemptTotals bt ON bt.AgniveerId = a.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
 GROUP BY a.AgniveerNo, a.FullName
-ORDER BY SUM(sr.SubItemTotalMarks) ASC
+ORDER BY SUM(bt.BestTotal) ASC
 """.strip(),
     (
         "Performance",
         "AverageScore",
         "Average",
     ): """
-SELECT s.SectionName, AVG(sr.SubItemTotalMarks) AS AverageMarks,
-       COUNT(DISTINCT sr.AgniveerId) AS AgniveerCount
-FROM AgniveerSectionResult sr
-INNER JOIN ScoreSectionMaster s ON s.Id = sr.SectionId
-INNER JOIN AgniveerMaster a ON a.Id = sr.AgniveerId
+SELECT bt.Section AS SectionName, AVG(bt.BestTotal) AS AverageMarks,
+       COUNT(DISTINCT bt.AgniveerId) AS AgniveerCount
+FROM vw_AgniveerBestAttemptTotals bt
+INNER JOIN AgniveerMaster a ON a.Id = bt.AgniveerId
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
-GROUP BY s.SectionName
-ORDER BY AVG(sr.SubItemTotalMarks) DESC
+GROUP BY bt.Section
+ORDER BY AVG(bt.BestTotal) DESC
 """.strip(),
     (
         "Attendance",
@@ -175,9 +215,9 @@ ORDER BY AVG(sr.SubItemTotalMarks) DESC
     ): """
 SELECT a.AgniveerNo, a.FullName,
        SUM(CASE WHEN att.IsPresent = 1 THEN 1 ELSE 0 END) AS PresentDays,
-       COUNT(att.Id) AS TotalDays
+       COUNT(att.Date) AS TotalDays
 FROM AgniveerMaster a
-INNER JOIN AgniveerAttendanceMaster att ON att.AgniveerId = a.Id
+INNER JOIN vw_AgniveerAttendanceStatus att ON att.AgniveerId = a.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
 GROUP BY a.AgniveerNo, a.FullName
 ORDER BY a.AgniveerNo
@@ -187,13 +227,11 @@ ORDER BY a.AgniveerNo
         "CurrentLeaveStatus",
         "Current",
     ): """
-SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, l.FromDate, l.ToDate,
-       l.OnAnnualLeave, l.OnMedicalLeave, l.OnSickLeave,
-       l.[OnATTN'C'], l.[OnEX PPG], l.IsHospitalized
+SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, l.FromDate, l.ToDate, l.LeaveType
 FROM AgniveerMaster a
-INNER JOIN AgniveerLeaveMaster l ON l.AgniveerId = a.Id
+INNER JOIN vw_AgniveerLeaveDayCounts l ON l.AgniveerId = a.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
-  AND GETDATE() BETWEEN l.FromDate AND l.ToDate
+  AND CAST(GETDATE() AS DATE) BETWEEN CAST(l.FromDate AS DATE) AND CAST(l.ToDate AS DATE)
 ORDER BY l.FromDate DESC
 """.strip(),
     (
@@ -214,12 +252,12 @@ ORDER BY COUNT(DISTINCT m.AgniveerId) DESC
         "PendingVerification",
         "Pending",
     ): """
-SELECT a.AgniveerNo, a.FullName, v.PoliceStation, v.SentDate, v.Status
+SELECT a.AgniveerNo, a.FullName, vs.PoliceStation, vs.SentDate, vs.Status
 FROM AgniveerMaster a
-INNER JOIN PoliceVerificationMaster v ON v.AgniveerId = a.Id
+INNER JOIN vw_AgniveerVerificationStatus vs ON vs.AgniveerId = a.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
-  AND v.Status = 'Pending'
-ORDER BY v.SentDate ASC
+  AND vs.Status = 'Pending'
+ORDER BY vs.SentDate ASC
 """.strip(),
     (
         "Equipment",
@@ -241,12 +279,12 @@ ORDER BY ae.GivenDateTime DESC
     ): """
 SELECT a.AgniveerNo, a.FullName, p.Name AS Platoon, c.Name AS Company
 FROM AgniveerMaster a
-INNER JOIN AgniveerAttendanceMaster att ON att.AgniveerId = a.Id
+INNER JOIN vw_AgniveerAttendanceStatus att ON att.AgniveerId = a.Id
 LEFT JOIN PlatoonMaster p ON a.PlatoonId = p.Id
 LEFT JOIN CompanyMaster c ON p.CompanyId = c.Id
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
   AND att.IsPresent = 1
-  AND CAST(att.AttendanceDateTime AS DATE) = CAST(GETDATE() AS DATE)
+  AND CAST(att.Date AS DATE) = CAST(GETDATE() AS DATE)
 ORDER BY a.AgniveerNo
 """.strip(),
     (
@@ -442,6 +480,18 @@ def execute_sql_query(
             str(intent.get("operation") or ""),
         )
         golden = GOLDEN_QUERIES.get(key)
+
+        # Bypass golden query if there are specific filters the static SQL doesn't support.
+        # This forces it to gracefully fall back to the LLM (which respects derived views and WHERE clauses).
+        if golden and (
+            intent.get("section")
+            or intent.get("sport")
+            or intent.get("companyId")
+            or intent.get("platoonId")
+            or intent.get("batchId")
+        ):
+            golden = None
+
         if golden:
             rendered = _render_golden_query(golden, intent)
             err = validate_sql(rendered)

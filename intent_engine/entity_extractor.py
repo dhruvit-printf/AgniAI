@@ -975,3 +975,39 @@ def extract_entities(
     )
 
     return result
+
+
+# Canonical (camelCase) key -> every spelling the frontend payload might use.
+# admin_pipeline._extract_frontend_intent() keys its dict in snake_case
+# (company_id/platoon_id/batch_id/agniveer_no, per _INTENT_FIELD_ALIASES),
+# while extract_entities() above returns camelCase — this bridges the two so
+# a frontend-supplied value is recognised under either spelling.
+_FRONTEND_OVERRIDE_KEYS: Dict[str, Tuple[str, ...]] = {
+    "companyId": ("companyId", "company_id"),
+    "platoonId": ("platoonId", "platoon_id"),
+    "batchId": ("batchId", "batch_id"),
+    "agniveerNo": ("agniveerNo", "agniveer_no"),
+    "fromDate": ("fromDate", "from_date"),
+    "toDate": ("toDate", "to_date"),
+}
+
+
+def merge_frontend_intent(
+    frontend_intent: Dict[str, Any], extracted: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Merge a frontend-supplied intent payload with free-text extraction.
+
+    Frontend payload wins on ID fields (company/platoon/batch/agniveerNo,
+    explicit fromDate/toDate a UI date-picker set) — those are literal user
+    selections, not inference. Free-text extraction (`extracted`, the output
+    of `extract_entities()`) fills everything the frontend didn't supply
+    (section, grading, sport, leaveType, diagnose, ...).
+    """
+    merged = dict(extracted)
+    for canonical, aliases in _FRONTEND_OVERRIDE_KEYS.items():
+        for alias in aliases:
+            value = frontend_intent.get(alias)
+            if value not in (None, "", 0):
+                merged[canonical] = value
+                break
+    return merged

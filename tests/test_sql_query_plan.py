@@ -2,8 +2,8 @@
 tests/test_sql_query_plan.py
 =============================
 Unit tests for sql_query_plan.py — drives sql_executor per query-plan type
-and hands results to the EXISTING result_combiner so the SQL path's output
-shape matches the .NET path exactly (Task 4 accept criteria).
+and returns raw + labeled results for admin_pipeline.py's single
+combine_results() call to consume (Task 4 accept criteria).
 """
 
 from __future__ import annotations
@@ -11,8 +11,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from intent_engine.query_planner import QueryPlan, QueryType, SubOperation
-from result_combiner import combine_results
-from sql_query_plan import run_sql_plan
+from sql_query_plan import fetch_sql_results
 
 
 def _op(fragment: str, category: str, **extra) -> SubOperation:
@@ -31,7 +30,7 @@ def _plan(query_type: QueryType, operations, confidence=0.9) -> QueryPlan:
 
 
 class TestSimple:
-    def test_simple_matches_combine_results_passthrough(self):
+    def test_simple_returns_single_raw_and_labeled_section(self):
         op = _op("top performers in bpet", "Performance")
         plan = _plan(QueryType.SIMPLE, [op])
         section = {
@@ -43,15 +42,13 @@ class TestSimple:
 
         with patch("sql_query_plan.execute_sql_query") as mock_exec:
             mock_exec.return_value = (section, None)
-            data, err = run_sql_plan(
+            raw, labeled, err = fetch_sql_results(
                 plan, "top performers in bpet", {"category": "Performance"}
             )
 
         assert err is None
-        expected = combine_results(
-            [section], [("Performance", section)], "simple", {"category": "Performance"}
-        )
-        assert data == expected == section
+        assert raw == [section]
+        assert labeled == [("Performance", section)]
 
     def test_simple_bubbles_error(self):
         op = _op("gibberish query", "Performance")
@@ -59,14 +56,15 @@ class TestSimple:
 
         with patch("sql_query_plan.execute_sql_query") as mock_exec:
             mock_exec.return_value = (None, "CANNOT_ANSWER")
-            data, err = run_sql_plan(plan, "gibberish query", {})
+            raw, labeled, err = fetch_sql_results(plan, "gibberish query", {})
 
-        assert data is None
+        assert raw == []
+        assert labeled == []
         assert err == "CANNOT_ANSWER"
 
 
 class TestCrossFilter:
-    def test_cross_filter_single_query_combined_via_combine_results(self):
+    def test_cross_filter_single_query_returns_one_section(self):
         op1 = _op("suffered from fever", "Medical")
         op2 = _op("failed bpet", "Performance")
         plan = _plan(QueryType.CROSS_FILTER, [op1, op2])
@@ -79,7 +77,7 @@ class TestCrossFilter:
 
         with patch("sql_query_plan.execute_sql_query") as mock_exec:
             mock_exec.return_value = (section, None)
-            data, err = run_sql_plan(
+            raw, labeled, err = fetch_sql_results(
                 plan, "who suffered from fever and failed bpet", {}
             )
 
@@ -90,9 +88,8 @@ class TestCrossFilter:
         assert "fever" in kwargs["question"] and "bpet" in kwargs["question"]
         assert kwargs["intent"]["query_type"] == "cross_filter"
 
-        assert data["status"] is True
-        assert data["filterDepth"] == 1
-        assert {r["agniveerNo"] for r in data["records"]} == {"A1", "A2"}
+        assert raw == [section]
+        assert labeled == [("Medical", section)]
 
     def test_cross_filter_bubbles_error(self):
         op1 = _op("suffered from fever", "Medical")
@@ -101,14 +98,15 @@ class TestCrossFilter:
 
         with patch("sql_query_plan.execute_sql_query") as mock_exec:
             mock_exec.return_value = (None, "Statement contains a forbidden keyword.")
-            data, err = run_sql_plan(plan, "q", {})
+            raw, labeled, err = fetch_sql_results(plan, "q", {})
 
-        assert data is None
+        assert raw == []
+        assert labeled == []
         assert err is not None
 
 
 class TestCompare:
-    def test_compare_two_labeled_sides(self):
+    def test_compare_returns_two_labeled_sides(self):
         op1 = _op("bpet scores", "Performance", section="BPET")
         op2 = _op("firing scores", "Performance", section="Firing")
         plan = _plan(QueryType.COMPARE, [op1, op2])
@@ -127,18 +125,12 @@ class TestCompare:
 
         with patch("sql_query_plan.execute_sql_query") as mock_exec:
             mock_exec.side_effect = [(section1, None), (section2, None)]
-            data, err = run_sql_plan(plan, "compare bpet vs firing", {})
+            raw, labeled, err = fetch_sql_results(plan, "compare bpet vs firing", {})
 
         assert err is None
         assert mock_exec.call_count == 2
-        expected = combine_results(
-            [section1, section2],
-            [("BPET", section1), ("Firing", section2)],
-            "compare",
-            {},
-        )
-        assert data == expected
-        assert data["queryType"] == "comparison"
+        assert raw == [section1, section2]
+        assert labeled == [("BPET", section1), ("Firing", section2)]
 
     def test_compare_bubbles_error_on_either_side(self):
         op1 = _op("bpet scores", "Performance", section="BPET")
@@ -150,9 +142,10 @@ class TestCompare:
                 ({"success": True, "records": [], "data": [], "count": 0}, None),
                 (None, "CANNOT_ANSWER"),
             ]
-            data, err = run_sql_plan(plan, "q", {})
+            raw, labeled, err = fetch_sql_results(plan, "q", {})
 
-        assert data is None
+        assert raw == []
+        assert labeled == []
         assert err == "CANNOT_ANSWER"
 
 
@@ -176,20 +169,13 @@ class TestMultiIndependent:
 
         with patch("sql_query_plan.execute_sql_query") as mock_exec:
             mock_exec.side_effect = [(section1, None), (section2, None)]
-            data, err = run_sql_plan(plan, "q", {})
+            raw, labeled, err = fetch_sql_results(plan, "q", {})
 
         assert err is None
-        assert data["queryType"] == "multi_independent"
-        assert data["sectionCount"] == 2
-        labels = [s["label"] for s in data["sections"]]
-        assert labels == ["Attendance", "Leave"]
-        # Never merged/intersected — each section keeps its own records
-        # (normalize_response also inherits the envelope's "success" scalar
-        # into each record — existing, unrelated normalizer behavior).
-        assert data["sections"][0]["data"] == [{"agniveerNo": "A1", "success": True}]
-        assert data["sections"][1]["data"] == [{"agniveerNo": "A2", "success": True}]
+        assert raw == [section1, section2]
+        assert labeled == [("Attendance", section1), ("Leave", section2)]
 
-    def test_multi_independent_partial_failure_is_degraded_not_bubbled(self):
+    def test_multi_independent_partial_failure_uses_placeholder(self):
         op1 = _op("attendance summary", "Attendance")
         op2 = _op("current leave status", "Leave")
         plan = _plan(QueryType.MULTI_INDEPENDENT, [op1, op2])
@@ -202,12 +188,11 @@ class TestMultiIndependent:
 
         with patch("sql_query_plan.execute_sql_query") as mock_exec:
             mock_exec.side_effect = [(section1, None), (None, "CANNOT_ANSWER")]
-            data, err = run_sql_plan(plan, "q", {})
+            raw, labeled, err = fetch_sql_results(plan, "q", {})
 
         assert err is None
-        assert data["degraded"] is True
-        assert data["failedSections"] == ["Leave"]
-        assert data["sectionCount"] == 2
+        assert raw == [section1, {"unavailable": True}]
+        assert labeled == [("Attendance", section1), ("Leave", {"unavailable": True})]
 
     def test_multi_independent_all_failed_bubbles_error(self):
         op1 = _op("attendance summary", "Attendance")
@@ -216,7 +201,8 @@ class TestMultiIndependent:
 
         with patch("sql_query_plan.execute_sql_query") as mock_exec:
             mock_exec.side_effect = [(None, "CANNOT_ANSWER"), (None, "CANNOT_ANSWER")]
-            data, err = run_sql_plan(plan, "q", {})
+            raw, labeled, err = fetch_sql_results(plan, "q", {})
 
-        assert data is None
+        assert raw == []
+        assert labeled == []
         assert err is not None
