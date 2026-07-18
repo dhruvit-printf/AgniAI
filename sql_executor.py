@@ -860,12 +860,13 @@ def _to_section(
 
 
 # ── Read-only execution ────────────────────────────────────────────────────
-def run_readonly(sql: str) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+def run_readonly(sql: str, params: Optional[List[Any]] = None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
     """Execute a validated SELECT against the READ-ONLY login. (rows, error)."""
     if not SQL_READONLY_CONN:
         return None, "SQL_READONLY_CONN is not configured."
     try:
         import pyodbc  # imported lazily so the rest of AgniAI runs without it
+        pyodbc.pooling = True
     except Exception as exc:  # pragma: no cover
         return None, f"pyodbc not installed: {exc}"
 
@@ -877,9 +878,20 @@ def run_readonly(sql: str) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str
         cur = conn.cursor()
         # Belt-and-suspenders row cap regardless of query shape (works on 2008).
         cur.execute(f"SET ROWCOUNT {SQL_MAX_ROWS}")
-        cur.execute(sql)
+        if params:
+            cur.execute(sql, tuple(params))
+        else:
+            cur.execute(sql)
         cols = [d[0] for d in cur.description]
-        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        
+        rows = []
+        while True:
+            chunk = cur.fetchmany(100)
+            if not chunk:
+                break
+            for r in chunk:
+                rows.append(dict(zip(cols, r)))
+                
         cur.execute("SET ROWCOUNT 0")
         conn.close()
         return rows, None
@@ -889,7 +901,7 @@ def run_readonly(sql: str) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str
         return None, "The generated query could not be executed against the database."
 
 
-# ── Public entrypoint — mirrors dotnet_executor._call_dotnet contract ──────
+# ── Public entrypoint — AST Pipeline ──────
 def execute_sql_query(
     payload: Optional[Dict] = None,
     *,
@@ -899,71 +911,80 @@ def execute_sql_query(
     **_ignored: Any,
 ) -> Tuple[Any, Optional[str]]:
     """
-    Drop-in alternative to _call_dotnet(...). Returns (section, None) on
-    success — `section` is the `_to_section()` envelope
-    ({"success", "records", "data", "count"}) so downstream normalization
-    resolves it exactly like a .NET response — or (None, error) on failure.
-    `question` is the raw NL query; `intent` is the classifier output (used
-    for the golden fast-path and as a hint).
+    Executes a query via the AST semantic compilation pipeline.
     """
     logger.warning(f"[DEBUG SQL EXECUTOR] question: {question!r}")
-    # 1) Golden fast-path — deterministic, no LLM.
-    if intent:
-        key = (
-            str(intent.get("category") or ""),
-            str(intent.get("operation") or ""),
-        )
-        golden = GOLDEN_QUERIES.get(key)
+    if not intent:
+        return None, "No intent provided to query planner."
 
-        # Bypass golden query if there are specific filters the static SQL doesn't support.
-        # This forces it to gracefully fall back to the LLM (which respects derived views and WHERE clauses).
-        if golden and (
-            intent.get("section")
-            or intent.get("sport")
-            or intent.get("companyId") or intent.get("company_id")
-            or intent.get("platoonId") or intent.get("platoon_id")
-            or intent.get("batchId") or intent.get("batch_id")
-            or intent.get("agniveerNo") or intent.get("agniveer_no")
-            or intent.get("agniveerId")
-            or intent.get("leaveType")
-            or intent.get("date")
-        ):
-            golden = None
+    from query_planner_v2 import query_planner_v2
+    from sql_builder import sql_builder
+    from sql_validator import sql_validator
 
-        if golden:
-            rendered = _render_golden_query(golden, intent)
-            err = validate_sql(rendered)
-            if err:
-                return None, f"Golden query rejected: {err}"
-            rows, run_err = run_readonly(rendered)
-            if run_err:
-                return None, run_err
-            metrics_hook("golden_hit")
-            return _to_section(rows or [], intent, sql=rendered), None
+    import time
+    from explainability_engine import explainability_engine
+    
+    t0 = time.time()
+    # 1. AST Generation
+    try:
+        # Convert legacy intent to v2 intent format
+        v2_intent = {
+            "base_concept": intent.get("category", "Agniveer"),
+            "filters": {},
+            "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS
+        }
+        # Attempt to map some legacy entities over
+        if intent.get("companyId") or intent.get("company_id") or intent.get("Company"):
+            v2_intent["filters"]["Company.Name"] = intent.get("Company")
+        ast = query_planner_v2.plan_query(v2_intent)
+    except Exception as e:
+        logger.error(f"AST generation failed: {e}")
+        return None, f"Could not construct semantic query plan: {e}"
+        
+    t1 = time.time()
 
-    # 2) Generate.
-    sql, gen_err = generate_sql(question, intent)
-    if sql:
-        logger.warning(f"[DEBUG SQL EXECUTOR] Generated SQL:\n{sql}")
-    if gen_err or sql is None:
-        if gen_err == "CANNOT_ANSWER":
-            metrics_hook("cannot_answer")
-        return None, gen_err or "CANNOT_ANSWER"
-    metrics_hook("generated")
-
-    # 3) Validate (hard gate).
-    val_err = validate_sql(sql)
-    if val_err:
-        logger.info("Generated SQL rejected by validator: %s", val_err)
+    # 2. AST Validation
+    is_valid, val_err = sql_validator.validate_ast(ast)
+    if not is_valid:
+        logger.info("AST rejected by validator: %s", val_err)
         metrics_hook("validator_rejected")
         return None, val_err
 
-    # 4) Execute read-only.
-    rows, run_err = run_readonly(sql)
+    # 3. Compilation
+    sql, params = sql_builder.build(ast)
+    logger.warning(f"[DEBUG SQL EXECUTOR] Compiled SQL:\n{sql}\nParams: {params}")
+    
+    t2 = time.time()
+
+    # 4. Final SQL Validation
+    is_sql_valid, sql_val_err = sql_validator.validate_sql(sql)
+    if not is_sql_valid:
+        metrics_hook("validator_rejected")
+        return None, sql_val_err
+
+    metrics_hook("generated")
+
+    # 5. Execute read-only
+    rows, run_err = run_readonly(sql, params)
     if run_err:
         metrics_hook("exec_error")
         return None, run_err
-    return _to_section(rows or [], intent, sql=sql), None
+        
+    t3 = time.time()
+    
+    # 6. Metadata & Explainability
+    explanation = explainability_engine.explain(ast)
+    execution_metadata = {
+        "planning_duration_ms": int((t1 - t0) * 1000),
+        "compilation_duration_ms": int((t2 - t1) * 1000),
+        "execution_duration_ms": int((t3 - t2) * 1000),
+        "rows_returned": len(rows) if rows else 0,
+        "explanation": explanation
+    }
+    
+    res = _to_section(rows or [], intent, sql=sql)
+    res["execution_metadata"] = execution_metadata
+    return res, None
 
 
 def metrics_hook(event: str) -> None:

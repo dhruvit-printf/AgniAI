@@ -1,0 +1,74 @@
+{
+  "concepts": {
+    "Agniveer": {
+      "table": "AgniveerMaster",
+      "type": "Core",
+      "default_date_column": null,
+      "implicit_filters": {}
+    },
+    "Attendance": {
+      "table": "AgniveerAttendanceMaster",
+      "type": "Fact",
+      "default_date_column": "AttendanceDateTime",
+      "implicit_filters": {
+        "IsPresent": 1
+      }
+    },
+    "Leave": {
+      "table": "AgniveerLeaveMaster",
+      "type": "Fact",
+      "default_date_column": "FromDate",
+      "implicit_filters": {}
+    },
+    "Performance": {
+      "table": "AgniveerScoreAttempt",
+      "type": "Fact",
+      "default_date_column": "AttemptedDate",
+      "implicit_filters": {
+        "IsBestAttempt": 1
+      }
+    },
+    "Medical": {
+      "table": "MedicalRecordMaster",
+      "type": "Fact",
+      "default_date_column": "VisitDate",
+      "implicit_filters": {}
+    },
+    "Verification": {
+      "table": "PoliceVerificationMaster",
+      "type": "Fact",
+      "default_date_column": "SentDate",
+      "implicit_filters": {}
+    },
+    "Equipment": {
+      "table": "AgniveerEquipment",
+      "type": "Fact",
+      "default_date_column": "GivenDateTime",
+      "implicit_filters": {}
+    },
+    "Distribution": {
+      "table": "DistributionMaster",
+      "type": "Dimension",
+      "default_date_column": null,
+      "implicit_filters": {}
+    },
+    "Company": {
+      "table": "CompanyMaster",
+      "type": "Dimension",
+      "default_date_column": null,
+      "implicit_filters": {}
+    },
+    "Platoon": {
+      "table": "PlatoonMaster",
+      "type": "Dimension",
+      "default_date_column": null,
+      "implicit_filters": {}
+    },
+    "Schedule": {
+      "table": "CompanySchedule",
+      "type": "Fact",
+      "default_date_column": "ScheduleDate",
+      "implicit_filters": {}
+    }
+  }
+}
