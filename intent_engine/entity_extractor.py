@@ -639,15 +639,27 @@ def _extract_agniveer_no(query: str) -> Optional[str]:
 
 def _extract_medical_status(query: str) -> Optional[str]:
     query_lower = _normalise(query)
+    if any(token in query_lower for token in ("under treatment", "in hospital", "admitted")):
+        return "Admitted"
     if any(
-        token in query_lower
-        for token in (
-            "under treatment",
-            "in hospital",
-            "admitted",
+        phrase in query_lower
+        for phrase in (
+            "medically unfit",
+            "not fit for duty",
+            "unfit for duty",
+            "unfit",
         )
     ):
-        return None
+        return "Unfit"
+    if any(
+        phrase in query_lower
+        for phrase in (
+            "medically fit",
+            "fit for duty",
+            "fit",
+        )
+    ):
+        return "Fit"
     return None
 
 

@@ -41,3 +41,20 @@ def test_sql_builder_safe_aggregate_aliasing():
     sql, params = sql_builder.build(ast)
     expected = "SELECT t0.Name, COUNT(t0.Id) AS Total FROM CompanyMaster t0"
     assert sql == expected
+
+
+def test_sql_builder_group_by_does_not_select_star():
+    from query_planner_v2 import query_planner_v2
+
+    intent = {
+        "base_concept": "Agniveer",
+        "filters": {},
+        "group_by": [{"concept": "Agniveer", "column": "Class"}],
+        "limit": 10,
+    }
+    ast = query_planner_v2.plan_query(intent)
+    sql, params = sql_builder.build(ast)
+
+    assert "AgniveerMaster.*" not in sql
+    assert "GROUP BY t0.Class" in sql
+    assert "ORDER BY t0.Id" not in sql

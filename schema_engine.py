@@ -53,6 +53,8 @@ class SchemaEngine:
         if explicit_type:
             return explicit_type.lower()
             
+        if column_name in ["AgniveerNo", "PlatoonNo"]:
+            return "string"
         if column_name in ["IsPresent", "IsBestAttempt", "IsActive", "IsDisqualified", "IsHospitalized", "IsAbscondedLeave"]:
             return "boolean"
         if column_name in ["MarksObtained", "MaxMarks", "Height", "Weight", "SubItemTotalMarks", "ExceptionalMarks"]:

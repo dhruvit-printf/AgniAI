@@ -245,7 +245,7 @@ _PROTECTED_COMMON_WORDS: FrozenSet[str] = frozenset(
         "leaves", "call", "calls", "called", "calling", "try", "tries",
         "tried", "trying", "ask", "asks", "asked", "asking", "work", "works",
         "worked", "working", "town", "towns", "matter", "matters", "problem",
-        "problems",
+        "problems", "unfit",
     }
 )
 

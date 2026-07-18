@@ -76,10 +76,12 @@ _VISUALIZATION_MARKERS = (
     "make it a",
     "as a ",
     "display as",
+    "in table",
     "bar chart",
     "pie chart",
     "line chart",
     "as table",
+    "table form",
     "as chart",
     "as bar",
     "as pie",
@@ -490,16 +492,24 @@ def _reconstruct_query(
     """
     base = matched.resolved_query.strip()
     msg = raw_msg.strip()
+    norm = _normalize(msg)
 
     if follow_up_kind == "visualization":
-        # Strip redundant leading "show" / "make it" before appending
+        # Bare layout requests like "in table" should keep the prior query
+        # intact rather than appending a malformed fragment.
+        if re.search(r"\b(table|table form)\b", norm) and not re.search(
+            r"\b(bar chart|pie chart|line chart|chart)\b", norm
+        ):
+            return base
+
+        # Strip redundant leading "show" / "make it" before appending.
         hint = re.sub(
             r"^(show\s+as|make\s+it\s+a?|display\s+as|convert\s+to)\s*",
             "",
             msg,
             flags=re.IGNORECASE,
         ).strip()
-        return f"{base} as {hint}" if hint else f"{base} {msg}"
+        return f"{base} as {hint}" if hint else base
 
     if follow_up_kind == "comparison":
         # "compare with X" → "Compare {prev_section} with X"

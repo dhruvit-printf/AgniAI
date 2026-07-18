@@ -264,6 +264,14 @@ def test_disease_filter_diagnose():
     assert r7["diagnose"] == "Back Pain"
 
 
+def test_medically_unfit_status():
+    r = classify_admin_intent("Show medically unfit agniveers")
+    assert r["category"] == "Medical"
+    assert r["medical_status"] == "Unfit"
+    payload = format_admin_payload(r)
+    assert payload["medicalStatus"] == "Unfit"
+
+
 # =============================================================================
 # ATTENDANCE
 # =============================================================================

@@ -199,6 +199,16 @@ class TestToSection:
         assert len(result) == len(rows)
         assert result[0] == {**rows[0], "success": True}
 
+    def test_sql_is_not_inherited_into_row_records(self):
+        from universal_normalizer import normalize_response
+
+        rows = [{"agniveerNo": "A1", "fullName": "X"}]
+        section = _to_section(rows, intent=None, sql="SELECT 1")
+        result = normalize_response(section)
+        assert len(result) == 1
+        assert "sql" not in result[0]
+        assert result[0]["agniveerNo"] == "A1"
+
 
 # ── Golden fast-path (Task 7) ────────────────────────────────────────────────
 
@@ -293,6 +303,39 @@ class TestGoldenQueries:
             assert err is None
             assert data["records"] == [{"agniveerNo": "A1"}]
 
+    def test_golden_query_includes_section_filter_when_present(self):
+        with patch("sql_executor.run_readonly") as mock_run:
+            mock_run.return_value = ([{"agniveerNo": "A1"}], None)
+            data, err = execute_sql_query(
+                question="top 10 performers in BPET section",
+                intent={
+                    "category": "Performance",
+                    "subcategory": "TopPerformers",
+                    "operation": "Top",
+                    "number": 10,
+                    "section": "BPET",
+                },
+            )
+            assert err is None
+            assert "ScoreSectionMaster" in data["sql"]
+            assert "sec.SectionName = 'BPET'" in data["sql"]
+
+    def test_medical_status_filter_is_translated_into_sql(self):
+        with patch("sql_executor.run_readonly") as mock_run:
+            mock_run.return_value = ([{"agniveerNo": "A1"}], None)
+            data, err = execute_sql_query(
+                question="show medically unfit agniveers",
+                intent={
+                    "category": "Medical",
+                    "operation": "Summary",
+                    "medicalStatus": "Unfit",
+                },
+            )
+            assert err is None
+            assert "MedicalRecordMaster" in data["sql"]
+            assert "Status" in data["sql"]
+            assert data["records"] == [{"agniveerNo": "A1"}]
+
     def test_golden_query_top_n_substitution_is_safe(self):
         rendered = _render_golden_query(
             GOLDEN_QUERIES[("Performance", "Top")],
@@ -385,3 +428,34 @@ class TestExecuteSqlQuery:
             assert data["sql"] == sql_text
             # execution_metadata was also added in the new pipeline
             assert "execution_metadata" in data
+
+    @pytest.mark.parametrize(
+        "intent, expected_fragment",
+        [
+            ({"category": "Agniveer", "company_id": 2}, "Company.Id"),
+            ({"category": "Agniveer", "platoon_id": 3}, "Agniveer.PlatoonId"),
+            ({"category": "Agniveer", "batch_id": 4}, "Agniveer.BatchId"),
+            ({"category": "Agniveer", "agniveer_no": "A0701905F"}, "Agniveer.AgniveerNo"),
+        ],
+    )
+    def test_legacy_scope_filters_are_translated_into_v2_filters(self, intent, expected_fragment):
+        with (
+            patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
+            patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
+            patch("sql_builder.sql_builder.build") as mock_build,
+            patch("sql_validator.sql_validator.validate_sql") as mock_val_sql,
+            patch("sql_executor.run_readonly") as mock_run,
+        ):
+            from ast_models import ASTNode
+
+            mock_plan.return_value = ASTNode(base_table="AgniveerMaster")
+            mock_val_ast.return_value = (True, None)
+            mock_build.return_value = ("SELECT 1", [])
+            mock_val_sql.return_value = (True, None)
+            mock_run.return_value = ([{"agniveerNo": "A1"}], None)
+
+            data, err = execute_sql_query(question="test", intent=intent)
+            assert err is None
+            assert mock_plan.call_args is not None
+            planned_intent = mock_plan.call_args.args[0]
+            assert expected_fragment in planned_intent["filters"]

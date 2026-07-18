@@ -24,3 +24,7 @@ def test_schema_get_implicit_filters():
 def test_schema_get_ranking_columns():
     cols = schema_engine.get_ranking_columns("AgniveerScoreAttempt")
     assert isinstance(cols, list)
+
+def test_schema_treats_agniveer_numbers_as_strings():
+    assert schema_engine.get_column_type("AgniveerMaster", "AgniveerNo") == "string"
+    assert schema_engine.get_column_type("PlatoonMaster", "PlatoonNo") == "string"

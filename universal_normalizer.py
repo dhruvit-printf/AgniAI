@@ -76,6 +76,10 @@ def _walk(node: Any, parent_context: Dict[str, Any], records: List[Dict[str, Any
             # Build current context by inheriting non-aggregate scalars from this structural node
             current_context = {**parent_context}
             for k, v in node.items():
+                if k == "sql":
+                    # Keep the raw SQL in the internal envelope, but never
+                    # leak it into user-facing row records.
+                    continue
                 if _is_aggregate_field(k):
                     continue
                 # Only inherit scalars (string, int, float, bool)

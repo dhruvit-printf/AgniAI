@@ -67,6 +67,8 @@ class QueryPlannerV2:
         # 4. Grouping Setup
         groups = intent.get("group_by", [])
         if groups:
+            if not ast.aggregates:
+                ast.columns = []
             for g in groups:
                 target_table = self.engine.get_table_for_concept(g.get("concept"))
                 if target_table:
@@ -91,7 +93,7 @@ class QueryPlannerV2:
                         column=f"{target_table}.{o.get('column')}",
                         descending=o.get("descending", True)
                     ))
-        elif ast.limit:
+        elif ast.limit and not ast.group_by and not ast.aggregates:
             # Add an order by if limiting, typically by PK
             pk = self.engine.get_primary_key(base_table)
             if pk:

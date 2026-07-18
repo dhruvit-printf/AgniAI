@@ -72,8 +72,11 @@ GOLDEN_QUERIES: Dict[Tuple[str, str], str] = {
 SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS TotalMarks
 FROM AgniveerMaster a
 INNER JOIN AgniveerScoreAttempt sa ON sa.AgniveerId = a.Id
+INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+INNER JOIN ScoreSectionMaster sec ON sec.Id = si.SectionId
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
   AND sa.IsBestAttempt = 1
+  {section_clause}
 GROUP BY a.AgniveerNo, a.FullName
 ORDER BY SUM(sa.MarksObtained) DESC, a.AgniveerNo ASC
 """.strip(),
@@ -81,8 +84,11 @@ ORDER BY SUM(sa.MarksObtained) DESC, a.AgniveerNo ASC
 SELECT TOP ({top_n}) a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS TotalMarks
 FROM AgniveerMaster a
 INNER JOIN AgniveerScoreAttempt sa ON sa.AgniveerId = a.Id
+INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+INNER JOIN ScoreSectionMaster sec ON sec.Id = si.SectionId
 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
   AND sa.IsBestAttempt = 1
+  {section_clause}
 GROUP BY a.AgniveerNo, a.FullName
 ORDER BY SUM(sa.MarksObtained) ASC, a.AgniveerNo ASC
 """.strip(),
@@ -95,9 +101,10 @@ FROM (
     WHERE sa.IsBestAttempt = 1
     GROUP BY sa.AgniveerId, si.SectionId
 ) bt
-INNER JOIN ScoreSectionMaster sec ON sec.Id = bt.SectionId
-INNER JOIN AgniveerMaster a ON a.Id = bt.AgniveerId
-WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+    INNER JOIN ScoreSectionMaster sec ON sec.Id = bt.SectionId
+    INNER JOIN AgniveerMaster a ON a.Id = bt.AgniveerId
+    WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+      {section_clause}
 GROUP BY sec.SectionName
 ORDER BY AVG(bt.BestTotal) DESC, sec.SectionName ASC
 """.strip(),
@@ -691,13 +698,17 @@ def _render_golden_query(template: str, intent: Optional[Dict]) -> str:
     can never introduce SQL injection."""
     intent = intent or {}
     raw_n = intent.get("number") or intent.get("top_n")
+    section = str(intent.get("section") or intent.get("sub_section") or "").strip()
     try:
         top_n = int(raw_n) if raw_n is not None else SQL_MAX_ROWS
     except (TypeError, ValueError):
         top_n = SQL_MAX_ROWS
     top_n = max(1, min(top_n, SQL_MAX_ROWS))
+    section_clause = ""
+    if section in {"BPET", "PPT", "Firing", "Drill"}:
+        section_clause = f"AND sec.SectionName = '{section}'"
     try:
-        return template.format(top_n=top_n)
+        return template.format(top_n=top_n, section_clause=section_clause)
     except (KeyError, IndexError):
         return template
 
@@ -928,15 +939,60 @@ def execute_sql_query(
     # 1. AST Generation
     try:
         # Convert legacy intent to v2 intent format
+        def _pick_legacy_value(*keys: str) -> Any:
+            for key in keys:
+                value = intent.get(key)
+                if value not in (None, "", [], {}):
+                    return value
+            return None
+
+        filters: Dict[str, Any] = {}
+        if isinstance(intent.get("filters"), dict):
+            filters.update(
+                {
+                    key: value
+                    for key, value in intent["filters"].items()
+                    if value not in (None, "", [], {})
+                }
+            )
+
+        company_id = _pick_legacy_value("companyId", "company_id")
+        platoon_id = _pick_legacy_value("platoonId", "platoon_id")
+        batch_id = _pick_legacy_value("batchId", "batch_id")
+        agniveer_no = _pick_legacy_value("agniveerNo", "agniveer_no")
+        medical_status = _pick_legacy_value("medicalStatus", "medical_status")
+        company_name = _pick_legacy_value("Company", "company")
+
+        if company_id is not None:
+            filters.setdefault("Company.Id", company_id)
+        elif company_name is not None:
+            filters.setdefault("Company.Name", company_name)
+
+        if platoon_id is not None:
+            filters.setdefault("Agniveer.PlatoonId", platoon_id)
+        if batch_id is not None:
+            filters.setdefault("Agniveer.BatchId", batch_id)
+        if agniveer_no is not None:
+            filters.setdefault("Agniveer.AgniveerNo", agniveer_no)
+        if medical_status is not None:
+            filters.setdefault("Medical.Status", medical_status)
+
         v2_intent = {
             "base_concept": intent.get("category", "Agniveer"),
-            "filters": {},
+            "filters": filters,
             "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS
         }
-        # Attempt to map some legacy entities over
-        if intent.get("companyId") or intent.get("company_id") or intent.get("Company"):
-            v2_intent["filters"]["Company.Name"] = intent.get("Company")
-        ast = query_planner_v2.plan_query(v2_intent)
+        golden_template = GOLDEN_QUERIES.get(
+            (intent.get("category"), intent.get("operation"))
+        )
+        if golden_template:
+            ast = None
+            sql = _render_golden_query(golden_template, intent)
+            params: List[Any] = []
+        else:
+            ast = query_planner_v2.plan_query(v2_intent)
+            sql = ""
+            params = []
     except Exception as e:
         logger.error(f"AST generation failed: {e}")
         return None, f"Could not construct semantic query plan: {e}"
@@ -944,16 +1000,19 @@ def execute_sql_query(
     t1 = time.time()
 
     # 2. AST Validation
-    is_valid, val_err = sql_validator.validate_ast(ast)
-    if not is_valid:
-        logger.info("AST rejected by validator: %s", val_err)
-        metrics_hook("validator_rejected")
-        return None, val_err
+    if ast is not None:
+        is_valid, val_err = sql_validator.validate_ast(ast)
+        if not is_valid:
+            logger.info("AST rejected by validator: %s", val_err)
+            metrics_hook("validator_rejected")
+            return None, val_err
 
-    # 3. Compilation
-    sql, params = sql_builder.build(ast)
-    logger.warning(f"[DEBUG SQL EXECUTOR] Compiled SQL:\n{sql}\nParams: {params}")
-    
+        # 3. Compilation
+        sql, params = sql_builder.build(ast)
+        logger.warning(f"[DEBUG SQL EXECUTOR] Compiled SQL:\n{sql}\nParams: {params}")
+    else:
+        logger.warning(f"[DEBUG SQL EXECUTOR] Golden SQL:\n{sql}\nParams: {params}")
+
     t2 = time.time()
 
     # 4. Final SQL Validation
@@ -973,7 +1032,17 @@ def execute_sql_query(
     t3 = time.time()
     
     # 6. Metadata & Explainability
-    explanation = explainability_engine.explain(ast)
+    explanation = explainability_engine.explain(ast) if ast is not None else {
+        "intent": "Database Query",
+        "base_table": intent.get("category", "Agniveer"),
+        "joins": [],
+        "filters": [],
+        "groupings": [],
+        "having": [],
+        "aggregations": [],
+        "sorting": [],
+        "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS,
+    }
     execution_metadata = {
         "planning_duration_ms": int((t1 - t0) * 1000),
         "compilation_duration_ms": int((t2 - t1) * 1000),
