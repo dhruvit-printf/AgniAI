@@ -31,12 +31,26 @@ class SqlBuilder:
             self.aliases[table] = f"t{len(self.aliases)}"
         return self.aliases[table]
 
+    def _quote_identifier(self, name: str) -> str:
+        if not name:
+            return name
+        if name.startswith("[") and name.endswith("]"):
+            return name
+        if "(" in name or ")" in name:
+            return name
+        if name.isidentifier():
+            return name
+        return f"[{name.replace(']', ']]')}]"
+
+    def _quote_table(self, table: str) -> str:
+        return self._quote_identifier(table)
+
     def _apply_alias(self, column: str) -> str:
         parts = column.split(".")
         if len(parts) == 2:
             table, col = parts
             alias = self.aliases.get(table, table)
-            return f"{alias}.{col}"
+            return f"{alias}.{self._quote_identifier(col)}"
         return column
 
     def _build_select(self, ast: ASTNode) -> str:
@@ -79,12 +93,16 @@ class SqlBuilder:
             if c == "*":
                 table_cols = schema_engine.get_columns(ast.base_table)
                 alias = self.aliases.get(ast.base_table, ast.base_table)
-                aliased_cols.extend([f"{alias}.{col}" for col in table_cols])
+                aliased_cols.extend(
+                    [f"{alias}.{self._quote_identifier(col)}" for col in table_cols]
+                )
             elif c.endswith(".*"):
                 table = c.split(".")[0]
                 table_cols = schema_engine.get_columns(table)
                 alias = self.aliases.get(table, table)
-                aliased_cols.extend([f"{alias}.{col}" for col in table_cols])
+                aliased_cols.extend(
+                    [f"{alias}.{self._quote_identifier(col)}" for col in table_cols]
+                )
             else:
                 aliased_cols.append(self._apply_alias(c) if "." in c else c)
         
@@ -99,20 +117,23 @@ class SqlBuilder:
             # Fallback to expanding base table to avoid SELECT *
             table_cols = schema_engine.get_columns(ast.base_table)
             alias = self.aliases.get(ast.base_table, ast.base_table)
-            aliased_cols.extend([f"{alias}.{col}" for col in table_cols])
+            aliased_cols.extend(
+                [f"{alias}.{self._quote_identifier(col)}" for col in table_cols]
+            )
             
         parts.append(", ".join(aliased_cols))
         return " ".join(parts)
 
     def _build_from_clause(self, ast: ASTNode) -> str:
         base_alias = self._get_alias(ast.base_table)
-        parts = [f"FROM {ast.base_table} {base_alias}"]
+        parts = [f"FROM {self._quote_table(ast.base_table)} {base_alias}"]
         for join in ast.joins:
             left_alias = self._get_alias(join.left_table)
             right_alias = self._get_alias(join.right_table)
             parts.append(
-                f"{join.join_type} JOIN {join.right_table} {right_alias} "
-                f"ON {left_alias}.{join.left_column} = {right_alias}.{join.right_column}"
+                f"{join.join_type} JOIN {self._quote_table(join.right_table)} {right_alias} "
+                f"ON {left_alias}.{self._quote_identifier(join.left_column)} = "
+                f"{right_alias}.{self._quote_identifier(join.right_column)}"
             )
         return " ".join(parts)
 

@@ -649,11 +649,28 @@ def _should_entity_override_category(
         )
 
     # Confidence guard — if the classifier is already confident, trust it.
-    if confidence_score >= 0.45:
+    if confidence_score >= 0.45 and not (
+        classified_category == "Leave"
+        and _entity_present(entities, "section")
+        and any(
+            _phrase_score(query_text, phrase)
+            for phrase in (
+                "topper",
+                "toppers",
+                "top performer",
+                "top performers",
+                "highest performer",
+                "best performer",
+                "top scorer",
+                "highest scorer",
+                "best scorer",
+            )
+        )
+    ):
         return (
             False,
             None,
-            f"confidence sufficient ({confidence_score:.2f}) — classifier wins",
+            f"confidence sufficient ({confidence_score:.2f}) - classifier wins",
         )
 
     if _entity_present(entities, "leaveType") and classified_category != "Leave":

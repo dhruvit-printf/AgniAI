@@ -64,11 +64,17 @@ class TestSimple:
 
 
 class TestCrossFilter:
-    def test_cross_filter_single_query_returns_one_section(self):
+    def test_cross_filter_returns_all_sections_for_intersection(self):
         op1 = _op("suffered from fever", "Medical")
         op2 = _op("failed bpet", "Performance")
         plan = _plan(QueryType.CROSS_FILTER, [op1, op2])
-        section = {
+        section1 = {
+            "success": True,
+            "records": [{"agniveerNo": "A1"}],
+            "data": [{"agniveerNo": "A1"}],
+            "count": 1,
+        }
+        section2 = {
             "success": True,
             "records": [{"agniveerNo": "A1"}, {"agniveerNo": "A2"}],
             "data": [{"agniveerNo": "A1"}, {"agniveerNo": "A2"}],
@@ -76,20 +82,15 @@ class TestCrossFilter:
         }
 
         with patch("sql_query_plan.execute_sql_query") as mock_exec:
-            mock_exec.return_value = (section, None)
+            mock_exec.side_effect = [(section1, None), (section2, None)]
             raw, labeled, err = fetch_sql_results(
                 plan, "who suffered from fever and failed bpet", {}
             )
 
         assert err is None
-        # One execute_sql_query call for the whole intersection (HARD RULE R4).
-        assert mock_exec.call_count == 1
-        _, kwargs = mock_exec.call_args
-        assert "fever" in kwargs["question"] and "bpet" in kwargs["question"]
-        assert kwargs["intent"]["query_type"] == "cross_filter"
-
-        assert raw == [section]
-        assert labeled == [("Medical", section)]
+        assert mock_exec.call_count == 2
+        assert raw == [section1, section2]
+        assert labeled == [("Medical", section1), ("Performance", section2)]
 
     def test_cross_filter_bubbles_error(self):
         op1 = _op("suffered from fever", "Medical")

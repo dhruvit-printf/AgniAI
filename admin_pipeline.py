@@ -104,39 +104,7 @@ def ensure_agniveer_no_in_data(
 
     Prevents infinite recursion on circular structures using a visited set and a max_depth limit.
     """
-    if max_depth <= 0:
-        return
-    if visited is None:
-        visited = set()
-
-    data_id = id(data)
-    if data_id in visited:
-        return
-    visited.add(data_id)
-
-    if isinstance(data, list):
-        for item in data:
-            if isinstance(item, dict):
-                id_val = None
-                for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-                    if key in item and item[key] is not None:
-                        id_val = item[key]
-                        break
-                if "agniveerNo" not in item and id_val is not None:
-                    item["agniveerNo"] = str(id_val)
-            ensure_agniveer_no_in_data(item, max_depth - 1, visited)
-
-    elif isinstance(data, dict):
-        id_val = None
-        for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-            if key in data and data[key] is not None:
-                id_val = data[key]
-                break
-        if "agniveerNo" not in data and id_val is not None:
-            data["agniveerNo"] = str(id_val)
-
-        for value in data.values():
-            ensure_agniveer_no_in_data(value, max_depth - 1, visited)
+    pass
 
 
 def _normalize_dotnet_leg(dotnet_data: Any) -> Any:

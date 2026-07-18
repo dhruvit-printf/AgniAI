@@ -59,28 +59,20 @@ def _fetch_simple(
 def _fetch_cross_filter(
     plan: QueryPlan, question: str, intent: Optional[Dict[str, Any]]
 ) -> _RawAndLabeled:
-    # HARD RULE R4: a cross-filter is ONE query whose CTEs each emit DISTINCT
-    # AgniveerId for one condition, intersected in the final SELECT. We
-    # therefore issue a single execute_sql_query() call, feeding every
-    # sub-fragment as one combined question so the generator has all
-    # conditions in view and can build the CTE-per-condition shape.
-    fragments = [op.raw_fragment for op in plan.operations if op.raw_fragment]
-    combined_question = " AND ".join(fragments) if fragments else question
+    # Cross-filter queries are executed leg-by-leg so the combiner can
+    # intersect the returned record sets. Each leg still runs through the
+    # normal SQL executor with its own intent hint.
+    raw_results: List[Any] = []
+    labeled_results: List[Tuple[str, Any]] = []
 
-    hint: Dict[str, Any] = dict(intent or {})
-    hint["query_type"] = "cross_filter"
-    hint["conditions"] = fragments or [question]
+    for idx, op in enumerate(plan.operations):
+        section, err = _run_one(op, question)
+        if err:
+            return [], [], err
+        raw_results.append(section)
+        labeled_results.append((_label_for(op, idx), section))
 
-    section, err = execute_sql_query(question=combined_question, intent=hint)
-    if err:
-        return [], [], err
-
-    label = (
-        plan.operations[0].intent_result.get("category")
-        if plan.operations
-        else "Result"
-    )
-    return [section], [(label or "Result", section)], None
+    return raw_results, labeled_results, None
 
 
 def _fetch_compare(

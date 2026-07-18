@@ -797,6 +797,24 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
         return "personaldetail"
     if entities.get("grading"):
         return "Performance"
+    if any(
+        token in text
+        for token in (
+            "topper",
+            "toppers",
+            "top performer",
+            "top performers",
+            "highest performer",
+            "best performer",
+            "top scorer",
+            "highest scorer",
+            "best scorer",
+            "top scoring",
+            "highest scoring",
+            "chart toppers",
+        )
+    ):
+        return "Performance"
     if entities.get("bmi_category") or entities.get("blood_group"):
         return "Medical"
     if entities.get("leave_type"):

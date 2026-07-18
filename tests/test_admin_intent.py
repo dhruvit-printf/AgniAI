@@ -34,6 +34,13 @@ def test_top_performers_with_section():
     assert r["section"] == "BPET"
 
 
+def test_top_performers_with_absent_followup_stays_performance():
+    r = classify_admin_intent("Which BPET toppers are absent today?")
+    assert r["category"] == "Performance"
+    assert r["subcategory"] == "TopPerformers"
+    assert r["section"] == "BPET"
+
+
 def test_lowest_performers():
     r = classify_admin_intent("Who are the worst 3 performers in FIRING?")
     assert r["category"] == "Performance"

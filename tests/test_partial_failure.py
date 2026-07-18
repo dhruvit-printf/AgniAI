@@ -29,10 +29,11 @@ class TestPartialFailure(unittest.TestCase):
     """Post text-to-SQL migration, partial failure works differently than
     the old parallel .NET-calls model:
 
-    - cross_filter is now ONE atomic SQL query (HARD RULE R4: CTE per
-      condition, intersected in a single SELECT) — if it fails, the whole
-      cross-filter fails together. There is no more "2 of 3 conditions
-      succeeded" degraded mode for cross_filter.
+    - cross_filter is still all-or-nothing at the response level: each
+      condition is fetched separately and the combiner intersects the
+      returned sets, so a failure in any leg still fails the whole
+      cross-filter together. There is no "2 of 3 conditions succeeded"
+      degraded mode for cross_filter.
     - compare issues one SQL call per side (sql_query_plan._fetch_compare)
       and bubbles an error if EITHER side fails — there is no more
       "unavailable" placeholder side for compare.
@@ -78,8 +79,8 @@ class TestPartialFailure(unittest.TestCase):
 
     @patch("admin_pipeline.fetch_sql_results")
     def test_cross_filter_failure_is_all_or_nothing(self, mock_fetch_sql):
-        # R4: a cross-filter is one atomic query — a failure here means the
-        # whole cross-filter fails, never a partial intersection.
+        # A cross-filter failure still means the whole request fails, never a
+        # partial intersection.
         mock_fetch_sql.return_value = ([], [], "CANNOT_ANSWER")
 
         result = execute_admin_query(

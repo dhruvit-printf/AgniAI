@@ -43,6 +43,21 @@ def test_sql_builder_safe_aggregate_aliasing():
     assert sql == expected
 
 
+def test_sql_builder_quotes_special_column_names():
+    ast = ASTNode(base_table="AgniveerLeaveMaster")
+    ast.columns = [
+        "AgniveerLeaveMaster.OnATTN'C'",
+        "AgniveerLeaveMaster.OnEX PPG",
+    ]
+
+    sql, params = sql_builder.build(ast)
+    expected = (
+        "SELECT t0.[OnATTN'C'], t0.[OnEX PPG] FROM AgniveerLeaveMaster t0"
+    )
+    assert sql == expected
+    assert params == []
+
+
 def test_sql_builder_group_by_does_not_select_star():
     from query_planner_v2 import query_planner_v2
 
