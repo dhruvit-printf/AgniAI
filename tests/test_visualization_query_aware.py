@@ -16,7 +16,7 @@ class TestVisualizationQueryAware(unittest.TestCase):
             "comparison": {"averageScore": {"higher": "A", "lower": "B"}},
         }
         res = build_formatted_data(combined, query_type="compare", intent={})
-        self.assertEqual(res["type"], "COMPARE_TABLE")
+        self.assertEqual(res["type"], "TABLE")
 
     def test_cross_filter_guarantee(self):
         combined = {

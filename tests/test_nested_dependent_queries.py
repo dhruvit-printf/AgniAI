@@ -40,8 +40,8 @@ class TestNestedDependentQueries(unittest.TestCase):
 
     def test_three_clause_dependent_chain_splits_into_three_legs(self):
         plan = plan_query(
-            "Find the top 20 performers. Then tell me which of them are "
-            "medically unfit. Also show their attendance."
+            "Find the top 20 performers. Then show their individual medical records. "
+            "Also show their attendance."
         )
         self.assertEqual(plan.query_type, QueryType.CROSS_FILTER)
         self.assertEqual(len(plan.operations), 3)

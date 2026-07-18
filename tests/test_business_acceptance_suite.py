@@ -175,7 +175,7 @@ def _build_simple_cases() -> List[AcceptanceCase]:
         ("SIMP-017", "Show medical profile", "Medical", "Individual", "agniveer", "Medical", ("MedicalRecordMaster", "VisitDate"), ()),
         ("SIMP-018", "Show pending verification", "Verification", "Pending", "company", "Verification", ("PoliceVerificationMaster", "Pending"), ()),
         ("SIMP-019", "Show rejected verification", "Verification", "Rejected", "platoon", "Verification", ("PoliceVerificationMaster", "Rejected"), ()),
-        ("SIMP-020", "Show completed verification", "Verification", "Verified", "batch", "Verification", ("PoliceVerificationMaster", "Verified"), ()),
+        ("SIMP-020", "Show completed verification", "Verification", "Completed", "batch", "Verification", ("PoliceVerificationMaster", "Completed"), ()),
         ("SIMP-021", "Show sent verification", "Verification", "Sent", "agniveer", "Verification", ("PoliceVerificationMaster", "Sent"), ()),
         ("SIMP-022", "Show not responded verification", "Verification", "NotResponded", "company", "Verification", ("PoliceVerificationMaster", "DaysSinceSent"), ()),
         ("SIMP-023", "Show holding equipment", "Equipment", "Holding", "platoon", "Equipment", ("AgniveerEquipment", "EquipmentMaster"), ()),

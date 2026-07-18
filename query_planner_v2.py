@@ -31,7 +31,31 @@ class QueryPlannerV2:
         if not base_table:
             raise ValueError(f"Unknown base concept: {base_concept}")
         ast.base_table = base_table
-        ast.columns = [f"{base_table}.*"]
+        
+        all_cols = self.engine.get_columns(base_table)
+        selected_cols = []
+        for c in all_cols:
+            cl = c.lower()
+            if cl == "id" or cl.endswith("id") or cl in ("insertedby", "inserteddate", "updatedby", "updateddate"):
+                continue
+            selected_cols.append(f"{base_table}.{c}")
+            
+        if "AgniveerId" in all_cols and base_table != "AgniveerMaster":
+            self._add_joins(ast, base_table, "AgniveerMaster")
+            if "AgniveerMaster.AgniveerNo" not in selected_cols:
+                selected_cols.append("AgniveerMaster.AgniveerNo")
+            if "AgniveerMaster.FullName" not in selected_cols:
+                selected_cols.append("AgniveerMaster.FullName")
+        elif base_table == "AgniveerMaster":
+            if "AgniveerMaster.AgniveerNo" not in selected_cols:
+                selected_cols.append("AgniveerMaster.AgniveerNo")
+            if "AgniveerMaster.FullName" not in selected_cols:
+                selected_cols.append("AgniveerMaster.FullName")
+                
+        if not selected_cols:
+            selected_cols = [f"{base_table}.*"]
+
+        ast.columns = selected_cols
 
         # 2. Filter Injection & Join Resolution
         ast.where.extend(self._parse_filters(intent.get("filters", {}), ast, base_table))
@@ -48,18 +72,19 @@ class QueryPlannerV2:
         # 3. Aggregation Setup
         aggregates = intent.get("aggregates", [])
         if aggregates:
-            # Clear the "*" expansion, but always keep an ID-resolvable column
-            # selected. Without this, a pure-aggregate leg (no group_by) would
-            # return rows with no AgniveerNo/Id at all — downstream,
-            # cross_filter_engine/universal_normalizer identify records by
-            # exactly that field, so an ID-less row set makes the whole
-            # cross-filter intersection silently report "no match" even when
-            # every other leg matched real, overlapping agniveers.
-            pk = self.engine.get_primary_key(base_table)
-            display_cols = self.engine.get_display_columns(base_table)
-            ast.columns = [f"{base_table}.{c}" for c in display_cols if c]
-            if pk and f"{base_table}.{pk}" not in ast.columns:
-                ast.columns.append(f"{base_table}.{pk}")
+            # Clear the columns for aggregates, but keep AgniveerNo to ensure
+            # cross-filter logic has a unique human-readable identity to intersect on.
+            ast.columns = []
+            if "AgniveerMaster.AgniveerNo" in selected_cols:
+                ast.columns.append("AgniveerMaster.AgniveerNo")
+                ast.columns.append("AgniveerMaster.FullName")
+                ast.group_by.append("AgniveerMaster.AgniveerNo")
+                ast.group_by.append("AgniveerMaster.FullName")
+            elif f"{base_table}.AgniveerNo" in selected_cols:
+                ast.columns.append(f"{base_table}.AgniveerNo")
+                ast.columns.append(f"{base_table}.FullName")
+                ast.group_by.append(f"{base_table}.AgniveerNo")
+                ast.group_by.append(f"{base_table}.FullName")
             for agg in aggregates:
                 func = agg.get("function")
                 concept = agg.get("concept")

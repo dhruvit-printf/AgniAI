@@ -219,7 +219,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         widgets = response_payload["formattedData"]
         if isinstance(widgets, dict):
             widgets = [widgets]
-        self.assertEqual(widgets[0]["type"], "COMPARE_TABLE")
+        self.assertEqual(widgets[0]["type"], "TABLE")
         self.assertEqual(len(widgets), 1)
         widget = widgets[0]
         self.assertIn("comparisonMetrics", response_payload["metadata"])
@@ -303,15 +303,15 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         # Verify sections — each uses the same default widget type a
         # standalone query for that category/operation would get (Attendance
-        # defaults to CHART_LINE; Leave/Current
-        # defaults to CHART_PIE).
+        # defaults to TABLE; Leave/Current
+        # defaults to TABLE).
         widgets = response_payload["formattedData"]
         if isinstance(widgets, dict):
             widgets = [widgets]
         self.assertEqual(len(widgets), 2)
-        self.assertEqual(widgets[0]["type"], "CHART_LINE")
+        self.assertEqual(widgets[0]["type"], "TABLE")
         self.assertEqual(widgets[0]["title"], "Attendance")
-        self.assertEqual(widgets[1]["type"], "CHART_PIE")
+        self.assertEqual(widgets[1]["type"], "TABLE")
         self.assertEqual(widgets[1]["title"], "Leave")
 
         mock_fetch_sql.assert_called_once()

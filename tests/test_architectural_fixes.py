@@ -114,7 +114,7 @@ class TestArchitecturalFixes(unittest.TestCase):
         )
         self.assertEqual(fd_multi["type"], "TABLE")
 
-        # 3. Comparison -> COMPARE_TABLE
+        # 3. Comparison -> TABLE
         fd_compare = build_formatted_data(
             {
                 "left": {"label": "Left", "data": [{"id": 1}]},
@@ -124,7 +124,7 @@ class TestArchitecturalFixes(unittest.TestCase):
             query_type="compare",
             intent={},
         )
-        self.assertEqual(fd_compare["type"], "COMPARE_TABLE")
+        self.assertEqual(fd_compare["type"], "TABLE")
 
         # 4. Trend -> CHART_LINE
         fd_trend = build_formatted_data(

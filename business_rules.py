@@ -83,9 +83,9 @@ R3. EXCEPTIONAL MARKS: When a section may be exceptional use:
     CASE WHEN s.IsExceptional = 1
          THEN COALESCE(r.ExceptionalMarks, 0.0)
          ELSE r.SubItemTotalMarks END
-R4. CROSS-FILTER SHAPE: Each independent condition becomes a CTE that outputs DISTINCT AgniveerId; the final SELECT INNER JOINs every CTE back to AgniveerMaster on a.Id (intersection), displaying a.AgniveerNo.
+R4. CROSS-FILTER SHAPE: Each independent condition becomes a CTE that outputs DISTINCT AgniveerId; the final SELECT INNER JOINs every CTE back to AgniveerMaster on a.Id (intersection), displaying a.AgniveerNo and a.FullName. DO NOT select a.Id or t0.Id.
 R5. PROHIBITED DATA: NEVER select UserMaster.Password, LoginToken.*, or DefaultLog.
-R6. AGNIVEER ID JOIN RULE: The primary key of AgniveerMaster is `a.Id`. You MUST write `ON <othertable>.AgniveerId = a.Id`. NEVER write `a.AgniveerId` - that column does not exist on AgniveerMaster!
+R6. AGNIVEER ID JOIN RULE: The primary key of AgniveerMaster is `a.Id`. You MUST write `ON <othertable>.AgniveerId = a.Id`. NEVER write `a.AgniveerId` - that column does not exist on AgniveerMaster! Also, whenever AgniveerId is used in joins, you must always select `a.AgniveerNo` and `a.FullName` in the final output. Do NOT output the primary key `Id`.
 R7. BEST ATTEMPT: You MUST use the RAW table `AgniveerScoreAttempt` and filter by `IsBestAttempt = 1` for best attempts. For a specific attempt, filter by `AttemptNo`.
 R8. CURRENT LEAVE: Current leave must strictly be calculated using: `CAST(GETDATE() AS DATE) BETWEEN CAST(l.FromDate AS DATE) AND CAST(l.ToDate AS DATE)` on `AgniveerLeaveMaster`.
 R9. ABSCONDED LEAVE: Absconded is detected via `IsAbscondedLeave = 1` directly in `AgniveerLeaveMaster`. Valid Leave Types are: Annual, Medical, Sick, Hospitalized, Absconded, EX PPG, ATTN'C.

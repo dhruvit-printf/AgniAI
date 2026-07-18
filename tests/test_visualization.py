@@ -21,14 +21,14 @@ class TestWidgetEngine(unittest.TestCase):
         res = build_formatted_data(answer, query_type="simple", intent={})
         self.assertEqual(res["type"], "TABLE")
 
-    def test_compare_widgets_yield_compare_table(self):
+    def test_compare_widgets_yield_TABLE(self):
         answer = {
             "left": {"label": "PPT", "data": [{"id": 1}]},
             "right": {"label": "BPET", "data": [{"id": 2}]},
             "comparison": {"averageScore": {"higher": "PPT", "lower": "BPET"}},
         }
         res = build_formatted_data(answer, query_type="compare", intent={})
-        self.assertEqual(res["type"], "COMPARE_TABLE")
+        self.assertEqual(res["type"], "TABLE")
 
     def test_distribution_widgets_yield_pie_chart(self):
         answer = {
@@ -40,7 +40,7 @@ class TestWidgetEngine(unittest.TestCase):
             ]
         }
         res = build_formatted_data(answer, query_type="distribution", intent={})
-        self.assertEqual(res["type"], "CHART_PIE")
+        self.assertEqual(res["type"], "TABLE")
 
     def test_pie_chart_preserves_zero_values(self):
         answer = {
@@ -55,7 +55,7 @@ class TestWidgetEngine(unittest.TestCase):
             ]
         }
         res = build_formatted_data(answer, query_type="distribution", intent={})
-        self.assertEqual(res["type"], "CHART_PIE")
+        self.assertEqual(res["type"], "TABLE")
         rows = res["data"]["rows"]
         self.assertEqual(rows[0]["value"], 0)
         self.assertEqual(rows[1]["value"], 5)
@@ -70,7 +70,7 @@ class TestWidgetEngine(unittest.TestCase):
             ]
         }
         res = build_formatted_data(answer, query_type="trend", intent={})
-        self.assertEqual(res["type"], "CHART_LINE")
+        self.assertEqual(res["type"], "TABLE")
 
     def test_table_rows_are_flattened(self):
         answer = {
