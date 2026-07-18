@@ -43,6 +43,7 @@ class SqlBuilder:
         from_clause = self._build_from_clause(ast)
         where_clause = self._build_where_clause(ast)
         group_by_clause = self._build_group_by_clause(ast)
+        having_clause = self._build_having_clause(ast)
         order_by_clause = self._build_order_by_clause(ast)
         
         query = f"{select_clause} {from_clause}"
@@ -50,6 +51,8 @@ class SqlBuilder:
             query += f" {where_clause}"
         if group_by_clause:
             query += f" {group_by_clause}"
+        if having_clause:
+            query += f" {having_clause}"
         if order_by_clause:
             query += f" {order_by_clause}"
             
@@ -58,19 +61,27 @@ class SqlBuilder:
     def _build_select_clause(self, ast: ASTNode) -> str:
         parts = []
         if ast.limit:
-            parts.append(f"SELECT TOP ({ast.limit})")
+            if ast.is_distinct:
+                parts.append(f"SELECT DISTINCT TOP ({ast.limit})")
+            else:
+                parts.append(f"SELECT TOP ({ast.limit})")
         else:
-            parts.append("SELECT")
+            if ast.is_distinct:
+                parts.append("SELECT DISTINCT")
+            else:
+                parts.append("SELECT")
             
         columns = list(ast.columns)
+        # Apply alias safely to normal columns ONLY
+        aliased_cols = [self._apply_alias(c) if "." in c else c for c in columns]
+        
         for agg in ast.aggregates:
             aliased_col = self._apply_alias(agg.column)
             col_str = f"{agg.function}({aliased_col})"
             if agg.alias:
                 col_str += f" AS {agg.alias}"
-            columns.append(col_str)
+            aliased_cols.append(col_str)
             
-        aliased_cols = [self._apply_alias(c) if "." in c else c for c in columns]
         if not aliased_cols:
             aliased_cols = ["*"]
             
@@ -97,8 +108,13 @@ class SqlBuilder:
 
     def _build_condition(self, node: ConditionNode) -> str:
         if isinstance(node, WhereNode):
-            p = self._next_param(node.value)
             aliased_col = self._apply_alias(node.column)
+            if node.value is None:
+                if node.operator == "=":
+                    return f"{aliased_col} IS NULL"
+                elif node.operator == "!=":
+                    return f"{aliased_col} IS NOT NULL"
+            p = self._next_param(node.value)
             return f"{aliased_col} {node.operator} {p}"
         elif isinstance(node, ConditionGroupNode):
             parts = [self._build_condition(c) for c in node.conditions]
@@ -111,6 +127,12 @@ class SqlBuilder:
             return ""
         aliased = [self._apply_alias(c) for c in ast.group_by]
         return "GROUP BY " + ", ".join(aliased)
+
+    def _build_having_clause(self, ast: ASTNode) -> str:
+        if not getattr(ast, "having", None):
+            return ""
+        conditions = [self._build_condition(h) for h in ast.having]
+        return "HAVING " + " AND ".join(conditions)
 
     def _build_order_by_clause(self, ast: ASTNode) -> str:
         if not ast.order_by:

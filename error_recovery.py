@@ -24,9 +24,28 @@ class ErrorRecoveryEngine:
         # Initial attempt
         try:
             ast = query_planner_v2.plan_query(intent)
-            is_valid, err = sql_validator.validate_ast(ast)
+            
+            # 3-Retry Loop
+            retries = 0
+            MAX_RETRIES = 3
+            is_valid = False
+            
+            while retries <= MAX_RETRIES:
+                is_valid, err = sql_validator.validate_ast(ast)
+                
+                if is_valid:
+                    break
+                    
+                logger.warning(f"AST Validation failed: {err}. Attempting recovery (Attempt {retries+1}/{MAX_RETRIES})...")
+                recovered_ast = self._attempt_repair(ast, err)
+                if recovered_ast:
+                    ast = recovered_ast
+                    retries += 1
+                else:
+                    return None, f"AST Validation failed and recovery aborted: {err}"
+            
             if not is_valid:
-                return None, f"AST Validation failed: {err}"
+                return None, "AST Recovery exhausted all retries."
                 
             sql, params = sql_builder.build(ast)
             is_sql_valid, sql_err = sql_validator.validate_sql(sql)
@@ -37,21 +56,7 @@ class ErrorRecoveryEngine:
             if not run_err:
                 return rows, None
                 
-            logger.warning(f"Initial SQL execution failed: {run_err}. Attempting recovery...")
-            
-            # Recovery Attempt 1: Drop failing conditions
-            recovered_ast = self._attempt_repair(ast, run_err)
-            if recovered_ast:
-                logger.info("AST successfully repaired. Re-compiling...")
-                sql, params = sql_builder.build(recovered_ast)
-                rows, run_err2 = run_readonly(sql, params)
-                if not run_err2:
-                    logger.info("Recovery successful.")
-                    return rows, None
-                else:
-                    return None, f"Recovery failed: {run_err2}"
-            else:
-                return None, f"Execution failed, and no recovery was possible: {run_err}"
+            return None, f"Execution failed: {run_err}"
                 
         except Exception as e:
             return None, f"Pipeline exception: {e}"
@@ -63,31 +68,73 @@ class ErrorRecoveryEngine:
         """
         import re
         import difflib
-        from ast_models import WhereNode
+        from ast_models import WhereNode, ConditionGroupNode
         
-        # Detect "Invalid column name 'XYZ'"
-        match = re.search(r"Invalid column name '([^']+)'", error_msg)
+        # Detect validator output: "Column 'XYZ' does not exist in table 'ABC'."
+        match = re.search(r"Column '([^']+)' does not exist in table '([^']+)'", error_msg)
         if match:
             invalid_col = match.group(1)
-            repaired = False
+            tbl = match.group(2)
             
-            # Since ast.where now uses ConditionNode, we need a recursive replacer.
-            # For simplicity in this implementation, we will iterate over where conditions
-            # and repair WhereNodes directly if they are at the top level.
-            for i, w in enumerate(ast.where):
-                if isinstance(w, WhereNode) and invalid_col in w.column:
-                    parts = w.column.split(".")
-                    if len(parts) == 2:
-                        tbl, col = parts
-                        valid_cols = self.engine.get_columns(tbl)
-                        matches = difflib.get_close_matches(invalid_col, valid_cols, n=1, cutoff=0.6)
-                        if matches:
-                            w.column = f"{tbl}.{matches[0]}"
+            valid_cols = self.engine.get_columns(tbl)
+            
+            # STRICT MATCHING: Minimum 0.85 confidence, and exactly ONE unambiguous match.
+            matches = difflib.get_close_matches(invalid_col, valid_cols, n=2, cutoff=0.85)
+            
+            if len(matches) == 1:
+                correct_col = f"{tbl}.{matches[0]}"
+                incorrect_col = f"{tbl}.{invalid_col}"
+                
+                def repair_conditions(conditions) -> bool:
+                    repaired_any = False
+                    for w in conditions:
+                        if isinstance(w, WhereNode) and w.column == incorrect_col:
+                            w.column = correct_col
+                            repaired_any = True
+                        elif isinstance(w, ConditionGroupNode):
+                            if repair_conditions(w.conditions):
+                                repaired_any = True
+                    return repaired_any
+                
+                repaired = False
+                
+                # 1. Repair WHERE
+                if repair_conditions(ast.where): repaired = True
+                
+                # 2. Repair HAVING
+                if repair_conditions(getattr(ast, "having", [])): repaired = True
+                
+                # 3. Repair GROUP BY
+                if hasattr(ast, "group_by"):
+                    for i, g in enumerate(ast.group_by):
+                        if g == incorrect_col:
+                            ast.group_by[i] = correct_col
                             repaired = True
-                            logger.info(f"Fuzzy repaired column '{invalid_col}' to '{matches[0]}' in table '{tbl}'")
-            
-            if repaired:
-                return ast
+                            
+                # 4. Repair ORDER BY
+                if hasattr(ast, "order_by"):
+                    for o in ast.order_by:
+                        if o.column == incorrect_col:
+                            o.column = correct_col
+                            repaired = True
+                            
+                # 5. Repair AGGREGATES
+                if hasattr(ast, "aggregates"):
+                    for agg in ast.aggregates:
+                        if agg.column == incorrect_col:
+                            agg.column = correct_col
+                            repaired = True
+                            
+                # 6. Repair COLUMNS
+                if hasattr(ast, "columns"):
+                    for i, c in enumerate(ast.columns):
+                        if c == incorrect_col:
+                            ast.columns[i] = correct_col
+                            repaired = True
+                
+                if repaired:
+                    logger.info(f"Fuzzy repaired column '{invalid_col}' to '{matches[0]}' in table '{tbl}'")
+                    return ast
                 
         return None
 

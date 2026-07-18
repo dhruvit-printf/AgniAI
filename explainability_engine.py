@@ -11,11 +11,15 @@ class ExplainabilityEngine:
     """
     
     def explain(self, ast: ASTNode) -> Dict[str, Any]:
+        intent_str = "Distinct Database Query" if getattr(ast, "is_distinct", False) else "Database Query"
+        
         explanation = {
-            "intent": "Database Query",
+            "intent": intent_str,
             "base_table": ast.base_table,
             "joins": [],
             "filters": [],
+            "groupings": [],
+            "having": [],
             "aggregations": [],
             "sorting": [],
             "limit": ast.limit
@@ -35,6 +39,14 @@ class ExplainabilityEngine:
             if agg.alias:
                 desc += f" (as {agg.alias})"
             explanation["aggregations"].append(desc)
+            
+        # Explain groupings
+        for grp in getattr(ast, "group_by", []):
+            explanation["groupings"].append(f"Grouped by {grp}")
+            
+        # Explain having
+        for h in getattr(ast, "having", []):
+            explanation["having"].append(self._explain_condition(h))
             
         # Explain sorting
         for ob in ast.order_by:

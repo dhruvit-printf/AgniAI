@@ -90,10 +90,12 @@ class TestMetricsHealth(unittest.TestCase):
         self.assertIn("pipeline_duration_sum 150.0", text)
         self.assertIn("pipeline_duration_count 1", text)
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.resolve_entities_from_query")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
-    def test_metrics_updated_on_pipeline_run(self, mock_gen_report, mock_call_dotnet):
-        mock_call_dotnet.return_value = ({"records": []}, None)
+    def test_metrics_updated_on_pipeline_run(self, mock_gen_report, mock_fetch_sql_results, mock_resolve_entities):
+        mock_resolve_entities.return_value = MagicMock(needs_clarification=False, to_dict=lambda: {})
+        mock_fetch_sql_results.return_value = ([{"records": []}], [("Result", {"records": []})], None)
         mock_gen_report.return_value = {
             "introMessage": "Intro",
             "analysis": {"summary": "Sum", "observations": [], "insights": []},
@@ -114,13 +116,15 @@ class TestMetricsHealth(unittest.TestCase):
         self.assertEqual(metrics_collector.requests_total.get("simple"), 1)
         self.assertGreater(metrics_collector.durations["pipeline_duration"]["count"], 0)
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.resolve_entities_from_query")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
     @patch(
         "admin_pipeline.SLOW_QUERY_THRESHOLD", -1.0
     )  # Set threshold extremely low to trigger log
-    def test_slow_query_detection_warning(self, mock_gen_report, mock_call_dotnet):
-        mock_call_dotnet.return_value = ({"records": []}, None)
+    def test_slow_query_detection_warning(self, mock_gen_report, mock_fetch_sql_results, mock_resolve_entities):
+        mock_resolve_entities.return_value = MagicMock(needs_clarification=False, to_dict=lambda: {})
+        mock_fetch_sql_results.return_value = ([{"records": []}], [("Result", {"records": []})], None)
         mock_gen_report.return_value = {
             "introMessage": "Intro",
             "analysis": {"summary": "Sum", "observations": [], "insights": []},

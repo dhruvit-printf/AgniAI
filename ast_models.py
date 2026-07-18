@@ -52,10 +52,13 @@ class ASTNode:
     columns: List[str] = field(default_factory=list)
     joins: List[JoinNode] = field(default_factory=list)
     where: List[ConditionNode] = field(default_factory=list)
+    having: List[ConditionNode] = field(default_factory=list)
     aggregates: List[AggregateNode] = field(default_factory=list)
     group_by: List[str] = field(default_factory=list)
     order_by: List[OrderByNode] = field(default_factory=list)
     limit: Optional[int] = None
+    is_distinct: bool = False
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -64,8 +67,11 @@ class ASTNode:
             "columns": self.columns,
             "joins": [j.__dict__ for j in self.joins],
             "where": [w.to_dict() for w in self.where],
+            "having": [h.to_dict() for h in self.having],
             "aggregates": [a.__dict__ for a in self.aggregates],
             "group_by": self.group_by,
             "order_by": [o.__dict__ for o in self.order_by],
-            "limit": self.limit
+            "limit": self.limit,
+            "is_distinct": self.is_distinct,
+            "metadata": self.metadata
         }

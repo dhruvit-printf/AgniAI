@@ -619,7 +619,10 @@ def _has_strong_cross_filter_marker(text: str) -> bool:
     to/...) as opposed to the weaker standalone status words in
     _CROSS_FILTER_STATUS_MARKERS — see that tuple's docstring comment.
     """
-    if any(marker in text for marker in _CROSS_FILTER_MARKERS):
+    cross_marker_hits = [marker for marker in _CROSS_FILTER_MARKERS if marker in text]
+    if cross_marker_hits:
+        if all(marker in {"current", "if"} for marker in cross_marker_hits):
+            return False
         return True
     if _CLASS_FILTER_RE.search(text):
         return True

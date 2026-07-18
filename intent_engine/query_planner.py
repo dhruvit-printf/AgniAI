@@ -37,12 +37,15 @@ def _normalise(text: str) -> str:
 
 
 def _should_treat_cross_filter_as_multi_independent(semantic: Dict[str, Any]) -> bool:
-    """Promote same-subject, multi-section requests to multi-independent.
+    """Promote same-subject, multi-section requests and independent
+    multi-category report requests to multi-independent.
 
     Queries like "show attendance and current leave records for agniveer 12345"
     are not intersections between unrelated filters. They are two independent
     facts requested for the same agniveer, so the pipeline should keep them as
     separate sections instead of forcing cross-filter execution.
+    Likewise, unit-wide requests for distinct categories with no shared entity
+    to intersect on should also be multi-independent.
     """
     if not semantic or semantic.get("dependent_intent"):
         return False
@@ -53,6 +56,9 @@ def _should_treat_cross_filter_as_multi_independent(semantic: Dict[str, Any]) ->
 
     categories = set()
     shared_agniveer_no = None
+    has_any_agniveer_no = False
+    all_have_agniveer_no = True
+    has_any_discriminating_filter = False
 
     for sub_request in sub_requests:
         if not isinstance(sub_request, dict):
@@ -67,20 +73,38 @@ def _should_treat_cross_filter_as_multi_independent(semantic: Dict[str, Any]) ->
         if not isinstance(entities, dict):
             return False
 
+        discriminating = {
+            k: v for k, v in entities.items()
+            if k not in ("category", "operation", "responseType", "agniveerNo", "agniveer_no") and v not in (None, "", [], {})
+        }
+        if discriminating:
+            has_any_discriminating_filter = True
+
         agniveer_no = entities.get("agniveerNo") or entities.get("agniveer_no")
         if agniveer_no in (None, "", [], {}):
-            return False
+            all_have_agniveer_no = False
+            continue
 
         agniveer_no = str(agniveer_no).strip()
         if not agniveer_no:
-            return False
+            all_have_agniveer_no = False
+            continue
 
+        has_any_agniveer_no = True
         if shared_agniveer_no is None:
             shared_agniveer_no = agniveer_no
         elif agniveer_no != shared_agniveer_no:
             return False
 
-    return len(categories) >= 2 and shared_agniveer_no is not None
+    # Case 1: Every sub-request has the exact same non-empty agniveer_no (the original logic)
+    if all_have_agniveer_no and len(categories) >= 2 and shared_agniveer_no is not None:
+        return True
+
+    # Case 2: No agniveer_no exists in any leg, but categories are distinct.
+    if not has_any_agniveer_no and len(categories) == len(sub_requests) and len(categories) >= 2 and not has_any_discriminating_filter:
+        return True
+
+    return False
 
 
 class QueryType(Enum):
