@@ -1065,6 +1065,11 @@ def execute_admin_query(
             # Validate the merged intent
             _validate_model_payload(IntentModel, primary_intent, "primary.intent")
 
+            if getattr(query_plan, "confidence", 1.0) <= 0.45:
+                primary_intent["query_type"] = "text2sql"
+                qtype_str = "text2sql"
+                logger.info("Confidence <= 0.45, overriding query type to text2sql for fallback.")
+
             intent_duration = time.time() - intent_start
             logger.info(
                 {
@@ -1097,17 +1102,26 @@ def execute_admin_query(
                     logger.info(
                         json.dumps(
                             {
-                                "message": "SQL backend could not answer the query",
+                                "message": "SQL backend could not answer the query, attempting Text2SQL fallback",
                                 "trace_id": trace_id,
                                 "session_id": session_id,
                                 "error": sql_err,
                             }
                         )
                     )
-                    unrecognised_msg = (
-                        "I couldn't understand the query clearly. "
-                        "Could you please rephrase it?"
-                    )
+                    from sql_executor import execute_sql_query
+                    fallback_section, fallback_err = execute_sql_query(question=message, intent={"query_type": "text2sql"})
+                    
+                    if not fallback_err and fallback_section:
+                        sql_raw = [fallback_section]
+                        sql_labeled = [("Result", fallback_section)]
+                        sql_err = None
+                        qtype_str = "text2sql"
+                    else:
+                        unrecognised_msg = (
+                            "I couldn't understand the query clearly. "
+                            "Could you please rephrase it?"
+                        )
 
                     total_duration = time.time() - start_time
                     durations = {

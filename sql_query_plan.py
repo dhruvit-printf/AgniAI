@@ -133,6 +133,12 @@ def fetch_sql_results(
     (the hybrid branch in admin_pipeline.py) should degrade to the existing
     RAG fallback in that case, never raise, never 500.
     """
+    if intent and intent.get("query_type") == "text2sql":
+        section, err = execute_sql_query(question=question, intent=intent)
+        if err:
+            return [], [], err
+        return [section], [("Result", section)], None
+
     if not plan.operations:
         section, err = execute_sql_query(question=question, intent=intent)
         if err:

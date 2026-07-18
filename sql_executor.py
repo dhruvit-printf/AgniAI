@@ -1129,6 +1129,33 @@ def execute_sql_query(
     t0 = time.time()
     # 1. AST Generation
     try:
+        if intent.get("query_type") == "text2sql":
+            sql, gen_err = generate_sql(question, intent)
+            if gen_err:
+                return None, f"Dynamic SQL generation failed: {gen_err}"
+            
+            val_is_safe, val_err = sql_validator.validate_sql(sql)
+            if not val_is_safe:
+                return None, f"Generated SQL was rejected by validator: {val_err}"
+                
+            rows, run_err = run_readonly(sql, [])
+            if run_err:
+                return None, run_err
+                
+            res = _to_section(rows or [], intent, sql=sql)
+            res["execution_metadata"] = {
+                "planning_duration_ms": int((time.time() - t0) * 1000),
+                "compilation_duration_ms": 0,
+                "execution_duration_ms": 0,
+                "rows_returned": len(rows) if rows else 0,
+                "explanation": {
+                    "intent": "Text-to-SQL Query",
+                    "base_table": "Unknown",
+                    "limit": 500
+                }
+            }
+            return res, None
+
         # Convert legacy intent to v2 intent format
         def _pick_legacy_value(*keys: str) -> Any:
             for key in keys:
