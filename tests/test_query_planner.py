@@ -52,6 +52,13 @@ class TestQueryPlanner(unittest.TestCase):
         self.assertEqual(plan.operations[0].intent_result["category"], "Leave")
         self.assertEqual(plan.operations[1].intent_result["category"], "Strength")
 
+    def test_same_agniveer_multi_section_request_is_multi_independent(self):
+        plan = plan_query("Show attendance and current leave records for agniveer 12345")
+        self.assertEqual(plan.query_type, QueryType.MULTI_OPERATION)
+        self.assertEqual(len(plan.operations), 2)
+        self.assertEqual(plan.operations[0].intent_result["category"], "Attendance")
+        self.assertEqual(plan.operations[1].intent_result["category"], "Leave")
+
     def test_leave_attendance_equipment_comma_separated_multi_independent(self):
         plan = plan_query(
             "Show current leave records, attendance status, and equipment overdue records."

@@ -1656,6 +1656,13 @@ def understand_query(query: str) -> Dict[str, Any]:
         ):
             cross_filter_intent = False
 
+    # Weak status-style cues ("current", "pending", "approved", etc.) can
+    # appear in ordinary multi-section requests such as "attendance and
+    # current leave records". Those should not be forced down the
+    # cross-filter path unless a strong relationship marker is present.
+    if cross_filter_intent and not _cross_marker_strong:
+        cross_filter_intent = False
+
     # "which <group> has the most/highest/lowest ..." asks to RANK groups by
     # a single metric (a distribution/group-by question) — not to intersect
     # two independent conditions. Without this guard, the group word (e.g.

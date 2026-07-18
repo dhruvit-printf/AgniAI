@@ -36,6 +36,53 @@ def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", (text or "").lower())).strip()
 
 
+def _should_treat_cross_filter_as_multi_independent(semantic: Dict[str, Any]) -> bool:
+    """Promote same-subject, multi-section requests to multi-independent.
+
+    Queries like "show attendance and current leave records for agniveer 12345"
+    are not intersections between unrelated filters. They are two independent
+    facts requested for the same agniveer, so the pipeline should keep them as
+    separate sections instead of forcing cross-filter execution.
+    """
+    if not semantic or semantic.get("dependent_intent"):
+        return False
+
+    sub_requests = semantic.get("sub_requests")
+    if not isinstance(sub_requests, list) or len(sub_requests) < 2:
+        return False
+
+    categories = set()
+    shared_agniveer_no = None
+
+    for sub_request in sub_requests:
+        if not isinstance(sub_request, dict):
+            return False
+
+        category = sub_request.get("category")
+        if not category:
+            return False
+        categories.add(category)
+
+        entities = sub_request.get("entities")
+        if not isinstance(entities, dict):
+            return False
+
+        agniveer_no = entities.get("agniveerNo") or entities.get("agniveer_no")
+        if agniveer_no in (None, "", [], {}):
+            return False
+
+        agniveer_no = str(agniveer_no).strip()
+        if not agniveer_no:
+            return False
+
+        if shared_agniveer_no is None:
+            shared_agniveer_no = agniveer_no
+        elif agniveer_no != shared_agniveer_no:
+            return False
+
+    return len(categories) >= 2 and shared_agniveer_no is not None
+
+
 class QueryType(Enum):
     SIMPLE = "simple"
     MULTI_INDEPENDENT = "multi_independent"
@@ -907,6 +954,8 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             )
 
     qtype = (semantic.get("query_type") or "simple").strip().lower()
+    if qtype == "cross_filter" and _should_treat_cross_filter_as_multi_independent(semantic):
+        qtype = "multi_independent"
 
     def _ops_from_semantic_fragments(default_fragment: str) -> List[SubOperation]:
         fragments = semantic.get("sub_requests")
