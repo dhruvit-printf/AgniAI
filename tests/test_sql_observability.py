@@ -16,13 +16,14 @@ from metrics import Metrics
 
 
 class TestSqlMetricsCounters:
-    def test_golden_hit_increments_counter(self):
+    def test_llm_fallback_increments_counter(self):
         m = Metrics()
         with (
             patch("metrics.metrics_collector", m),
-            patch(
-                "sql_executor.run_readonly", return_value=([{"agniveerNo": "A1"}], None)
-            ),
+            patch("query_planner_v2.query_planner_v2.plan_query", side_effect=Exception("AST Failed")),
+            patch("sql_executor.generate_sql", return_value=("SELECT 1", None)),
+            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
+            patch("sql_executor.run_readonly", return_value=([], None)),
         ):
             from sql_executor import execute_sql_query
 
@@ -34,16 +35,18 @@ class TestSqlMetricsCounters:
                     "operation": "Top",
                 },
             )
-        assert m.sql_golden_hit_total == 1
+        assert m.sql_llm_fallback_total == 1
+        assert m.sql_generated_total == 1
 
     def test_generated_increments_counter(self):
         m = Metrics()
+        from ast_models import ASTNode
         with (
             patch("metrics.metrics_collector", m),
-            patch("query_planner_v2.query_planner_v2.plan_query", return_value="mock_ast"),
-            patch("sql_executor.sql_validator.validate_ast", return_value=(True, None)),
-            patch("sql_executor.sql_builder.build", return_value=("SELECT 1", [])),
-            patch("sql_executor.sql_validator.validate_sql", return_value=(True, None)),
+            patch("query_planner_v2.query_planner_v2.plan_query", return_value=ASTNode(base_table="AttendanceMaster")),
+            patch("sql_validator.sql_validator.validate_ast", return_value=(True, None)),
+            patch("sql_builder.sql_builder.build", return_value=("SELECT 1", [])),
+            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
             patch("sql_executor.run_readonly", return_value=([], None)),
         ):
             from sql_executor import execute_sql_query
@@ -52,18 +55,24 @@ class TestSqlMetricsCounters:
         assert m.sql_generated_total == 1
 
     def test_cannot_answer_increments_counter(self):
-        # We don't have cannot_answer metric anymore if it fails planner? 
-        # Actually, let's see: if planner fails, it just returns None. It does not increment cannot_answer_total.
-        # But wait! Does it? No, in execute_sql_query, if intent is missing it returns None, error.
-        # Wait, the test expects cannot_answer to be 1. If it's removed, maybe just remove this test.
-        pass
+        m = Metrics()
+        with (
+            patch("metrics.metrics_collector", m),
+            patch("query_planner_v2.query_planner_v2.plan_query", side_effect=Exception("AST Failed")),
+            patch("sql_executor.generate_sql", return_value=(None, "Cannot answer")),
+        ):
+            from sql_executor import execute_sql_query
+
+            execute_sql_query(question="anything", intent={"category": "Attendance"})
+        assert m.sql_cannot_answer_total == 1
 
     def test_validator_rejected_increments_counter(self):
         m = Metrics()
         with (
             patch("metrics.metrics_collector", m),
             patch("query_planner_v2.query_planner_v2.plan_query", return_value="mock_ast"),
-            patch("sql_executor.sql_validator.validate_ast", return_value=(False, "Invalid AST")),
+            patch("sql_validator.sql_validator.validate_ast", return_value=(False, "Invalid AST")),
+            patch("sql_executor.generate_sql", return_value=(None, "Fallback failed")),
         ):
             from sql_executor import execute_sql_query
 
@@ -75,16 +84,17 @@ class TestSqlMetricsCounters:
         with (
             patch("metrics.metrics_collector", m),
             patch("query_planner_v2.query_planner_v2.plan_query", return_value="mock_ast"),
-            patch("sql_executor.sql_validator.validate_ast", return_value=(True, None)),
-            patch("sql_executor.sql_builder.build", return_value=("SELECT 1", [])),
-            patch("sql_executor.sql_validator.validate_sql", return_value=(True, None)),
+            patch("sql_validator.sql_validator.validate_ast", return_value=(True, None)),
+            patch("sql_builder.sql_builder.build", return_value=("SELECT 1", [])),
+            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
             patch(
                 "sql_executor.run_readonly",
                 return_value=(
                     None,
-                    "The generated query could not be executed against the database.",
+                    "Database query execution failed.",
                 ),
             ),
+            patch("sql_executor.generate_sql", return_value=(None, "Fallback failed")),
         ):
             from sql_executor import execute_sql_query
 
@@ -107,11 +117,73 @@ class TestSqlMetricsCounters:
     def test_prometheus_export_includes_sql_metrics(self):
         m = Metrics()
         m.inc_sql_generated()
-        m.inc_sql_golden_hit()
+        m.inc_sql_capability_gap_fallback()
         text = m.generate_prometheus_text()
         assert "sql_generated_total 1" in text
-        assert "sql_golden_hit_total 1" in text
+        assert "sql_capability_gap_fallback_total 1" in text
         assert "sql_latency_seconds_sum" in text
+
+    def test_capability_gap_fallback_increments_counter(self):
+        m = Metrics()
+        with (
+            patch("metrics.metrics_collector", m),
+            patch("sql_executor.generate_sql", return_value=("SELECT 1", None)),
+            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
+            patch("sql_executor.run_readonly", return_value=([], None)),
+        ):
+            from sql_executor import execute_sql_query
+
+            execute_sql_query(
+                question="average marks per section",
+                intent={
+                    "category": "Performance",
+                    "operation": "Average",
+                },
+            )
+        assert m.sql_capability_gap_fallback_total == 1
+        assert m.sql_llm_fallback_total == 1
+
+    def test_structural_reject_fallback_increments_counter(self):
+        m = Metrics()
+        with (
+            patch("metrics.metrics_collector", m),
+            patch("query_planner_v2.query_planner_v2.plan_query", return_value="mock_ast"),
+            patch("sql_validator.sql_validator.validate_ast", return_value=(False, "Invalid AST")),
+            patch("sql_executor.generate_sql", return_value=("SELECT 1", None)),
+            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
+            patch("sql_executor.run_readonly", return_value=([], None)),
+        ):
+            from sql_executor import execute_sql_query
+
+            execute_sql_query(question="anything", intent={"category": "Attendance"})
+        assert m.sql_structural_reject_fallback_total == 1
+        assert m.sql_validator_rejected_total == 1
+        assert m.sql_llm_fallback_total == 1
+
+    def test_database_error_bubbles_without_fallback(self):
+        m = Metrics()
+        from ast_models import ASTNode
+        mock_generate = MagicMock()
+        with (
+            patch("metrics.metrics_collector", m),
+            patch("query_planner_v2.query_planner_v2.plan_query", return_value=ASTNode(base_table="AttendanceMaster")),
+            patch("sql_validator.sql_validator.validate_ast", return_value=(True, None)),
+            patch("sql_builder.sql_builder.build", return_value=("SELECT 1", [])),
+            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
+            patch("sql_executor.run_readonly", return_value=(None, "Database is down")),
+            patch("sql_executor.generate_sql", mock_generate),
+        ):
+            from sql_executor import execute_sql_query
+
+            res, err = execute_sql_query(question="anything", intent={"category": "Attendance"})
+            assert err is not None
+            assert "Database query execution failed" in err
+            assert res is None
+            
+        mock_generate.assert_not_called()
+        assert m.sql_exec_error_total == 1
+        assert m.sql_llm_fallback_total == 0
+
 
 
 class TestAuditLogBackendField:

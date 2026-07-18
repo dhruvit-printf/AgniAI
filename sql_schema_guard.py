@@ -147,10 +147,48 @@ def run_schema_guard() -> Optional[Dict[str, Set[str]]]:
     return build_allowlist(live_schema)
 
 
+def _generate_schema_card_from_engine() -> str:
+    try:
+        from schema_engine import schema_engine
+        schema = {}
+        for table in schema_engine.get_tables():
+            if table.lower() in DENIED_TABLES:
+                continue
+            cols = []
+            for col in schema_engine.get_columns(table):
+                if f"{table.lower()}.{col.lower()}" not in DENIED_COLUMNS:
+                    cols.append(col)
+            if cols:
+                schema[table] = cols
+                
+        fks = []
+        for table in schema.keys():
+            for fk in schema_engine.get_foreign_keys(table):
+                p_col = fk["column"]
+                r_tab = fk["referenced_table"]
+                r_col = fk["referenced_column"]
+                if r_tab in schema:
+                    fks.append(f"{table}.{p_col} = {r_tab}.{r_col}")
+                    
+        lines = ["DATABASE: DB_Agni (Microsoft SQL Server)", "", "TABLES AND VIEWS:"]
+        for table, cols in schema.items():
+            lines.append(f"  {table} ({', '.join(cols)})")
+            
+        lines.append("")
+        lines.append("RELATIONSHIPS (Foreign Keys):")
+        for fk in fks:
+            lines.append(f"  {fk}")
+            
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.error(f"Failed to generate dynamic schema from engine: {exc}")
+        return "SCHEMA GENERATION FAILED"
+
+
 def generate_dynamic_schema_card() -> str:
     """Generate the dynamic SCHEMA_CARD using INFORMATION_SCHEMA and sys.foreign_keys."""
     if not SQL_READONLY_CONN:
-        return "SCHEMA GENERATION FAILED"
+        return _generate_schema_card_from_engine()
     
     try:
         import pyodbc
@@ -193,6 +231,6 @@ def generate_dynamic_schema_card() -> str:
             
         return "\n".join(lines)
     except Exception as exc:
-        logger.error(f"Failed to generate dynamic schema: {exc}")
-        return "SCHEMA GENERATION FAILED"
+        logger.error(f"Failed to generate dynamic schema from DB, falling back to schema engine: {exc}")
+        return _generate_schema_card_from_engine()
 

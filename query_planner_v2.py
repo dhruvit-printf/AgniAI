@@ -121,12 +121,18 @@ class QueryPlannerV2:
         orders = intent.get("order_by", [])
         if orders:
             for o in orders:
-                target_table = self.engine.get_table_for_concept(o.get("concept"))
+                concept = o.get("concept")
+                target_table = self.engine.get_table_for_concept(concept) if concept else None
                 if target_table:
                     if target_table != base_table:
                         self._add_joins(ast, base_table, target_table)
                     ast.order_by.append(OrderByNode(
                         column=f"{target_table}.{o.get('column')}",
+                        descending=o.get("descending", True)
+                    ))
+                else:
+                    ast.order_by.append(OrderByNode(
+                        column=o.get("column"),
                         descending=o.get("descending", True)
                     ))
         elif ast.limit and not ast.group_by and not ast.aggregates:

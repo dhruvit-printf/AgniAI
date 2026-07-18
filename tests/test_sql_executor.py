@@ -16,9 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from sql_executor import (
-    GOLDEN_QUERIES,
     _extract_sql,
-    _render_golden_query,
     _to_section,
     execute_sql_query,
     validate_sql,
@@ -213,137 +211,46 @@ class TestToSection:
 # ── Golden fast-path (Task 7) ────────────────────────────────────────────────
 
 
-class TestGoldenQueryKeysAreReachable:
-    """Regression guard for the bug where GOLDEN_QUERIES was keyed by
-    (category, subcategory, operation) but subcategory is entirely derived
-    from (category, operation) via CATEGORY_OPERATION_TO_SUBCATEGORY — a
-    typo'd subcategory string silently made an entry unreachable forever,
-    with no error and no failing test, because the old tests only ever
-    looked GOLDEN_QUERIES entries up by their own (matching) key instead of
-    driving a real question through the classifier. GOLDEN_QUERIES is now
-    keyed by (category, operation) only, so the only way this can regress is
-    an operation string that doesn't exist for its category — this test
-    catches that class of typo directly.
-    """
-
-    @pytest.mark.parametrize("key", list(GOLDEN_QUERIES.keys()))
-    def test_operation_is_valid_for_category(self, key):
-        from intent_engine.intent_schema import OPERATIONS_BY_CATEGORY
-
-        category, operation = key
-        if category == "Strength":
-            # Strength has no operations — its one golden entry uses "".
-            assert operation == ""
-            return
-        valid_operations = OPERATIONS_BY_CATEGORY.get(category, frozenset())
-        assert operation in valid_operations, (
-            f"{key}: {operation!r} is not a valid operation for category "
-            f"{category!r} (valid: {sorted(valid_operations)}) — this golden "
-            "query can never be reached by the real classifier."
-        )
-
-    @pytest.mark.parametrize(
-        "question,expected_key",
-        [
-            ("who are the top performers", ("Performance", "Top")),
-            ("verification requests still pending", ("Verification", "Pending")),
-            ("today's training schedule", ("Schedule", "bytoday")),
-            ("who is currently absconded", ("Leave", "Absconded")),
-            ("bmi distribution of all agniveers", ("Medical", "BMI")),
-        ],
-    )
-    def test_real_classifier_output_hits_golden_path(self, question, expected_key):
-        """Drives a real question through the actual intent pipeline (the
-        same one admin_pipeline.py uses) instead of a hand-built intent dict,
-        so a future key/subcategory mismatch fails here instead of silently
-        falling through to the LLM path in production."""
-        from intent_engine.admin_intent import classify_admin_intent
-
-        intent = classify_admin_intent(question)
-        key = (intent.get("category"), intent.get("operation"))
-        assert key == expected_key, (
-            f"question {question!r} classified as {key}, expected "
-            f"{expected_key} — check intent_schema.py's category/operation "
-            "keyword tables and CATEGORY_OPERATION_TO_SUBCATEGORY"
-        )
-        assert key in GOLDEN_QUERIES, f"{key} is missing from GOLDEN_QUERIES"
-
-
-class TestGoldenQueries:
-    @pytest.mark.parametrize("key", list(GOLDEN_QUERIES.keys()))
-    def test_golden_query_passes_validator(self, key):
-        template = GOLDEN_QUERIES[key]
-        rendered = _render_golden_query(template, {"number": 5})
-        err = validate_sql(rendered)
-        assert err is None, f"{key} failed validation: {err}"
-
-    @pytest.mark.parametrize("key", list(GOLDEN_QUERIES.keys()))
-    def test_golden_query_is_single_select(self, key):
-        rendered = _render_golden_query(GOLDEN_QUERIES[key], {})
-        stripped = rendered.strip().lower()
-        assert stripped.startswith("select") or stripped.startswith("with")
-
-    def test_golden_query_never_calls_llm(self):
-        key = ("Performance", "Top")
-        assert key in GOLDEN_QUERIES
+class TestTwoTierPipeline:
+    def test_ast_success_does_not_call_llm(self):
+        from ast_models import ASTNode
         with (
+            patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
+            patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
+            patch("sql_builder.sql_builder.build") as mock_build,
+            patch("sql_validator.sql_validator.validate_sql") as mock_val_sql,
             patch("sql_executor.generate_sql") as mock_generate,
             patch("sql_executor.run_readonly") as mock_run,
         ):
+            mock_plan.return_value = ASTNode(base_table="AgniveerMaster")
+            mock_val_ast.return_value = (True, None)
+            mock_build.return_value = ("SELECT AgniveerNo FROM AgniveerMaster", [])
+            mock_val_sql.return_value = (True, None)
             mock_run.return_value = ([{"agniveerNo": "A1"}], None)
-            data, err = execute_sql_query(
-                question="top performers",
-                intent={
-                    "category": "Performance",
-                    "subcategory": "TopPerformers",
-                    "operation": "Top",
-                },
-            )
+            
+            data, err = execute_sql_query(question="who is A1", intent={"category": "Agniveer"})
+            assert err is None
             mock_generate.assert_not_called()
-            assert err is None
             assert data["records"] == [{"agniveerNo": "A1"}]
 
-    def test_golden_query_includes_section_filter_when_present(self):
-        with patch("sql_executor.run_readonly") as mock_run:
-            mock_run.return_value = ([{"agniveerNo": "A1"}], None)
-            data, err = execute_sql_query(
-                question="top 10 performers in BPET section",
-                intent={
-                    "category": "Performance",
-                    "subcategory": "TopPerformers",
-                    "operation": "Top",
-                    "number": 10,
-                    "section": "BPET",
-                },
-            )
+    def test_ast_failure_falls_back_to_llm(self):
+        with (
+            patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
+            patch("sql_executor.generate_sql") as mock_generate,
+            patch("sql_validator.sql_validator.validate_sql") as mock_val_sql,
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_executor.metrics_hook") as mock_metrics,
+        ):
+            mock_plan.side_effect = Exception("Planner error")
+            mock_generate.return_value = ("SELECT AgniveerNo FROM AgniveerMaster", None)
+            mock_val_sql.return_value = (True, None)
+            mock_run.return_value = ([{"agniveerNo": "A2"}], None)
+            
+            data, err = execute_sql_query(question="who is A2", intent={"category": "Agniveer"})
             assert err is None
-            assert "ScoreSectionMaster" in data["sql"]
-            assert "sec.SectionName = 'BPET'" in data["sql"]
-
-    def test_medical_status_filter_is_translated_into_sql(self):
-        with patch("sql_executor.run_readonly") as mock_run:
-            mock_run.return_value = ([{"agniveerNo": "A1"}], None)
-            data, err = execute_sql_query(
-                question="show medically unfit agniveers",
-                intent={
-                    "category": "Medical",
-                    "operation": "Summary",
-                    "medicalStatus": "Unfit",
-                },
-            )
-            assert err is None
-            assert "MedicalRecordMaster" in data["sql"]
-            assert "Status" in data["sql"]
-            assert data["records"] == [{"agniveerNo": "A1"}]
-
-    def test_golden_query_top_n_substitution_is_safe(self):
-        rendered = _render_golden_query(
-            GOLDEN_QUERIES[("Performance", "Top")],
-            {"number": "3; DROP TABLE AgniveerMaster"},
-        )
-        # Non-numeric input falls back to the safe default; never interpolated raw.
-        assert "DROP TABLE" not in rendered
-        assert validate_sql(rendered) is None
+            mock_generate.assert_called_once()
+            assert data["records"] == [{"agniveerNo": "A2"}]
+            mock_metrics.assert_any_call("llm_fallback")
 
 
 # ── execute_sql_query — end-to-end contract ─────────────────────────────────
@@ -370,8 +277,12 @@ class TestExecuteSqlQuery:
             assert data["records"] == [{"agniveerNo": "A1"}]
 
     def test_cannot_answer_bubbles_error(self):
-        with patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan:
+        with (
+            patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
+            patch("sql_executor.generate_sql") as mock_generate,
+        ):
             mock_plan.side_effect = Exception("CANNOT_ANSWER")
+            mock_generate.return_value = (None, "CANNOT_ANSWER")
             data, err = execute_sql_query(question="what's the weather", intent={"category": "Agniveer"})
             assert data is None
             assert "CANNOT_ANSWER" in err
@@ -380,9 +291,11 @@ class TestExecuteSqlQuery:
         with (
             patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
             patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
+            patch("sql_executor.generate_sql") as mock_generate,
         ):
             mock_plan.return_value = None
             mock_val_ast.return_value = (False, "AST rejected")
+            mock_generate.return_value = (None, "AST rejected")
             data, err = execute_sql_query(question="delete everyone", intent={"category": "Agniveer"})
             assert data is None
             assert err is not None
@@ -395,6 +308,7 @@ class TestExecuteSqlQuery:
             patch("sql_builder.sql_builder.build") as mock_build,
             patch("sql_validator.sql_validator.validate_sql") as mock_val_sql,
             patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_executor.generate_sql") as mock_generate,
         ):
             mock_plan.return_value = ASTNode(base_table="AgniveerMaster")
             mock_val_ast.return_value = (True, None)
@@ -404,6 +318,7 @@ class TestExecuteSqlQuery:
                 None,
                 "The generated query could not be executed against the database.",
             )
+            mock_generate.return_value = (None, "Fallback failed")
             data, err = execute_sql_query(question="anything", intent={"category": "Agniveer"})
             assert data is None
             assert err

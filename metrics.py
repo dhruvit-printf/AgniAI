@@ -54,10 +54,12 @@ class Metrics:
 
         # SQL text-to-SQL backend counters (sql_executor.py)
         self.sql_generated_total: int = 0
-        self.sql_golden_hit_total: int = 0
         self.sql_validator_rejected_total: int = 0
         self.sql_cannot_answer_total: int = 0
         self.sql_exec_error_total: int = 0
+        self.sql_llm_fallback_total: int = 0
+        self.sql_capability_gap_fallback_total: int = 0
+        self.sql_structural_reject_fallback_total: int = 0
         self.sql_latency_seconds: Dict[str, float] = {"sum": 0.0, "count": 0.0}
 
         # Duration summaries (milliseconds)
@@ -119,9 +121,6 @@ class Metrics:
         with self._lock:
             self.sql_generated_total += 1
 
-    def inc_sql_golden_hit(self) -> None:
-        with self._lock:
-            self.sql_golden_hit_total += 1
 
     def inc_sql_validator_rejected(self) -> None:
         with self._lock:
@@ -134,6 +133,19 @@ class Metrics:
     def inc_sql_exec_error(self) -> None:
         with self._lock:
             self.sql_exec_error_total += 1
+
+    def inc_sql_llm_fallback(self) -> None:
+        with self._lock:
+            self.sql_llm_fallback_total += 1
+
+    def inc_sql_capability_gap_fallback(self) -> None:
+        with self._lock:
+            self.sql_capability_gap_fallback_total += 1
+
+    def inc_sql_structural_reject_fallback(self) -> None:
+        with self._lock:
+            self.sql_structural_reject_fallback_total += 1
+            self.sql_validator_rejected_total += 1
 
     def record_sql_latency(self, duration_seconds: float) -> None:
         with self._lock:
@@ -217,11 +229,6 @@ class Metrics:
             lines.append("# TYPE sql_generated_total counter")
             lines.append(f"sql_generated_total {self.sql_generated_total}")
 
-            lines.append(
-                "# HELP sql_golden_hit_total Total golden fast-path SQL hits (no LLM)."
-            )
-            lines.append("# TYPE sql_golden_hit_total counter")
-            lines.append(f"sql_golden_hit_total {self.sql_golden_hit_total}")
 
             lines.append(
                 "# HELP sql_validator_rejected_total Total SQL rejected by validate_sql."
@@ -240,6 +247,18 @@ class Metrics:
             lines.append("# HELP sql_exec_error_total Total SQL execution errors.")
             lines.append("# TYPE sql_exec_error_total counter")
             lines.append(f"sql_exec_error_total {self.sql_exec_error_total}")
+
+            lines.append("# HELP sql_llm_fallback_total Total SQL queries that fell back to LLM.")
+            lines.append("# TYPE sql_llm_fallback_total counter")
+            lines.append(f"sql_llm_fallback_total {self.sql_llm_fallback_total}")
+
+            lines.append("# HELP sql_capability_gap_fallback_total Total SQL queries that fell back due to capability gap.")
+            lines.append("# TYPE sql_capability_gap_fallback_total counter")
+            lines.append(f"sql_capability_gap_fallback_total {self.sql_capability_gap_fallback_total}")
+
+            lines.append("# HELP sql_structural_reject_fallback_total Total SQL queries that fell back due to structural validator rejection.")
+            lines.append("# TYPE sql_structural_reject_fallback_total counter")
+            lines.append(f"sql_structural_reject_fallback_total {self.sql_structural_reject_fallback_total}")
 
             lines.append(
                 "# HELP sql_latency_seconds SQL backend end-to-end latency in seconds."
