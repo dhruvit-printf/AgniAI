@@ -345,7 +345,7 @@ class TestVerificationCases:
     def test_completed_verification(self):
         r = _classify("how many verifications are completed")
         assert r["category"] == "Verification"
-        assert r["operation"] == "Completed"
+        assert r["operation"] == "Verified"
 
     def test_not_responded(self):
         r = _classify("who has not responded to verification")

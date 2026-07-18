@@ -10,17 +10,9 @@ their fields from each dataset into a single unified record.
 import logging
 from typing import Any, Dict, List, Optional, Set
 
-from universal_normalizer import normalize_response
+from universal_normalizer import _ID_FIELD_PRIORITY, normalize_response
 
 logger = logging.getLogger(__name__)
-
-# ID field resolution order — update here only if new fields are added
-_ID_FIELD_PRIORITY = (
-    "agniveerNo",
-    "agniveerId",
-    "AgniveerId",
-    "AgniVeerId",
-)
 
 
 # ---------------------------------------------------------------------------

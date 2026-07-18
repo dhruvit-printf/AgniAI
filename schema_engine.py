@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import functools
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -132,13 +132,54 @@ class SchemaEngine:
         return None
 
     # --- New Relational APIs ---
-    
+
+    # Real foreign keys the "{Prefix}Id" -> "{Prefix}Master" naming heuristic
+    # below cannot infer, because either the referenced table doesn't follow
+    # that naming convention (Doctor/Team/SponserUnit -> no such *Master
+    # table exists) or the column's casing doesn't match the target table's
+    # (AgniVeerId vs. AgniveerMaster). Sourced from the actual SQL FK
+    # constraints in the DB_Agni schema dump — verified against
+    # sys.foreign_keys, not guessed. Keyed by (table, column); checked before
+    # the naming heuristic so a real relationship always wins over a wrong
+    # heuristic guess for the same column.
+    _FK_OVERRIDES: Dict[Tuple[str, str], Dict[str, str]] = {
+        ("MedicalRecordMaster", "DoctorId"): {"referenced_table": "UserMaster", "referenced_column": "Id"},
+        ("AgniveerScoreAttempt", "EvaluatedBy"): {"referenced_table": "UserMaster", "referenced_column": "Id"},
+        ("AgniveerAttendanceMaster", "MarkedBy"): {"referenced_table": "UserMaster", "referenced_column": "Id"},
+        ("AgniveerLeaveMaster", "MarkedBy"): {"referenced_table": "UserMaster", "referenced_column": "Id"},
+        ("UserMaster", "AgniVeerId"): {"referenced_table": "AgniveerMaster", "referenced_column": "Id"},
+        ("AgniveerMaster", "SponserUnitId"): {"referenced_table": "DistributionMaster", "referenced_column": "Id"},
+        ("DistributionHistoryMaster", "TeamId"): {"referenced_table": "DistributionMaster", "referenced_column": "Id"},
+        ("CompanyMaster", "CompanyCommanderId"): {"referenced_table": "UserMaster", "referenced_column": "Id"},
+        ("CompanyMaster", "CommandingOfficerId"): {"referenced_table": "UserMaster", "referenced_column": "Id"},
+        ("PlatoonMaster", "PlatoonCommanderId"): {"referenced_table": "UserMaster", "referenced_column": "Id"},
+        ("CompanyCommanderHistory", "CommanderId"): {"referenced_table": "UserMaster", "referenced_column": "Id"},
+        ("CompanyCommandingOfficerHistory", "CommandingOfficerId"): {"referenced_table": "UserMaster", "referenced_column": "Id"},
+        ("PlatoonCommanderHistory", "CommanderId"): {"referenced_table": "UserMaster", "referenced_column": "Id"},
+    }
+
     @functools.lru_cache(maxsize=1024)
     def get_foreign_keys(self, table_name: str) -> List[Dict[str, str]]:
-        """Infers outgoing foreign keys by analyzing *Id columns."""
+        """Infers outgoing foreign keys.
+
+        Checks the curated `_FK_OVERRIDES` table first (real relationships
+        the naming heuristic below cannot express), then falls back to
+        analyzing "*Id" columns via the "{Prefix}Id" -> "{Prefix}Master"
+        convention most of this schema follows.
+        """
         fks = []
         tables = set(self.get_tables())
+        seen_columns = set()
+
         for col in self.get_columns(table_name):
+            override = self._FK_OVERRIDES.get((table_name, col))
+            if override:
+                fks.append({"column": col, **override})
+                seen_columns.add(col)
+
+        for col in self.get_columns(table_name):
+            if col in seen_columns:
+                continue
             if col.endswith("Id") and col != "Id":
                 base = col[:-2]
                 if f"{base}Master" in tables:

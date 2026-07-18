@@ -107,7 +107,8 @@ SUBCATEGORY_ALIASES: Dict[str, Dict[str, str]] = {
         "sent": "Sent",
         "notresponded": "NotResponded",
         "not_responded": "NotResponded",
-        "completed": "Completed",
+        "completed": "Verified",
+        "verified": "Verified",
         "rejected": "Rejected",
     },
     "EQUIPMENT": {

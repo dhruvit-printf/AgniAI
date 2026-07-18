@@ -34,7 +34,7 @@ class QueryPlannerV2:
         ast.columns = [f"{base_table}.*"]
 
         # 2. Filter Injection & Join Resolution
-        self._parse_filters(intent.get("filters", {}), ast, base_table)
+        ast.where.extend(self._parse_filters(intent.get("filters", {}), ast, base_table))
 
         # Add Implicit Filters for the base concept
         implicit = self.engine.get_implicit_filters(base_concept)
@@ -48,7 +48,18 @@ class QueryPlannerV2:
         # 3. Aggregation Setup
         aggregates = intent.get("aggregates", [])
         if aggregates:
-            ast.columns = [] # clear * if aggregating
+            # Clear the "*" expansion, but always keep an ID-resolvable column
+            # selected. Without this, a pure-aggregate leg (no group_by) would
+            # return rows with no AgniveerNo/Id at all — downstream,
+            # cross_filter_engine/universal_normalizer identify records by
+            # exactly that field, so an ID-less row set makes the whole
+            # cross-filter intersection silently report "no match" even when
+            # every other leg matched real, overlapping agniveers.
+            pk = self.engine.get_primary_key(base_table)
+            display_cols = self.engine.get_display_columns(base_table)
+            ast.columns = [f"{base_table}.{c}" for c in display_cols if c]
+            if pk and f"{base_table}.{pk}" not in ast.columns:
+                ast.columns.append(f"{base_table}.{pk}")
             for agg in aggregates:
                 func = agg.get("function")
                 concept = agg.get("concept")
@@ -109,20 +120,26 @@ class QueryPlannerV2:
 
         return ast
 
-    def _parse_filters(self, filters: Dict[str, Any], ast: ASTNode, base_table: str):
-        from ast_models import ConditionGroupNode, WhereNode
-        
-        # Handle dicts as flat AND conditions
+    def _parse_filters(self, filters: Dict[str, Any], ast: ASTNode, base_table: str) -> List["ConditionNode"]:
+        from ast_models import ConditionGroupNode, ConditionNode, WhereNode
+
+        conditions: List[ConditionNode] = []
+
         for key, value in filters.items():
             if key in ["AND", "OR"] and isinstance(value, list):
-                # Nested logic tree
-                group_node = ConditionGroupNode(operator=key, conditions=[])
+                # Nested logic tree. Recurses against the SAME `ast` (not a
+                # fresh ASTNode()) so join bookkeeping — _add_joins' dedup
+                # via ast.joins/ast.base_table — is shared with the parent
+                # scope instead of restarting from an empty, base_table-less
+                # node. Previously a target table already joined by a flat
+                # sibling condition could get joined again inside this
+                # group, which the validator's duplicate-join check then
+                # rejected as a false-positive Cartesian join on legitimate
+                # nested/cross-filter questions.
+                group_conditions: List[ConditionNode] = []
                 for sub_filter in value:
-                    sub_ast = ASTNode()
-                    self._parse_filters(sub_filter, sub_ast, base_table)
-                    group_node.conditions.extend(sub_ast.where)
-                    ast.joins.extend(sub_ast.joins) # Bubble up required joins
-                ast.where.append(group_node)
+                    group_conditions.extend(self._parse_filters(sub_filter, ast, base_table))
+                conditions.append(ConditionGroupNode(operator=key, conditions=group_conditions))
             else:
                 parts = key.split(".")
                 if len(parts) == 2:
@@ -131,7 +148,7 @@ class QueryPlannerV2:
                     if target_table:
                         if target_table != base_table:
                             self._add_joins(ast, base_table, target_table)
-                        
+
                         # Infer operator from value if it's a dict e.g. {"value": 10, "operator": ">"}
                         if isinstance(value, dict) and "operator" in value and "value" in value:
                             op = value["operator"]
@@ -140,11 +157,12 @@ class QueryPlannerV2:
                             op = "="
                             val = value
 
-                        ast.where.append(WhereNode(
+                        conditions.append(WhereNode(
                             column=f"{target_table}.{col_name}",
                             operator=op,
                             value=val
                         ))
+        return conditions
 
     def _add_joins(self, ast: ASTNode, start_table: str, end_table: str):
         # Check if already joined

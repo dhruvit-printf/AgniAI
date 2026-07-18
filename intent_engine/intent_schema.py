@@ -92,7 +92,7 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Pending",
             "Sent",
             "NotResponded",
-            "Completed",
+            "Verified",
             "Rejected",
         ]
     ),
@@ -1514,7 +1514,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "ignored request",
             "no acknowledgement",
         ),
-        "Completed": (
+        "Verified": (
             "all done",
             "finished checking",
             "verification done",
@@ -2439,8 +2439,8 @@ FUZZY_VOCAB: Dict[str, str] = {
     "notresponded": "NotResponded",
     "notrespondd": "NotResponded",
     "no responsed": "NotResponded",
-    "complted": "Completed",
-    "compleated": "Completed",
+    "complted": "Verified",
+    "compleated": "Verified",
     "rejcted": "Rejected",
     "rejeted": "Rejected",
     "regected": "Rejected",
@@ -3002,7 +3002,7 @@ INTENT_TYPE_DEFAULTS: Dict[Tuple[str, str], str] = {
     ("Verification", "Pending"): "Tabular",
     ("Verification", "Sent"): "Tabular",
     ("Verification", "NotResponded"): "Tabular",
-    ("Verification", "Completed"): "Tabular",
+    ("Verification", "Verified"): "Tabular",
     ("Verification", "Rejected"): "Tabular",
     ("Equipment", "Stats"): "Card",
     ("Equipment", "ByName"): "Tabular",
@@ -3118,6 +3118,7 @@ OPERATION_TO_PAYLOAD_FIELD: Dict[str, str] = {
     "Pending": "Pending",
     "Sent": "Sent",
     "NotResponded": "NotResponded",
+    "Verified": "Verified",
     "Rejected": "Rejected",
     "OverallPerformance": "OverallPerformance",
 }

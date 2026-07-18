@@ -167,17 +167,75 @@ class SqlValidator:
     def validate_sql(self, sql: str) -> Tuple[bool, Optional[str]]:
         """
         Final safety net to ensure generated SQL has no forbidden commands.
-        (This replaces the regexes from the old sql_executor.py)
+
+        This is the validator `execute_sql_query` actually calls (via
+        `from sql_validator import sql_validator`) — `sql_executor.py` also
+        defines a module-level `validate_sql()` with a fuller rule set
+        (R7 best-attempt scoping, DENIED_TABLES/DENIED_COLUMNS, comment
+        stripping), but nothing in the live request path ever calls that
+        one; only tests do. That silently meant R7, the hard column/table
+        denylist, and the comment check were not actually enforced against
+        any query this system executes. Ported here so this being the
+        validator that's really on the request path.
         """
         import re
-        s = sql.lower()
-        forbidden = r"\b(insert|update|delete|merge|drop|alter|truncate|create|grant|revoke|exec|execute|sp_|xp_)\b"
+
+        if not sql or not sql.strip():
+            return False, "Empty SQL."
+
+        s = sql.strip().rstrip(";").strip().lower()
+
+        forbidden = r"\b(insert|update|delete|merge|drop|alter|truncate|create|grant|revoke|exec|execute|sp_|xp_|openrowset|openquery|bulk|shutdown|reconfigure|waitfor)\b"
         if re.search(forbidden, s):
             return False, "Generated SQL contains forbidden keywords."
-            
-        if ";" in s:
+
+        if re.search(r";\s*\S", sql.strip().rstrip(";")):
             return False, "Multiple statements are not allowed."
-            
+
+        if re.search(r"(--|/\*|\*/)", sql):
+            return False, "Comments are not allowed."
+
+        # R7 (business_rules.LLM_HARD_RULES): any query touching
+        # AgniveerScoreAttempt.MarksObtained must scope to a single attempt
+        # per Agniveer/sub-item (IsBestAttempt = 1 or a specific AttemptNo) —
+        # otherwise summing MarksObtained double/triple-counts every retake.
+        if (
+            re.search(r"\bagniveerscoreattempt\b", s)
+            and re.search(r"\bmarksobtained\b", s)
+            and not re.search(r"\bisbestattempt\b", s)
+            and not re.search(r"\battemptno\b", s)
+        ):
+            return False, (
+                "Query uses AgniveerScoreAttempt.MarksObtained without scoping to a "
+                "single attempt (IsBestAttempt = 1 or AttemptNo) — would double-count "
+                "marks across retakes (R7)."
+            )
+
+        # NOTE on R1 (exclude disqualified agniveers): deliberately NOT
+        # enforced here as a blanket "AgniveerMaster present -> must contain
+        # IsDisqualified" text check. Several golden queries legitimately
+        # omit it by design — a single-Agniveer lookup by AgniveerNo
+        # (personaldetail/info, Medical/Individual) or a Verification-status
+        # query — matching the .NET reference's own behavior for those
+        # operations (see AiCommandService.Cmd_AgniveerPersonalDetails /
+        # Cmd_IndividualMedicalReport / Cmd_VerificationByStatus, none of
+        # which filter by IsDisqualified). A regex over raw SQL text can't
+        # distinguish "this query type doesn't need the filter" from "this
+        # forgot the filter", so it would reject correct queries as often as
+        # it caught bugs. R1 is instead enforced structurally: via
+        # business_ontology.json's Agniveer.implicit_filters (query_planner_v2
+        # AST path) and directly in each GOLDEN_QUERIES template that needs it.
+
+        from sql_executor import DENIED_COLUMNS, DENIED_TABLES
+
+        for denied in DENIED_TABLES:
+            if re.search(rf"\b{denied}\b", s):
+                return False, f"Access to table '{denied}' is denied."
+        for denied in DENIED_COLUMNS:
+            tbl, col = denied.split(".")
+            if col in s and tbl in s:
+                return False, f"Access to column '{denied}' is denied."
+
         return True, None
 
 sql_validator = SqlValidator()

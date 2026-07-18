@@ -4,7 +4,9 @@
       "table": "AgniveerMaster",
       "type": "Core",
       "default_date_column": null,
-      "implicit_filters": {}
+      "implicit_filters": {
+        "IsDisqualified": 0
+      }
     },
     "Attendance": {
       "table": "AgniveerAttendanceMaster",

@@ -13,46 +13,57 @@ class RelationshipGraph:
     """
     Automated Join Path Discovery.
     Models tables as Nodes, Foreign Keys as Edges.
-    Uses BFS to find the minimum joins between tables.
+    Uses Dijkstra to find the minimum-cost join path between tables.
     """
+
+    # Tables that represent an actor/account (who did/owns something) rather
+    # than a business entity. UserMaster is pointed to by many unrelated
+    # columns (DoctorId, MarkedBy, EvaluatedBy, CompanyCommanderId,
+    # CommandingOfficerId, PlatoonCommanderId, ...) — in an unweighted graph,
+    # Dijkstra will happily "shortcut" an unrelated query (e.g. "which
+    # company is this medical record's company") through UserMaster,
+    # coincidentally matching a doctor's UserId against some company's
+    # CommandingOfficerId, which is a syntactically valid but semantically
+    # meaningless join (a doctor is not that company's commanding officer).
+    # Weighting hops through these tables higher keeps the real business
+    # hierarchy (Agniveer -> Platoon -> Company) preferred, while still
+    # allowing a UserMaster hop when it's genuinely the only path, or the
+    # actual destination (e.g. "who is Agniveer X's doctor").
+    _HUB_TABLES = frozenset({"UserMaster"})
+    _HUB_HOP_WEIGHT = 5
 
     def __init__(self, engine=None):
         self.engine = engine or schema_engine
         self.adj: Dict[str, set[Tuple[str, str, str, int]]] = collections.defaultdict(set)
         self.build_graph()
 
-    def _infer_target_table(self, col: str, all_tables: List[str]) -> Optional[str]:
-        if not col.endswith("Id"):
-            return None
-        if col == "Id":
-            return None
-            
-        base_name = col[:-2] # e.g. "Agniveer" from "AgniveerId"
-        
-        # Exact match to Master
-        if f"{base_name}Master" in all_tables:
-            return f"{base_name}Master"
-            
-        # Special cases for score tracking hierarchy
-        if base_name == "SubItem" and "ScoreSubItemMaster" in all_tables:
-            return "ScoreSubItemMaster"
-        if base_name == "Section" and "ScoreSectionMaster" in all_tables:
-            return "ScoreSectionMaster"
-            
-        return None
-
     def build_graph(self):
-        """Builds an adjacency list representing undirected edges between tables."""
+        """Builds an adjacency list representing undirected edges between tables.
+
+        Foreign keys are sourced from schema_engine.get_foreign_keys() — the
+        single source of truth for FK inference (curated overrides + naming
+        heuristic) — rather than re-implementing the same heuristic here.
+        Previously this duplicated schema_engine's logic verbatim, which
+        meant a fix to one copy (e.g. adding a curated override for
+        Doctor/Team/AgniVeerId) silently didn't apply to the other, and this
+        graph is what query_planner_v2._add_joins actually walks to build
+        live joins — so a gap here silently drops joins, not just metadata.
+        """
         tables = self.engine.get_tables()
         for t1 in tables:
-            columns = self.engine.get_columns(t1)
-            for col in columns:
-                target_table = self._infer_target_table(col, tables)
-                if target_table:
-                    # Edge from t1 to target_table via col, weight=1 for direct FK
-                    self.adj[t1].add((target_table, col, "Id", 1))
-                    # Reverse edge
-                    self.adj[target_table].add((t1, "Id", col, 1))
+            for fk in self.engine.get_foreign_keys(t1):
+                col = fk["column"]
+                target_table = fk["referenced_table"]
+                referenced_column = fk.get("referenced_column", "Id")
+                weight = (
+                    self._HUB_HOP_WEIGHT
+                    if target_table in self._HUB_TABLES or t1 in self._HUB_TABLES
+                    else 1
+                )
+                # Edge from t1 to target_table via col
+                self.adj[t1].add((target_table, col, referenced_column, weight))
+                # Reverse edge
+                self.adj[target_table].add((t1, referenced_column, col, weight))
 
     @functools.lru_cache(maxsize=1024)
     def find_shortest_path(self, start_table: str, end_table: str) -> Optional[List[Dict[str, str]]]:
