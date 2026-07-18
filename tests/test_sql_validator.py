@@ -65,3 +65,30 @@ def test_invalid_group_by_is_blocked():
     is_valid, err = sql_validator.validate_ast(ast)
     assert is_valid is False
     assert "FakeColumn" in err
+
+def test_missing_parameter_is_blocked():
+    ast = ASTNode(base_table="AgniveerMaster")
+    ast.where.append(WhereNode(column="AgniveerMaster.Id", operator="<", value=None))
+    
+    is_valid, err = sql_validator.validate_ast(ast)
+    assert is_valid is False
+    assert "Missing parameter value" in err
+
+def test_invalid_select_alias_is_blocked():
+    ast = ASTNode(base_table="AgniveerMaster", columns=["InvalidAlias"])
+    is_valid, err = sql_validator.validate_ast(ast)
+    assert is_valid is False
+    assert "missing a table qualifier or is an invalid alias" in err
+
+def test_invalid_group_by_alias_is_blocked():
+    ast = ASTNode(base_table="AgniveerMaster", group_by=["InvalidAlias"])
+    is_valid, err = sql_validator.validate_ast(ast)
+    assert is_valid is False
+    assert "references unknown column or alias" in err
+
+def test_invalid_order_by_alias_is_blocked():
+    ast = ASTNode(base_table="AgniveerMaster")
+    ast.order_by.append(OrderByNode(column="InvalidAlias"))
+    is_valid, err = sql_validator.validate_ast(ast)
+    assert is_valid is False
+    assert "references unknown column or alias" in err

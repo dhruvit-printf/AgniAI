@@ -60,3 +60,45 @@ def test_graph_returns_none_for_disjoint_tables():
     # Note: the current schema might be fully connected. Let's ask it for an AlienSpaceship.
     path = relationship_graph.find_shortest_path("AgniveerMaster", "AlienSpaceship")
     assert path is None
+
+def test_graph_handles_cycles_without_infinite_loops(monkeypatch):
+    original_get_tables = relationship_graph.engine.get_tables
+    original_get_columns = relationship_graph.engine.get_columns
+    
+    def mock_get_tables():
+        tables = original_get_tables()
+        tables.append("FakeMaster")
+        return tables
+        
+    def mock_get_columns(table):
+        if table == "AgniveerMaster":
+            return ["Id", "FakeId"]
+        if table == "FakeMaster":
+            return ["Id", "AgniveerId"]
+        return original_get_columns(table)
+        
+    monkeypatch.setattr(relationship_graph.engine, "get_tables", mock_get_tables)
+    monkeypatch.setattr(relationship_graph.engine, "get_columns", mock_get_columns)
+    
+    relationship_graph.build_graph()
+    
+    path = relationship_graph.find_shortest_path("AgniveerMaster", "FakeMaster")
+    assert path is not None
+    assert len(path) == 1
+
+def test_graph_ignores_duplicate_relationships(monkeypatch):
+    original_get_columns = relationship_graph.engine.get_columns
+    
+    def mock_get_columns(table):
+        cols = original_get_columns(table)
+        if table == "AgniveerMaster":
+            # Add duplicate PlatoonId column
+            cols.append("PlatoonId")
+        return cols
+        
+    monkeypatch.setattr(relationship_graph.engine, "get_columns", mock_get_columns)
+    relationship_graph.build_graph()
+    
+    path = relationship_graph.find_shortest_path("AgniveerMaster", "PlatoonMaster")
+    assert path is not None
+    assert len(path) == 1

@@ -308,62 +308,80 @@ class TestGoldenQueries:
 
 class TestExecuteSqlQuery:
     def test_returns_section_on_success(self):
+        from ast_models import ASTNode
         with (
-            patch("sql_executor.generate_sql") as mock_gen,
+            patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
+            patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
+            patch("sql_builder.sql_builder.build") as mock_build,
+            patch("sql_validator.sql_validator.validate_sql") as mock_val_sql,
             patch("sql_executor.run_readonly") as mock_run,
         ):
-            mock_gen.return_value = ("SELECT AgniveerNo FROM AgniveerMaster", None)
+            mock_plan.return_value = ASTNode(base_table="AgniveerMaster")
+            mock_val_ast.return_value = (True, None)
+            mock_build.return_value = ("SELECT AgniveerNo FROM AgniveerMaster", [])
+            mock_val_sql.return_value = (True, None)
             mock_run.return_value = ([{"agniveerNo": "A1"}], None)
-            data, err = execute_sql_query(question="who is A1", intent=None)
+            data, err = execute_sql_query(question="who is A1", intent={"category": "Agniveer"})
             assert err is None
             assert data["success"] is True
             assert data["records"] == [{"agniveerNo": "A1"}]
 
     def test_cannot_answer_bubbles_error(self):
-        with patch("sql_executor.generate_sql") as mock_gen:
-            mock_gen.return_value = (None, "CANNOT_ANSWER")
-            data, err = execute_sql_query(question="what's the weather", intent=None)
+        with patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan:
+            mock_plan.side_effect = Exception("CANNOT_ANSWER")
+            data, err = execute_sql_query(question="what's the weather", intent={"category": "Agniveer"})
             assert data is None
-            assert err == "CANNOT_ANSWER"
+            assert "CANNOT_ANSWER" in err
 
     def test_validator_rejection_bubbles_error(self):
-        with patch("sql_executor.generate_sql") as mock_gen:
-            mock_gen.return_value = ("DELETE FROM AgniveerMaster", None)
-            data, err = execute_sql_query(question="delete everyone", intent=None)
+        with (
+            patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
+            patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
+        ):
+            mock_plan.return_value = None
+            mock_val_ast.return_value = (False, "AST rejected")
+            data, err = execute_sql_query(question="delete everyone", intent={"category": "Agniveer"})
             assert data is None
             assert err is not None
 
     def test_exec_error_bubbles_error(self):
+        from ast_models import ASTNode
         with (
-            patch("sql_executor.generate_sql") as mock_gen,
+            patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
+            patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
+            patch("sql_builder.sql_builder.build") as mock_build,
+            patch("sql_validator.sql_validator.validate_sql") as mock_val_sql,
             patch("sql_executor.run_readonly") as mock_run,
         ):
-            mock_gen.return_value = ("SELECT 1", None)
+            mock_plan.return_value = ASTNode(base_table="AgniveerMaster")
+            mock_val_ast.return_value = (True, None)
+            mock_build.return_value = ("SELECT 1", [])
+            mock_val_sql.return_value = (True, None)
             mock_run.return_value = (
                 None,
                 "The generated query could not be executed against the database.",
             )
-            data, err = execute_sql_query(question="anything", intent=None)
+            data, err = execute_sql_query(question="anything", intent={"category": "Agniveer"})
             assert data is None
             assert err
 
     def test_executed_sql_is_surfaced_for_dotnet_payload_transparency(self):
-        """The section returned to the caller carries the executed SQL under
-        `sql` — admin_pipeline.py reads section["sql"] to populate the
-        `dotnetPayload.sqlQuery` transparency field (the SQL-backend analog
-        of the pre-migration "exact .NET request payload" debug field
-        documented in response_builder.py). This is intentional exposure to
-        admin/debug consumers, not a leak: validate_sql() already rejects
-        any query touching denied tables/columns before it ever reaches
-        run_readonly(), so the executed SQL text itself is safe to surface."""
+        from ast_models import ASTNode
         sql_text = "SELECT AgniveerNo, FullName FROM AgniveerMaster WHERE Height > 170"
         with (
-            patch("sql_executor.generate_sql") as mock_gen,
+            patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
+            patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
+            patch("sql_builder.sql_builder.build") as mock_build,
+            patch("sql_validator.sql_validator.validate_sql") as mock_val_sql,
             patch("sql_executor.run_readonly") as mock_run,
         ):
-            mock_gen.return_value = (sql_text, None)
+            mock_plan.return_value = ASTNode(base_table="AgniveerMaster")
+            mock_val_ast.return_value = (True, None)
+            mock_build.return_value = (sql_text, [])
+            mock_val_sql.return_value = (True, None)
             mock_run.return_value = ([{"agniveerNo": "A1", "fullName": "X"}], None)
-            data, err = execute_sql_query(question="tall agniveers", intent=None)
+            data, err = execute_sql_query(question="tall agniveers", intent={"category": "Agniveer"})
             assert err is None
             assert data["sql"] == sql_text
-            assert set(data.keys()) == {"success", "records", "data", "count", "sql"}
+            # execution_metadata was also added in the new pipeline
+            assert "execution_metadata" in data

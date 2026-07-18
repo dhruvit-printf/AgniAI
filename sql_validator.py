@@ -81,6 +81,8 @@ class SqlValidator:
                         return False, f"Select column references unjoined table '{tbl}'."
                     if col not in self.engine.get_columns(tbl):
                         return False, f"Column '{col}' does not exist in table '{tbl}'."
+                else:
+                    return False, f"Select column '{c}' is missing a table qualifier or is an invalid alias."
                         
         # Validate Group By
         for c in getattr(ast, "group_by", []):
@@ -91,6 +93,8 @@ class SqlValidator:
                     return False, f"Group By references unjoined table '{tbl}'."
                 if col not in self.engine.get_columns(tbl):
                     return False, f"Column '{col}' does not exist in table '{tbl}'."
+            elif c not in seen_aliases:
+                return False, f"Group By references unknown column or alias '{c}'."
 
         # Validate Order By
         for o in getattr(ast, "order_by", []):
@@ -101,6 +105,8 @@ class SqlValidator:
                     return False, f"Order By references unjoined table '{tbl}'."
                 if col not in self.engine.get_columns(tbl):
                     return False, f"Column '{col}' does not exist in table '{tbl}'."
+            elif o.column not in seen_aliases:
+                return False, f"Order By references unknown column or alias '{o.column}'."
 
         # Validate conditions recursively
         for condition in ast.where:
@@ -142,6 +148,8 @@ class SqlValidator:
                         return False, f"Type mismatch: '{node.column}' expects integer, got {val_type.__name__}."
                     if col_type == "boolean" and not isinstance(node.value, bool) and str(node.value).lower() not in ["0", "1", "true", "false"]:
                         return False, f"Type mismatch: '{node.column}' expects boolean."
+                elif node.operator.upper() not in ("IS NULL", "IS NOT NULL", "=", "!="):
+                    return False, f"Missing parameter value for operator '{node.operator}'."
             elif node.column not in seen_aliases:
                 return False, f"Condition references unknown alias or column '{node.column}'."
                 

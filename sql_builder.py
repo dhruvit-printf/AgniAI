@@ -1,5 +1,6 @@
 from typing import Tuple, Dict, Any, List
 from ast_models import ASTNode, ConditionNode, WhereNode, ConditionGroupNode
+from schema_engine import schema_engine
 
 class SqlBuilder:
     """
@@ -73,7 +74,19 @@ class SqlBuilder:
             
         columns = list(ast.columns)
         # Apply alias safely to normal columns ONLY
-        aliased_cols = [self._apply_alias(c) if "." in c else c for c in columns]
+        aliased_cols = []
+        for c in columns:
+            if c == "*":
+                table_cols = schema_engine.get_columns(ast.base_table)
+                alias = self.aliases.get(ast.base_table, ast.base_table)
+                aliased_cols.extend([f"{alias}.{col}" for col in table_cols])
+            elif c.endswith(".*"):
+                table = c.split(".")[0]
+                table_cols = schema_engine.get_columns(table)
+                alias = self.aliases.get(table, table)
+                aliased_cols.extend([f"{alias}.{col}" for col in table_cols])
+            else:
+                aliased_cols.append(self._apply_alias(c) if "." in c else c)
         
         for agg in ast.aggregates:
             aliased_col = self._apply_alias(agg.column)
@@ -83,7 +96,10 @@ class SqlBuilder:
             aliased_cols.append(col_str)
             
         if not aliased_cols:
-            aliased_cols = ["*"]
+            # Fallback to expanding base table to avoid SELECT *
+            table_cols = schema_engine.get_columns(ast.base_table)
+            alias = self.aliases.get(ast.base_table, ast.base_table)
+            aliased_cols.extend([f"{alias}.{col}" for col in table_cols])
             
         parts.append(", ".join(aliased_cols))
         return " ".join(parts)
@@ -114,6 +130,11 @@ class SqlBuilder:
                     return f"{aliased_col} IS NULL"
                 elif node.operator == "!=":
                     return f"{aliased_col} IS NOT NULL"
+                    
+            if node.operator.upper() == "IN" and isinstance(node.value, (list, tuple)):
+                params = [self._next_param(v) for v in node.value]
+                return f"{aliased_col} IN ({', '.join(params)})"
+                
             p = self._next_param(node.value)
             return f"{aliased_col} {node.operator} {p}"
         elif isinstance(node, ConditionGroupNode):

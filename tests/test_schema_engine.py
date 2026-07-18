@@ -15,3 +15,12 @@ def test_schema_loads_metadata():
 def test_schema_rejects_unknown_concept():
     table = schema_engine.get_table_for_concept("AlienSpaceship")
     assert table is None
+
+def test_schema_get_implicit_filters():
+    filters = schema_engine.get_implicit_filters("Performance")
+    # Will be empty if not in ontology
+    assert isinstance(filters, dict)
+
+def test_schema_get_ranking_columns():
+    cols = schema_engine.get_ranking_columns("AgniveerScoreAttempt")
+    assert isinstance(cols, list)
