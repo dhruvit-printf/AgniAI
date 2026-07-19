@@ -254,18 +254,5 @@ class SchemaEngine:
         """Returns all datetime columns for a table."""
         return [c for c in self.get_columns(table_name) if self.get_column_type(table_name, c) == "datetime"]
 
-    def get_table_metadata(self, table_name: str) -> Dict[str, Any]:
-        """Returns the fully aggregated metadata object for a table."""
-        return {
-            "table": self.get_table(table_name),
-            "concept": self.get_concept_for_table(table_name),
-            "relationships": self.get_relationships(table_name),
-            "display_columns": self.get_display_columns(table_name),
-            "searchable_columns": self.get_searchable_columns(table_name),
-            "aggregation_columns": self.get_aggregation_columns(table_name),
-            "ranking_columns": self.get_ranking_columns(table_name),
-            "date_columns": self.get_date_columns(table_name),
-            "status_columns": self.get_status_columns(table_name)
-        }
 
 schema_engine = SchemaEngine()

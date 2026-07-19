@@ -1,9 +1,10 @@
 import logging
-from typing import List, Optional, Tuple, Set
+from typing import Optional, Tuple, Set
 from ast_models import ASTNode, ConditionNode, WhereNode, ConditionGroupNode
 from schema_engine import schema_engine
 
 logger = logging.getLogger(__name__)
+
 
 class SqlValidator:
     """
@@ -122,7 +123,9 @@ class SqlValidator:
 
         return True, None
 
-    def _validate_condition(self, node: ConditionNode, valid_tables: Set[str], seen_aliases: Set[str] = None) -> Tuple[bool, Optional[str]]:
+    def _validate_condition(self, node: ConditionNode, valid_tables: Set[str], seen_aliases: Set[str] = None, depth: int = 0) -> Tuple[bool, Optional[str]]:
+        if depth > 20:
+            return False, "Query condition depth limit exceeded."
         seen_aliases = seen_aliases or set()
         
         if isinstance(node, WhereNode):
@@ -144,7 +147,7 @@ class SqlValidator:
                 col_type = self.engine.get_column_type(tbl, col)
                 val_type = type(node.value)
                 if node.value is not None:
-                    if col_type == "integer" and not isinstance(node.value, int) and str(node.value).isdigit() == False:
+                    if col_type == "integer" and not isinstance(node.value, int) and not str(node.value).isdigit():
                         return False, f"Type mismatch: '{node.column}' expects integer, got {val_type.__name__}."
                     if col_type == "boolean" and not isinstance(node.value, bool) and str(node.value).lower() not in ["0", "1", "true", "false"]:
                         return False, f"Type mismatch: '{node.column}' expects boolean."
@@ -157,7 +160,7 @@ class SqlValidator:
             
         elif isinstance(node, ConditionGroupNode):
             for c in node.conditions:
-                is_valid, err = self._validate_condition(c, valid_tables, seen_aliases)
+                is_valid, err = self._validate_condition(c, valid_tables, seen_aliases, depth + 1)
                 if not is_valid:
                     return False, err
             return True, None
@@ -184,6 +187,9 @@ class SqlValidator:
             return False, "Empty SQL."
 
         s = sql.strip().rstrip(";").strip().lower()
+
+        if not (s.startswith("select") or s.startswith("with")):
+            return False, "Only single SELECT / WITH...SELECT statements are allowed."
 
         forbidden = r"\b(insert|update|delete|merge|drop|alter|truncate|create|grant|revoke|exec|execute|sp_|xp_|openrowset|openquery|bulk|shutdown|reconfigure|waitfor)\b"
         if re.search(forbidden, s):
@@ -237,5 +243,6 @@ class SqlValidator:
                 return False, f"Access to column '{denied}' is denied."
 
         return True, None
+
 
 sql_validator = SqlValidator()

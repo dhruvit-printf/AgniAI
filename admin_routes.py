@@ -14,7 +14,7 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from flask import Blueprint, jsonify, request
 
@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────
 ADMIN_RATE_LIMIT = os.getenv("ADMIN_RATE_LIMIT", "20 per minute")
-LAST_DOTNET_HEALTH_LATENCY_MS: Optional[float] = None
 
 # ── Blueprint ──────────────────────────────────────────────────────────────
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -224,29 +223,6 @@ def check_python_health() -> str:
         return "unhealthy"
 
 
-def check_dotnet_health() -> str:
-    from dotnet_executor import DOTNET_EXECUTE_URL, DOTNET_VERIFY_SSL, _cb
-
-    global LAST_DOTNET_HEALTH_LATENCY_MS
-    if _cb.state == "OPEN":
-        LAST_DOTNET_HEALTH_LATENCY_MS = None
-        return "unhealthy"
-    try:
-        import requests
-
-        start = time.time()
-        resp = requests.options(DOTNET_EXECUTE_URL, timeout=2, verify=DOTNET_VERIFY_SSL)
-        LAST_DOTNET_HEALTH_LATENCY_MS = round((time.time() - start) * 1000, 2)
-        if resp.status_code < 400:
-            return "healthy"
-        if resp.status_code == 405:
-            return "degraded"
-        return "unhealthy"
-    except Exception:
-        LAST_DOTNET_HEALTH_LATENCY_MS = None
-        return "unhealthy"
-
-
 def check_llm_health() -> str:
     from config import OLLAMA_TAGS_URL
 
@@ -277,14 +253,11 @@ def check_database_health() -> str:
 @_require_secret
 def admin_health():
     py_h = check_python_health()
-    dn_h = check_dotnet_health()
     llm_h = check_llm_health()
     db_h = check_database_health()
 
     payload = {
         "python": py_h,
-        "dotnet": dn_h,
-        "dotnetLatencyMs": LAST_DOTNET_HEALTH_LATENCY_MS,
         "llm": llm_h,
         "database": db_h,
     }

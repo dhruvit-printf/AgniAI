@@ -119,10 +119,6 @@ _SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
 }
 
 
-def _detail_widgets_for(summary_widgets: List[str]) -> List[str]:
-    return ["TABLE"]
-
-
 def _comparison_widgets(override: Optional[str]) -> List[Dict[str, Any]]:
     if not override:
         return _widget_list("COMPARE_TABLE")
@@ -168,7 +164,13 @@ def _plan_widgets(
                     }
                 )
         return widgets or _widget_list("TABLE")
-        
+
+    # Tables-only mode: comparison queries get a dedicated COMPARE_TABLE
+    # (left/right side-by-side), everything else gets a plain TABLE.
+    # Chart types (line/pie/bar) are intentionally not planned here.
+    if comparison:
+        return _widget_list("COMPARE_TABLE")
+
     return _widget_list("TABLE")
 
 

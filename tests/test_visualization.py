@@ -21,14 +21,19 @@ class TestWidgetEngine(unittest.TestCase):
         res = build_formatted_data(answer, query_type="simple", intent={})
         self.assertEqual(res["type"], "TABLE")
 
-    def test_compare_widgets_yield_TABLE(self):
+    def test_compare_widgets_yield_COMPARE_TABLE(self):
+        # Tables-only mode: a comparison gets its own dedicated widget type
+        # (COMPARE_TABLE, with left/right split) rather than being flattened
+        # into a plain TABLE.
         answer = {
             "left": {"label": "PPT", "data": [{"id": 1}]},
             "right": {"label": "BPET", "data": [{"id": 2}]},
             "comparison": {"averageScore": {"higher": "PPT", "lower": "BPET"}},
         }
         res = build_formatted_data(answer, query_type="compare", intent={})
-        self.assertEqual(res["type"], "TABLE")
+        self.assertEqual(res["type"], "COMPARE_TABLE")
+        self.assertIn("left", res["data"])
+        self.assertIn("right", res["data"])
 
     def test_distribution_widgets_yield_pie_chart(self):
         answer = {

@@ -11,7 +11,6 @@ from typing import Any, Callable, Dict, List, Optional
 
 import requests as _requests
 
-from dotnet_security import resolve_dotnet_verify_ssl
 from settings import get_dotnet_config
 
 logger = logging.getLogger(__name__)
@@ -23,7 +22,8 @@ _AGNIVEER_URL = f"{_DOTNET_BASE}/api/Agniveer/GetAgniveerDetails"
 _COMPANY_URL = f"{_DOTNET_BASE}/api/CompanyDetails/Get"
 _PLATOON_URL = f"{_DOTNET_BASE}/api/PlatoonDetails/Get"
 
-_VERIFY_SSL = resolve_dotnet_verify_ssl(logger)
+# SSL verification default (dotnet_security module removed with .NET decommission)
+_VERIFY_SSL = os.getenv("DOTNET_VERIFY_SSL", "true").lower() not in ("0", "false", "no")
 
 _DEFAULT_TTL_SECONDS = int(os.getenv("ENTITY_CACHE_TTL_SECONDS", "300"))
 

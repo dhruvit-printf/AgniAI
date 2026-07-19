@@ -3204,14 +3204,6 @@ def agniveer_no_required(category: Optional[str], operation: Optional[str]) -> b
     return False
 
 
-def get_section_by_alias(alias: str) -> Optional[str]:
-    """Look up section name by alias."""
-    alias_lower = str(alias).lower().strip()
-    for section_name, section_data in SECTION.items():
-        if alias_lower in section_data["aliases"]:
-            return section_name
-    return None
-
 
 def is_valid_category(category: str) -> bool:
     """Check if category is in the official list."""

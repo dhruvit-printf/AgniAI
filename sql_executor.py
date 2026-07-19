@@ -25,11 +25,8 @@ Flow (as actually wired in execute_sql_query today):
     -> run read-only -> rows.
 
 `generate_sql()` below (free-text LLM SQL generation carrying
-business_rules.LLM_HARD_RULES) is NOT part of this flow — execute_sql_query
-never calls it, and nothing else in this codebase does either. It predates
-the query_planner_v2 AST path and is currently reachable only from tests
-that patch it directly. Treat it as available-but-unwired scaffolding, not
-a live fallback, until something actually calls it.
+business_rules.LLM_HARD_RULES) serves as the Tier 2 LLM fallback path inside
+execute_sql_query() when AST planning/compilation fails or faces capability gaps.
 
 SAFETY MODEL (do not weaken any of these):
   1. Connect with a READ-ONLY SQL login (db_datareader only, DENY on
@@ -53,6 +50,8 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from sql_validator import sql_validator
+
 logger = logging.getLogger(__name__)
 
 # ── Config (env-overridable, production-safe defaults) ──────────────────────
@@ -69,8 +68,6 @@ DENIED_COLUMNS = {
     "logintoken.refreshtoken",
 }
 DENIED_TABLES = {"logintoken", "defaultlog"}
-
-from sql_validator import sql_validator
 
 
 class CapabilityGapError(Exception):
@@ -116,80 +113,22 @@ _GENERATION_SYSTEM = (
     "SQL: SELECT a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS BestTotal FROM AgniveerMaster a INNER JOIN AgniveerScoreAttempt sa ON a.Id = sa.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND sa.IsBestAttempt = 1 AND a.Sports = 'Volleyball' GROUP BY a.AgniveerNo, a.FullName ORDER BY BestTotal DESC"
 )
 
+
 # ── Safety validator ───────────────────────────────────────────────────────
-_FORBIDDEN = re.compile(
-    r"\b(insert|update|delete|merge|drop|alter|truncate|create|grant|revoke|"
-    r"exec|execute|sp_|xp_|openrowset|openquery|bulk|shutdown|reconfigure|"
-    r"waitfor)\b",
-    re.IGNORECASE,
-)
-_MULTI_STATEMENT = re.compile(r";\s*\S")  # a ';' followed by more content
-_COMMENT = re.compile(r"(--|/\*|\*/)")
-
-# R7 (business_rules.LLM_HARD_RULES): any query that touches
-# AgniveerScoreAttempt.MarksObtained MUST scope to a single attempt per
-# Agniveer/sub-item — either via `IsBestAttempt = 1` or by keying off
-# `AttemptNo` directly (e.g. a per-attempt trend/comparison). Without one of
-# these, summing/aggregating MarksObtained silently double/triple-counts
-# every retake, since AgniveerScoreAttempt has one row per attempt.
-_SCORE_ATTEMPT_TABLE = re.compile(r"\bagniveerscoreattempt\b", re.IGNORECASE)
-_MARKS_COLUMN = re.compile(r"\bmarksobtained\b", re.IGNORECASE)
-_BEST_ATTEMPT_GUARD = re.compile(r"\bisbestattempt\b", re.IGNORECASE)
-_ATTEMPT_NO_GUARD = re.compile(r"\battemptno\b", re.IGNORECASE)
-
-
 def validate_sql(sql: str) -> Optional[str]:
     """Return an error string if the SQL is unsafe, else None.
-
-    NOT on the live request path: execute_sql_query calls
-    sql_validator.validate_sql() (sql_validator.py) instead, which has its
-    own, now-equivalent copy of this rule set (R7 + DENIED_TABLES/COLUMNS +
-    comment/multi-statement checks — ported there since this function's
-    checks were silently never running against real traffic). Kept here for
-    tests that exercise it directly.
+    Delegates to the canonical sql_validator.validate_sql to remove duplicate logic.
     """
-    if not sql or not sql.strip():
-        return "Empty SQL."
-    s = sql.strip().rstrip(";").strip()
-
-    low = s.lower()
-    if not (low.startswith("select") or low.startswith("with")):
-        return "Only single SELECT / WITH...SELECT statements are allowed."
-    if _MULTI_STATEMENT.search(s):
-        return "Multiple statements are not allowed."
-    if _COMMENT.search(s):
-        return "Comments are not allowed."
-    if _FORBIDDEN.search(low):
-        return "Statement contains a forbidden keyword."
-
-    if (
-        _SCORE_ATTEMPT_TABLE.search(low)
-        and _MARKS_COLUMN.search(low)
-        and not _BEST_ATTEMPT_GUARD.search(low)
-        and not _ATTEMPT_NO_GUARD.search(low)
-    ):
-        return (
-            "Query uses AgniveerScoreAttempt.MarksObtained without scoping to a "
-            "single attempt (IsBestAttempt = 1 or AttemptNo) — would double-count "
-            "marks across retakes (R7)."
-        )
-
-    for denied in DENIED_TABLES:
-        if re.search(rf"\b{denied}\b", low):
-            return f"Access to table '{denied}' is denied."
-    for denied in DENIED_COLUMNS:
-        tbl, col = denied.split(".")
-        if col in low and tbl in low:
-            return f"Access to column '{denied}' is denied."
+    from sql_validator import sql_validator
+    is_valid, err = sql_validator.validate_sql(sql)
+    if not is_valid:
+        return err or "SQL validation failed."
     return None
 
 
 # ── SQL generation (LLM) ───────────────────────────────────────────────────
-# NOT called by execute_sql_query, or by anything else in this codebase —
-# see the module docstring. Left in place as scaffolding for a future
-# LLM-generation fallback (for filters/categories the golden path and
-# query_planner_v2's AST path can't express), but currently dead code
-# outside of tests that patch it directly.
+# Active Tier 2 LLM-based SQL generation fallback for handling complex queries
+# or filters that the golden path and query_planner_v2's AST path cannot express.
 def generate_sql(
     question: str, intent: Optional[Dict] = None
 ) -> Tuple[Optional[str], Optional[str]]:
@@ -300,10 +239,12 @@ def run_readonly(sql: str, params: Optional[List[Any]] = None) -> Tuple[Optional
         return None, f"pyodbc not installed: {exc}"
 
     try:
+        # Enforce transaction timeout limit between 1 and 30 seconds to avoid thread starvation
+        timeout_limit = max(1, min(SQL_COMMAND_TIMEOUT_S, 30))
         conn = pyodbc.connect(
-            SQL_READONLY_CONN, timeout=SQL_COMMAND_TIMEOUT_S, autocommit=True
+            SQL_READONLY_CONN, timeout=timeout_limit, autocommit=True
         )
-        conn.timeout = SQL_COMMAND_TIMEOUT_S
+        conn.timeout = timeout_limit
         cur = conn.cursor()
         # Belt-and-suspenders row cap regardless of query shape (works on 2008).
         cur.execute(f"SET ROWCOUNT {SQL_MAX_ROWS}")

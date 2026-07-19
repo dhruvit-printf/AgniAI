@@ -215,11 +215,13 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertTrue(response_payload["status"])
         self.assertEqual(response_payload["metadata"]["queryType"], "COMPARISON")
 
-        # Check comparison results — verify correct COMPARE widget is built
+        # Check comparison results — verify correct COMPARE widget is built.
+        # Tables-only mode: a comparison gets a dedicated COMPARE_TABLE
+        # (left/right side-by-side), not a plain merged TABLE.
         widgets = response_payload["formattedData"]
         if isinstance(widgets, dict):
             widgets = [widgets]
-        self.assertEqual(widgets[0]["type"], "TABLE")
+        self.assertEqual(widgets[0]["type"], "COMPARE_TABLE")
         self.assertEqual(len(widgets), 1)
         widget = widgets[0]
         self.assertIn("comparisonMetrics", response_payload["metadata"])

@@ -228,35 +228,6 @@ def _score_summary_bullet(scores: List[float], label: str = "") -> Optional[str]
     )
 
 
-def _build_conclusion_grounding_text(answer: Dict[str, Any], query_type: str) -> str:
-    lines = []
-    sections = answer.get("sections") or []
-
-    if query_type == "compare":
-        left = answer.get("left") or {}
-        right = answer.get("right") or {}
-        comp = answer.get("comparison") or {}
-        if left:
-            lines.append(f"{left.get('label')} count is {len(left.get('data', []))}.")
-        if right:
-            lines.append(f"{right.get('label')} count is {len(right.get('data', []))}.")
-        for k, v in comp.items():
-            if isinstance(v, dict):
-                lines.append(
-                    f"{k} difference is {v.get('difference')} and percentage is {v.get('percentage')}."
-                )
-    else:
-        records = sections[0].get("data") if sections else []
-        lines.append(f"Count: {len(records)}")
-        scores = _extract_scores(records)
-        if scores:
-            lines.append(f"Average Score: {round(sum(scores) / len(scores), 2)}")
-            lines.append(f"Top Score: {max(scores)}")
-            lines.append(f"Bottom Score: {min(scores)}")
-
-    return "\n".join(lines)
-
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Analytics helpers
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
