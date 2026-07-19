@@ -30,9 +30,12 @@ logger = logging.getLogger(__name__)
 DOTNET_API_BASE_URL = get_dotnet_config().BASE_URL
 DOTNET_EXECUTE_URL = f"{DOTNET_API_BASE_URL}/api/AiCommand/execute"
 DOTNET_API_KEY = os.getenv("DOTNET_API_KEY", "")
-from dotnet_security import resolve_dotnet_verify_ssl
 
-DOTNET_VERIFY_SSL = resolve_dotnet_verify_ssl(logger)
+verify_raw = os.getenv("DOTNET_VERIFY_SSL")
+if verify_raw is not None:
+    DOTNET_VERIFY_SSL = str(verify_raw).strip().lower() in {"1", "true", "yes", "on"}
+else:
+    DOTNET_VERIFY_SSL = True
 
 _dotnet_session = requests.Session()
 

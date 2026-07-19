@@ -3,7 +3,7 @@ from typing import Dict, Any, List
 
 from schema_engine import schema_engine
 from relationship_graph import relationship_graph
-from ast_models import ASTNode, JoinNode, WhereNode, AggregateNode, OrderByNode
+from ast_models import ASTNode, JoinNode, WhereNode, AggregateNode, OrderByNode, ConditionNode, ConditionGroupNode
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +68,14 @@ class QueryPlannerV2:
             self._parse_filters(intent.get("filters", {}), ast, base_table)
         )
 
-        # Add Implicit Filters for the base concept
+        # Add Implicit Filters for the base concept (only if not already filtered)
         implicit = self.engine.get_implicit_filters(base_concept)
         for col, val in implicit.items():
-            ast.where.append(
-                WhereNode(column=f"{base_table}.{col}", operator="=", value=val)
-            )
+            column_ref = f"{base_table}.{col}"
+            if not self._has_column_filter(ast.where, column_ref):
+                ast.where.append(
+                    WhereNode(column=column_ref, operator="=", value=val)
+                )
 
         # 3. Aggregation Setup
         aggregates = intent.get("aggregates", [])
@@ -166,9 +168,7 @@ class QueryPlannerV2:
 
     def _parse_filters(
         self, filters: Dict[str, Any], ast: ASTNode, base_table: str
-    ) -> List["ConditionNode"]:
-        from ast_models import ConditionGroupNode, ConditionNode, WhereNode
-
+    ) -> List[ConditionNode]:
         conditions: List[ConditionNode] = []
 
         for key, value in filters.items():
@@ -219,6 +219,18 @@ class QueryPlannerV2:
                             )
                         )
         return conditions
+
+    def _has_column_filter(self, conditions: List[Any], column_ref: str, depth: int = 0) -> bool:
+        if depth > 20:
+            return False
+        for cond in conditions:
+            if isinstance(cond, WhereNode):
+                if cond.column == column_ref:
+                    return True
+            elif isinstance(cond, ConditionGroupNode):
+                if self._has_column_filter(cond.conditions, column_ref, depth + 1):
+                    return True
+        return False
 
     def _add_joins(self, ast: ASTNode, start_table: str, end_table: str):
         # Check if already joined

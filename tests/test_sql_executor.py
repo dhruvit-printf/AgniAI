@@ -17,6 +17,7 @@ import pytest
 
 from sql_executor import (
     _extract_sql,
+    _to_camel_case,
     _to_section,
     execute_sql_query,
     validate_sql,
@@ -374,3 +375,56 @@ class TestExecuteSqlQuery:
             assert mock_plan.call_args is not None
             planned_intent = mock_plan.call_args.args[0]
             assert expected_fragment in planned_intent["filters"]
+
+
+# ── _to_camel_case — System.Text.Json-compatible acronym handling ───────────
+class TestToCamelCase:
+    """Regression coverage for the acronym-run casing fix.
+
+    _to_camel_case must match System.Text.Json's camelCase naming policy —
+    which lowercases an entire leading run of uppercase letters up to (but
+    not including) the capital that starts the next word — not just the
+    first character. A naive "lowercase only the first letter" rule turns
+    "OMRInputTotal" into "oMRInputTotal", which silently fails to match
+    utils.py's _SCORE_FIELDS entry "omrInputTotal", so any row containing
+    that column has its score dropped from every aggregate/comparison/chart
+    without ever raising an error.
+    """
+
+    @pytest.mark.parametrize(
+        "column_name, expected",
+        [
+            ("OMRInputTotal", "omrInputTotal"),
+            ("FullName", "fullName"),
+            ("AgniveerNo", "agniveerNo"),
+            ("Id", "id"),
+            ("IsBestAttempt", "isBestAttempt"),
+            ("ID", "id"),
+            ("MarksObtained", "marksObtained"),
+            ("BestTotal", "bestTotal"),
+            ("PPT", "ppt"),
+            ("AgniveerId", "agniveerId"),
+            ("A", "a"),
+            ("PlatoonNo", "platoonNo"),
+            ("CompanyId", "companyId"),
+            ("BMICategory", "bmiCategory"),
+        ],
+    )
+    def test_camel_cases_correctly(self, column_name, expected):
+        assert _to_camel_case(column_name) == expected
+
+    def test_empty_string_is_unchanged(self):
+        assert _to_camel_case("") == ""
+
+    def test_omr_score_row_is_findable_after_camel_casing(self):
+        """End-to-end: a row shaped like a real SQL Server cursor result
+        (PascalCase columns) must, after camelCasing, expose the exact key
+        utils.get_score looks for — proving the fix actually unblocks score
+        extraction, not just the isolated string transform."""
+        from utils import get_score
+
+        row = {"AgniveerNo": "A1", "FullName": "Amit", "OMRInputTotal": 87}
+        camel_row = {_to_camel_case(k): v for k, v in row.items()}
+
+        assert camel_row["omrInputTotal"] == 87
+        assert get_score(camel_row) == 87.0

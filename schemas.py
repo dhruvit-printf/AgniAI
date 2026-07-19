@@ -65,55 +65,6 @@ class IntentModel(_BaseModel):
     days: Optional[int] = None
 
 
-class DotNetPayloadModel(_BaseModel):
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
-
-    commandId: Optional[int] = 0
-    category: Optional[str] = None
-    operation: Optional[str] = None
-    n: Optional[int] = None
-    section: Optional[str] = None
-    subSection: Optional[str] = None
-    grading: Optional[str] = None
-    leaveType: Optional[str] = None
-    sport: Optional[str] = None
-    class_: Optional[str] = Field(None, alias="class")
-    unitName: Optional[str] = None
-    attemptNo: Optional[int] = None
-    fromAttempt: Optional[int] = None
-    toAttempt: Optional[int] = None
-    date: Optional[str] = None
-    bloodGroup: Optional[str] = None
-    equipmentName: Optional[str] = None
-    equipmentType: Optional[str] = None
-    companyId: Optional[int] = None
-    platoonId: Optional[int] = None
-    batchId: Optional[int] = None
-    fromDate: Optional[str] = None
-    toDate: Optional[str] = None
-    agniveerNo: Optional[str] = None
-    bmiCategory: Optional[str] = None
-    medicalStatus: Optional[str] = None
-    diagnose: Optional[str] = None
-    days: Optional[int] = None
-    fullName: Optional[str] = None
-    groupBy: Optional[str] = None
-    analyticsHint: Optional[str] = None
-    sortBy: Optional[str] = None  # ← added: passed by admin_pipeline for ranking
-    returnCondition: Optional[str] = None
-    givenCondition: Optional[str] = None
-
-
-class DotNetResponseModel(_BaseModel):
-
-    success: Optional[bool] = None
-    commandLabel: Optional[str] = None
-    status: Optional[bool] = None
-    data: Optional[Any] = None
-    message: Optional[str] = None
-    records: Optional[List[Dict[str, Any]]] = None
-
-
 class CombinedResponseModel(_BaseModel):
 
     success: Optional[bool] = None

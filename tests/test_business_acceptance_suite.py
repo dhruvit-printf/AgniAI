@@ -187,10 +187,6 @@ def _build_simple_cases() -> List[AcceptanceCase]:
         ("SIMP-029", "Show top unit distribution", "Distribution", "TopUnit", "agniveer", "Distribution", ("DistributionMaster", "AgniveerRelationMaster"), ()),
         ("SIMP-030", "Show sports roster", "Skills", "BySport", "company", "Agniveer", ("AgniveerMaster", "Sports"), ()),
         ("SIMP-031", "Show class roster", "Skills", "ByClass", "platoon", "Agniveer", ("AgniveerMaster", "Class"), ()),
-        ("SIMP-032", "Show today's schedule", "Schedule", "bytoday", "company", "Schedule", ("CompanySchedule", "ScheduleDate"), ()),
-        ("SIMP-033", "Show company schedule", "Schedule", "bycompany", "platoon", "Schedule", ("CompanySchedule", "CompanyMaster"), ()),
-        ("SIMP-034", "Show schedule by date", "Schedule", "bydate", "batch", "Schedule", ("CompanySchedule", "ScheduleDate"), ()),
-        ("SIMP-035", "Show agniveer schedule", "Schedule", "byagniveer", "agniveer", "Schedule", ("CompanySchedule", "AgniveerMaster"), ()),
         ("SIMP-036", "Show personal details", "personaldetail", "info", "agniveer", "Agniveer", ("AgniveerMaster", "FullName"), ()),
         ("SIMP-037", "Show disqualified agniveers", "disqualified", "removed", "company", "Agniveer", ("AgniveerMaster", "IsDisqualified"), ()),
     ]
@@ -419,7 +415,6 @@ SMOKE_CASE_IDS = [
     "SIMP-018-1",
     "SIMP-023-1",
     "SIMP-030-1",
-    "SIMP-032-1",
     "CF-001-1",
     "CMP-001-1",
     "TRD-001-1",

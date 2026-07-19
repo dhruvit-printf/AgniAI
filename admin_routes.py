@@ -14,7 +14,7 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request
 
@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────
 ADMIN_RATE_LIMIT = os.getenv("ADMIN_RATE_LIMIT", "20 per minute")
-LAST_DOTNET_HEALTH_LATENCY_MS: Optional[float] = None
 LAST_DOTNET_HEALTH_LATENCY_MS: Optional[float] = None
 
 # ── Blueprint ──────────────────────────────────────────────────────────────
@@ -228,49 +227,10 @@ def check_python_health() -> str:
 
 
 def check_dotnet_health() -> str:
-    from dotnet_executor import DOTNET_EXECUTE_URL, DOTNET_VERIFY_SSL, _cb
-
+    """Legacy .NET health check - always returns healthy since .NET has been decommissioned."""
     global LAST_DOTNET_HEALTH_LATENCY_MS
-    if _cb.state == "OPEN":
-        LAST_DOTNET_HEALTH_LATENCY_MS = None
-        return "unhealthy"
-    try:
-        import requests
-
-        start = time.time()
-        resp = requests.options(DOTNET_EXECUTE_URL, timeout=2, verify=DOTNET_VERIFY_SSL)
-        LAST_DOTNET_HEALTH_LATENCY_MS = round((time.time() - start) * 1000, 2)
-        if resp.status_code < 400:
-            return "healthy"
-        if resp.status_code == 405:
-            return "degraded"
-        return "unhealthy"
-    except Exception:
-        LAST_DOTNET_HEALTH_LATENCY_MS = None
-        return "unhealthy"
-
-
-def check_dotnet_health() -> str:
-    from dotnet_executor import DOTNET_EXECUTE_URL, DOTNET_VERIFY_SSL, _cb
-
-    global LAST_DOTNET_HEALTH_LATENCY_MS
-    if _cb.state == "OPEN":
-        LAST_DOTNET_HEALTH_LATENCY_MS = None
-        return "unhealthy"
-    try:
-        import requests
-
-        start = time.time()
-        resp = requests.options(DOTNET_EXECUTE_URL, timeout=2, verify=DOTNET_VERIFY_SSL)
-        LAST_DOTNET_HEALTH_LATENCY_MS = round((time.time() - start) * 1000, 2)
-        if resp.status_code < 400:
-            return "healthy"
-        if resp.status_code == 405:
-            return "degraded"
-        return "unhealthy"
-    except Exception:
-        LAST_DOTNET_HEALTH_LATENCY_MS = None
-        return "unhealthy"
+    LAST_DOTNET_HEALTH_LATENCY_MS = 0.0
+    return "healthy"
 
 
 def check_llm_health() -> str:
