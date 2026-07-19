@@ -33,7 +33,9 @@ def _has_data(fd: Any) -> bool:
             if "rows" in d and not d["rows"]:
                 return False
             if "left" in d and "right" in d:
-                if not _has_data({"data": d["left"]}) and not _has_data({"data": d["right"]}):
+                if not _has_data({"data": d["left"]}) and not _has_data(
+                    {"data": d["right"]}
+                ):
                     return False
         return True
     return True
@@ -101,7 +103,9 @@ def build_response(
         meta["sessionId"] = session_id
 
     summary = " ".join(
-        part for part in (_to_str(analysis), _to_str(prediction), _to_str(conclusion)) if part
+        part
+        for part in (_to_str(analysis), _to_str(prediction), _to_str(conclusion))
+        if part
     ).strip()
 
     def _normalize_formatted_data(value: Any) -> Any:

@@ -41,6 +41,7 @@ _GROUP_FIELD_MAP: Dict[str, List[str]] = {
     "batch": ["batchName", "batch"],
 }
 
+
 def _get_score(record: Dict) -> Optional[float]:
     return _utils_get_score(record)
 

@@ -50,12 +50,21 @@ _SCORE_FIELDS = (
 # Fields that carry identity / label info for natural references
 _NAME_FIELDS = ("fullName", "name", "agniveerName", "recruiterName")
 _ID_FIELDS = ("agniveerNo", "agniveerNumber", "enrollmentNo", "batchId", "platoonId")
-_UNIT_FIELDS = ("platoon", "platoonName", "batch", "batchName", "company", "unit", "commandLabel")
+_UNIT_FIELDS = (
+    "platoon",
+    "platoonName",
+    "batch",
+    "batchName",
+    "company",
+    "unit",
+    "commandLabel",
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_score(record: Dict[str, Any]) -> Optional[float]:
     for field in _SCORE_FIELDS:
@@ -115,7 +124,15 @@ def _intent_context(intent: Dict[str, Any]) -> Dict[str, str]:
         ctx["agniveer"] = str(agniveer_no)
 
     # Date / period filters
-    for key in ("from_date", "to_date", "month", "year", "period", "fromDate", "toDate"):
+    for key in (
+        "from_date",
+        "to_date",
+        "month",
+        "year",
+        "period",
+        "fromDate",
+        "toDate",
+    ):
         val = intent.get(key)
         if val:
             ctx[key] = str(val)
@@ -126,6 +143,7 @@ def _intent_context(intent: Dict[str, Any]) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 # Data summary builder
 # ---------------------------------------------------------------------------
+
 
 def _build_data_summary(
     combined_result: Any,
@@ -150,8 +168,16 @@ def _build_data_summary(
         left_label = left.get("label") or "Group A"
         right_label = right.get("label") or "Group B"
 
-        left_scores = [s for s in (_get_score(r) for r in left_data if isinstance(r, dict)) if s is not None]
-        right_scores = [s for s in (_get_score(r) for r in right_data if isinstance(r, dict)) if s is not None]
+        left_scores = [
+            s
+            for s in (_get_score(r) for r in left_data if isinstance(r, dict))
+            if s is not None
+        ]
+        right_scores = [
+            s
+            for s in (_get_score(r) for r in right_data if isinstance(r, dict))
+            if s is not None
+        ]
 
         summary: Dict[str, Any] = {
             "type": "comparison",
@@ -237,7 +263,11 @@ def _build_data_summary(
                 continue
             label = sec.get("label") or "Section"
             data = sec.get("data") or []
-            scores = [s for s in (_get_score(r) for r in data if isinstance(r, dict)) if s is not None]
+            scores = [
+                s
+                for s in (_get_score(r) for r in data if isinstance(r, dict))
+                if s is not None
+            ]
             entry: Dict[str, Any] = {"label": label, "count": len(data)}
             if scores:
                 entry["avg_score"] = round(sum(scores) / len(scores), 2)
@@ -254,7 +284,11 @@ def _build_data_summary(
 
     # ── Simple / trend / distribution / ranking ──────────────────────────────
     records = _extract_records(combined_result)
-    scores = [s for s in (_get_score(r) for r in records if isinstance(r, dict)) if s is not None]
+    scores = [
+        s
+        for s in (_get_score(r) for r in records if isinstance(r, dict))
+        if s is not None
+    ]
 
     summary = {
         "type": query_type or "simple",
@@ -323,6 +357,7 @@ def _build_data_summary(
 # LLM prompt builder
 # ---------------------------------------------------------------------------
 
+
 def _build_llm_prompt(
     user_query: str,
     data_summary: Dict[str, Any],
@@ -380,6 +415,7 @@ Style rules:
 # ---------------------------------------------------------------------------
 # Static fallback
 # ---------------------------------------------------------------------------
+
 
 def _static_fallback(
     user_query: str,
@@ -453,7 +489,9 @@ def _static_fallback(
         section_count = data_summary.get("section_count", 0)
         sections = data_summary.get("sections") or []
         section_labels = [s["label"] for s in sections if s.get("label")]
-        labels_str = ", ".join(section_labels[:3]) if section_labels else "multiple modules"
+        labels_str = (
+            ", ".join(section_labels[:3]) if section_labels else "multiple modules"
+        )
 
         msg = f"The consolidated report covers {section_count} independent section{'s' if section_count != 1 else ''}: {labels_str}."
         msg += " Each module's data is presented separately below for your review."
@@ -501,7 +539,9 @@ def _static_fallback(
     if rec_count == 1 and data_summary.get("records"):
         # Single record — be specific
         r = data_summary["records"][0]
-        name = r.get("fullName") or r.get("name") or r.get("agniveerNo") or "the Agniveer"
+        name = (
+            r.get("fullName") or r.get("name") or r.get("agniveerNo") or "the Agniveer"
+        )
         score_val = _get_score(r)
         msg = f"Here are the {scope} details for {name}{filter_str}."
         if score_val is not None:
@@ -525,7 +565,9 @@ def _static_fallback(
         names_str = (
             f"{', '.join(names[:-1])}, and {names[-1]}" if len(names) > 1 else names[0]
         )
-        lead_word = "Leading the way" if qtype == "ranking" else "A few names that stand out"
+        lead_word = (
+            "Leading the way" if qtype == "ranking" else "A few names that stand out"
+        )
         sentences.append(f"{lead_word}: {names_str}.")
 
     if unit_breakdown:
@@ -547,6 +589,7 @@ def _static_fallback(
 # ---------------------------------------------------------------------------
 # LLM response validator
 # ---------------------------------------------------------------------------
+
 
 def _validate_llm_response(
     text: str,
@@ -647,6 +690,7 @@ def _strip_prompt_echo(text: str) -> str:
 # Public entry point
 # ---------------------------------------------------------------------------
 
+
 def generate_message(
     user_query: str,
     combined_result: Any,
@@ -669,7 +713,9 @@ def generate_message(
     try:
         data_summary = _build_data_summary(combined_result, query_type, intent)
     except Exception as exc:
-        logger.warning("%s message_engine: _build_data_summary failed: %s", log_prefix, exc)
+        logger.warning(
+            "%s message_engine: _build_data_summary failed: %s", log_prefix, exc
+        )
         data_summary = {"type": query_type, "record_count": 0}
 
     # ── Attempt Ollama ────────────────────────────────────────────────────────
@@ -683,8 +729,8 @@ def generate_message(
             "stream": False,
             "options": {
                 "temperature": 0.25,  # Low temp — factual, grounded
-                "num_predict": 600,   # Generous budget — avoid mid-sentence cutoff
-                "num_ctx": 4096,      # Enough for prompt + data summary + full reply
+                "num_predict": 600,  # Generous budget — avoid mid-sentence cutoff
+                "num_ctx": 4096,  # Enough for prompt + data summary + full reply
             },
         }
 

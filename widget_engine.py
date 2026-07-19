@@ -29,9 +29,13 @@ logger = logging.getLogger(__name__)
 # ATTENDANCE_CALENDAR directly, so this excludes _CHART_TYPE_ALIASES' 3
 # COMPARE_* keys — computed once from the shared alias map instead of being
 # hand-typed a second time.
-_NON_COMPARE_CANONICAL_TYPES = {"TABLE", "CARD", "CHART_BAR", "CHART_LINE", "CHART_PIE"} | {
-    k for k in _CHART_TYPE_ALIASES if not k.startswith("COMPARE_")
-}
+_NON_COMPARE_CANONICAL_TYPES = {
+    "TABLE",
+    "CARD",
+    "CHART_BAR",
+    "CHART_LINE",
+    "CHART_PIE",
+} | {k for k in _CHART_TYPE_ALIASES if not k.startswith("COMPARE_")}
 
 
 def capitalize_segment(s: str) -> str:
@@ -200,6 +204,7 @@ def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 break
         if record_id is None:
             import hashlib
+
             row_str = json.dumps(
                 record, sort_keys=True, ensure_ascii=False, default=str
             )
@@ -244,10 +249,9 @@ def _effective_visualization_intent(
         planned = _planned_widget_types(visualization_intent)
         if planned:
             return visualization_intent
-        override = (
-            visualization_intent.get("requested_widget_type")
-            or visualization_intent.get("widget_type")
-        )
+        override = visualization_intent.get(
+            "requested_widget_type"
+        ) or visualization_intent.get("widget_type")
         if override:
             from visualization_intent import build_visualization_intent
 
@@ -258,7 +262,10 @@ def _effective_visualization_intent(
                 query_type_override=query_type,
             )
             resolved["widgets"] = [
-                {"type": _normalize_requested_widget_type(override) or _canonical_widget_type(override)}
+                {
+                    "type": _normalize_requested_widget_type(override)
+                    or _canonical_widget_type(override)
+                }
             ]
             return {**resolved, **visualization_intent}
 
@@ -287,6 +294,7 @@ from schemas import (
     TableColumn,
     TableData,
 )
+
 
 # ---------------------------------------------------------------------------
 # _normalize_requested_widget_type
@@ -406,7 +414,9 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
         # 1. Title
         title_cands = ["fullName", "name"]
         id_key = _find_key([r], ["id"])
-        card_title = title if title else (f"Record {r.get(id_key, '')}" if id_key else "Details")
+        card_title = (
+            title if title else (f"Record {r.get(id_key, '')}" if id_key else "Details")
+        )
         k = _find_key([r], title_cands)
         if k:
             card_title = r[k]
@@ -414,13 +424,28 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
 
         # 2. Value
         card_value = ""
-        count_key = next((k for k in r.keys() if k.lower().endswith("count") and k.lower() != "count"), None)
-        
+        count_key = next(
+            (
+                k
+                for k in r.keys()
+                if k.lower().endswith("count") and k.lower() != "count"
+            ),
+            None,
+        )
+
         if count_key:
             card_value = r[count_key]
             used_keys.add(count_key)
         else:
-            val_cands = ["bestTotal", "score", "marksObtained", "count", "status", "leaveStatus", "totalAgniveers"]
+            val_cands = [
+                "bestTotal",
+                "score",
+                "marksObtained",
+                "count",
+                "status",
+                "leaveStatus",
+                "totalAgniveers",
+            ]
             k = _find_key([r], val_cands)
             if k:
                 card_value = r[k]
@@ -442,7 +467,7 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
         for k, v in r.items():
             if k not in used_keys and not str(k).lower().endswith("id"):
                 card_obj[k] = v
-                
+
         cards.append(card_obj)
     if not cards:
         cards.append(
@@ -460,9 +485,7 @@ def build_card_data(records: List[Dict[str, Any]], title: str) -> Dict[str, Any]
 # ---------------------------------------------------------------------------
 
 # Suffixes that mark internal .NET metadata fields — never shown in the table.
-_EXCLUDED_COLUMN_SUFFIXES = (
-    "_DisplayOrder",
-)
+_EXCLUDED_COLUMN_SUFFIXES = ("_DisplayOrder",)
 
 # Top-level fields that are internal and should not appear as columns.
 _EXCLUDED_COLUMN_KEYS_EXACT = {
@@ -678,12 +701,12 @@ def _pivot_distribution(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return records
     rec = records[0]
     num_keys = [k for k, v in rec.items() if isinstance(v, (int, float))]
-    other_keys = [k for k in rec.keys() if k != 'label']
-    
+    other_keys = [k for k in rec.keys() if k != "label"]
+
     if len(num_keys) >= 2 and len(num_keys) == len(other_keys):
         pivoted = []
         for k in num_keys:
-            pivoted.append({'label': k, 'value': rec[k]})
+            pivoted.append({"label": k, "value": rec[k]})
         return pivoted
     return records
 
@@ -777,12 +800,19 @@ def build_bar_chart_data(
 
     grouped_rows = {}
     for r in records:
-        x_val = r.get(x_key) or (r.get(identity_key) if identity_key else None) or "Category"
+        x_val = (
+            r.get(x_key)
+            or (r.get(identity_key) if identity_key else None)
+            or "Category"
+        )
         y_val = r.get(y_key) if r.get(y_key) is not None else 0
         if not isinstance(y_val, (int, float)):
-            try: y_val = float(y_val)
-            except: y_val = 0
-        if isinstance(y_val, float) and y_val.is_integer(): y_val = int(y_val)
+            try:
+                y_val = float(y_val)
+            except:
+                y_val = 0
+        if isinstance(y_val, float) and y_val.is_integer():
+            y_val = int(y_val)
 
         if x_val not in grouped_rows:
             grouped_rows[x_val] = {x_key: x_val, y_key: 0}
@@ -845,15 +875,22 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
             for idx, sk in enumerate(numeric_keys):
                 grouped_rows[x_val][f"series{idx}"] = 0
             for k, v in r.items():
-                if k != x_key and k not in numeric_keys and not str(k).lower().endswith("id"):
+                if (
+                    k != x_key
+                    and k not in numeric_keys
+                    and not str(k).lower().endswith("id")
+                ):
                     grouped_rows[x_val].setdefault(k, v)
-                
+
         for idx, sk in enumerate(numeric_keys):
             val = r.get(sk, 0)
             if not isinstance(val, (int, float)):
-                try: val = float(val)
-                except: val = 0
-            if isinstance(val, float) and val.is_integer(): val = int(val)
+                try:
+                    val = float(val)
+                except:
+                    val = 0
+            if isinstance(val, float) and val.is_integer():
+                val = int(val)
             grouped_rows[x_val][f"series{idx}"] += val
 
     rows = list(grouped_rows.values())
@@ -862,7 +899,9 @@ def build_line_chart_data(combined_result: Any) -> Dict[str, Any]:
 
 
 def build_pie_chart_data(
-    combined_result: Any, series_label: str = "Distribution", intent: Optional[Dict[str, Any]] = None
+    combined_result: Any,
+    series_label: str = "Distribution",
+    intent: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     PIE_CHART / DONUT_CHART schema:
@@ -929,14 +968,19 @@ def build_pie_chart_data(
         lbl = str(r.get(label_key) or r.get("fullName") or "Category")
         val = r.get(value_key) if r.get(value_key) is not None else 1
         if not isinstance(val, (int, float)):
-            try: val = float(val)
-            except: val = 0
-        if isinstance(val, float) and val.is_integer(): val = int(val)
-        
+            try:
+                val = float(val)
+            except:
+                val = 0
+        if isinstance(val, float) and val.is_integer():
+            val = int(val)
+
         if lbl not in grouped_rows:
             grouped_rows[lbl] = {"value": 0}
             for k, v in r.items():
-                if k not in (label_key, value_key) and not str(k).lower().endswith("id"):
+                if k not in (label_key, value_key) and not str(k).lower().endswith(
+                    "id"
+                ):
                     grouped_rows[lbl].setdefault(k, v)
         grouped_rows[lbl]["value"] += val
 
@@ -1063,9 +1107,7 @@ def build_attendance_calendar_data(
     agniveer_name = (
         _find_first_value(records, ["agniveerName", "fullName", "name"]) or ""
     )
-    photo_path = (
-        _find_first_value(records, ["photoPath", "photoUrl", "photo"]) or ""
-    )
+    photo_path = _find_first_value(records, ["photoPath", "photoUrl", "photo"]) or ""
 
     return {
         "year": year,
@@ -1077,7 +1119,9 @@ def build_attendance_calendar_data(
     }
 
 
-def build_attendance_bar_chart_data(combined_result: Any, intent: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def build_attendance_bar_chart_data(
+    combined_result: Any, intent: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
     Builds a multi-series bar chart for Attendance queries, bucketing by Weekly or Monthly.
     """
@@ -1090,7 +1134,7 @@ def build_attendance_bar_chart_data(combined_result: Any, intent: Optional[Dict[
     )
 
     operation = intent.get("operation", "").lower()
-    is_weekly = (operation == "weekly")
+    is_weekly = operation == "weekly"
 
     buckets = {}
     for r in records:
@@ -1098,7 +1142,7 @@ def build_attendance_bar_chart_data(combined_result: Any, intent: Optional[Dict[
         parsed = _parse_calendar_date(raw_date)
         if not parsed:
             continue
-        
+
         if is_weekly:
             iso_year, iso_week, _ = parsed.isocalendar()
             bucket_key = f"{iso_year}-W{iso_week:02d}"
@@ -1107,10 +1151,10 @@ def build_attendance_bar_chart_data(combined_result: Any, intent: Optional[Dict[
 
         raw_present = r.get(present_key) if present_key else None
         is_present = _coerce_is_present(raw_present)
-        
+
         if bucket_key not in buckets:
             buckets[bucket_key] = {"present": 0, "absent": 0}
-        
+
         if is_present:
             buckets[bucket_key]["present"] += 1
         else:
@@ -1118,17 +1162,15 @@ def build_attendance_bar_chart_data(combined_result: Any, intent: Optional[Dict[
 
     rows = []
     for bucket_key in sorted(buckets.keys()):
-        rows.append({
-            "period": bucket_key,
-            "present": buckets[bucket_key]["present"],
-            "absent": buckets[bucket_key]["absent"],
-        })
+        rows.append(
+            {
+                "period": bucket_key,
+                "present": buckets[bucket_key]["present"],
+                "absent": buckets[bucket_key]["absent"],
+            }
+        )
 
-    return {
-        "xKey": "period",
-        "yKeys": ["present", "absent"],
-        "rows": rows
-    }
+    return {"xKey": "period", "yKeys": ["present", "absent"], "rows": rows}
 
 
 def validate_payload(inferred_type: str, data: Dict[str, Any]) -> None:
@@ -1462,7 +1504,7 @@ def build_formatted_data(
         del dumped["data"]
     elif isinstance(dumped.get("data"), dict) and not dumped["data"]:
         del dumped["data"]
-        
+
     return dumped
 
 
@@ -1639,9 +1681,12 @@ def _build_compare_bar(combined_result: Dict[str, Any]) -> Dict[str, Any]:
             x_val = r.get(x_key)
             y_val = r.get(y_key)
             if not isinstance(y_val, (int, float)):
-                try: y_val = float(y_val)
-                except: y_val = 0
-            if isinstance(y_val, float) and y_val.is_integer(): y_val = int(y_val)
+                try:
+                    y_val = float(y_val)
+                except:
+                    y_val = 0
+            if isinstance(y_val, float) and y_val.is_integer():
+                y_val = int(y_val)
 
             if x_val not in grouped_rows:
                 grouped_rows[x_val] = {x_key: x_val, y_key: 0}
@@ -1704,15 +1749,22 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
                 for idx, sk in enumerate(numeric_keys):
                     grouped_rows[x_val][f"series{idx}"] = 0
                 for k, v in r.items():
-                    if k != x_key and k not in numeric_keys and not str(k).lower().endswith("id"):
+                    if (
+                        k != x_key
+                        and k not in numeric_keys
+                        and not str(k).lower().endswith("id")
+                    ):
                         grouped_rows[x_val].setdefault(k, v)
-                    
+
             for idx, sk in enumerate(numeric_keys):
                 val = r.get(sk, 0)
                 if not isinstance(val, (int, float)):
-                    try: val = float(val)
-                    except: val = 0
-                if isinstance(val, float) and val.is_integer(): val = int(val)
+                    try:
+                        val = float(val)
+                    except:
+                        val = 0
+                if isinstance(val, float) and val.is_integer():
+                    val = int(val)
                 grouped_rows[x_val][f"series{idx}"] += val
 
         rows = list(grouped_rows.values())
@@ -1729,7 +1781,9 @@ def _build_compare_line(combined_result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _build_compare_pie(combined_result: Dict[str, Any], intent: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _build_compare_pie(
+    combined_result: Dict[str, Any], intent: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """COMPARE_PIE_CHART: {left: {rows: [{label, value}]}, right: {rows: [{label, value}]}}"""
     left_side = combined_result.get("left") or {}
     right_side = combined_result.get("right") or {}
@@ -1785,14 +1839,19 @@ def _build_compare_pie(combined_result: Dict[str, Any], intent: Optional[Dict[st
             lbl = str(r.get(label_key) or "")
             val = r.get(value_key) if r.get(value_key) is not None else 0
             if not isinstance(val, (int, float)):
-                try: val = float(val)
-                except: val = 0
-            if isinstance(val, float) and val.is_integer(): val = int(val)
-            
+                try:
+                    val = float(val)
+                except:
+                    val = 0
+            if isinstance(val, float) and val.is_integer():
+                val = int(val)
+
             if lbl not in grouped_rows:
                 grouped_rows[lbl] = {"value": 0}
                 for k, v in r.items():
-                    if k not in (label_key, value_key) and not str(k).lower().endswith("id"):
+                    if k not in (label_key, value_key) and not str(k).lower().endswith(
+                        "id"
+                    ):
                         grouped_rows[lbl].setdefault(k, v)
             grouped_rows[lbl]["value"] += val
 
@@ -1946,14 +2005,21 @@ def _build_widget_data(
                     break
         else:
             records = _extract_records(combined_result, deep_flatten=True)
-            
+
         raw_query = str(intent.get("raw_query") or "").strip().lower()
         if raw_query.startswith("how many ") or raw_query.startswith("count "):
             val = str(len(records))
             if len(records) == 1:
                 r = records[0]
                 # If the single record is an aggregate response from .NET, use the count value instead.
-                count_key = next((k for k in r.keys() if k.lower().endswith("count") and k.lower() != "count"), None)
+                count_key = next(
+                    (
+                        k
+                        for k in r.keys()
+                        if k.lower().endswith("count") and k.lower() != "count"
+                    ),
+                    None,
+                )
                 if count_key:
                     val = str(r[count_key])
                 else:
@@ -1970,12 +2036,23 @@ def _build_widget_data(
                             for v in r.values()
                             if isinstance(v, dict)
                             for sub_v in v.values()
-                            if isinstance(sub_v, (int, float)) and not isinstance(sub_v, bool)
+                            if isinstance(sub_v, (int, float))
+                            and not isinstance(sub_v, bool)
                         ]
                         if leaves:
                             total = sum(leaves)
-                            val = str(int(total) if float(total).is_integer() else total)
-            return {"cards": [{"title": spec.title or "Total Count", "value": val, "description": ""}]}
+                            val = str(
+                                int(total) if float(total).is_integer() else total
+                            )
+            return {
+                "cards": [
+                    {
+                        "title": spec.title or "Total Count",
+                        "value": val,
+                        "description": "",
+                    }
+                ]
+            }
 
         return build_card_data(records, spec.title)
 
@@ -2020,7 +2097,9 @@ def _build_widget_data(
         return _build_compare_bar(combined_result)
 
     chart_builders: Dict[str, Any] = {
-        "CHART_BAR": (lambda: build_attendance_bar_chart_data(chart_source, intent)) if str(intent.get("category", "")).lower() == "attendance" else (lambda: build_bar_chart_data(chart_source)),
+        "CHART_BAR": (lambda: build_attendance_bar_chart_data(chart_source, intent))
+        if str(intent.get("category", "")).lower() == "attendance"
+        else (lambda: build_bar_chart_data(chart_source)),
         "CHART_LINE": lambda: build_line_chart_data(chart_source),
         "CHART_PIE": lambda: build_pie_chart_data(chart_source, intent=intent),
         "ATTENDANCE_CALENDAR": lambda: build_attendance_calendar_data(
@@ -2186,4 +2265,3 @@ def build_widget_list(
             validated.append(w)
 
     return validated
-

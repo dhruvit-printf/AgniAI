@@ -121,7 +121,6 @@ class Metrics:
         with self._lock:
             self.sql_generated_total += 1
 
-
     def inc_sql_validator_rejected(self) -> None:
         with self._lock:
             self.sql_validator_rejected_total += 1
@@ -229,7 +228,6 @@ class Metrics:
             lines.append("# TYPE sql_generated_total counter")
             lines.append(f"sql_generated_total {self.sql_generated_total}")
 
-
             lines.append(
                 "# HELP sql_validator_rejected_total Total SQL rejected by validate_sql."
             )
@@ -248,17 +246,27 @@ class Metrics:
             lines.append("# TYPE sql_exec_error_total counter")
             lines.append(f"sql_exec_error_total {self.sql_exec_error_total}")
 
-            lines.append("# HELP sql_llm_fallback_total Total SQL queries that fell back to LLM.")
+            lines.append(
+                "# HELP sql_llm_fallback_total Total SQL queries that fell back to LLM."
+            )
             lines.append("# TYPE sql_llm_fallback_total counter")
             lines.append(f"sql_llm_fallback_total {self.sql_llm_fallback_total}")
 
-            lines.append("# HELP sql_capability_gap_fallback_total Total SQL queries that fell back due to capability gap.")
+            lines.append(
+                "# HELP sql_capability_gap_fallback_total Total SQL queries that fell back due to capability gap."
+            )
             lines.append("# TYPE sql_capability_gap_fallback_total counter")
-            lines.append(f"sql_capability_gap_fallback_total {self.sql_capability_gap_fallback_total}")
+            lines.append(
+                f"sql_capability_gap_fallback_total {self.sql_capability_gap_fallback_total}"
+            )
 
-            lines.append("# HELP sql_structural_reject_fallback_total Total SQL queries that fell back due to structural validator rejection.")
+            lines.append(
+                "# HELP sql_structural_reject_fallback_total Total SQL queries that fell back due to structural validator rejection."
+            )
             lines.append("# TYPE sql_structural_reject_fallback_total counter")
-            lines.append(f"sql_structural_reject_fallback_total {self.sql_structural_reject_fallback_total}")
+            lines.append(
+                f"sql_structural_reject_fallback_total {self.sql_structural_reject_fallback_total}"
+            )
 
             lines.append(
                 "# HELP sql_latency_seconds SQL backend end-to-end latency in seconds."

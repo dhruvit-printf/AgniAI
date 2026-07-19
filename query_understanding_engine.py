@@ -31,6 +31,7 @@ _PERFORMANCE_SECTION_TOKENS = tuple(name.lower() for name in _PERFORMANCE_SECTIO
 def _distinct_performance_sections(text: str) -> int:
     return len({tok for tok in _PERFORMANCE_SECTION_TOKENS if tok in text})
 
+
 # Strong, mostly-unambiguous compare verbs/phrases. Deliberately excludes bare
 # "against"/"between"/"across"/"among" (used as range/membership words
 # elsewhere) and "more than"/"less than"/"greater than"/"fewer than" (numeric
@@ -175,7 +176,6 @@ _CROSS_FILTER_MARKERS = (
     "whenever ",
     "depending on",
     "from ",
-
     "who have",
     "with",
     "among them",
@@ -226,7 +226,6 @@ _CROSS_FILTER_MARKERS = (
     "alongside",
     "together",
     "plus",
-
     "whom",
     "which",
     "wherein",
@@ -412,12 +411,10 @@ _CROSS_FILTER_MARKERS = (
     "associated with",
     "connected to",
     "linked to",
-
     "waiting",
     "awaiting",
     "waiting for",
     "awaiting for",
-
     # State and membership phrases
     "included in",
     "present in",
@@ -428,7 +425,6 @@ _CROSS_FILTER_MARKERS = (
     "marked as",
     "registered as",
     "recorded as",
-    
     # Relative pronouns with nouns
     "those who",
     "people who",
@@ -481,10 +477,9 @@ _CROSS_FILTER_STATUS_MARKERS = (
     "yet",
     "but not",
     "instead of",
-
     "waiting",
     "awaiting",
-    )
+)
 
 # A later clause naming its own report/analytics noun signals an independent
 # output request, not a filter condition on the first clause's subject — used
@@ -542,7 +537,9 @@ _DEPENDENT_BACKREF_MARKERS = (
     "who yet",
 )
 
-_VALIDATION_VERB_RE = re.compile(r"\b(?:check|confirm|verify|see|find)\s+(?:whether|if)\b")
+_VALIDATION_VERB_RE = re.compile(
+    r"\b(?:check|confirm|verify|see|find)\s+(?:whether|if)\b"
+)
 
 
 def _has_dependent_backref(text: str) -> bool:
@@ -594,13 +591,11 @@ _CROSS_FILTER_GENERIC_CONNECTORS = re.compile(
 # generic markers above because the cutpoint for splitting is the class name
 # itself, not a fixed connector word.
 _CLASS_NAMES = ("sikh", "dogra", "oic")
-_CLASS_FILTER_RE = re.compile(
-    rf"\b({'|'.join(_CLASS_NAMES)})\s+class\b", re.IGNORECASE
-)
+_CLASS_FILTER_RE = re.compile(rf"\b({'|'.join(_CLASS_NAMES)})\s+class\b", re.IGNORECASE)
 
 
 def _build_sport_filter_re() -> "re.Pattern[str]":
-    """"... for football players" / "... among cricket players" — a
+    """ "... for football players" / "... among cricket players" — a
     performance/ranking query scoped to a sport roster. Matched the same way
     as `_CLASS_FILTER_RE`: the cutpoint for splitting is the sport name
     itself, not a fixed connector word, so "for"/"among"/"from" all work.
@@ -635,6 +630,8 @@ def _has_cross_filter_marker(text: str) -> bool:
     if _has_strong_cross_filter_marker(text):
         return True
     return any(marker in text for marker in _CROSS_FILTER_STATUS_MARKERS)
+
+
 _RANKING_MARKERS = (
     "rank",
     "top",
@@ -711,8 +708,7 @@ _THRESHOLD_MARKERS = (
     "percentage",
     "ratio",
     "90%",
-    "90 %"
-
+    "90 %",
 )
 _DISTRIBUTION_MARKERS = (
     "distribution",
@@ -964,7 +960,9 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
 
 def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
     category = _infer_category(text, entities)
-    if category == "Equipment" and (entities.get("agniveerNo") or entities.get("agniveer_no")):
+    if category == "Equipment" and (
+        entities.get("agniveerNo") or entities.get("agniveer_no")
+    ):
         return "byagniveer"
     if any(marker in text for marker in _COMPARISON_MARKERS):
         return "compare"
@@ -992,7 +990,9 @@ def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
         )
     ):
         return "search"
-    if any(token in text for token in ("returned", "poor condition", "damaged", "broken")):
+    if any(
+        token in text for token in ("returned", "poor condition", "damaged", "broken")
+    ):
         return "returned"
     if any(
         token in text
@@ -1015,7 +1015,16 @@ def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
         return "absconded"
     if any(marker in text for marker in _TREND_MARKERS):
         return "trend"
-    if any(token in text for token in ("today's schedule", "today schedule", "current schedule", "training schedule", "company schedule")):
+    if any(
+        token in text
+        for token in (
+            "today's schedule",
+            "today schedule",
+            "current schedule",
+            "training schedule",
+            "company schedule",
+        )
+    ):
         return "today"
     if any(marker in text for marker in _DISTRIBUTION_MARKERS):
         return "distribution"
@@ -1195,7 +1204,7 @@ def _apply_shared_trailing_suffix(left: str, right: str) -> str:
     )
     if prep_match:
         target_part = right[: prep_match.start()].strip()
-        suffix = right[prep_match.start():].strip().rstrip(".").strip()
+        suffix = right[prep_match.start() :].strip().rstrip(".").strip()
     else:
         target_part = right.strip()
         suffix = ""
@@ -1244,14 +1253,38 @@ def _match_known_disease_prefix(text: str) -> Optional[str]:
 # (e.g. Verification/Completed vs Verification/Pending). Used only to pull a
 # cutpoint in `_split_by_category_signal` back so this word stays attached to
 # the fragment it governs — see that function's docstring.
-_STATUS_ADJECTIVES = frozenset({
-    "completed", "pending", "rejected", "sent", "unverified",
-    "overdue", "issued", "procured", "returned", "unassigned", "distributed",
-    "top", "bottom", "highest", "lowest", "best", "worst",
-    "improved", "improvement", "dropped", "drop",
-    "failed", "fail", "passed", "pass",
-    "medically", "medical", "currently",
-})
+_STATUS_ADJECTIVES = frozenset(
+    {
+        "completed",
+        "pending",
+        "rejected",
+        "sent",
+        "unverified",
+        "overdue",
+        "issued",
+        "procured",
+        "returned",
+        "unassigned",
+        "distributed",
+        "top",
+        "bottom",
+        "highest",
+        "lowest",
+        "best",
+        "worst",
+        "improved",
+        "improvement",
+        "dropped",
+        "drop",
+        "failed",
+        "fail",
+        "passed",
+        "pass",
+        "medically",
+        "medical",
+        "currently",
+    }
+)
 
 _SINGLE_WORD_CATEGORY_SIGNALS: Optional[Dict[str, str]] = None
 
@@ -1356,7 +1389,9 @@ def _extract_sub_requests(
                 # is a dependent child of it, not nested further, so split
                 # the tail on any remaining marker into flat sibling
                 # fragments instead of leaving them merged into one.
-                tail_fragments = _split_on_connectors(tail, list(_MULTI_INDEPENDENT_MARKERS))
+                tail_fragments = _split_on_connectors(
+                    tail, list(_MULTI_INDEPENDENT_MARKERS)
+                )
                 if len(tail_fragments) < 2:
                     tail_fragments = [tail]
                 result = [
@@ -1459,9 +1494,11 @@ def _extract_sub_requests(
                     disease = _match_known_disease_prefix(remainder)
                     if disease:
                         lead = f"{lead} with {disease}"
-                        remainder = remainder[len(disease):].strip()
+                        remainder = remainder[len(disease) :].strip()
                     else:
-                        value_match = re.match(r"(\S+)\s*(.*)", remainder, flags=re.DOTALL)
+                        value_match = re.match(
+                            r"(\S+)\s*(.*)", remainder, flags=re.DOTALL
+                        )
                         if value_match and value_match.group(1):
                             lead = f"{lead} with {value_match.group(1)}"
                             remainder = value_match.group(2).strip()
@@ -1475,9 +1512,11 @@ def _extract_sub_requests(
                         disease = _match_known_disease_prefix(after_from)
                         if disease:
                             lead = f"{lead} {verb} from {disease}"
-                            remainder = after_from[len(disease):].strip()
+                            remainder = after_from[len(disease) :].strip()
                         else:
-                            single_match = re.match(r"(\S+)\s*(.*)", after_from, flags=re.DOTALL)
+                            single_match = re.match(
+                                r"(\S+)\s*(.*)", after_from, flags=re.DOTALL
+                            )
                             if single_match and single_match.group(1):
                                 lead = f"{lead} {verb} from {single_match.group(1)}"
                                 remainder = single_match.group(2).strip()
@@ -1508,7 +1547,9 @@ def _extract_sub_requests(
                     if m
                 ]
             )
-            roster_match = min(roster_matches, key=lambda m: m.start()) if roster_matches else None
+            roster_match = (
+                min(roster_matches, key=lambda m: m.start()) if roster_matches else None
+            )
             if roster_match:
                 lead = current[: roster_match.start()]
                 lead = re.sub(
@@ -1526,7 +1567,9 @@ def _extract_sub_requests(
                     # before it, so split the roster phrase itself from
                     # what follows instead of collapsing back into one
                     # fragment with an empty lead.
-                    parts.append(current[roster_match.start() : roster_match.end()].strip())
+                    parts.append(
+                        current[roster_match.start() : roster_match.end()].strip()
+                    )
                     current = current[roster_match.end() :].strip()
             else:
                 parts = [current]
@@ -1535,7 +1578,9 @@ def _extract_sub_requests(
         if current:
             and_parts = [
                 p.strip(" ,")
-                for p in re.split(r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", current, flags=re.IGNORECASE)
+                for p in re.split(
+                    r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", current, flags=re.IGNORECASE
+                )
                 if p.strip(" ,")
             ]
             if len(and_parts) < 2:
@@ -1553,7 +1598,9 @@ def _extract_sub_requests(
             for p in parts:
                 and_parts = [
                     ap.strip(" ,")
-                    for ap in re.split(r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", p, flags=re.IGNORECASE)
+                    for ap in re.split(
+                        r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", p, flags=re.IGNORECASE
+                    )
                     if ap.strip(" ,")
                 ]
                 new_parts.extend(and_parts)
@@ -1577,7 +1624,9 @@ def _extract_sub_requests(
                 {
                     "fragment": p,
                     "category": _infer_category(p, {}) or category,
-                    "operation": _infer_operation(p, {}) if _infer_operation(p, {}) != "lookup" else operation,
+                    "operation": _infer_operation(p, {})
+                    if _infer_operation(p, {}) != "lookup"
+                    else operation,
                     "entities": entities,
                 }
                 if idx == 0
@@ -1658,6 +1707,7 @@ def understand_query(query: str) -> Dict[str, Any]:
     cross_filter_intent = False
     if _cross_marker_hit:
         from intent_engine.query_planner import _detect_categories as _dc
+
         _cf_cats = _dc(text)
         if len(set(_cf_cats[:3])) >= 2 or _distinct_performance_sections(text) >= 2:
             cross_filter_intent = True
@@ -1689,7 +1739,9 @@ def understand_query(query: str) -> Dict[str, Any]:
     # two independent conditions. Without this guard, the group word (e.g.
     # "unit") and the metric word (e.g. "absconded") register as two
     # distinct categories and wrongly satisfy the cross-filter gate above.
-    if re.search(r"\bwhich\s+\w+\s+has\s+(?:the\s+)?(?:most|highest|lowest|least)\b", text):
+    if re.search(
+        r"\bwhich\s+\w+\s+has\s+(?:the\s+)?(?:most|highest|lowest|least)\b", text
+    ):
         cross_filter_intent = False
 
     def _distinct_category_count(clause_parts: List[str]) -> int:
@@ -1699,7 +1751,9 @@ def understand_query(query: str) -> Dict[str, Any]:
             clause_categories.append(_infer_category(part, clause_entities))
         distinct = len({cat for cat in clause_categories if cat})
         if distinct < 2:
-            distinct = max(distinct, _distinct_performance_sections(" ".join(clause_parts)))
+            distinct = max(
+                distinct, _distinct_performance_sections(" ".join(clause_parts))
+            )
         return distinct
 
     # Every multi-independent marker — even weak ones like "also"/"then" — is

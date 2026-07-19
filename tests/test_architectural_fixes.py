@@ -114,7 +114,7 @@ class TestArchitecturalFixes(unittest.TestCase):
         )
         self.assertEqual(fd_multi["type"], "TABLE")
 
-        # 3. Comparison -> TABLE
+        # 3. Comparison -> COMPARE_TABLE
         fd_compare = build_formatted_data(
             {
                 "left": {"label": "Left", "data": [{"id": 1}]},
@@ -124,23 +124,23 @@ class TestArchitecturalFixes(unittest.TestCase):
             query_type="compare",
             intent={},
         )
-        self.assertEqual(fd_compare["type"], "TABLE")
+        self.assertEqual(fd_compare["type"], "COMPARE_TABLE")
 
-        # 4. Trend -> CHART_LINE
+        # 4. Trend -> TABLE (no explicit visualization intent defaults to table)
         fd_trend = build_formatted_data(
             {"sections": [{"label": "Result", "data": [{"date": "2026-06-20"}]}]},
             query_type="trend",
             intent={},
         )
-        self.assertEqual(fd_trend["type"], "CHART_LINE")
+        self.assertEqual(fd_trend["type"], "TABLE")
 
-        # 5. Distribution -> CHART_PIE
+        # 5. Distribution -> TABLE (no explicit visualization intent defaults to table)
         fd_dist = build_formatted_data(
             {"sections": [{"label": "Result", "data": [{"sport": "Cricket"}]}]},
             query_type="distribution",
             intent={},
         )
-        self.assertEqual(fd_dist["type"], "CHART_PIE")
+        self.assertEqual(fd_dist["type"], "TABLE")
 
 
 if __name__ == "__main__":

@@ -386,7 +386,11 @@ def get_fallback_report(
         labels = [s.get("label", "Section") for s in sides]
         labels_str = " and ".join(labels) if labels else "selected categories"
         has_data = (
-            any(len(s.get("data", [])) > 0 or s.get("metrics", {}).get("recordCount", 0) > 0 for s in sides)
+            any(
+                len(s.get("data", [])) > 0
+                or s.get("metrics", {}).get("recordCount", 0) > 0
+                for s in sides
+            )
             if sides
             else (cnt > 0)
         )
@@ -438,16 +442,16 @@ def get_fallback_report(
             key = (category, subcategory)
             if key in _INTRO_TEMPLATES:
                 message = _INTRO_TEMPLATES[key]
-            summary = f"The search returned exactly {cnt} matching {category_label} records."
+            summary = (
+                f"The search returned exactly {cnt} matching {category_label} records."
+            )
             obs = [f"Found {cnt} matching {category_label} records."]
             insights = ["The returned records match the selected criteria."]
             conclusion = f"The search is complete and the {cnt} matching {category_label} records are ready for review."
         else:
             message = f"I could not find any matching {category_label} records."
             summary = f"No matching records were found for the selected {category_label} criteria."
-            obs = [
-                f"The search returned 0 records for the {category_label} category."
-            ]
+            obs = [f"The search returned 0 records for the {category_label} category."]
             insights = [
                 "The selected criteria may be too narrow for the available records."
             ]
@@ -478,9 +482,16 @@ def generate_report(
     records = _extract_records(combined_result)
 
     has_valid_data = _has_any_data(records)
-    if not has_valid_data and query_type in ("compare", "comparison") and isinstance(combined_result, dict):
+    if (
+        not has_valid_data
+        and query_type in ("compare", "comparison")
+        and isinstance(combined_result, dict)
+    ):
         sides = combined_result.get("sides", [])
-        if any(len(s.get("data", [])) > 0 or s.get("metrics", {}).get("recordCount", 0) > 0 for s in sides):
+        if any(
+            len(s.get("data", [])) > 0 or s.get("metrics", {}).get("recordCount", 0) > 0
+            for s in sides
+        ):
             has_valid_data = True
 
     if not has_valid_data:
@@ -491,16 +502,22 @@ def generate_report(
         # individually but none overlap" and phrases the message accordingly
         # — prefer that specific message over the generic fallback text.
         no_match_message = (
-            combined_result.get("message")
-            if query_type == "cross_filter" and isinstance(combined_result, dict)
-            else None
-        ) or fallback.get("message") or "No matching records found."
+            (
+                combined_result.get("message")
+                if query_type == "cross_filter" and isinstance(combined_result, dict)
+                else None
+            )
+            or fallback.get("message")
+            or "No matching records found."
+        )
 
         analysis_summary = (
-            fallback.get("analysis", {}).get("summary") or "The selected conditions may be too narrow."
+            fallback.get("analysis", {}).get("summary")
+            or "The selected conditions may be too narrow."
         )
         conclusion_summary = (
-            fallback.get("conclusion", {}).get("summary") or "Try broadening the filters to find matching records."
+            fallback.get("conclusion", {}).get("summary")
+            or "Try broadening the filters to find matching records."
         )
 
         return {
@@ -620,9 +637,13 @@ def generate_report(
         ) or f"The {category_label} query returned {len(records)} records."
         analysis_str = (analysis or {}).get("summary", "")
         prediction_str = (prediction or {}).get("projection", "")
-        conclusion_str = (conclusion or {}).get("summary") or (conclusion or {}).get("message") or ""
+        conclusion_str = (
+            (conclusion or {}).get("summary") or (conclusion or {}).get("message") or ""
+        )
 
-    intro_needs_fallback = _has_negative_copy(message) or _has_negative_copy(analysis_str)
+    intro_needs_fallback = _has_negative_copy(message) or _has_negative_copy(
+        analysis_str
+    )
     conclusion_needs_fallback = _has_negative_copy(conclusion_str)
 
     if intro_needs_fallback or conclusion_needs_fallback:
@@ -630,9 +651,13 @@ def generate_report(
         if intro_needs_fallback:
             message = grounded.get("message", message)
             analysis_str = grounded.get("analysis", {}).get("summary", analysis_str)
-            prediction_str = grounded.get("prediction", {}).get("projection", prediction_str)
+            prediction_str = grounded.get("prediction", {}).get(
+                "projection", prediction_str
+            )
         if conclusion_needs_fallback:
-            conclusion_str = grounded.get("conclusion", {}).get("summary", conclusion_str)
+            conclusion_str = grounded.get("conclusion", {}).get(
+                "summary", conclusion_str
+            )
 
     return {
         "message": message,

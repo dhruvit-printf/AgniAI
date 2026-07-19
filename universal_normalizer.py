@@ -43,12 +43,12 @@ def _get_canonical_id(record: Dict[str, Any]) -> Optional[str]:
     for key in _ID_FIELD_PRIORITY:
         if key in record and record[key] is not None:
             return str(record[key]).strip()
-    
+
     # Fallback: id + fullName (as per Rule 4)
     if "id" in record and "fullName" in record:
         if record["id"] is not None and record["fullName"] is not None:
             return str(record["id"]).strip()
-    
+
     return None
 
 
@@ -65,7 +65,9 @@ def _is_aggregate_field(field_name: str) -> bool:
     return any(agg in lowered for agg in _AGGREGATE_KEYWORDS)
 
 
-def _walk(node: Any, parent_context: Dict[str, Any], records: List[Dict[str, Any]]) -> None:
+def _walk(
+    node: Any, parent_context: Dict[str, Any], records: List[Dict[str, Any]]
+) -> None:
     """Recursively walk the JSON tree."""
     if isinstance(node, dict):
         if _is_agniveer_record(node):
@@ -85,13 +87,13 @@ def _walk(node: Any, parent_context: Dict[str, Any], records: List[Dict[str, Any
                 # Only inherit scalars (string, int, float, bool)
                 if isinstance(v, (str, int, float, bool)) or v is None:
                     current_context[k] = v
-            
+
             # Recurse into children
             for k, v in node.items():
                 # Avoid unnecessary copies or recursion on scalars we already grabbed
                 if not isinstance(v, (str, int, float, bool)) and v is not None:
                     _walk(v, current_context, records)
-                    
+
     elif isinstance(node, list):
         for item in node:
             _walk(item, parent_context, records)
@@ -100,12 +102,12 @@ def _walk(node: Any, parent_context: Dict[str, Any], records: List[Dict[str, Any
 def _resolve_duplicates(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Merge duplicate Agniveer records intelligently, filling missing fields (Rule 12)."""
     resolved: Dict[str, Dict[str, Any]] = {}
-    
+
     for record in records:
         canonical_id = _get_canonical_id(record)
         if not canonical_id:
             continue
-            
+
         if canonical_id not in resolved:
             resolved[canonical_id] = dict(record)
         else:
@@ -114,7 +116,7 @@ def _resolve_duplicates(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             for k, v in record.items():
                 if k not in existing or existing[k] is None or existing[k] == "":
                     existing[k] = v
-                    
+
     return list(resolved.values())
 
 
@@ -199,7 +201,9 @@ def _merge_single_entity_response(response: Any) -> Optional[List[Dict[str, Any]
     return [merged]
 
 
-def normalize_response(response: Any, base_metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def normalize_response(
+    response: Any, base_metadata: Optional[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
     """
     Universally normalize any .NET API response into a flat list of canonical Agniveer records.
 
@@ -225,5 +229,5 @@ def normalize_response(response: Any, base_metadata: Optional[Dict[str, Any]] = 
             for k, v in base_metadata.items():
                 # Only add metadata if it doesn't collide, or just stamp it
                 record[f"__{k}"] = v
-                
+
     return resolved

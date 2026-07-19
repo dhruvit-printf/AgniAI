@@ -72,16 +72,19 @@ DENIED_TABLES = {"logintoken", "defaultlog"}
 
 class CapabilityGapError(Exception):
     """Raised when the AST planner cannot express the query (route to Tier 2)."""
+
     pass
 
 
 class ValidatorRejectionError(Exception):
     """Raised when AST or SQL validation fails (route to Tier 2)."""
+
     pass
 
 
 class DatabaseExecutionError(Exception):
     """Raised when pyodbc DB execution fails (DO NOT fallback)."""
+
     pass
 
 
@@ -120,6 +123,7 @@ def validate_sql(sql: str) -> Optional[str]:
     Delegates to the canonical sql_validator.validate_sql to remove duplicate logic.
     """
     from sql_validator import sql_validator
+
     is_valid, err = sql_validator.validate_sql(sql)
     if not is_valid:
         return err or "SQL validation failed."
@@ -146,7 +150,7 @@ def generate_sql(
         hint = f"\nCLASSIFIER HINT (may be partial): {intent}\n"
 
     dynamic_schema = generate_dynamic_schema_card()
-    
+
     if SQL_SERVER_2008_COMPAT:
         dialect_hint = "\nDIALECT: SQL Server 2008 target. DO NOT use STRING_AGG, OFFSET/FETCH, IIF, CONCAT, or LAG/LEAD. Use TOP (n), STUFF+FOR XML PATH for aggregation, ROW_NUMBER() for paging.\n"
     else:
@@ -181,7 +185,7 @@ def _extract_sql(text: str) -> str:
     m = re.search(r"\b(with|select)\b", t, re.IGNORECASE)
     sql = t[m.start() :].strip() if m else t
     # Fix common LLM hallucination where it thinks AgniveerMaster has AgniveerId
-    sql = re.sub(r'\ba\.AgniveerId\b', 'a.Id', sql, flags=re.IGNORECASE)
+    sql = re.sub(r"\ba\.AgniveerId\b", "a.Id", sql, flags=re.IGNORECASE)
     return sql
 
 
@@ -195,10 +199,35 @@ def _to_camel_case(name: str) -> str:
     verbatim ("AgniveerNo", "FullName"); without this conversion those keys
     never match _ID_FIELD_PRIORITY in either module, so no SQL-backend row
     is recognized as an Agniveer record and cross-filter intersection
-    silently finds nothing to match on."""
+    silently finds nothing to match on.
+
+    Column names that are already all-uppercase acronym runs at the start
+    (e.g. "OMRInputTotal") need more than "lowercase the first character":
+    naively lowering only the first character produces "oMRInputTotal",
+    which does NOT match utils.py's _SCORE_FIELDS entry "omrInputTotal" —
+    the score silently fails to be found for any row shaped like this.
+    System.Text.Json's camelCase policy lowercases the *entire* leading
+    acronym run up to (but not including) the next capital that starts a
+    new word, e.g. "OMRInputTotal" -> "omrInputTotal", "ID" -> "id".
+    """
     if not name:
         return name
-    return name[0].lower() + name[1:]
+    if len(name) == 1:
+        return name.lower()
+    # Find the leading run of uppercase letters.
+    upper_run_end = 0
+    while upper_run_end < len(name) and name[upper_run_end].isupper():
+        upper_run_end += 1
+    if upper_run_end <= 1:
+        # Plain PascalCase start ("FullName") — lowercase just the first char.
+        return name[0].lower() + name[1:]
+    if upper_run_end == len(name):
+        # Entire name is uppercase (e.g. an acronym-only column) — lowercase all of it.
+        return name.lower()
+    # Leading acronym run followed by a new word (e.g. "OMRInputTotal"):
+    # lowercase the whole run except its last character, which belongs to
+    # the next word ("OMR" + "Input..." -> "omr" + "Input..." -> "omrInput...").
+    return name[: upper_run_end - 1].lower() + name[upper_run_end - 1 :]
 
 
 def _camel_case_row(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -228,22 +257,24 @@ def _to_section(
 
 
 # ── Read-only execution ────────────────────────────────────────────────────
-def run_readonly(sql: str, params: Optional[List[Any]] = None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+def run_readonly(
+    sql: str, params: Optional[List[Any]] = None
+) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
     """Execute a validated SELECT against the READ-ONLY login. (rows, error)."""
     if not SQL_READONLY_CONN:
         return None, "SQL_READONLY_CONN is not configured."
     try:
         import pyodbc  # imported lazily so the rest of AgniAI runs without it
+
         pyodbc.pooling = True
     except Exception as exc:  # pragma: no cover
         return None, f"pyodbc not installed: {exc}"
 
+    conn = None
     try:
         # Enforce transaction timeout limit between 1 and 30 seconds to avoid thread starvation
         timeout_limit = max(1, min(SQL_COMMAND_TIMEOUT_S, 30))
-        conn = pyodbc.connect(
-            SQL_READONLY_CONN, timeout=timeout_limit, autocommit=True
-        )
+        conn = pyodbc.connect(SQL_READONLY_CONN, timeout=timeout_limit, autocommit=True)
         conn.timeout = timeout_limit
         cur = conn.cursor()
         # Belt-and-suspenders row cap regardless of query shape (works on 2008).
@@ -253,7 +284,7 @@ def run_readonly(sql: str, params: Optional[List[Any]] = None) -> Tuple[Optional
         else:
             cur.execute(sql)
         cols = [d[0] for d in cur.description]
-        
+
         rows = []
         while True:
             chunk = cur.fetchmany(100)
@@ -261,14 +292,26 @@ def run_readonly(sql: str, params: Optional[List[Any]] = None) -> Tuple[Optional
                 break
             for r in chunk:
                 rows.append(dict(zip(cols, r)))
-                
+
         cur.execute("SET ROWCOUNT 0")
-        conn.close()
         return rows, None
     except Exception as exc:
         # Never leak the raw SQL / connection details to the caller.
-        logger.warning("SQL execution error: %s | %s\nQuery: %s", type(exc).__name__, str(exc), sql)
+        logger.warning(
+            "SQL execution error: %s | %s\nQuery: %s", type(exc).__name__, str(exc), sql
+        )
         return None, "The generated query could not be executed against the database."
+    finally:
+        # Always release the connection back to the pool, even if execution
+        # raised partway through (bad syntax, timeout, table not found,
+        # etc.) — previously conn.close() sat at the end of the try block
+        # and was skipped on any exception, leaking a live connection every
+        # time a query failed and eventually exhausting the DB pool.
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 # ── Public entrypoint — AST Pipeline ──────
@@ -292,7 +335,6 @@ def execute_sql_query(
 
     import time
     from explainability_engine import explainability_engine
-    
 
     # Convert legacy intent to v2 intent format
     def _pick_legacy_value(*keys: str) -> Any:
@@ -342,18 +384,24 @@ def execute_sql_query(
     if blood_group is not None:
         filters.setdefault("Agniveer.BloodGroup", blood_group)
     if sport is not None:
-        filters.setdefault("Agniveer.Sports", {"operator": "LIKE", "value": f"%{sport}%"})
+        filters.setdefault(
+            "Agniveer.Sports", {"operator": "LIKE", "value": f"%{sport}%"}
+        )
     if diagnose is not None:
-        filters.setdefault("Medical.Diagnosis", {"operator": "LIKE", "value": f"%{diagnose}%"})
+        filters.setdefault(
+            "Medical.Diagnosis", {"operator": "LIKE", "value": f"%{diagnose}%"}
+        )
     if unit_name is not None:
-        filters.setdefault("Distribution.Name", {"operator": "LIKE", "value": f"%{unit_name}%"})
+        filters.setdefault(
+            "Distribution.Name", {"operator": "LIKE", "value": f"%{unit_name}%"}
+        )
 
     category = intent.get("category")
     operation = intent.get("operation")
-    
+
     # 1. Bucket (ii) Category/Concept mappings
     base_concept = category if category else "Agniveer"
-    
+
     if category == "disqualified":
         base_concept = "Agniveer"
         filters.setdefault("Agniveer.IsDisqualified", 1)
@@ -362,20 +410,26 @@ def execute_sql_query(
     elif category == "Skills":
         base_concept = "Agniveer"
         if operation == "BySport":
-            filters.setdefault("AND", [
-                {"Agniveer.Sports": {"operator": "!=", "value": None}},
-                {"Agniveer.Sports": {"operator": "!=", "value": ""}}
-            ])
+            filters.setdefault(
+                "AND",
+                [
+                    {"Agniveer.Sports": {"operator": "!=", "value": None}},
+                    {"Agniveer.Sports": {"operator": "!=", "value": ""}},
+                ],
+            )
         elif operation == "ByClass":
-            filters.setdefault("AND", [
-                {"Agniveer.Class": {"operator": "!=", "value": None}},
-                {"Agniveer.Class": {"operator": "!=", "value": ""}}
-            ])
+            filters.setdefault(
+                "AND",
+                [
+                    {"Agniveer.Class": {"operator": "!=", "value": None}},
+                    {"Agniveer.Class": {"operator": "!=", "value": ""}},
+                ],
+            )
 
     v2_intent = {
         "base_concept": base_concept,
         "filters": filters,
-        "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS
+        "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS,
     }
 
     ast = None
@@ -383,7 +437,7 @@ def execute_sql_query(
     params: List[Any] = []
     rows = None
     planned_ok = False
-    
+
     planning_duration_ms = 0
     compilation_duration_ms = 0
     execution_duration_ms = 0
@@ -396,70 +450,94 @@ def execute_sql_query(
         section = str(intent.get("section") or intent.get("sub_section") or "").strip()
 
         # 1. Supported ranking/aggregation queries (Mapped to AST)
-        if (category == "Performance" and operation in ("Top", "Bottom")) or (category == "Overall" and operation == "OverallPerformance"):
+        if (category == "Performance" and operation in ("Top", "Bottom")) or (
+            category == "Overall" and operation == "OverallPerformance"
+        ):
             if section:
                 # Section filters on Performance require a chain join through ScoreSubItemMaster -> ScoreSectionMaster,
                 # which is a capability gap for the current shortest-path planner (since base_concept is Agniveer).
-                raise CapabilityGapError(f"Performance ranking queries with section filter '{section}' are not supported in AST.")
-            
+                raise CapabilityGapError(
+                    f"Performance ranking queries with section filter '{section}' are not supported in AST."
+                )
+
             # Overall performance or ranking queries (no section filter)
             base_concept = "Agniveer"
             v2_intent["base_concept"] = "Agniveer"
-            
-            alias_name = "OverallMarks" if operation == "OverallPerformance" else "TotalMarks"
+
+            alias_name = (
+                "OverallMarks" if operation == "OverallPerformance" else "TotalMarks"
+            )
             v2_intent["aggregates"] = [
                 {
                     "function": "SUM",
                     "concept": "Performance",
                     "column": "MarksObtained",
-                    "alias": alias_name
+                    "alias": alias_name,
                 }
             ]
-            
+
             # Must scope MarksObtained to best attempt as per R7 business rules
             filters.setdefault("Performance.IsBestAttempt", 1)
-            
+
             descending = False if operation == "Bottom" else True
             v2_intent["order_by"] = [
                 {"concept": None, "column": alias_name, "descending": descending},
-                {"concept": "Agniveer", "column": "AgniveerNo", "descending": False}
+                {"concept": "Agniveer", "column": "AgniveerNo", "descending": False},
             ]
 
         # 2. Gaps/Unsupported aggregation operations (routed to Tier 2 Fallback)
         elif (
-            (category == "Performance" and operation in ("Average", "BestAttempt", "Grading", "GradingSummary", "Improvement", "Drop", "AttemptWise", "Trend")) or
-            (category == "Leave" and operation in ("Most", "Least")) or
-            (category == "Medical" and operation in ("BMI", "Disease", "BloodGroup")) or
-            (category == "Attendance" and operation in ("Monthly", "Weekly", "Summary")) or
-            (category == "Equipment" and operation == "AgniveerWise") or
-            (category == "Distribution" and operation in ("Latest", "TopUnit")) or
-            (category == "Strength")
+            (
+                category == "Performance"
+                and operation
+                in (
+                    "Average",
+                    "BestAttempt",
+                    "Grading",
+                    "GradingSummary",
+                    "Improvement",
+                    "Drop",
+                    "AttemptWise",
+                    "Trend",
+                )
+            )
+            or (category == "Leave" and operation in ("Most", "Least"))
+            or (category == "Medical" and operation in ("BMI", "Disease", "BloodGroup"))
+            or (
+                category == "Attendance"
+                and operation in ("Monthly", "Weekly", "Summary")
+            )
+            or (category == "Equipment" and operation == "AgniveerWise")
+            or (category == "Distribution" and operation in ("Latest", "TopUnit"))
+            or (category == "Strength")
         ):
-            raise CapabilityGapError(f"Operation '{category}/{operation}' is a known capability gap (subquery/CTE/conditional-sum) and is routed to LLM.")
+            raise CapabilityGapError(
+                f"Operation '{category}/{operation}' is a known capability gap (subquery/CTE/conditional-sum) and is routed to LLM."
+            )
 
         ast = query_planner_v2.plan_query(v2_intent)
-        
+
         is_ast_valid, ast_err = sql_validator.validate_ast(ast)
         if not is_ast_valid:
             raise ValidatorRejectionError(f"AST validation failed: {ast_err}")
-            
+
         t_comp_start = time.time()
         sql, params = sql_builder.build(ast)
-        
+
         is_sql_valid, sql_err = sql_validator.validate_sql(sql)
         if not is_sql_valid:
             raise ValidatorRejectionError(f"Compiled SQL validation failed: {sql_err}")
-            
+
         t_exec_start = time.time()
         rows, run_err = run_readonly(sql, params)
         if run_err:
             raise DatabaseExecutionError(f"Database query execution failed: {run_err}")
-            
+
         t_now = time.time()
         planning_duration_ms = int((t_comp_start - t_plan_start) * 1000)
         compilation_duration_ms = int((t_exec_start - t_comp_start) * 1000)
         execution_duration_ms = int((t_now - t_exec_start) * 1000)
-        
+
         planned_ok = True
         metrics_hook("generated")
     except CapabilityGapError as exc:
@@ -485,7 +563,7 @@ def execute_sql_query(
         logger.error(
             f"AST pipeline unexpected error (concept={base_concept}, operation={operation}): {exc}. "
             f"Falling back to LLM-based SQL generation.",
-            exc_info=True
+            exc_info=True,
         )
         metrics_hook("unexpected_ast_error")
 
@@ -497,23 +575,23 @@ def execute_sql_query(
             if gen_err:
                 metrics_hook("cannot_answer")
                 return None, f"Fallback SQL generation failed: {gen_err}"
-                
+
             is_sql_valid, sql_err = sql_validator.validate_sql(sql)
             if not is_sql_valid:
                 metrics_hook("validator_rejected")
                 return None, f"Fallback SQL validation failed: {sql_err}"
-                
+
             t_exec_start = time.time()
             rows, run_err = run_readonly(sql, [])
             if run_err:
                 metrics_hook("exec_error")
                 return None, f"Fallback SQL execution failed: {run_err}"
-                
+
             t_now = time.time()
             planning_duration_ms = int((t_exec_start - t_fallback_start) * 1000)
             compilation_duration_ms = 0
             execution_duration_ms = int((t_now - t_exec_start) * 1000)
-            
+
             ast = None
             metrics_hook("generated")
             metrics_hook("llm_fallback")
@@ -522,27 +600,31 @@ def execute_sql_query(
             return None, f"Fallback LLM pipeline failed: {exc}"
 
     # Explainability & Metadata
-    explanation = explainability_engine.explain(ast) if ast is not None else {
-        "intent": "Database Query",
-        "base_table": base_concept,
-        "joins": [],
-        "filters": [],
-        "groupings": [],
-        "having": [],
-        "aggregations": [],
-        "sorting": [],
-        "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS,
-    }
-    
+    explanation = (
+        explainability_engine.explain(ast)
+        if ast is not None
+        else {
+            "intent": "Database Query",
+            "base_table": base_concept,
+            "joins": [],
+            "filters": [],
+            "groupings": [],
+            "having": [],
+            "aggregations": [],
+            "sorting": [],
+            "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS,
+        }
+    )
+
     execution_metadata = {
         "planning_duration_ms": planning_duration_ms,
         "compilation_duration_ms": compilation_duration_ms,
         "execution_duration_ms": execution_duration_ms,
         "rows_returned": len(rows) if rows else 0,
         "explanation": explanation,
-        "sql": sql
+        "sql": sql,
     }
-    
+
     res = _to_section(rows or [], intent, sql=sql)
     res["execution_metadata"] = execution_metadata
     return res, None

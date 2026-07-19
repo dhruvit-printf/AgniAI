@@ -5,6 +5,7 @@ Centralized manager for domain vocabulary.
 It extracts keywords, operations, synonyms, and aliases from the intent schema
 and serves them for spell correction, canonical mapping, and fuzzy searching.
 """
+
 from __future__ import annotations
 import re
 from types import MappingProxyType
@@ -28,17 +29,81 @@ from intent_engine.intent_schema import (
 
 _COMMON_WORDS: FrozenSet[str] = frozenset(
     {
-        "show", "give", "list", "who", "what", "when", "where", "which", "how",
-        "is", "are", "was", "were", "the", "a", "an", "of", "in", "on", "for",
-        "me", "my", "please", "need", "do", "did", "does", "come", "came",
-        "report", "today", "yesterday", "tomorrow", "week", "month", "year",
-        "top", "best", "worst", "lowest", "highest", "most", "least", "all",
-        "current", "status", "summary", "detail", "details", "and", "with",
-        "from", "to", "count", "number", "total", "overall", "each", "per",
-        "result", "results", "record", "records", "score", "scores", "data",
-        "compare", "comparison", "difference", "versus", "vs", "between",
+        "show",
+        "give",
+        "list",
+        "who",
+        "what",
+        "when",
+        "where",
+        "which",
+        "how",
+        "is",
+        "are",
+        "was",
+        "were",
+        "the",
+        "a",
+        "an",
+        "of",
+        "in",
+        "on",
+        "for",
+        "me",
+        "my",
+        "please",
+        "need",
+        "do",
+        "did",
+        "does",
+        "come",
+        "came",
+        "report",
+        "today",
+        "yesterday",
+        "tomorrow",
+        "week",
+        "month",
+        "year",
+        "top",
+        "best",
+        "worst",
+        "lowest",
+        "highest",
+        "most",
+        "least",
+        "all",
+        "current",
+        "status",
+        "summary",
+        "detail",
+        "details",
+        "and",
+        "with",
+        "from",
+        "to",
+        "count",
+        "number",
+        "total",
+        "overall",
+        "each",
+        "per",
+        "result",
+        "results",
+        "record",
+        "records",
+        "score",
+        "scores",
+        "data",
+        "compare",
+        "comparison",
+        "difference",
+        "versus",
+        "vs",
+        "between",
     }
 )
+
 
 class VocabularyManager:
     def __init__(self):
@@ -65,8 +130,13 @@ class VocabularyManager:
                     self._add_phrase(words, phrase)
 
         for source in (
-            SPORTS, CLASSES, GRADING_CATEGORIES, LEAVE_TYPES,
-            BMI_CATEGORIES, VERIFICATION_STATUSES, UNIT_ALIASES,
+            SPORTS,
+            CLASSES,
+            GRADING_CATEGORIES,
+            LEAVE_TYPES,
+            BMI_CATEGORIES,
+            VERIFICATION_STATUSES,
+            UNIT_ALIASES,
         ):
             for key, value in source.items():
                 self._add_phrase(words, key)
@@ -95,6 +165,7 @@ class VocabularyManager:
 
     def get_unit_aliases(self) -> Mapping[str, str]:
         return MappingProxyType(UNIT_ALIASES)
-        
+
+
 # Global Instance
 vocab_manager = VocabularyManager()

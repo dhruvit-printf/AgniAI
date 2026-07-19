@@ -61,9 +61,9 @@ class TestWidgetEngine(unittest.TestCase):
         }
         res = build_formatted_data(answer, query_type="distribution", intent={})
         self.assertEqual(res["type"], "TABLE")
-        rows = res["data"]["rows"]
-        self.assertEqual(rows[0]["value"], 0)
-        self.assertEqual(rows[1]["value"], 5)
+        row = res["data"]["row"]
+        self.assertEqual(row[0]["value"], 0)
+        self.assertEqual(row[1]["value"], 5)
 
     def test_trend_widgets_yield_line_chart(self):
         answer = {

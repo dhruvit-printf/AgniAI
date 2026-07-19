@@ -64,7 +64,9 @@ def _legacy_type(
     """Pure lookup — no inference.  Returns the deprecated visualization hint."""
     if not category:
         return None
-    op_key = operation or (SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory) if subcategory else None)
+    op_key = operation or (
+        SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory) if subcategory else None
+    )
     return INTENT_TYPE_DEFAULTS.get((category, op_key))
 
 
@@ -102,9 +104,7 @@ def _filter_entities_for_category(
         return dict(entities)
     allowed = get_allowed_entities_for_category(category)
     return {
-        key: value
-        for key, value in entities.items()
-        if key in allowed or value is None
+        key: value for key, value in entities.items() if key in allowed or value is None
     }
 
 
@@ -284,7 +284,12 @@ def classify_admin_intent(
         elif entities.get("sport") or entities.get("class"):
             category = "Skills"
             intent_result["category"] = category
-        elif entities.get("bmiCategory") or entities.get("bloodGroup") or entities.get("diagnose") or entities.get("medicalStatus"):
+        elif (
+            entities.get("bmiCategory")
+            or entities.get("bloodGroup")
+            or entities.get("diagnose")
+            or entities.get("medicalStatus")
+        ):
             category = "Medical"
             intent_result["category"] = category
         elif entities.get("equipmentName"):
@@ -310,7 +315,7 @@ def classify_admin_intent(
     if category == "Equipment":
         _nq = _normalise(raw_query)
         _eq_type = entities.get("equipmentType")
-        
+
         # Ensure equipmentType is strictly Issued/Procured (not IssuedItems/ProcuredItems)
         if _eq_type in ("IssuedItems", "ProcuredItems"):
             _eq_type = _eq_type.replace("Items", "")
@@ -319,13 +324,23 @@ def classify_admin_intent(
         if not entities.get("equipmentName"):
             # No specific item mentioned — check if the user is asking about a
             # type of equipment (issued / procured) generically.
-            if any(kw in _nq for kw in {"haven't returned", "not returned", "has not returned", "hasn't returned"}):
+            if any(
+                kw in _nq
+                for kw in {
+                    "haven't returned",
+                    "not returned",
+                    "has not returned",
+                    "hasn't returned",
+                }
+            ):
                 subcategory = "HoldingEquipment"
                 operation = "Holding"
             elif any(kw in _nq for kw in {"currently holding", "holding", "where"}):
                 subcategory = "HoldingEquipment"
                 operation = "Holding"
-            elif any(kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}):
+            elif any(
+                kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}
+            ):
                 subcategory = "PoorConditionEquipment"
                 operation = "Returned"
             elif _eq_type == "Issued" and operation != "Returned":
@@ -339,12 +354,19 @@ def classify_admin_intent(
                 operation = "Holding"
         else:
             # Specific item name mentioned — decide operation from query context
-            if any(kw in _nq for kw in {"haven't returned", "not returned", "has not returned", "hasn't returned"}):
+            if any(
+                kw in _nq
+                for kw in {
+                    "haven't returned",
+                    "not returned",
+                    "has not returned",
+                    "hasn't returned",
+                }
+            ):
                 subcategory = _eq_type or "HoldingEquipment"
                 operation = "Holding"
             elif any(
-                kw in _nq
-                for kw in {"poor condition", "returned", "damaged", "broken"}
+                kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}
             ):
                 subcategory = "PoorConditionEquipment"
                 operation = "Returned"
@@ -362,11 +384,22 @@ def classify_admin_intent(
                     subcategory = "EquipmentSearch"
                     operation = "ByName"
 
-
     # Schedule override: a specific calendar date → bydate schedule.
     # Relative phrases like "today"/"tomorrow"/"this week" are handled by their
     # own operation (bytoday) — do NOT override them to "bydate".
-    _RELATIVE_DATE_PHRASES = frozenset({"today", "yesterday", "tomorrow", "this week", "last week", "this month", "current month", "last month", "this year"})
+    _RELATIVE_DATE_PHRASES = frozenset(
+        {
+            "today",
+            "yesterday",
+            "tomorrow",
+            "this week",
+            "last week",
+            "this month",
+            "current month",
+            "last month",
+            "this year",
+        }
+    )
     _schedule_date_val = (entities.get("date") or "").lower()
     _is_relative = _schedule_date_val in _RELATIVE_DATE_PHRASES
     if category == "Schedule":
@@ -398,8 +431,13 @@ def classify_admin_intent(
     # bydate/byagniveer schedules must always carry a date scope — default to
     # today (formatted as ISO 8601) when the query didn't name one at all.
     if category == "Schedule" and operation in ("bydate", "byagniveer"):
-        if not entities.get("date") and not entities.get("fromDate") and not entities.get("toDate"):
+        if (
+            not entities.get("date")
+            and not entities.get("fromDate")
+            and not entities.get("toDate")
+        ):
             import datetime
+
             entities["date"] = datetime.date.today().isoformat()
 
     # ── Stage 5: Legacy visualization hint — pure lookup ────────────────────

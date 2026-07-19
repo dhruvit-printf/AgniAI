@@ -172,7 +172,7 @@ def _extract_number(query: str) -> Optional[int]:
     match = re.search(r"\brank\s+(\d+)\b", text)
     if match:
         return int(match.group(1))
-        
+
     blocked_suffixes = (
         "days",
         "day",
@@ -184,30 +184,30 @@ def _extract_number(query: str) -> Optional[int]:
         "cm",
         "times",
     )
-    
+
     # Generic fallback: find any standalone number that isn't preceded by blocked prefixes
     # and isn't a likely year/id.
     for match in re.finditer(r"\b(\d+)\b", text):
         num = int(match.group(1))
-        
+
         # Skip likely years or large numbers (e.g., Agniveer numbers) if it's > 1000
         if 2000 <= num <= 2100 or num > 1000:
             continue
-            
+
         start_before = max(0, match.start() - 24)
         context_before = text[start_before : match.start()].strip()
-        
+
         end_after = min(len(text), match.end() + 24)
         context_after = text[match.end() : end_after].strip()
-        
+
         if any(context_before.endswith(prefix) for prefix in blocked_prefixes):
             continue
-            
+
         if any(context_after.startswith(suffix) for suffix in blocked_suffixes):
             continue
-            
+
         return num
-        
+
     return None
 
 
@@ -228,7 +228,9 @@ def _extract_section(query: str) -> Optional[str]:
         for alias in candidates:
             if len(alias) <= 2:
                 # Require case-sensitive match for short acronyms like 'IT' or 'MR'
-                orig_pattern = r"\b" + re.escape(alias.upper()).replace(r"\ ", r"\s+") + r"\b"
+                orig_pattern = (
+                    r"\b" + re.escape(alias.upper()).replace(r"\ ", r"\s+") + r"\b"
+                )
                 if re.search(orig_pattern, query):
                     return section_name
             else:
@@ -252,25 +254,39 @@ def _extract_subsection(query: str, section: Optional[str]) -> Optional[str]:
 
 _GRADING_CONTEXT_WORDS = frozenset(
     {
-        "grade", "grading", "score", "marks", "performance", "result", "rated",
-        "scored", "achieved", "got", "obtained", "received", "classification",
-        "percentage", "percent",
+        "grade",
+        "grading",
+        "score",
+        "marks",
+        "performance",
+        "result",
+        "rated",
+        "scored",
+        "achieved",
+        "got",
+        "obtained",
+        "received",
+        "classification",
+        "percentage",
+        "percent",
     }
     | {v.lower() for v in SECTION.keys()}
 )
-_GRADING_AMBIGUOUS = frozenset({"good", "excellent", "satisfactory", "sat", "fail", "failed", "failing"})
+_GRADING_AMBIGUOUS = frozenset(
+    {"good", "excellent", "satisfactory", "sat", "fail", "failed", "failing"}
+)
 
 
 def _extract_grading(query: str) -> Optional[str]:
     query_lower = _normalise(query)
-    
+
     # Grading neutrality: if both pass and fail concepts are mentioned, return None
     # to avoid falsely narrowing to just one of them.
     has_pass = any(w in query_lower for w in ("pass", "passed", "passing"))
     has_fail = any(w in query_lower for w in ("fail", "failed", "failing"))
     if has_pass and has_fail:
         return None
-        
+
     has_grading_context = any(w in query_lower for w in _GRADING_CONTEXT_WORDS)
     for key, value in GRADING_CATEGORIES.items():
         phrase = _normalise(key)
@@ -316,11 +332,34 @@ def _extract_leave_type(query: str) -> Optional[str]:
 
 
 _THRESHOLD_FILTER_SIGNALS = (
-    "near", "nearing", "close to", "almost", "above", "below", "reached",
-    "crossed", "hit ", "limit", "cap", "quota", "allowance", "warning level",
-    "critical level", "danger zone", "safe limit", "ceiling", "boundary",
-    "cutoff", "benchmark","90%", "90 %","Threshold","threshold","Threshhold","Thresholds",
-) 
+    "near",
+    "nearing",
+    "close to",
+    "almost",
+    "above",
+    "below",
+    "reached",
+    "crossed",
+    "hit ",
+    "limit",
+    "cap",
+    "quota",
+    "allowance",
+    "warning level",
+    "critical level",
+    "danger zone",
+    "safe limit",
+    "ceiling",
+    "boundary",
+    "cutoff",
+    "benchmark",
+    "90%",
+    "90 %",
+    "Threshold",
+    "threshold",
+    "Threshhold",
+    "Thresholds",
+)
 
 
 def _has_threshold_filter_signal(query_lower: str) -> bool:
@@ -328,7 +367,9 @@ def _has_threshold_filter_signal(query_lower: str) -> bool:
 
 
 _BMI_AMBIGUOUS_TERMS = frozenset({"fit", "normal"})
-_BMI_CONTEXT_WORDS = frozenset({"bmi", "weight", "fitness", "medical", "health", "fat", "thin"})
+_BMI_CONTEXT_WORDS = frozenset(
+    {"bmi", "weight", "fitness", "medical", "health", "fat", "thin"}
+)
 
 
 def _extract_bmi_category(query: str) -> Optional[str]:
@@ -446,6 +487,7 @@ def _extract_equipment_type(query: str) -> Optional[str]:
         if hint in query_lower:
             return "Procured"
     return None
+
 
 def _extract_date_patterns(query: str) -> Optional[str]:
     query_lower = _normalise(query)
@@ -639,7 +681,9 @@ def _extract_agniveer_no(query: str) -> Optional[str]:
 
 def _extract_medical_status(query: str) -> Optional[str]:
     query_lower = _normalise(query)
-    if any(token in query_lower for token in ("under treatment", "in hospital", "admitted")):
+    if any(
+        token in query_lower for token in ("under treatment", "in hospital", "admitted")
+    ):
         return "Admitted"
     if any(
         phrase in query_lower
@@ -677,7 +721,9 @@ def _extract_days(query: str) -> Optional[int]:
     return None
 
 
-def _extract_return_condition(query: str, semantic: Optional[Dict[str, Any]] = None) -> Optional[str]:
+def _extract_return_condition(
+    query: str, semantic: Optional[Dict[str, Any]] = None
+) -> Optional[str]:
     query_lower = _normalise(query)
     op = ""
     if semantic and semantic.get("module", "").lower() == "equipment":
@@ -695,7 +741,9 @@ def _extract_return_condition(query: str, semantic: Optional[Dict[str, Any]] = N
     return None
 
 
-def _extract_given_condition(query: str, semantic: Optional[Dict[str, Any]] = None) -> Optional[str]:
+def _extract_given_condition(
+    query: str, semantic: Optional[Dict[str, Any]] = None
+) -> Optional[str]:
     query_lower = _normalise(query)
     op = ""
     if semantic and semantic.get("module", "").lower() == "equipment":
@@ -705,7 +753,9 @@ def _extract_given_condition(query: str, semantic: Optional[Dict[str, Any]] = No
         if re.search(rf"\b(given|issued)\s+(in\s+)?{cond}\b", query_lower):
             return cond
         if re.search(rf"\b{cond}\b", query_lower):
-            if op == "sent" and not re.search(rf"\breturn(ed)?\s+(in\s+)?{cond}\b", query_lower):
+            if op == "sent" and not re.search(
+                rf"\breturn(ed)?\s+(in\s+)?{cond}\b", query_lower
+            ):
                 return cond
     return None
 
@@ -740,7 +790,7 @@ CANONICAL_ENTITY_KEYS = frozenset(
         "returnCondition",
         "givenCondition",
         "Operation",
-        "Category"
+        "Category",
     }
 )
 
@@ -779,99 +829,99 @@ _MEDICAL_CONTEXT_WORDS = frozenset(
 
 
 _KNOWN_DISEASES = (
-        "viral fever",
-        "covid-19",
-        "swine flu",
-        "heat stroke",
-        "scrub typhus",
-        "kidney stone",
-        "chicken pox",
-        "chickenpox",
-        "hepatitis b",
-        "hepatitis a",
-        "hepatitis c",
-        "food poisoning",
-        "gastroenteritis",
-        "stomach flu",
-        "panic attack",
-        "bipolar disorder",
-        "bone fracture",
-        "hairline fracture",
-        "bone crack",
-        "ligament tear",
-        "muscle pull",
-        "back pain",
-        "joint pain",
-        "slipped disc",
-        "rheumatoid arthritis",
-        "osteoarthritis",
-        "fever",
-        "cough",
-        "cold",
-        "dengue",
-        "malaria",
-        "typhoid",
-        "flu",
-        "influenza",
-        "asthma",
-        "bronchitis",
-        "pneumonia",
-        "tuberculosis",
-        "headache",
-        "migraine",
-        "covid",
-        "hypertension",
-        "diabetes",
-        "cholera",
-        "diarrhea",
-        "dysentery",
-        "sunstroke",
-        "dehydration",
-        "hepatitis",
-        "jaundice",
-        "rabies",
-        "tetanus",
-        "leprosy",
-        "leptospirosis",
-        "h1n1",
-        "cancer",
-        "hiv",
-        "aids",
-        "chikungunya",
-        "meningitis",
-        "encephalitis",
-        "measles",
-        "mumps",
-        "rubella",
-        "polio",
-        "allergy",
-        "acidity",
-        "vomiting",
-        "nausea",
-        "constipation",
-        "ulcer",
-        "gastritis",
-        "appendicitis",
-        "arthritis",
-        "hernia",
-        "anemia",
-        "thyroid",
-        "insomnia",
-        "depression",
-        "anxiety",
-        "stress",
-        "ptsd",
-        "schizophrenia",
-        "fracture",
-        "dislocation",
-        "sprain",
-        "concussion",
-        "burn",
-        "injury",
-        "wound",
-        "sciatica",
-        "spasm",
-        "fatigue",
+    "viral fever",
+    "covid-19",
+    "swine flu",
+    "heat stroke",
+    "scrub typhus",
+    "kidney stone",
+    "chicken pox",
+    "chickenpox",
+    "hepatitis b",
+    "hepatitis a",
+    "hepatitis c",
+    "food poisoning",
+    "gastroenteritis",
+    "stomach flu",
+    "panic attack",
+    "bipolar disorder",
+    "bone fracture",
+    "hairline fracture",
+    "bone crack",
+    "ligament tear",
+    "muscle pull",
+    "back pain",
+    "joint pain",
+    "slipped disc",
+    "rheumatoid arthritis",
+    "osteoarthritis",
+    "fever",
+    "cough",
+    "cold",
+    "dengue",
+    "malaria",
+    "typhoid",
+    "flu",
+    "influenza",
+    "asthma",
+    "bronchitis",
+    "pneumonia",
+    "tuberculosis",
+    "headache",
+    "migraine",
+    "covid",
+    "hypertension",
+    "diabetes",
+    "cholera",
+    "diarrhea",
+    "dysentery",
+    "sunstroke",
+    "dehydration",
+    "hepatitis",
+    "jaundice",
+    "rabies",
+    "tetanus",
+    "leprosy",
+    "leptospirosis",
+    "h1n1",
+    "cancer",
+    "hiv",
+    "aids",
+    "chikungunya",
+    "meningitis",
+    "encephalitis",
+    "measles",
+    "mumps",
+    "rubella",
+    "polio",
+    "allergy",
+    "acidity",
+    "vomiting",
+    "nausea",
+    "constipation",
+    "ulcer",
+    "gastritis",
+    "appendicitis",
+    "arthritis",
+    "hernia",
+    "anemia",
+    "thyroid",
+    "insomnia",
+    "depression",
+    "anxiety",
+    "stress",
+    "ptsd",
+    "schizophrenia",
+    "fracture",
+    "dislocation",
+    "sprain",
+    "concussion",
+    "burn",
+    "injury",
+    "wound",
+    "sciatica",
+    "spasm",
+    "fatigue",
 )
 
 

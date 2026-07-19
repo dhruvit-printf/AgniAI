@@ -126,7 +126,9 @@ _PLATOON_PATTERNS = [
 ]
 _AGNIVEER_NUM_RE = re.compile(r"\bag[-\s]?(\d{3,8})\b", re.IGNORECASE)
 _AGNIVEER_ALPHANUM_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
-_AGNIVEER_WORD_RE = re.compile(r"\bagniveer\s+(?:no\.?|number|#)?\s*(\w{3,10})\b", re.IGNORECASE)
+_AGNIVEER_WORD_RE = re.compile(
+    r"\bagniveer\s+(?:no\.?|number|#)?\s*(\w{3,10})\b", re.IGNORECASE
+)
 _BATCH_PATTERNS = [
     re.compile(r"\bbatch\s+no\.?\s*(\w[\w-]*)\b"),
     re.compile(r"\bbatch\s+(\w[\w-]*)\b"),
@@ -385,7 +387,10 @@ def resolve_entities_from_query(
     # first and, when it finds anything, wins over the positional guess.
     if company_mention:
         result["companyId"] = resolve_company_id(
-            company_mention, trace_id=trace_id, session_id=session_id, companies=companies
+            company_mention,
+            trace_id=trace_id,
+            session_id=session_id,
+            companies=companies,
         )
     elif result["companyId"] is None:
         result["companyId"] = existing_company_id
@@ -500,7 +505,9 @@ def resolve_entities_from_query(
                                 "(no 'company'/'coy' keyword in query) | query=%r | "
                                 "matched_company=%r | company_id=%s | "
                                 "match_type=%s | matched_word=%r",
-                                query, stored, cid,
+                                query,
+                                stored,
+                                cid,
                                 "full_name" if full_hit else "partial_prefix",
                                 partial_word,
                             )
@@ -534,7 +541,9 @@ def resolve_entities_from_query(
                                 "(no 'platoon' keyword in query) | query=%r | "
                                 "matched_platoon=%r | platoon_id=%s | "
                                 "match_type=%s | matched_word=%r",
-                                query, stored, pid,
+                                query,
+                                stored,
+                                pid,
                                 "full_name" if full_hit else "partial_prefix",
                                 partial_word,
                             )

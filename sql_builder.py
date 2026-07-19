@@ -2,10 +2,12 @@ from typing import Tuple, Dict, Any, List
 from ast_models import ASTNode, ConditionNode, WhereNode, ConditionGroupNode
 from schema_engine import schema_engine
 
+
 class SqlBuilder:
     """
     Compiles an ASTNode into parameterized T-SQL.
     """
+
     def __init__(self):
         self.parameters: List[Any] = []
 
@@ -16,13 +18,13 @@ class SqlBuilder:
     def build(self, ast: ASTNode) -> Tuple[str, List[Any]]:
         self.parameters = []
         self.aliases = {}
-        
+
         # Build aliases
         self._get_alias(ast.base_table)
         for j in ast.joins:
             self._get_alias(j.left_table)
             self._get_alias(j.right_table)
-            
+
         sql = self._build_select(ast)
         return sql, self.parameters
 
@@ -60,7 +62,7 @@ class SqlBuilder:
         group_by_clause = self._build_group_by_clause(ast)
         having_clause = self._build_having_clause(ast)
         order_by_clause = self._build_order_by_clause(ast)
-        
+
         query = f"{select_clause} {from_clause}"
         if where_clause:
             query += f" {where_clause}"
@@ -70,7 +72,7 @@ class SqlBuilder:
             query += f" {having_clause}"
         if order_by_clause:
             query += f" {order_by_clause}"
-            
+
         return query
 
     def _build_select_clause(self, ast: ASTNode) -> str:
@@ -85,7 +87,7 @@ class SqlBuilder:
                 parts.append("SELECT DISTINCT")
             else:
                 parts.append("SELECT")
-            
+
         columns = list(ast.columns)
         # Apply alias safely to normal columns ONLY
         aliased_cols = []
@@ -105,14 +107,14 @@ class SqlBuilder:
                 )
             else:
                 aliased_cols.append(self._apply_alias(c) if "." in c else c)
-        
+
         for agg in ast.aggregates:
             aliased_col = self._apply_alias(agg.column)
             col_str = f"{agg.function}({aliased_col})"
             if agg.alias:
                 col_str += f" AS {agg.alias}"
             aliased_cols.append(col_str)
-            
+
         if not aliased_cols:
             # Fallback to expanding base table to avoid SELECT *
             table_cols = schema_engine.get_columns(ast.base_table)
@@ -120,7 +122,7 @@ class SqlBuilder:
             aliased_cols.extend(
                 [f"{alias}.{self._quote_identifier(col)}" for col in table_cols]
             )
-            
+
         parts.append(", ".join(aliased_cols))
         return " ".join(parts)
 
@@ -147,15 +149,25 @@ class SqlBuilder:
         if isinstance(node, WhereNode):
             aliased_col = self._apply_alias(node.column)
             if node.value is None:
-                if node.operator == "=":
+                op_upper = node.operator.upper()
+                if op_upper in ("=", "IS NULL"):
                     return f"{aliased_col} IS NULL"
-                elif node.operator == "!=":
+                elif op_upper in ("!=", "IS NOT NULL"):
                     return f"{aliased_col} IS NOT NULL"
-                    
+                # No other operator can be compiled without a value — the
+                # validator only lets =, !=, IS NULL, IS NOT NULL pair with
+                # value=None (see sql_validator._validate_condition), so
+                # reaching here means an operator/value combination the
+                # validator should have rejected slipped through.
+                raise ValueError(
+                    f"Cannot compile operator '{node.operator}' on '{node.column}' "
+                    f"with a NULL value — no parameter to bind."
+                )
+
             if node.operator.upper() == "IN" and isinstance(node.value, (list, tuple)):
                 params = [self._next_param(v) for v in node.value]
                 return f"{aliased_col} IN ({', '.join(params)})"
-                
+
             p = self._next_param(node.value)
             return f"{aliased_col} {node.operator} {p}"
         elif isinstance(node, ConditionGroupNode):
@@ -185,5 +197,6 @@ class SqlBuilder:
             aliased_col = self._apply_alias(ob.column)
             parts.append(f"{aliased_col} {direction}")
         return "ORDER BY " + ", ".join(parts)
+
 
 sql_builder = SqlBuilder()

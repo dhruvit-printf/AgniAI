@@ -74,8 +74,17 @@ def _should_treat_cross_filter_as_multi_independent(semantic: Dict[str, Any]) ->
             return False
 
         discriminating = {
-            k: v for k, v in entities.items()
-            if k not in ("category", "operation", "responseType", "agniveerNo", "agniveer_no") and v not in (None, "", [], {})
+            k: v
+            for k, v in entities.items()
+            if k
+            not in (
+                "category",
+                "operation",
+                "responseType",
+                "agniveerNo",
+                "agniveer_no",
+            )
+            and v not in (None, "", [], {})
         }
         if discriminating:
             has_any_discriminating_filter = True
@@ -101,7 +110,12 @@ def _should_treat_cross_filter_as_multi_independent(semantic: Dict[str, Any]) ->
         return True
 
     # Case 2: No agniveer_no exists in any leg, but categories are distinct.
-    if not has_any_agniveer_no and len(categories) == len(sub_requests) and len(categories) >= 2 and not has_any_discriminating_filter:
+    if (
+        not has_any_agniveer_no
+        and len(categories) == len(sub_requests)
+        and len(categories) >= 2
+        and not has_any_discriminating_filter
+    ):
         return True
 
     return False
@@ -198,7 +212,6 @@ class QueryPlan:
         if self.comparison_execution_plan:
             d["comparisonExecutionPlan"] = self.comparison_execution_plan
         return d
-
 
 
 _CATEGORY_SIGNALS: Dict[str, List[str]] = {
@@ -667,22 +680,46 @@ def _is_semantic_comparison(
 
     # Multiple months — only a comparison when NOT in a "from X to Y" range
     months = [
-        "january", "february", "march", "april", "may", "june",
-        "july", "august", "september", "october", "november", "december",
-        "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "oct",
+        "nov",
+        "dec",
     ]
     months_found = {
         m for m in months if re.search(r"\b" + re.escape(m) + r"\b", text_lower)
     }
     if len(months_found) >= 2:
         # Require an explicit comparison keyword alongside the two months
-        if any(kw in text_lower for kw in ("compare", "vs", "versus", "difference between")):
+        if any(
+            kw in text_lower for kw in ("compare", "vs", "versus", "difference between")
+        ):
             return True
 
     # Multiple years — same guard
     years_found = set(re.findall(r"\b(19\d{2}|20\d{2})\b", text_lower))
     if len(years_found) >= 2:
-        if any(kw in text_lower for kw in ("compare", "vs", "versus", "difference between")):
+        if any(
+            kw in text_lower for kw in ("compare", "vs", "versus", "difference between")
+        ):
             return True
 
     return False
@@ -978,7 +1015,9 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             )
 
     qtype = (semantic.get("query_type") or "simple").strip().lower()
-    if qtype == "cross_filter" and _should_treat_cross_filter_as_multi_independent(semantic):
+    if qtype == "cross_filter" and _should_treat_cross_filter_as_multi_independent(
+        semantic
+    ):
         qtype = "multi_independent"
 
     def _ops_from_semantic_fragments(default_fragment: str) -> List[SubOperation]:

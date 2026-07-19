@@ -139,7 +139,6 @@ def map_query_type(qt: QueryType) -> str:
         return "simple"
 
 
-
 # ID fields that must never be sent as null / empty / zero (Rule 9)
 _ID_FIELDS: frozenset = frozenset({"companyId", "platoonId", "batchId", "agniveerNo"})
 
@@ -970,7 +969,9 @@ def execute_admin_query(
             intent_start = time.time()
             raw_results: List[Any] = []
             labeled_results: List[Tuple[str, Any]] = []
-            operation_count: int = len(query_plan.operations) if query_plan.operations else 1
+            operation_count: int = (
+                len(query_plan.operations) if query_plan.operations else 1
+            )
             partial_failure = False
             failed_sections: List[str] = []
             comparison_datasets_info = []
@@ -1026,17 +1027,16 @@ def execute_admin_query(
                     resolved_entities=resolved_entities,
                     semantic=semantic_understanding,
                 )
-                primary_intent = merge_frontend_intent(frontend_intent, extracted_entities)
+                primary_intent = merge_frontend_intent(
+                    frontend_intent, extracted_entities
+                )
 
             primary_intent["operations"] = [
                 op.intent_result for op in query_plan.operations
             ]
             primary_intent["filters"] = _merge_intents(
                 frontend_intent.get("filters", {}),
-                *(
-                    op.intent_result.get("filters", {})
-                    for op in query_plan.operations
-                ),
+                *(op.intent_result.get("filters", {}) for op in query_plan.operations),
             )
 
             if primary_intent.get("category") in _NO_CARRY_FORWARD_CATEGORIES:
@@ -1068,7 +1068,9 @@ def execute_admin_query(
             if getattr(query_plan, "confidence", 1.0) <= 0.45:
                 primary_intent["query_type"] = "text2sql"
                 qtype_str = "text2sql"
-                logger.info("Confidence <= 0.45, overriding query type to text2sql for fallback.")
+                logger.info(
+                    "Confidence <= 0.45, overriding query type to text2sql for fallback."
+                )
 
             intent_duration = time.time() - intent_start
             logger.info(
@@ -1110,8 +1112,11 @@ def execute_admin_query(
                         )
                     )
                     from sql_executor import execute_sql_query
-                    fallback_section, fallback_err = execute_sql_query(question=message, intent={"query_type": "text2sql"})
-                    
+
+                    fallback_section, fallback_err = execute_sql_query(
+                        question=message, intent={"query_type": "text2sql"}
+                    )
+
                     if not fallback_err and fallback_section:
                         sql_raw = [fallback_section]
                         sql_labeled = [("Result", fallback_section)]
@@ -1239,8 +1244,12 @@ def execute_admin_query(
                 sql_served = True
                 set_audit_context(backend="sql")
                 response_dotnet_payload = [{"backend": "sql"}]
-                
-                sql_queries = [s.get("sql") for s in sql_raw if isinstance(s, dict) and s.get("sql")]
+
+                sql_queries = [
+                    s.get("sql")
+                    for s in sql_raw
+                    if isinstance(s, dict) and s.get("sql")
+                ]
                 if sql_queries:
                     if len(sql_queries) == 1:
                         response_dotnet_payload[0]["sqlQuery"] = sql_queries[0]

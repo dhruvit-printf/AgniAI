@@ -150,6 +150,7 @@ def run_schema_guard() -> Optional[Dict[str, Set[str]]]:
 def _generate_schema_card_from_engine() -> str:
     try:
         from schema_engine import schema_engine
+
         schema = {}
         for table in schema_engine.get_tables():
             if table.lower() in DENIED_TABLES:
@@ -160,7 +161,7 @@ def _generate_schema_card_from_engine() -> str:
                     cols.append(col)
             if cols:
                 schema[table] = cols
-                
+
         fks = []
         for table in schema.keys():
             for fk in schema_engine.get_foreign_keys(table):
@@ -169,16 +170,16 @@ def _generate_schema_card_from_engine() -> str:
                 r_col = fk["referenced_column"]
                 if r_tab in schema:
                     fks.append(f"{table}.{p_col} = {r_tab}.{r_col}")
-                    
+
         lines = ["DATABASE: DB_Agni (Microsoft SQL Server)", "", "TABLES AND VIEWS:"]
         for table, cols in schema.items():
             lines.append(f"  {table} ({', '.join(cols)})")
-            
+
         lines.append("")
         lines.append("RELATIONSHIPS (Foreign Keys):")
         for fk in fks:
             lines.append(f"  {fk}")
-            
+
         return "\n".join(lines)
     except Exception as exc:
         logger.error(f"Failed to generate dynamic schema from engine: {exc}")
@@ -189,19 +190,25 @@ def generate_dynamic_schema_card() -> str:
     """Generate the dynamic SCHEMA_CARD using INFORMATION_SCHEMA and sys.foreign_keys."""
     if not SQL_READONLY_CONN:
         return _generate_schema_card_from_engine()
-    
+
     try:
         import pyodbc
-        conn = pyodbc.connect(SQL_READONLY_CONN, timeout=SQL_COMMAND_TIMEOUT_S, autocommit=True)
+
+        conn = pyodbc.connect(
+            SQL_READONLY_CONN, timeout=SQL_COMMAND_TIMEOUT_S, autocommit=True
+        )
         cur = conn.cursor()
-        
+
         # 1. Fetch tables and views
         cur.execute("SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS")
         schema = {}
         for table, col in cur.fetchall():
-            if table.lower() not in DENIED_TABLES and f"{table.lower()}.{col.lower()}" not in DENIED_COLUMNS:
+            if (
+                table.lower() not in DENIED_TABLES
+                and f"{table.lower()}.{col.lower()}" not in DENIED_COLUMNS
+            ):
                 schema.setdefault(table, []).append(col)
-        
+
         # 2. Fetch foreign keys
         cur.execute("""
             SELECT 
@@ -217,20 +224,21 @@ def generate_dynamic_schema_card() -> str:
         for p_tab, p_col, r_tab, r_col in cur.fetchall():
             if p_tab in schema and r_tab in schema:
                 fks.append(f"{p_tab}.{p_col} = {r_tab}.{r_col}")
-                
+
         conn.close()
-        
+
         lines = ["DATABASE: DB_Agni (Microsoft SQL Server)", "", "TABLES AND VIEWS:"]
         for table, cols in schema.items():
             lines.append(f"  {table} ({', '.join(cols)})")
-            
+
         lines.append("")
         lines.append("RELATIONSHIPS (Foreign Keys):")
         for fk in fks:
             lines.append(f"  {fk}")
-            
+
         return "\n".join(lines)
     except Exception as exc:
-        logger.error(f"Failed to generate dynamic schema from DB, falling back to schema engine: {exc}")
+        logger.error(
+            f"Failed to generate dynamic schema from DB, falling back to schema engine: {exc}"
+        )
         return _generate_schema_card_from_engine()
-
