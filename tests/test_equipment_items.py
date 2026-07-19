@@ -10,23 +10,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-# ── Minimal stubs so admin_intent imports without a real Flask app ──────────
-import types
-
-for mod in (
-    "flask",
-    "flask_cors",
-    "flask_limiter",
-    "flask_limiter.util",
-    "dotenv",
-    "requests",
-):
-    if mod not in sys.modules:
-        sys.modules[mod] = types.ModuleType(mod)
-
-# stub dotenv.load_dotenv
-sys.modules["dotenv"].load_dotenv = lambda *a, **kw: None  # type: ignore
-
 # ── Now we can import ────────────────────────────────────────────────────────
 from intent_engine.admin_intent import (
     _item_category,

@@ -510,7 +510,10 @@ def _build_sub_operation(
     filter_fragment: Optional[str] = None,
 ) -> SubOperation:
     intent_result = classify_admin_intent(fragment)
-    dotnet_payload = format_admin_payload(intent_result)
+    try:
+        dotnet_payload = format_admin_payload(intent_result)
+    except Exception:
+        dotnet_payload = {}
     return SubOperation(
         raw_fragment=fragment,
         intent_result=intent_result,
