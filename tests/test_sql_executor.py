@@ -428,3 +428,378 @@ class TestToCamelCase:
 
         assert camel_row["omrInputTotal"] == 87
         assert get_score(camel_row) == 87.0
+
+
+# ── _jsonable — type normalisation ──────────────────────────────────────────
+
+
+class TestJsonable:
+    """Verify that _jsonable converts pyodbc raw types to JSON-safe Python types.
+
+    pyodbc returns datetime.date / datetime.datetime for datetime2/date columns
+    and decimal.Decimal for decimal(18,2) columns. Flask's DefaultJSONProvider
+    serializes these as RFC 822 strings and JSON strings respectively, neither
+    of which matches what .NET System.Text.Json produces (ISO 8601 and JSON
+    numbers).  _jsonable fixes this at the point rows leave run_readonly.
+    """
+
+    def test_date_becomes_iso_string(self):
+        import datetime
+        from sql_executor import _jsonable
+
+        result = _jsonable(datetime.date(2001, 5, 14))
+        assert result == "2001-05-14"
+        assert isinstance(result, str)
+
+    def test_datetime_becomes_iso_string(self):
+        import datetime
+        from sql_executor import _jsonable
+
+        result = _jsonable(datetime.datetime(2023, 11, 1, 9, 30, 0))
+        assert result == "2023-11-01T09:30:00"
+        assert isinstance(result, str)
+
+    def test_datetime_is_checked_before_date(self):
+        """datetime is a subclass of date; if we checked date first, a
+        datetime would be serialized without its time component."""
+        import datetime
+        from sql_executor import _jsonable
+
+        dt = datetime.datetime(2024, 6, 15, 14, 22, 59)
+        result = _jsonable(dt)
+        assert "T" in result, "datetime must include the time component"
+        assert result == dt.isoformat()
+
+    def test_decimal_becomes_float(self):
+        import decimal
+        from sql_executor import _jsonable
+
+        result = _jsonable(decimal.Decimal("87.50"))
+        assert isinstance(result, float)
+        assert result == 87.5
+
+    def test_decimal_zero_becomes_float(self):
+        import decimal
+        from sql_executor import _jsonable
+
+        assert _jsonable(decimal.Decimal("0.00")) == 0.0
+
+    def test_decimal_large_value(self):
+        import decimal
+        from sql_executor import _jsonable
+
+        result = _jsonable(decimal.Decimal("12345.99"))
+        assert isinstance(result, float)
+        assert abs(result - 12345.99) < 1e-6
+
+    def test_int_passthrough(self):
+        from sql_executor import _jsonable
+
+        assert _jsonable(42) == 42
+        assert isinstance(_jsonable(42), int)
+
+    def test_float_passthrough(self):
+        from sql_executor import _jsonable
+
+        assert _jsonable(3.14) == 3.14
+
+    def test_str_passthrough(self):
+        from sql_executor import _jsonable
+
+        assert _jsonable("hello") == "hello"
+
+    def test_none_passthrough(self):
+        from sql_executor import _jsonable
+
+        assert _jsonable(None) is None
+
+    def test_bool_passthrough(self):
+        from sql_executor import _jsonable
+
+        assert _jsonable(True) is True
+        assert _jsonable(False) is False
+
+
+# ── _to_section with raw pyodbc types ────────────────────────────────────────
+
+
+class TestToSectionTypeNormalization:
+    """Regression tests: _to_section must produce a dict whose values are all
+    JSON-serializable standard Python types (no datetime.date / Decimal objects)
+    because they flow directly to jsonify() via admin_pipeline -> admin_routes.
+
+    These tests mock the raw pyodbc row types (datetime.date, datetime.datetime,
+    decimal.Decimal) that pyodbc returns for SQL Server datetime2/date and
+    decimal(18,2) columns, and assert on the final values in the returned
+    section dict.
+    """
+
+    def test_date_column_serialized_as_iso_string(self):
+        import datetime
+
+        rows = [{"AgniveerNo": "A1", "DateOfBirth": datetime.date(2001, 5, 14)}]
+        section = _to_section(rows)
+        record = section["records"][0]
+
+        assert record["dateOfBirth"] == "2001-05-14"
+        assert isinstance(record["dateOfBirth"], str)
+
+    def test_datetime_column_serialized_as_iso_string(self):
+        import datetime
+
+        rows = [
+            {
+                "AgniveerNo": "A1",
+                "AttendanceDateTime": datetime.datetime(2024, 3, 15, 8, 0, 0),
+            }
+        ]
+        section = _to_section(rows)
+        record = section["records"][0]
+
+        assert record["attendanceDateTime"] == "2024-03-15T08:00:00"
+        assert isinstance(record["attendanceDateTime"], str)
+
+    def test_decimal_marks_serialized_as_float(self):
+        import decimal
+
+        rows = [{"AgniveerNo": "A1", "MarksObtained": decimal.Decimal("87.50")}]
+        section = _to_section(rows)
+        record = section["records"][0]
+
+        assert isinstance(record["marksObtained"], float)
+        assert record["marksObtained"] == 87.5
+
+    def test_decimal_zero_serialized_as_float(self):
+        import decimal
+
+        rows = [{"AgniveerNo": "A1", "Cutoff": decimal.Decimal("0.00")}]
+        section = _to_section(rows)
+        record = section["records"][0]
+
+        assert isinstance(record["cutoff"], float)
+
+    def test_mixed_row_all_types_clean(self):
+        """A realistic row with all three problem types at once."""
+        import datetime
+        import decimal
+
+        rows = [
+            {
+                "AgniveerNo": "A123",
+                "FullName": "Amit Kumar",
+                "DateOfBirth": datetime.date(2001, 5, 14),
+                "MarksObtained": decimal.Decimal("87.50"),
+                "Score": 95,
+            }
+        ]
+        section = _to_section(rows)
+        record = section["records"][0]
+
+        assert record["agniveerNo"] == "A123"
+        assert record["fullName"] == "Amit Kumar"
+        assert record["dateOfBirth"] == "2001-05-14"
+        assert isinstance(record["marksObtained"], float)
+        assert record["marksObtained"] == 87.5
+        assert record["score"] == 95
+
+        # Verify no raw non-JSON-serializable types remain
+        import json
+
+        try:
+            json.dumps(section)
+        except TypeError as exc:
+            raise AssertionError(
+                f"section is not JSON-serializable after _to_section: {exc}"
+            ) from exc
+
+    def test_get_score_finds_decimal_marks_after_normalization(self):
+        """utils.get_score must return a numeric value from a row that came
+        through _to_section with a Decimal MarksObtained column."""
+        import decimal
+        from utils import get_score
+
+        rows = [{"AgniveerNo": "A1", "MarksObtained": decimal.Decimal("73.25")}]
+        section = _to_section(rows)
+        record = section["records"][0]
+
+        score = get_score(record)
+        assert score == pytest.approx(73.25)
+
+    def test_null_values_not_affected(self):
+        """None values in rows should be preserved unchanged."""
+        rows = [{"AgniveerNo": "A1", "DateOfBirth": None, "MarksObtained": None}]
+        section = _to_section(rows)
+        record = section["records"][0]
+
+        assert record["dateOfBirth"] is None
+        assert record["marksObtained"] is None
+
+
+# ── Precision audit: Decimal→float in _jsonable ──────────────────────────────
+#
+# FINDING (2026-07-20): NOT AN ACTIVE BUG — MITIGATED BY DESIGN.
+#
+# ALL threshold/boundary logic (Excellent/Good/SAT/Fail cutoffs at 90/75/60/45)
+# lives in SQL Server CASE WHEN expressions that run BEFORE _jsonable; Python
+# only receives the already-decided string labels.  Python-side sum() calls in
+# analysis_engine / conclusion_engine / prediction_engine operate on individual
+# float scores for statistics (average, band counts) — never summing to
+# recompute a total and then comparing against a grading threshold.
+#
+# For decimal(18,2) columns (at most 2 decimal places), any individual value
+# that IS compared against the Python thresholds 50.0 / 75.0 converts without
+# a precision-flipping error because: all representable 2dp values of the form
+# x.00, x.25, x.50, x.75 are EXACT IEEE 754 doubles; values with other 2dp
+# suffixes (.10/.20/.30 etc.) have representation error < 1e-11, orders of
+# magnitude smaller than the 0.01-unit gap between any score and the nearest
+# threshold literal.
+#
+# The tests below document and lock this invariant.
+
+
+class TestDecimalPrecisionAudit:
+    """Precision audit for _jsonable's Decimal->float conversion.
+
+    Verifies that decimal(18,2) Decimal values produced by pyodbc, converted
+    via _jsonable, compare correctly against Python-side threshold literals
+    (50.0, 75.0) and that float arithmetic on many such values does not produce
+    a sum/average that drifts far enough to flip a boundary comparison.
+    """
+
+    def test_exact_threshold_values_convert_without_error(self):
+        """The four PPT/BPET grade boundaries are exactly representable."""
+        import decimal
+
+        from sql_executor import _jsonable
+
+        for boundary in ("90.00", "75.00", "60.00", "45.00"):
+            result = _jsonable(decimal.Decimal(boundary))
+            expected = float(boundary)
+            assert result == expected, f"Boundary {boundary} has float error"
+            assert isinstance(result, float)
+
+    def test_half_decimal_values_are_exact_floats(self):
+        """x.00, x.25, x.50, x.75 — always exact in IEEE 754."""
+        import decimal
+
+        from sql_executor import _jsonable
+
+        for val_str in ("87.50", "73.25", "60.75", "45.00", "90.00", "0.50", "99.75"):
+            result = _jsonable(decimal.Decimal(val_str))
+            assert result == pytest.approx(float(val_str), abs=1e-12)
+
+    def test_tenth_decimal_values_have_bounded_representation_error(self):
+        """x.10/.20/.30 ... values have IEEE 754 error < 1e-9 after round(,10)."""
+        import decimal
+
+        from sql_executor import _jsonable
+
+        for val_str in ("87.60", "73.30", "60.10", "44.90", "50.20", "75.80"):
+            result = _jsonable(decimal.Decimal(val_str))
+            error = abs(result - float(val_str))
+            assert error < 1e-9, f"{val_str}: float error {error} exceeds 1e-9"
+
+    def test_individual_score_threshold_comparisons_hold(self):
+        """Individual decimal(18,2) scores converted via _jsonable compare
+        correctly against the 50.0 and 75.0 threshold literals used in
+        conclusion_engine / analysis_engine.
+        """
+        import decimal
+
+        from sql_executor import _jsonable
+
+        for above in ("75.01", "76.00", "90.00", "99.99"):
+            assert _jsonable(decimal.Decimal(above)) > 75.0, f"{above} not > 75"
+
+        for below in ("74.99", "74.00", "50.00", "0.00"):
+            assert _jsonable(decimal.Decimal(below)) < 75.0, f"{below} not < 75"
+
+        for below in ("49.99", "49.00", "0.01"):
+            assert _jsonable(decimal.Decimal(below)) < 50.0, f"{below} not < 50"
+
+        for above in ("50.01", "51.00", "75.00", "100.00"):
+            assert _jsonable(decimal.Decimal(above)) > 50.0, f"{above} not > 50"
+
+    def test_average_of_many_floats_near_boundary_is_stable(self):
+        """100 rows (50x80.00, 50x70.00) whose Decimal mean = exactly 75.00.
+
+        Verifies that summing 100 floats converted via _jsonable and dividing
+        gives a result within 1e-10 of the true mean 75.00 — proving that even
+        hypothetical future Python-side averaging cannot drift far enough to flip
+        a > 75.0 comparison at the boundary.
+        """
+        import decimal
+
+        from sql_executor import _to_section
+
+        rows = (
+            [{"AgniveerNo": f"A{i}", "MarksObtained": decimal.Decimal("80.00")}
+             for i in range(50)]
+            + [{"AgniveerNo": f"B{i}", "MarksObtained": decimal.Decimal("70.00")}
+               for i in range(50)]
+        )
+        section = _to_section(rows)
+        float_scores = [r["marksObtained"] for r in section["records"]]
+
+        assert len(float_scores) == 100
+        assert all(isinstance(s, float) for s in float_scores)
+
+        avg = sum(float_scores) / len(float_scores)
+        assert abs(avg - 75.0) < 1e-10, f"avg={avg} has too much float error"
+
+    def test_tenth_value_average_near_boundary_is_stable(self):
+        """10 rows (5x90.10, 5x59.90) whose Decimal mean = exactly 75.00.
+
+        Uses the .10/.90 suffix values that have IEEE 754 representation error.
+        Verifies the error does not compound to flip the comparison.
+        """
+        import decimal
+
+        from sql_executor import _to_section
+
+        rows = (
+            [{"AgniveerNo": f"A{i}", "MarksObtained": decimal.Decimal("90.10")}
+             for i in range(5)]
+            + [{"AgniveerNo": f"B{i}", "MarksObtained": decimal.Decimal("59.90")}
+               for i in range(5)]
+        )
+        section = _to_section(rows)
+        float_scores = [r["marksObtained"] for r in section["records"]]
+
+        avg = sum(float_scores) / len(float_scores)
+        # True mean = (5*90.10 + 5*59.90) / 10 = 75.00
+        assert abs(avg - 75.0) < 1e-9, f"Mean {avg} drifted > 1e-9 from 75.0"
+
+    def test_aggregate_records_averagescore_is_display_only(self):
+        """result_combiner.aggregate_records sums per-row floats for display.
+        Verifies the output averageScore is close to the true value and confirms
+        this value is NOT compared against any hard grade boundary in the return
+        value — it is a display-only field keyed 'averageScore'.
+        """
+        import decimal
+
+        from result_combiner import aggregate_records
+        from sql_executor import _jsonable
+
+        records = (
+            [{"agniveerNo": f"A{i}", "platoon": "Alpha",
+              "bestTotal": _jsonable(decimal.Decimal("90.00"))}
+             for i in range(5)]
+            + [{"agniveerNo": f"B{i}", "platoon": "Bravo",
+                "bestTotal": _jsonable(decimal.Decimal("60.00"))}
+               for i in range(5)]
+        )
+        result = aggregate_records(records, group_by="platoon",
+                                   metric="average_score")
+
+        alpha = next((r for r in result if r["group"] == "Alpha"), None)
+        bravo = next((r for r in result if r["group"] == "Bravo"), None)
+
+        assert alpha is not None
+        assert abs(alpha["averageScore"] - 90.0) < 0.01
+        assert bravo is not None
+        assert abs(bravo["averageScore"] - 60.0) < 0.01
+
+        # The return dict contains only display fields — no grade boundary check.
+        for row in result:
+            assert set(row.keys()) <= {"group", "count", "averageScore"}

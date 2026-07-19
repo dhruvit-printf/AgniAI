@@ -1,3 +1,10 @@
+"""
+run_schema_audit.py
+===================
+Developer utility to audit the database schema columns against the code definitions.
+Detects any schema drift and generates a report.
+"""
+
 import os
 import sys
 import json

@@ -1,3 +1,11 @@
+"""
+run_batch_evaluation.py
+=======================
+Developer utility to run batch evaluations of the AgniAI query pipeline.
+Executes a pre-defined set of test questions (Q1–Q40) and saves the 
+compiled query execution results and performance metrics to batch_evaluation_output.txt.
+"""
+
 import os
 import sys
 import json

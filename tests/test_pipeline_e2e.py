@@ -84,7 +84,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         }
         mock_fetch_sql.return_value = ([section], [("Result", section)], None)
         mock_generate_report.return_value = {
-            "introMessage": "Report generated.",
+            "message": "Report generated.",
             "analysis": {
                 "summary": "Summary text",
                 "observations": ["Obs 1"],
@@ -146,7 +146,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         mock_fetch_sql.return_value = ([section], [("Performance", section)], None)
 
         mock_generate_report.return_value = {
-            "introMessage": "Cross-filter report generated.",
+            "message": "Cross-filter report generated.",
             "analysis": {
                 "summary": "Intersection completed",
                 "observations": [],
@@ -203,7 +203,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
             None,
         )
         mock_generate_report.return_value = {
-            "introMessage": "Comparison report.",
+            "message": "Comparison report.",
             "analysis": {"summary": "Diff summary", "observations": [], "insights": []},
             "conclusion": {"summary": "Comparison done"},
         }
@@ -285,7 +285,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
             None,
         )
         mock_generate_report.return_value = {
-            "introMessage": "Multi-op report.",
+            "message": "Multi-op report.",
             "analysis": {
                 "summary": "Consolidated sections",
                 "observations": [],
@@ -337,7 +337,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         }
         mock_fetch_sql.return_value = ([section], [("Result", section)], None)
         mock_generate_report.return_value = {
-            "introMessage": "Analytics report.",
+            "message": "Analytics report.",
             "analysis": {
                 "summary": "Grading summary",
                 "observations": [],

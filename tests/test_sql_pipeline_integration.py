@@ -69,7 +69,7 @@ class TestSqlIsTheOnlyBackend:
                 patch("admin_pipeline.generate_report") as mock_report,
             ):
                 mock_report.return_value = {
-                    "introMessage": "Here you go.",
+                    "message": "Here you go.",
                     "analysis": {
                         "summary": "Summary.",
                         "observations": [],
@@ -104,7 +104,7 @@ class TestSqlIsTheOnlyBackend:
                 patch("admin_pipeline.generate_report") as mock_report,
             ):
                 mock_report.return_value = {
-                    "introMessage": "Intro",
+                    "message": "Intro",
                     "analysis": {"summary": "Sum", "observations": [], "insights": []},
                     "conclusion": {"summary": "Conc"},
                 }

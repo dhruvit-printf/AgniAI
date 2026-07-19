@@ -99,7 +99,7 @@ class TestMetricsHealth(unittest.TestCase):
         mock_resolve_entities.return_value = {}
         mock_fetch_sql_results.return_value = ([{"records": []}], [("Result", {"records": []})], None)
         mock_gen_report.return_value = {
-            "introMessage": "Intro",
+            "message": "Intro",
             "analysis": {"summary": "Sum", "observations": [], "insights": []},
             "conclusion": {"summary": "Conc"},
         }
@@ -130,7 +130,7 @@ class TestMetricsHealth(unittest.TestCase):
         mock_resolve_entities.return_value = {}
         mock_fetch_sql_results.return_value = ([{"records": []}], [("Result", {"records": []})], None)
         mock_gen_report.return_value = {
-            "introMessage": "Intro",
+            "message": "Intro",
             "analysis": {"summary": "Sum", "observations": [], "insights": []},
             "conclusion": {"summary": "Conc"},
         }

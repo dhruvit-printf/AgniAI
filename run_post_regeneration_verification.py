@@ -1,3 +1,10 @@
+"""
+run_post_regeneration_verification.py
+=====================================
+Developer utility to verify compile and execution behavior of the database query 
+pipeline after a schema regeneration.
+"""
+
 import os
 import sys
 import json

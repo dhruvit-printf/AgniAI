@@ -293,6 +293,7 @@ def _build_data_grounded_report(
 
     return {
         "message": message,
+        "summary": analysis_summary,
         "analysis": {
             "summary": analysis_summary,
             "observations": observations,
@@ -459,6 +460,7 @@ def get_fallback_report(
 
     return {
         "message": message,
+        "summary": summary,
         "analysis": {
             "summary": summary,
             "observations": obs,
@@ -522,6 +524,7 @@ def generate_report(
 
         return {
             "message": no_match_message,
+            "summary": analysis_summary,
             "analysis": {
                 "summary": analysis_summary,
                 "insights": fallback.get("analysis", {}).get("insights", []),
@@ -628,6 +631,7 @@ def generate_report(
         analysis_str = narratives.get("analysis") or ""
         prediction_str = narratives.get("prediction") or ""
         conclusion_str = narratives.get("conclusion") or ""
+        summary_str = narratives.get("summary") or ""
     except Exception as exc:
         logger.warning("report_generator: narrative_engine failed: %s", exc)
         category = intent.get("category") or "Agniveer"
@@ -640,6 +644,7 @@ def generate_report(
         conclusion_str = (
             (conclusion or {}).get("summary") or (conclusion or {}).get("message") or ""
         )
+        summary_str = (analysis or {}).get("summary", "")
 
     intro_needs_fallback = _has_negative_copy(message) or _has_negative_copy(
         analysis_str
@@ -654,6 +659,7 @@ def generate_report(
             prediction_str = grounded.get("prediction", {}).get(
                 "projection", prediction_str
             )
+            summary_str = grounded.get("summary", summary_str)
         if conclusion_needs_fallback:
             conclusion_str = grounded.get("conclusion", {}).get(
                 "summary", conclusion_str
@@ -661,6 +667,7 @@ def generate_report(
 
     return {
         "message": message,
+        "summary": summary_str,
         "analysis": {
             "summary": analysis_str,
             "insights": [],

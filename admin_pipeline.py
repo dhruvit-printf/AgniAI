@@ -833,8 +833,8 @@ def execute_admin_query(
                 _, reply_text = _build_greeting_response(body, session_id)
                 qtype = "greeting"
             else:
-                reply_text = (
-                    "I can help with administrative data, reports, and analysis."
+                _, reply_text = _build_conversational_response(
+                    message, body, session_id, trace_id
                 )
                 qtype = "conversational"
             intent_duration = time.time() - intent_start
@@ -1402,7 +1402,7 @@ def execute_admin_query(
                 # result set is empty, replace that with a grounded no-data report
                 # so the user still gets an explanation instead of a silent payload.
                 if (
-                    not (report.get("introMessage") or "").strip()
+                    not (report.get("message") or "").strip()
                     and not report.get("analysis")
                     and not report.get("prediction")
                     and not report.get("conclusion")
@@ -1751,6 +1751,7 @@ def execute_admin_query(
                     overall_confidence=query_plan.confidence,
                     partial_failure=partial_failure,
                     failed_sections=failed_sections,
+                    summary=report.get("summary"),
                 )
                 response_assembly_duration = time.time() - response_assembly_start
                 logger.info(

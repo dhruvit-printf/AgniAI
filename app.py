@@ -1,9 +1,8 @@
 """Flask REST API for AgniAI.
 
 PORT CONFIGURATION:
-  Python / Flask listens on port 5000  (this file — app.run port=5000)
-  .NET AiCommand API runs on port 7257 (set via DOTNET_API_BASE_URL in .env)
-  These MUST be different ports. Never point DOTNET_API_BASE_URL at 5000.
+  Python / Flask listens on port 5000 (this file — app.run port=5000)
+  Legacy .NET backend integration is decommissioned, database operations are run locally.
 """
 
 from __future__ import annotations

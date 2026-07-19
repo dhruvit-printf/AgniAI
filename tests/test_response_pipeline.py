@@ -227,6 +227,19 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertEqual(resp["suggestedQuestions"], ["Q1"])
         self.assertEqual(resp["metadata"]["operationCount"], 1)
 
+    def test_build_response_with_custom_summary(self):
+        resp = build_response(
+            message="Intro",
+            formatted_data={},
+            metadata={},
+            session_id="session-abc",
+            analysis="Analysis details.",
+            prediction="Prediction details.",
+            conclusion="Conclusion details.",
+            summary="Custom short summary.",
+        )
+        self.assertEqual(resp["summary"], "Custom short summary.")
+
     def test_build_response_uses_real_section_label_and_message(self):
         from message_engine import generate_message
 

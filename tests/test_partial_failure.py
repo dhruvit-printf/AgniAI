@@ -65,7 +65,7 @@ class TestPartialFailure(unittest.TestCase):
             None,
         )
         mock_generate_report.return_value = {
-            "introMessage": "Report.",
+            "message": "Report.",
             "analysis": {"summary": "Analysis", "observations": [], "insights": []},
             "conclusion": {"summary": "Conclusion"},
         }

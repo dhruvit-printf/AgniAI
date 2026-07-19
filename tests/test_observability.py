@@ -13,7 +13,7 @@ class TestObservability(unittest.TestCase):
         section = {"success": True, "records": [], "data": [], "count": 0}
         mock_fetch_sql.return_value = ([section], [("Result", section)], None)
         mock_gen_report.return_value = {
-            "introMessage": "Intro",
+            "message": "Intro",
             "analysis": {"summary": "Sum", "observations": [], "insights": []},
             "conclusion": {"summary": "Conc"},
         }

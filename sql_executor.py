@@ -45,6 +45,8 @@ SAFETY MODEL (do not weaken any of these):
 
 from __future__ import annotations
 
+import datetime
+import decimal
 import logging
 import os
 import re
@@ -68,6 +70,43 @@ DENIED_COLUMNS = {
     "logintoken.refreshtoken",
 }
 DENIED_TABLES = {"logintoken", "defaultlog"}
+
+
+def _jsonable(v: Any) -> Any:
+    """Normalize a pyodbc column value to a JSON-safe Python type.
+
+    pyodbc returns native Python types for SQL Server columns that do NOT have
+    a direct JSON representation:
+
+    * ``datetime2`` / ``date`` / ``datetime`` columns → ``datetime.datetime`` or
+      ``datetime.date`` objects, which Flask's DefaultJSONProvider serializes via
+      ``http_date()`` (RFC 822 e.g. ``"Mon, 14 May 2001 00:00:00 GMT"``).  .NET's
+      ``System.Text.Json`` default is ISO 8601 (``"2001-05-14"`` /
+      ``"2001-05-14T00:00:00"``), which is what the frontend and widget_engine
+      expect.
+
+    * ``decimal(18,2)`` columns → ``decimal.Decimal`` objects, serialized by Flask
+      as a JSON **string** (``"87.50"``).  .NET emits these as JSON **numbers**
+      (``87.5``), which is what all downstream numeric consumers
+      (``utils.safe_float``, ``analysis_engine``, ``widget_engine`` sorting) expect.
+      ``Decimal`` values also fail the ``isinstance(v, (int, float))`` check in
+      ``utils.numeric_distribution_breakdown``, silently dropping grading-summary
+      count fields.
+
+    This function is called per-value in ``_camel_case_row`` so every row that
+    exits ``run_readonly`` → ``_to_section`` is already JSON-safe.
+    """
+    if isinstance(v, datetime.datetime):
+        # datetime first — it is a subclass of date, so this branch must come first.
+        return v.isoformat()
+    if isinstance(v, datetime.date):
+        return v.isoformat()  # e.g. "2001-05-14"
+    if isinstance(v, decimal.Decimal):
+        # float conversion is safe for the precision used by DB_Agni schema
+        # (decimal(18,2) — at most 2 decimal places). Round to 10 dp to suppress
+        # IEEE 754 representation noise without losing meaningful precision.
+        return round(float(v), 10)
+    return v
 
 
 class CapabilityGapError(Exception):
@@ -231,7 +270,7 @@ def _to_camel_case(name: str) -> str:
 
 
 def _camel_case_row(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {_to_camel_case(k): v for k, v in row.items()}
+    return {_to_camel_case(k): _jsonable(v) for k, v in row.items()}
 
 
 def _to_section(
