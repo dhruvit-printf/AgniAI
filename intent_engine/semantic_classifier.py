@@ -198,17 +198,19 @@ def _build_catalog() -> None:
     labels = [(cat, op) for cat, op, _ in _CATALOG]
     try:
         vecs = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
-        with _lock:
-            _catalog_embeddings = vecs
-            _catalog_labels = labels
+        _catalog_embeddings = vecs
+        _catalog_labels = labels
         logger.info("semantic_classifier: built catalog with %d entries", len(texts))
     except Exception as exc:
         logger.error("semantic_classifier: catalog build failed: %s", exc)
 
 
 def _ensure_catalog() -> bool:
-    global _catalog_embeddings
-    if _catalog_embeddings is None:
+    if _catalog_embeddings is not None:
+        return True
+    with _lock:
+        if _catalog_embeddings is not None:
+            return True
         _build_catalog()
     return _catalog_embeddings is not None
 
@@ -477,5 +479,5 @@ def classify_admin_intent_semantic(
 
 
 # Trigger catalog build in background when this module is first imported
-_build_thread = threading.Thread(target=_build_catalog, daemon=True)
+_build_thread = threading.Thread(target=_ensure_catalog, daemon=True)
 _build_thread.start()
