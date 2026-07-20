@@ -236,7 +236,8 @@ def execute_performance_query(
                     require_best_attempt=False, include_attempt_window=True
                 )
                 delta_filter = "Delta > 0" if operation == "Improvement" else "Delta < 0"
-                order_column = "Improvement" if operation == "Improvement" else "Drop"
+                order_column = "[Improvement]" if operation == "Improvement" else "[Drop]"
+
                 sql = f"""
                 WITH FilteredAttempts AS (
                     {source_sql}
@@ -278,7 +279,8 @@ def execute_performance_query(
                     CurrentTotal,
                     PreviousTotal,
                     CASE WHEN Delta > 0 THEN Delta ELSE 0 END AS Improvement,
-                    CASE WHEN Delta < 0 THEN -Delta ELSE 0 END AS Drop
+                    CASE WHEN Delta < 0 THEN -Delta ELSE 0 END AS [Drop]
+
                 FROM Compared
                 WHERE {delta_filter}
                 ORDER BY {order_column} DESC, AgniveerNo ASC
@@ -289,7 +291,8 @@ def execute_performance_query(
                     require_best_attempt=False
                 )
                 delta_filter = "Delta > 0" if operation == "Improvement" else "Delta < 0"
-                order_column = "Improvement" if operation == "Improvement" else "Drop"
+                order_column = "[Improvement]" if operation == "Improvement" else "[Drop]"
+
                 sql = f"""
                 WITH FilteredAttempts AS (
                     {source_sql}
@@ -340,7 +343,8 @@ def execute_performance_query(
                     CurrentTotal,
                     PreviousTotal,
                     CASE WHEN Delta > 0 THEN Delta ELSE 0 END AS Improvement,
-                    CASE WHEN Delta < 0 THEN -Delta ELSE 0 END AS Drop
+                    CASE WHEN Delta < 0 THEN -Delta ELSE 0 END AS [Drop]
+
                 FROM Compared
                 WHERE {delta_filter}
                 ORDER BY {order_column} DESC, AgniveerNo ASC

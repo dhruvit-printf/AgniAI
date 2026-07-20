@@ -561,6 +561,26 @@ class TestEntityExtractionEdgeCases:
         e = _entities("show physically fit agniveers by fitness score")
         assert e.get("bmiCategory") == "Normal"
 
+    def test_unfit_with_bmi_context(self):
+        """'unfit' with bmi/weight context maps to combined Overweight+Obese"""
+        e = _entities("show unfit agniveers by weight")
+        assert e.get("bmiCategory") == "Unfit"
+
+    def test_unfit_no_bmi_without_context(self):
+        """'unfit' alone must not extract bmiCategory if no bmi/weight context —
+        'unfit for duty' is a duty-status concept, not a BMI classification."""
+        e = _entities("unfit for duty check")
+        assert e.get("bmiCategory") is None
+
+    def test_not_fit_extracts_unfit_bmi(self):
+        e = _entities("who's not fit in the company")
+        assert e.get("bmiCategory") == "Unfit"
+
+    def test_unfit_classifies_as_bmi_operation(self):
+        r = _classify("show unfit agniveers by weight")
+        assert r["category"] == "Medical"
+        assert r["operation"] == "BMI"
+
 
 class TestSessionIsolation:
 

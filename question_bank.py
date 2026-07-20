@@ -7,6 +7,15 @@ expanded cross-filter / multi-independent / comparison suite.
 
 QUESTION_BANK["by_category"][CATEGORY][SUBCATEGORY][QUERY_TYPE] -> list[str]
 QUESTION_BANK["mixed"][QUERY_TYPE] -> list[str]  (category-spanning examples)
+
+NOTE: "cross_filter" questions are intentionally kept to only those where
+two conditions apply to the SAME subject and are evaluated jointly (a
+true intersection filter), as opposed to "multi_independent" questions
+which ask for two separate, unrelated result sets. Each cross_filter
+question is phrased with a contrastive/consequential connector ("but
+still", "yet", "despite", "and still") rather than a bare "and", so the
+second condition clearly qualifies the first on the same entity instead
+of reading as a second, unrelated fact loosely appended to the first.
 """
 
 QUESTION_BANK = {
@@ -68,65 +77,38 @@ QUESTION_BANK = {
             "Pending verifications of football players in Arora vs Jaswant company.",
         ],
         "cross_filter": [
-            "Which Agniveers whose police verification is pending are currently on "
-            "leave?",
-            "Which Agniveers who scored Excellent in BPET have completed police "
-            "verification?",
-            "Show Agniveers who failed Firing and still have issued equipment.",
-            "Which Agniveers who are absent today have pending police verification?",
-            "Find Agniveers who are medically unfit and currently on leave.",
-            "Which BPET toppers are still holding issued equipment?",
-            "Show Agniveers who completed police verification but haven't returned "
-            "their equipment.",
-            "Which Agniveers with rejected verification attended today's training?",
-            "Find Agniveers who crossed the leave threshold and are medically unfit.",
-            "Which Excellent performers are currently on leave?",
-            "Show Agniveers who have Normal BMI and completed police verification.",
-            "Which Agniveers who are present today still have issued equipment?",
-            "Find BPET failures whose verification is completed.",
-            "Which Agniveers with pending verification are holding Combat Dress?",
-            "Show Agniveers who are overweight and scored Excellent in BPET.",
-            "Which Agniveers who attended today's training still have pending "
-            "verification?",
-            "Find Agniveers who returned equipment and completed police verification.",
-            "Which Agniveers who are on leave still have issued equipment?",
-            "Show Excellent performers who are absent today.",
-            "Which Agniveers with rejected verification are medically fit?",
-            "Find Agniveers who failed Drill and are currently on leave.",
-            "Which verified Agniveers are still holding issued equipment?",
-            "Show Agniveers who are underweight and completed police verification.",
-            "Which BPET toppers are absent today?",
-            "Find Agniveers who haven't returned equipment and have pending "
+            "Show Agniveers who failed Firing but still have issued equipment.",
+            "Find Agniveers who are medically unfit yet still marked on leave.",
+            "Find Agniveers who crossed the leave threshold and are still "
+            "medically unfit.",
+            "Show Agniveers who have Normal BMI but still have pending police "
             "verification.",
-            "Which Agniveers diagnosed with fever are currently on leave?",
-            "Show Agniveers who completed verification and attended today's parade.",
-            "Which Excellent performers are medically unfit?",
-            "Find Agniveers who failed Firing and have pending verification.",
-            "Which Agniveers who are present today completed police verification?",
-            "Show Agniveers who are currently absent and still holding equipment.",
-            "Which Agniveers whose verification is rejected have returned their "
-            "equipment?",
-            "Find BPET toppers who are medically fit.",
-            "Which Agniveers on leave have completed police verification?",
-            "Show Agniveers who are hospitalized and have pending verification.",
-            "Which Excellent performers haven't returned their issued kit?",
-            "Find Agniveers who are overweight and currently on leave.",
-            "Which Agniveers with completed verification are present today?",
-            "Show BPET failures who still have issued equipment.",
-            "Which Agniveers who attended training today have Normal BMI?",
-            "Find Agniveers who are medically unfit and holding issued equipment.",
-            "Which Agniveers with pending verification are absent today?",
-            "Show Excellent performers who completed police verification.",
-            "Which Agniveers who failed BPET are medically unfit?",
-            "Find Agniveers who returned equipment and are currently present.",
-            "Which Agniveers whose verification is completed are on leave?",
-            "Show Agniveers who scored Good in Firing and completed police "
+            "Show Agniveers who are overweight despite scoring Excellent in BPET.",
+            "Find Agniveers who returned equipment but still have pending police "
             "verification.",
-            "Which Agniveers with rejected verification still have issued equipment?",
-            "Find Agniveers who attended today's training and haven't returned "
+            "Find Agniveers who failed Drill and are, on top of that, currently "
+            "on leave.",
+            "Show Agniveers who are underweight despite completing police "
+            "verification.",
+            "Find Agniveers who haven't returned equipment and still have "
+            "verification pending too.",
+            "Show Agniveers who completed verification but still missed today's "
+            "parade.",
+            "Find Agniveers who failed Firing and still have verification "
+            "pending.",
+            "Show Agniveers who are currently absent yet still holding "
             "equipment.",
-            "Which Agniveers who are medically fit still have pending police "
-            "verification?",
+            "Show Agniveers who are hospitalized and still awaiting police "
+            "verification.",
+            "Find Agniveers who are overweight yet still currently on leave.",
+            "Find Agniveers who are medically unfit but still holding issued "
+            "equipment.",
+            "Find Agniveers who returned equipment and are still marked "
+            "present today.",
+            "Show Agniveers who scored Good in Firing but still have police "
+            "verification pending.",
+            "Find Agniveers who attended today's training yet still haven't "
+            "returned equipment.",
         ],
         "multi_independent": [
             "Show top performers in BPET and also who plays volleyball.",

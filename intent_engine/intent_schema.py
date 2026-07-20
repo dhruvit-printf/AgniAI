@@ -256,6 +256,7 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "weight",
         "fitness",
         "fit",
+        "unfit",
         "disease",
         "diseases",
         "diagnosis",
@@ -1024,12 +1025,14 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "who's underweight",
             "who's fit",
             "who's not fit",
+            "who's unfit",
             "weight status",
             "is he healthy weight wise",
             "who's overweight",
             "who's underweight",
             "who's fit",
             "who's not fit",
+            "who's unfit",
             "weight status",
             "is he healthy weight wise",
             "bmi",
@@ -1045,6 +1048,11 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "most fit",
             "physically fit",
             "fit agniveer",
+            "unfit",
+            "who is unfit",
+            "unfit agniveer",
+            "physically unfit",
+            "not fit",
             "body weight status",
             "weight category",
             "bmi status",
@@ -1871,8 +1879,14 @@ BMI_CATEGORIES: Dict[str, str] = {
     "normal": "Normal",
     "overweight": "Overweight",
     "obese": "Obese",
-    # "fit" family kept here for context-guarded lookup in entity_extractor.py;
-    # they only activate when the query also contains "bmi", "weight", or "fitness".
+    # "fit"/"unfit" family kept here for context-guarded lookup in
+    # entity_extractor.py; they only activate when the query also contains
+    # "bmi", "weight", or "fitness". "unfit" == Overweight or Obese combined
+    # (a contiguous BMI >= 25 range) — checked first so "not fit" isn't
+    # shadowed by the bare \bfit\b match it also contains.
+    "unfit": "Unfit",
+    "not fit": "Unfit",
+    "physically unfit": "Unfit",
     "fittest": "Normal",
     "fit": "Normal",
     "are fit": "Normal",

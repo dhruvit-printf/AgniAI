@@ -370,6 +370,30 @@ class TestExecuteSqlQuery:
             assert "BmiCategory" in sql
             assert "BmiValue >= 25.0 AND BmiValue < 30.0" in sql
 
+    def test_medical_bmi_unfit_covers_overweight_and_obese(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+            patch("sql_executor.metrics_hook"),
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.return_value = ([{"AgniveerNo": "A1", "FullName": "X"}], None)
+            data, err = execute_sql_query(
+                question="who is unfit",
+                intent={
+                    "category": "Medical",
+                    "operation": "BMI",
+                    "bmiCategory": "Unfit",
+                },
+            )
+            assert err is None
+            assert data["success"] is True
+            sql = mock_run.call_args[0][0]
+            assert "WHERE BmiValue >= 25.0" in sql
+            # Unfit must not carry the Overweight-only upper bound — it's the
+            # union of Overweight and Obese, not Overweight alone.
+            assert "BmiValue >= 25.0 AND BmiValue < 30.0" not in sql
+
     def test_medical_blood_group_detail_uses_person_and_scope(self):
         with (
             patch("sql_executor.run_readonly") as mock_run,
@@ -576,15 +600,26 @@ class TestExecuteSqlQuery:
             assert "ScheduleDate AS DATE) =" not in sql
             assert params == [5]
 
-    def test_schedule_without_any_scope_errors(self):
-        data, err = execute_sql_query(
-            question="show me the schedule",
-            intent={"category": "Schedule", "operation": "bytoday", "date": "2026-07-20"},
-        )
-        assert data is None
-        assert "Please specify a company, platoon, or agniveer" in err
+    def test_schedule_without_any_scope_queries_all_companies(self):
+        # No company/platoon/agniveer at all -> no lookup, falls back to an
+        # unscoped (all-companies) schedule query still bound by the date.
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.return_value = ([{"ScheduleDate": "2026-07-20"}], None)
+            data, err = execute_sql_query(
+                question="show me the schedule",
+                intent={"category": "Schedule", "operation": "bytoday", "date": "2026-07-20"},
+            )
+            assert err is None
+            assert data["success"] is True
+            sql, params = mock_run.call_args[0]
+            assert "s.CompanyId = ?" not in sql
+            assert params == ["2026-07-20"]
 
-    def test_schedule_unresolvable_entity_errors(self):
+    def test_schedule_unresolvable_entity_returns_empty_section(self):
         with (
             patch("sql_executor.run_readonly") as mock_run,
             patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
@@ -595,8 +630,12 @@ class TestExecuteSqlQuery:
                 question="schedule for nonexistent company",
                 intent={"category": "Schedule", "operation": "bycompany", "company_name": "Nonexistent"},
             )
-            assert data is None
-            assert "Could not find a company" in err
+            assert err is None
+            assert data["success"] is True
+            assert data["records"] == []
+            # Only the company-lookup call happened — no second query was run
+            # once the name failed to resolve to a company.
+            assert mock_run.call_count == 1
 
     @pytest.mark.parametrize(
         "intent, expected_fragment",

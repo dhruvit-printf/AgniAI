@@ -1325,10 +1325,9 @@ def execute_admin_query(
                     if isinstance(s, dict) and s.get("sql")
                 ]
                 if sql_queries:
-                    if len(sql_queries) == 1:
-                        response_dotnet_payload[0]["sqlQuery"] = sql_queries[0]
-                    else:
-                        response_dotnet_payload[0]["sqlQueries"] = sql_queries
+                    response_dotnet_payload[0]["sqlQueries"] = sql_queries
+                    response_dotnet_payload[0]["sqlQuery"] = "\n\n-- Leg / Sub-query --\n".join(sql_queries)
+
 
                 for section in sql_raw:
                     ensure_agniveer_no_in_data(section)

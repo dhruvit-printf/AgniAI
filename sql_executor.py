@@ -343,6 +343,9 @@ def _build_medical_bmi_sql(
         category_filter = "WHERE BmiValue >= 25.0 AND BmiValue < 30.0"
     elif category == "obese":
         category_filter = "WHERE BmiValue >= 30.0"
+    elif category == "unfit":
+        # Unfit == Overweight or Obese combined — a contiguous BMI >= 25 range.
+        category_filter = "WHERE BmiValue >= 25.0"
 
     if category:
         final_select = (
@@ -919,7 +922,8 @@ FROM AgniveerMaster m
 INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
   AND pv.Status = 'Sent'
-  AND (pv.ReceivedDate IS NULL AND pv.ReturnDate IS NULL)
+  AND pv.ReceivedDate IS NULL
+
 ORDER BY pv.SentDate ASC
 """
         elif _v_status in ("verified", "completed"):
@@ -1109,10 +1113,170 @@ ORDER BY TotalLeaveDays DESC
             for row in rows or []:
                 row["AgniveerNo"] = agniveer_row["AgniveerNo"]
                 row["FullName"] = agniveer_row["FullName"]
-            res = _to_section(rows or [], intent, sql=sql)
-            return res, None
+    # ── Medical Fast-Path ──────────────────────────────────────────────────
+    if intent.get("category") == "Medical":
+        _med_op = intent.get("operation") or intent.get("subcategory")
+        _m_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        _m_diagnosis = intent.get("diagnose") or intent.get("diagnosis")
+        _m_hospital = intent.get("hospital_name") or intent.get("hospitalName")
+        _m_batch_id = intent.get("batch_id") or intent.get("batchId")
+        _limit = intent.get("number") or 500
+
+        if _med_op in ("BMI", "BMIAnalysis"):
+            _sql = f"""
+WITH LatestMedical AS (
+    SELECT mr.AgniveerId, mr.Height, mr.Weight,
+           ROW_NUMBER() OVER (PARTITION BY mr.AgniveerId ORDER BY mr.VisitDate DESC, mr.Id DESC) AS rn
+    FROM MedicalRecordMaster mr
+    WHERE mr.Height IS NOT NULL AND mr.Weight IS NOT NULL
+),
+Vitals AS (
+    SELECT a.Id AS AgniveerId, a.AgniveerNo, a.FullName, a.BatchId, a.Class,
+           COALESCE(lm.Height, a.Height) AS EffHeight,
+           COALESCE(lm.Weight, a.Weight) AS EffWeight
+    FROM AgniveerMaster a
+    LEFT JOIN LatestMedical lm ON lm.AgniveerId = a.Id AND lm.rn = 1
+    WHERE ISNULL(a.IsDisqualified,0) = 0
+),
+Scored AS (
+    SELECT AgniveerNo, FullName, EffHeight AS Height, EffWeight AS Weight,
+           CASE WHEN EffHeight IS NULL OR EffWeight IS NULL OR EffHeight <= 0 THEN NULL
+                ELSE CAST(EffWeight / POWER(EffHeight / 100.0, 2) AS DECIMAL(10, 2))
+           END AS BmiValue
+    FROM Vitals
+)
+SELECT TOP ({_limit}) AgniveerNo, FullName, Height, Weight, BmiValue,
+       CASE WHEN BmiValue IS NULL THEN NULL
+            WHEN BmiValue < 18.5 THEN 'Underweight'
+            WHEN BmiValue < 25.0 THEN 'Normal'
+            WHEN BmiValue < 30.0 THEN 'Overweight'
+            ELSE 'Obese' END AS BmiCategory
+FROM Scored
+WHERE BmiValue IS NOT NULL
+ORDER BY BmiValue DESC
+"""
+            _rows, _run_err = run_readonly(_sql, [])
+            if not _run_err:
+                return _to_section(_rows or [], intent, sql=_sql), None
+
+        elif _med_op in ("Disease", "DiseaseStatistics", "Diagnosed", "Individual", "IndividualMedical") or _m_diagnosis or _m_agniveer_no:
+            clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
+            params = []
+            if _m_agniveer_no:
+                clauses.append("LOWER(m.AgniveerNo) = LOWER(?)")
+                params.append(str(_m_agniveer_no))
+            if _m_diagnosis:
+                clauses.append("LOWER(mr.Diagnosis) LIKE '%' + LOWER(?) + '%'")
+                params.append(str(_m_diagnosis))
+            if _m_hospital:
+                clauses.append("LOWER(mr.HospitalNameLocation) LIKE '%' + LOWER(?) + '%'")
+                params.append(str(_m_hospital))
+            if _m_batch_id:
+                clauses.append("m.BatchId = ?")
+                params.append(int(_m_batch_id))
+
+            where_str = "WHERE " + " AND ".join(clauses)
+            _sql = f"""
+SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, mr.VisitDate, mr.Diagnosis, mr.HospitalNameLocation,
+       mr.Height, mr.Weight, mr.EyeSight, mr.BloodPressure, mr.HeartRate, mr.Status, mr.Prescriptions, mr.Remarks
+FROM MedicalRecordMaster mr
+INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
+{where_str}
+ORDER BY mr.VisitDate DESC, m.AgniveerNo ASC
+"""
+            _rows, _run_err = run_readonly(_sql, params)
+            if not _run_err:
+                return _to_section(_rows or [], intent, sql=_sql), None
+
+    # ── Equipment Fast-Path ────────────────────────────────────────────────
+    if intent.get("category") == "Equipment":
+        _eq_type = intent.get("equipment_type") or intent.get("item_name") or intent.get("equipmentType")
+        _eq_op = intent.get("operation") or intent.get("subcategory")
+        _eq_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        _eq_batch_id = intent.get("batch_id") or intent.get("batchId")
+        _eq_platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+        _limit = intent.get("number") or 500
+
+        clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
+        params = []
+
+        if _eq_op == "Issued" or _eq_type in ("Issued", "Holding"):
+            clauses.append("eq.ReturnDateTime IS NULL")
+        elif _eq_op == "Returned" or _eq_type == "Returned":
+            clauses.append("eq.ReturnDateTime IS NOT NULL")
+
+        if _eq_agniveer_no:
+            clauses.append("LOWER(m.AgniveerNo) = LOWER(?)")
+            params.append(str(_eq_agniveer_no))
+        if _eq_type and _eq_type not in ("Issued", "Returned", "Holding"):
+            clauses.append("LOWER(eq.Type) LIKE '%' + LOWER(?) + '%'")
+            params.append(str(_eq_type))
+        if _eq_batch_id:
+            clauses.append("m.BatchId = ?")
+            params.append(int(_eq_batch_id))
+        if _eq_platoon_id:
+            clauses.append("m.PlatoonId = ?")
+            params.append(int(_eq_platoon_id))
+
+        where_str = "WHERE " + " AND ".join(clauses)
+        _sql = f"""
+SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, eq.Type, eq.GivenCondition, eq.GivenDateTime, eq.ReturnCondition, eq.ReturnDateTime, eq.Remarks
+FROM AgniveerEquipment eq
+INNER JOIN AgniveerMaster m ON m.Id = eq.AgniveerId
+{where_str}
+ORDER BY eq.GivenDateTime DESC, m.AgniveerNo ASC
+"""
+        _rows, _run_err = run_readonly(_sql, params)
+        if not _run_err:
+            return _to_section(_rows or [], intent, sql=_sql), None
+
+    # ── PersonalDetails & Skills Fast-Path ─────────────────────────────────
+    _cat_lower = str(intent.get("category") or "").lower()
+    if _cat_lower in ("personaldetails", "personaldetail", "personal_details", "skills", "skill") or (not intent.get("category") and (intent.get("agniveer_no") or intent.get("agniveerNo"))):
+
+        _p_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        _p_class = intent.get("class") or intent.get("class_")
+        _p_state = intent.get("state") or intent.get("district")
+        _p_sport = intent.get("sport")
+        _p_blood_group = intent.get("blood_group") or intent.get("bloodGroup")
+        _p_batch_id = intent.get("batch_id") or intent.get("batchId")
+        _limit = intent.get("number") or 500
+
+        clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
+        params = []
+
+        if _p_agniveer_no:
+            clauses.append("LOWER(m.AgniveerNo) = LOWER(?)")
+            params.append(str(_p_agniveer_no))
+        if _p_class:
+            clauses.append("LOWER(m.Class) LIKE '%' + LOWER(?) + '%'")
+            params.append(str(_p_class))
+        if _p_state:
+            clauses.append("(LOWER(m.State) LIKE '%' + LOWER(?) + '%' OR LOWER(m.District) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Address) LIKE '%' + LOWER(?) + '%')")
+            params.extend([str(_p_state)] * 3)
+        if _p_sport:
+            clauses.append("(LOWER(m.Sports) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Skill) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Hobby) LIKE '%' + LOWER(?) + '%')")
+            params.extend([str(_p_sport)] * 3)
+        if _p_blood_group:
+            clauses.append("LOWER(m.BloodGroup) = LOWER(?)")
+            params.append(str(_p_blood_group))
+        if _p_batch_id:
+            clauses.append("m.BatchId = ?")
+            params.append(int(_p_batch_id))
+
+        where_str = "WHERE " + " AND ".join(clauses)
+        _sql = f"""
+SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, m.Class, m.State, m.District, m.Qualification, m.Sports, m.Skill, m.Hobby, m.BloodGroup, m.DateOfBirth, m.Height, m.Weight, m.MobileNo, m.Email, m.Address
+FROM AgniveerMaster m
+{where_str}
+ORDER BY m.AgniveerNo ASC
+"""
+        _rows, _run_err = run_readonly(_sql, params)
+        if not _run_err:
+            return _to_section(_rows or [], intent, sql=_sql), None
 
     if intent.get("category") == "Schedule":
+
         _s_company_id = intent.get("company_id") or intent.get("companyId")
         _s_company_name = (
             intent.get("company_name")

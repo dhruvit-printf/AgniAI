@@ -85,6 +85,35 @@ class TestNameMatches:
     def test_case_insensitive(self):
         assert _name_matches("ALPHA", "alpha") is True
 
+    def test_typo_two_substitutions_on_longer_name(self):
+        """Names > 4 chars tolerate 2 edits (here: two substitutions)."""
+        assert _name_matches("Charlie", "charlyy") is True
+
+    def test_no_fuzzy_beyond_distance_budget(self):
+        # 4-char words only tolerate 1 edit — "alfa" is 2 edits from "alpha"
+        # (this specific case is instead caught upstream by query_normalizer's
+        # FUZZY_VOCAB alias "alfa" -> "Alpha Unit", not by this function).
+        assert _name_matches("Alpha", "alfa") is False
+
+    def test_typo_extra_letter(self):
+        assert _name_matches("Bravo", "bravoo") is True
+
+    def test_typo_single_substitution(self):
+        assert _name_matches("Charlie", "charlle") is True
+
+    def test_no_match_for_unrelated_real_names(self):
+        assert _name_matches("Bravo", "charlie") is False
+
+    def test_no_fuzzy_match_for_short_names(self):
+        # Both sides must be >= 4 chars — short names/IDs must never
+        # fuzzy-collide with each other.
+        assert _name_matches("Pl3", "pl4") is False
+
+    def test_no_fuzzy_match_for_domain_keyword(self):
+        # "compare" is a recognized application keyword, not a mistyped
+        # company name, even though it's edit-distance 2 from "Company".
+        assert _name_matches("Company", "compare") is False
+
 
 class TestResolveEntitiesFromQuery:
     def test_returns_dict_with_required_keys(self):
@@ -150,3 +179,14 @@ class TestResolveEntitiesFromQuery:
             r3 = resolve_entities_from_query("Compare Bravo and Alpha Company")
             assert r3["companyId"] == 10
             assert r3["companyName"] == "Alpha Company"
+
+            # 4. Misspelled company name (typo tolerance) — no exact/prefix
+            # hit exists for "Alfa", so the authoritative scan must fall
+            # back to fuzzy matching against the real "Alpha Company".
+            r4 = resolve_entities_from_query("schedule for alfa company")
+            assert r4["companyId"] == 10
+
+            # 5. "Compare" must never be mistaken for a typo of "Company" —
+            # it's a recognized application keyword, not a name.
+            r5 = resolve_entities_from_query("compare attendance this week")
+            assert r5["companyId"] is None

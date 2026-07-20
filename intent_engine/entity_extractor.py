@@ -366,7 +366,7 @@ def _has_threshold_filter_signal(query_lower: str) -> bool:
     return any(signal in query_lower for signal in _THRESHOLD_FILTER_SIGNALS)
 
 
-_BMI_AMBIGUOUS_TERMS = frozenset({"fit", "normal"})
+_BMI_AMBIGUOUS_TERMS = frozenset({"fit", "unfit", "normal"})
 _BMI_CONTEXT_WORDS = frozenset(
     {"bmi", "weight", "fitness", "medical", "health", "fat", "thin"}
 )

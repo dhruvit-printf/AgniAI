@@ -310,6 +310,47 @@ def _normalise_name(name: str) -> str:
     return re.sub(r"[\s\-_./]+", "", (name or "").lower())
 
 
+def _max_typo_distance(word_len: int) -> int:
+    """Slightly more permissive than query_normalizer's general vocabulary
+    corrector (1 edit for words <=5 chars): company/platoon names are matched
+    against a small closed roster fetched from the .NET directory, not the
+    whole English vocabulary, so a second edit on longer names is safe from
+    false-positive collisions between unrelated real names."""
+    return 1 if word_len <= 4 else 2
+
+
+def _fuzzy_token_match(word: str, tokens: "Any") -> bool:
+    """True if `word` is a plausible misspelling of one of `tokens`
+    (e.g. "alfa"/"bravoo" for "Alpha"/"Bravo"). Guarded so ordinary English
+    query words never get mistaken for a mistyped name:
+      - both sides must be >= 4 chars (numeric IDs like platoon "101" are
+        excluded, so distinct short numbers never fuzzy-collide)
+      - the word must not already be a recognized application keyword
+        (e.g. "compare", "schedule") — those are real words, not typos.
+    """
+    word = (word or "").lower()
+    if len(word) < 4 or word in _NOISE_WORDS:
+        return False
+    try:
+        from intent_engine.intent_classifier import _damerau_levenshtein
+        from intent_engine.vocabulary_manager import vocab_manager
+
+        if word in vocab_manager.get_domain_vocab():
+            return False
+    except Exception:
+        return False
+    max_dist = _max_typo_distance(len(word))
+    for token in tokens:
+        token = (token or "").lower()
+        if len(token) < 4:
+            continue
+        if abs(len(word) - len(token)) > max_dist:
+            continue
+        if _damerau_levenshtein(word, token) <= max_dist:
+            return True
+    return False
+
+
 def _name_matches(stored_name: str, query_name: str) -> bool:
     sn = stored_name.lower().strip()
     qn = query_name.lower().strip()
@@ -338,6 +379,15 @@ def _name_matches(stored_name: str, query_name: str) -> bool:
     qn_digits = re.sub(r"\D", "", qn_norm)
     if sn_digits and qn_digits and sn_digits == qn_digits:
         if re.match(r"^(?:pl|platoon|co|company|coy|bat|battalion)", sn_norm):
+            return True
+
+    # Typo tolerance: nothing exact/substring/suffix/digit matched, so check
+    # whether the query name is a plausible misspelling of one of the
+    # stored name's words (e.g. "alfa"/"bravoo" for "Alpha"/"Bravo").
+    sn_tokens = re.findall(r"[a-z0-9]+", sn)
+    qn_tokens = re.findall(r"[a-z0-9]+", qn) or [qn]
+    for qt in qn_tokens:
+        if _fuzzy_token_match(qt, sn_tokens):
             return True
 
     return False
@@ -533,14 +583,15 @@ def resolve_entities_from_query(
     _MIN_PARTIAL_MENTION_LEN = 3
 
     def _matching_word(query_text: str, candidate_name: str) -> Optional[str]:
-        """Return the query word that would trigger `_is_partial_prefix_mention`
-        for this candidate, or None. Used only for diagnostic logging below —
-        does not change matching behaviour.
+        """Return the query word that partially or fuzzily matches this
+        candidate name, or None. A truthy return drives real matching at the
+        call site below (`if full_hit or partial_word:`), not just logging.
         """
         cand_compact = re.sub(r"[^a-z0-9]", "", candidate_name.lower())
         if not cand_compact or len(cand_compact) < _MIN_PARTIAL_MENTION_LEN:
             return None
-        for word in _COMPANY_TOKEN_RE.findall(query_text.lower()):
+        query_words = _COMPANY_TOKEN_RE.findall(query_text.lower())
+        for word in query_words:
             if len(word) < _MIN_PARTIAL_MENTION_LEN or word in _NOISE_WORDS:
                 continue
             if (
@@ -548,6 +599,13 @@ def resolve_entities_from_query(
                 or word.startswith(cand_compact)
                 or word in cand_compact
             ):
+                return word
+        # Typo tolerance: no exact/prefix hit, so check whether some query
+        # word is a plausible misspelling of one of the candidate's words
+        # (e.g. "alfa"/"bravoo" for "Alpha"/"Bravo").
+        cand_tokens = re.findall(r"[a-z0-9]+", candidate_name.lower())
+        for word in query_words:
+            if _fuzzy_token_match(word, cand_tokens):
                 return word
         return None
 
