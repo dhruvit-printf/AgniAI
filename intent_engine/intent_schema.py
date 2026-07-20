@@ -2123,6 +2123,7 @@ CATEGORY_ENTITY_COMPATIBILITY: Dict[str, Set[str]] = {
         "sport",
         "class",
         "diagnose",
+        "hospitalName",
     },
     "Attendance": {"date", "fromDate", "toDate", "sport", "class"},
     "Verification": {"sport", "class"},

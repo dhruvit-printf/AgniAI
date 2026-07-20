@@ -164,6 +164,9 @@ class SqlBuilder:
                     f"with a NULL value — no parameter to bind."
                 )
 
+            if isinstance(node.value, dict) and "__raw_sql" in node.value:
+                return f"{aliased_col} {node.operator} {node.value['__raw_sql']}"
+
             if node.operator.upper() == "IN" and isinstance(node.value, (list, tuple)):
                 params = [self._next_param(v) for v in node.value]
                 return f"{aliased_col} IN ({', '.join(params)})"

@@ -721,6 +721,17 @@ def _extract_days(query: str) -> Optional[int]:
     return None
 
 
+def _extract_verification_status(query: str) -> Optional[str]:
+    query_lower = _normalise(query)
+    if any(phrase in query_lower for phrase in ("completed", "verified", "cleared", "approved", "complete")):
+        return "Completed"
+    if any(phrase in query_lower for phrase in ("pending", "not verified", "not responded", "not complete")):
+        return "Pending"
+    if any(phrase in query_lower for phrase in ("rejected", "failed")):
+        return "Rejected"
+    return None
+
+
 def _extract_return_condition(
     query: str, semantic: Optional[Dict[str, Any]] = None
 ) -> Optional[str]:
@@ -785,10 +796,12 @@ CANONICAL_ENTITY_KEYS = frozenset(
         "fromDate",
         "toDate",
         "medicalStatus",
+        "verificationStatus",
         "diagnose",
         "days",
         "returnCondition",
         "givenCondition",
+        "hospitalName",
         "Operation",
         "Category",
     }
@@ -819,13 +832,23 @@ _MEDICAL_CONTEXT_WORDS = frozenset(
         "medical",
         "sick",
         "suffering",
+        "suffered",
+        "suffer",
+        "suffers",
         "diagnosed",
         "hospital",
         "ill",
         "patient",
         "treatment",
+        "right now",
+        "currently",
     }
 )
+# Phrases that mark a diagnose query as "as of now" rather than "ever" — only
+# meaningful when a disease was actually extracted; scoped separately from
+# _MEDICAL_CONTEXT_WORDS above so a generic "currently" doesn't force a date
+# filter onto unrelated medical-context matches.
+_DIAGNOSE_CURRENT_HINTS = ("right now", "currently", "today", "as of today", "at the moment")
 
 
 _KNOWN_DISEASES = (
@@ -938,6 +961,43 @@ def _extract_diagnose(query: str) -> Optional[str]:
     return None
 
 
+def _extract_diagnose_is_current(query: str) -> bool:
+    """True when the query asks about a diagnosis "as of now" (-> filter
+    Medical.VisitDate) rather than "ever" (e.g. "who has fever right now"
+    vs. "who has suffered with fever")."""
+    query_lower = _normalise(query)
+    return any(hint in query_lower for hint in _DIAGNOSE_CURRENT_HINTS)
+
+
+_HOSPITAL_STOPWORDS = frozenset({"the", "a", "an", "this", "that", "which", "what", "which"})
+
+
+def _extract_hospital_location(query: str) -> Optional[str]:
+    """Extract a hospital name/location from free text, e.g. "hospitalized
+    at XYZ hospital" / "treated at City Hospital" -> "Xyz" / "City"."""
+    query_lower = _normalise(query)
+
+    match = re.search(
+        r"\b(?:at|in|from)\s+([a-z][a-z0-9\s]{1,40}?)\s+hospital\b", query_lower
+    )
+    if not match:
+        match = re.search(r"\b([a-z][a-z0-9\s]{1,40}?)\s+hospital\b", query_lower)
+    if match:
+        name = match.group(1).strip()
+        if name and name not in _HOSPITAL_STOPWORDS:
+            return name.title()
+
+    match = re.search(
+        r"\bhospitalized\s+(?:at|in)\s+([a-z][a-z0-9\s]{1,40}?)(?:$|[,.?]|\s+(?:hospital|on|since|from))",
+        query_lower,
+    )
+    if match:
+        name = match.group(1).strip()
+        if name and name not in _HOSPITAL_STOPWORDS:
+            return name.title()
+    return None
+
+
 def extract_entities(
     query: str,
     resolved_entities: Optional[Dict[str, Any]] = None,
@@ -972,10 +1032,12 @@ def extract_entities(
         "fromDate": None,
         "toDate": None,
         "medicalStatus": None,
+        "verificationStatus": None,
         "diagnose": None,
         "days": None,
         "returnCondition": None,
         "givenCondition": None,
+        "hospitalName": None,
     }
 
     result["n"] = _extract_number(raw_query)
@@ -1003,10 +1065,21 @@ def extract_entities(
     result["date"] = _extract_date_patterns(raw_query)
     result["fromDate"], result["toDate"] = _extract_date_range(raw_query)
     result["medicalStatus"] = _extract_medical_status(raw_query)
+    result["verificationStatus"] = _extract_verification_status(raw_query)
     result["diagnose"] = _extract_diagnose(raw_query)
+    if (
+        result["diagnose"]
+        and result["date"] is None
+        and _extract_diagnose_is_current(raw_query)
+    ):
+        # "who has fever right now" -> scope the diagnose match to today's
+        # VisitDate. "who has suffered with fever" (no current-hint) stays
+        # unscoped, i.e. "ever diagnosed".
+        result["date"] = "today"
     result["days"] = _extract_days(raw_query)
     result["returnCondition"] = _extract_return_condition(raw_query, semantic)
     result["givenCondition"] = _extract_given_condition(raw_query, semantic)
+    result["hospitalName"] = _extract_hospital_location(raw_query)
 
     # Precedence: explicit value in current query > semantic > stale resolved_entities
     result["companyId"] = (

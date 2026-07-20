@@ -202,10 +202,6 @@
       "type": "",
       "nullable": true
     },
-    "FatherName": {
-      "type": "",
-      "nullable": true
-    },
     "FullName": {
       "type": "",
       "nullable": false
@@ -259,10 +255,6 @@
       "nullable": true
     },
     "NextOfKin": {
-      "type": "",
-      "nullable": true
-    },
-    "PL": {
       "type": "",
       "nullable": true
     },

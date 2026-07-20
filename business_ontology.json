@@ -48,6 +48,12 @@
       "default_date_column": "GivenDateTime",
       "implicit_filters": {}
     },
+    "EquipmentMaster": {
+      "table": "EquipmentMaster",
+      "type": "Dimension",
+      "default_date_column": null,
+      "implicit_filters": {}
+    },
     "Distribution": {
       "table": "DistributionMaster",
       "type": "Dimension",

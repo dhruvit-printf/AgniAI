@@ -152,8 +152,94 @@ _GENERATION_SYSTEM = (
     "SQL: WITH AttemptedMax AS (SELECT DISTINCT sa.AgniveerId, si.SectionId, SUM(si.MaxMarks) AS DynamicMax FROM AgniveerScoreAttempt sa INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId GROUP BY sa.AgniveerId, si.SectionId), BestTotals AS (SELECT sa.AgniveerId, si.SectionId, SUM(sa.MarksObtained) AS BestTotal FROM AgniveerScoreAttempt sa INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId WHERE sa.IsBestAttempt = 1 GROUP BY sa.AgniveerId, si.SectionId), Scored AS (SELECT bt.AgniveerId, sec.SectionName, CASE WHEN dm.DynamicMax IS NULL OR dm.DynamicMax = 0 THEN NULL WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 90 THEN 'Exceptionally Well' WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 75 THEN 'Excellent' WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 60 THEN 'Good' WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 45 THEN 'SAT' ELSE 'Fail' END AS Grade FROM BestTotals bt INNER JOIN ScoreSectionMaster sec ON sec.Id = bt.SectionId LEFT JOIN AttemptedMax dm ON dm.AgniveerId = bt.AgniveerId AND dm.SectionId = bt.SectionId), FiringFail AS (SELECT AgniveerId FROM Scored WHERE SectionName = 'Firing' AND Grade = 'Fail'), HasEq AS (SELECT AgniveerId FROM AgniveerEquipment WHERE ReturnDateTime IS NULL) SELECT a.AgniveerNo, a.FullName FROM AgniveerMaster a INNER JOIN FiringFail f ON a.Id = f.AgniveerId INNER JOIN HasEq e ON a.Id = e.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)\n\n"
     "Example 5:\n"
     "QUESTION: Rank volleyball players by total marks\n"
-    "SQL: SELECT a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS BestTotal FROM AgniveerMaster a INNER JOIN AgniveerScoreAttempt sa ON a.Id = sa.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND sa.IsBestAttempt = 1 AND a.Sports = 'Volleyball' GROUP BY a.AgniveerNo, a.FullName ORDER BY BestTotal DESC"
+    "SQL: SELECT a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS BestTotal FROM AgniveerMaster a INNER JOIN AgniveerScoreAttempt sa ON a.Id = sa.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND sa.IsBestAttempt = 1 AND a.Sports = 'Volleyball' GROUP BY a.AgniveerNo, a.FullName ORDER BY BestTotal DESC\n\n"
+    "Example 6:\n"
+    "QUESTION: Show obese agniveers\n"
+    "SQL: WITH LatestMedical AS (SELECT AgniveerId, Height, Weight, ROW_NUMBER() OVER (PARTITION BY AgniveerId ORDER BY VisitDate DESC) AS rn FROM MedicalRecordMaster WHERE Height IS NOT NULL AND Weight IS NOT NULL), Vitals AS (SELECT a.Id AS AgniveerId, a.AgniveerNo, a.FullName, COALESCE(lm.Height, a.Height) AS EffHeight, COALESCE(lm.Weight, a.Weight) AS EffWeight FROM AgniveerMaster a LEFT JOIN LatestMedical lm ON lm.AgniveerId = a.Id AND lm.rn = 1 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)), Bmi AS (SELECT AgniveerNo, FullName, EffWeight / POWER(EffHeight / 100.0, 2) AS BmiValue FROM Vitals WHERE EffHeight IS NOT NULL AND EffWeight IS NOT NULL AND EffHeight > 0) SELECT AgniveerNo, FullName FROM Bmi WHERE BmiValue >= 30.0"
 )
+
+
+# ── Strength breakdown (deterministic — Tier 0, no AST/LLM involved) ───────
+# "Strength breakdown" is a fixed-shape dashboard card (single row of named
+# counts), always as-of-today — not a filterable row list — so it doesn't fit
+# query_planner_v2's one-condition-set-per-query AST model. Each count is a
+# scalar subquery so the whole card is one round trip.
+def _build_strength_breakdown_sql() -> str:
+    today_in_range = (
+        "CAST(GETDATE() AS DATE) BETWEEN CAST(FromDate AS DATE) AND CAST(ToDate AS DATE)"
+    )
+    # Same ">90% leave taken" definition as the Leave/Threshold operation
+    # above: total leave days >= 55, or any single leave >= 40 days.
+    leave_threshold_sql = (
+        "(SELECT COUNT(*) FROM ("
+        "SELECT AgniveerId FROM AgniveerLeaveMaster GROUP BY AgniveerId "
+        "HAVING SUM(DATEDIFF(day, FromDate, ToDate) + 1) >= 55 "
+        "OR MAX(DATEDIFF(day, FromDate, ToDate) + 1) >= 40"
+        ") t) AS LeaveThresholdCrossed"
+    )
+    return (
+        "SELECT "
+        "(SELECT COUNT(*) FROM AgniveerMaster WHERE IsActive = 1) "
+        "- (SELECT COUNT(DISTINCT lm.AgniveerId) FROM AgniveerLeaveMaster lm "
+        "INNER JOIN AgniveerMaster am ON am.Id = lm.AgniveerId "
+        f"WHERE am.IsActive = 1 AND CAST(GETDATE() AS DATE) BETWEEN CAST(lm.FromDate AS DATE) AND CAST(lm.ToDate AS DATE)) "
+        "AS ActiveAgniveer, "
+        f"(SELECT COUNT(DISTINCT AgniveerId) FROM AgniveerLeaveMaster WHERE OnMedicalLeave = 1 AND {today_in_range}) AS MedicalLeave, "
+        f"(SELECT COUNT(DISTINCT AgniveerId) FROM AgniveerLeaveMaster WHERE OnAnnualLeave = 1 AND {today_in_range}) AS AnnualLeave, "
+        f"(SELECT COUNT(DISTINCT AgniveerId) FROM AgniveerLeaveMaster WHERE IsHospitalized = 1 AND {today_in_range}) AS Hospitalized, "
+        f"(SELECT COUNT(DISTINCT AgniveerId) FROM AgniveerLeaveMaster WHERE [OnATTN'C'] = 1 AND {today_in_range}) AS AttnC, "
+        f"(SELECT COUNT(DISTINCT AgniveerId) FROM AgniveerLeaveMaster WHERE [OnEX PPG] = 1 AND {today_in_range}) AS ExPpg, "
+        f"(SELECT COUNT(DISTINCT AgniveerId) FROM AgniveerLeaveMaster WHERE IsAbscondedLeave = 1 AND {today_in_range}) AS Absconded, "
+        f"{leave_threshold_sql}, "
+        "(SELECT COUNT(*) FROM AgniveerMaster WHERE IsDisqualified = 1) AS DisqualifiedAgniveers"
+    )
+
+
+# ── Per-agniveer attendance calendar (deterministic — Tier 0) ──────────────
+# Monthly/Weekly/Daily attendance for a NAMED agniveer is derived purely from
+# AgniveerLeaveMaster, not AgniveerAttendanceMaster: every day in the
+# requested range is Present unless a leave record's FromDate/ToDate spans
+# that day, in which case it's Absent. SQL Server 2008 has no date-series
+# generator, so the calendar is built with a recursive CTE.
+_AGNIVEER_LOOKUP_SQL = "SELECT TOP (1) Id, AgniveerNo, FullName FROM AgniveerMaster WHERE AgniveerNo = ?"
+
+
+def _build_attendance_calendar_sql() -> str:
+    return (
+        "WITH Dates AS ("
+        "SELECT CAST(? AS DATE) AS AttendanceDate "
+        "UNION ALL "
+        "SELECT DATEADD(day, 1, AttendanceDate) FROM Dates WHERE AttendanceDate < CAST(? AS DATE)"
+        ") "
+        "SELECT AttendanceDate, "
+        "CASE WHEN EXISTS ("
+        "SELECT 1 FROM AgniveerLeaveMaster lm "
+        "WHERE lm.AgniveerId = ? "
+        "AND AttendanceDate BETWEEN CAST(lm.FromDate AS DATE) AND CAST(lm.ToDate AS DATE)"
+        ") THEN 'Absent' ELSE 'Present' END AS Status "
+        "FROM Dates "
+        "OPTION (MAXRECURSION 366)"
+    )
+
+
+def _resolve_attendance_range(intent: Dict) -> Tuple[Optional[str], Optional[str]]:
+    """Returns (range_start, range_end) as date strings. Monthly/Weekly rely
+    on date_resolver having already expanded "current month"/"this week"/etc.
+    into fromDate/toDate; Daily relies on it having resolved a single date
+    (defaulting to today when the query named none — see date_resolver.
+    resolve_date_range's Daily/Weekly/Monthly fallback)."""
+    operation = intent.get("operation")
+    single_date = intent.get("date")
+    from_date = intent.get("from_date")
+    to_date = intent.get("to_date")
+    if operation == "Daily":
+        day = single_date or from_date or to_date
+        if not day:
+            day = datetime.date.today().isoformat()
+        return day, day
+    range_start = from_date or single_date
+    range_end = to_date or single_date
+    return range_start, range_end
 
 
 # ── Safety validator ───────────────────────────────────────────────────────
@@ -368,6 +454,59 @@ def execute_sql_query(
     logger.debug(f"[DEBUG SQL EXECUTOR] question: {question!r}")
     if not intent:
         return None, "No intent provided to query planner."
+        
+    print(f"[DEBUG INTERCEPT] intent: {intent}", flush=True)
+        
+    if intent.get("category") in ("Performance", "Overall"):
+        from performance_executor import execute_performance_query
+        return execute_performance_query(intent)
+
+    if intent.get("category") == "Strength":
+        sql = _build_strength_breakdown_sql()
+        is_sql_valid, sql_err = sql_validator.validate_sql(sql)
+        if not is_sql_valid:
+            return None, f"Strength breakdown SQL validation failed: {sql_err}"
+        rows, run_err = run_readonly(sql, [])
+        if run_err:
+            return None, f"Strength breakdown execution failed: {run_err}"
+        res = _to_section(rows or [], intent, sql=sql)
+        return res, None
+
+    if intent.get("category") == "Attendance" and intent.get("operation") in (
+        "Monthly",
+        "Weekly",
+        "Daily",
+    ):
+        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        if agniveer_no:
+            is_lookup_valid, lookup_err = sql_validator.validate_sql(_AGNIVEER_LOOKUP_SQL)
+            if not is_lookup_valid:
+                return None, f"Attendance lookup SQL validation failed: {lookup_err}"
+            agniveer_rows, lookup_run_err = run_readonly(_AGNIVEER_LOOKUP_SQL, [agniveer_no])
+            if lookup_run_err:
+                return None, f"Attendance lookup failed: {lookup_run_err}"
+            if not agniveer_rows:
+                return None, f"No agniveer found with AgniveerNo '{agniveer_no}'."
+
+            agniveer_row = agniveer_rows[0]
+            range_start, range_end = _resolve_attendance_range(intent)
+            if not range_start or not range_end:
+                return None, "Could not resolve a date range for the attendance query."
+
+            sql = _build_attendance_calendar_sql()
+            is_sql_valid, sql_err = sql_validator.validate_sql(sql)
+            if not is_sql_valid:
+                return None, f"Attendance calendar SQL validation failed: {sql_err}"
+            rows, run_err = run_readonly(
+                sql, [range_start, range_end, agniveer_row["Id"]]
+            )
+            if run_err:
+                return None, f"Attendance calendar execution failed: {run_err}"
+            for row in rows or []:
+                row["AgniveerNo"] = agniveer_row["AgniveerNo"]
+                row["FullName"] = agniveer_row["FullName"]
+            res = _to_section(rows or [], intent, sql=sql)
+            return res, None
 
     from query_planner_v2 import query_planner_v2
     from sql_builder import sql_builder
@@ -403,6 +542,8 @@ def execute_sql_query(
     blood_group = _pick_legacy_value("bloodGroup", "blood_group")
     sport = _pick_legacy_value("sport")
     diagnose = _pick_legacy_value("diagnose")
+    hospital_name = _pick_legacy_value("hospitalName", "hospital_name")
+    medical_date = _pick_legacy_value("date")
     unit_name = _pick_legacy_value("unitName", "unit_name")
     from_date = _pick_legacy_value("fromDate", "from_date")
     to_date = _pick_legacy_value("toDate", "to_date")
@@ -433,6 +574,16 @@ def execute_sql_query(
         filters.setdefault(
             "Medical.Diagnosis", {"operator": "LIKE", "value": f"%{diagnose}%"}
         )
+        # "who has fever right now" scopes the match to today's VisitDate;
+        # "who has suffered with fever" (no current-hint, medical_date is
+        # None) stays unscoped — i.e. "ever diagnosed".
+        if medical_date is not None:
+            filters.setdefault("Medical.VisitDate", medical_date)
+    if hospital_name is not None:
+        filters.setdefault(
+            "Medical.HospitalNameLocation",
+            {"operator": "LIKE", "value": f"%{hospital_name}%"},
+        )
     if unit_name is not None:
         filters.setdefault(
             "Distribution.Name", {"operator": "LIKE", "value": f"%{unit_name}%"}
@@ -447,8 +598,49 @@ def execute_sql_query(
     if category == "disqualified":
         base_concept = "Agniveer"
         filters.setdefault("Agniveer.IsDisqualified", 1)
+
+        # "who got disqualified today" / "disqualified between X and Y" ->
+        # filter on DisqualifiedDate. "when did X get disqualified" needs no
+        # filter here — DisqualifiedDate is already in the auto-selected
+        # AgniveerMaster columns, so the answer just shows up as a column.
+        if from_date is not None and to_date is not None:
+            filters.setdefault(
+                "AND",
+                [
+                    {"Agniveer.DisqualifiedDate": {"operator": ">=", "value": from_date}},
+                    {"Agniveer.DisqualifiedDate": {"operator": "<=", "value": to_date}},
+                ],
+            )
+        elif from_date is not None:
+            filters.setdefault("Agniveer.DisqualifiedDate", {"operator": ">=", "value": from_date})
+        elif to_date is not None:
+            filters.setdefault("Agniveer.DisqualifiedDate", {"operator": "<=", "value": to_date})
+        else:
+            disqualified_date = _pick_legacy_value("date")
+            if disqualified_date is not None:
+                filters.setdefault("Agniveer.DisqualifiedDate", {"operator": "=", "value": disqualified_date})
     elif category == "personaldetail":
         base_concept = "Agniveer"
+        extra_aggregates = None
+        extra_order_by = None
+        extra_group_by = None
+        metric = intent.get("metric")
+        if metric:
+            col_ref = f"Agniveer.{metric}"
+            if operation == "average":
+                extra_aggregates = [{"function": "AVG", "concept": None, "column": metric, "alias": f"Average{metric}"}]
+            elif operation == "max":
+                filters.setdefault(col_ref, {"operator": "=", "value": {"__raw_sql": f"(SELECT MAX({metric}) FROM AgniveerMaster)"}})
+            elif operation == "min":
+                filters.setdefault(col_ref, {"operator": "=", "value": {"__raw_sql": f"(SELECT MIN({metric}) FROM AgniveerMaster)"}})
+            elif operation == "above_average":
+                filters.setdefault(col_ref, {"operator": ">", "value": {"__raw_sql": f"(SELECT AVG({metric}) FROM AgniveerMaster)"}})
+            elif operation == "below_average":
+                filters.setdefault(col_ref, {"operator": "<", "value": {"__raw_sql": f"(SELECT AVG({metric}) FROM AgniveerMaster)"}})
+            elif operation == "match":
+                val = intent.get("value")
+                if val:
+                    filters.setdefault(col_ref, {"operator": "LIKE", "value": f"%{val}%"})
     elif category == "Skills":
         base_concept = "Agniveer"
         if operation == "BySport":
@@ -514,6 +706,18 @@ def execute_sql_query(
                 {"concept": "Agniveer", "column": "AgniveerNo"},
                 {"concept": "Agniveer", "column": "FullName"},
             ]
+        elif operation == "Threshold":
+            threshold_sql = (
+                "(SELECT AgniveerId FROM AgniveerLeaveMaster "
+                "GROUP BY AgniveerId "
+                "HAVING SUM(DATEDIFF(day, FromDate, ToDate) + 1) >= 55 "
+                "OR MAX(DATEDIFF(day, FromDate, ToDate) + 1) >= 40)"
+            )
+            # The AST needs Agniveer.Id IN (...) so we filter the base_concept (which is Leave) 
+            # Wait, base_concept for Leave is "Leave"!
+            # So if base_concept is "Leave", the AST generates SELECT ... FROM AgniveerLeaveMaster JOIN AgniveerMaster
+            # So filtering Agniveer.Id is totally fine and supported!
+            filters.setdefault("Agniveer.Id", {"operator": "IN", "value": {"__raw_sql": threshold_sql}})
         else:
             if from_date is not None:
                 filters.setdefault("Leave.ToDate", {"operator": ">=", "value": from_date})
@@ -531,7 +735,7 @@ def execute_sql_query(
                 ])
             elif v_status_lower == "not responded":
                 filters.setdefault("Verification.Status", "Sent")
-                filters.setdefault("Verification.ReceivedDate", {"operator": "=", "value": None})
+                filters.setdefault("Verification.ReturnDate", {"operator": "=", "value": None})
             elif v_status_lower in ("verified", "completed"):
                 filters.setdefault("OR", [
                     {"Verification.Status": "Verified"},
@@ -586,7 +790,7 @@ def execute_sql_query(
         "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS,
     }
     
-    if category == "Leave":
+    if category in ("Leave", "personaldetail"):
         if extra_aggregates:
             v2_intent["aggregates"] = extra_aggregates
         if extra_order_by:
@@ -663,7 +867,13 @@ def execute_sql_query(
                     "Trend",
                 )
             )
-            or (category == "Medical" and operation in ("BMI", "Disease", "BloodGroup"))
+            or (category == "Medical" and operation in ("BMI", "BloodGroup"))
+            # "Disease" only needs the LLM/CTE path for genuine aggregates
+            # ("top diseases", "most common disease" — no specific disease
+            # named, so `diagnose` is None). A named-disease lookup ("who has
+            # fever") is just a Medical.Diagnosis LIKE filter, already wired
+            # up above, and goes through the deterministic AST path.
+            or (category == "Medical" and operation == "Disease" and diagnose is None)
             or (
                 category == "Attendance"
                 and operation in ("Monthly", "Weekly", "Summary")

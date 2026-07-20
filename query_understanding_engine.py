@@ -788,6 +788,18 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
             "qualification",
             "family details",
             "next of kin",
+            "height",
+            "weight",
+            "hobby",
+            "hobbies",
+            "skill",
+            "skills",
+            "sports",
+            "cricket",
+            "basketball",
+            "football",
+            "volleyball",
+            "hockey",
         )
     ):
         return "personaldetail"

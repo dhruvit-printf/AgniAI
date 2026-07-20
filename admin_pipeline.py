@@ -947,9 +947,31 @@ def execute_admin_query(
             )
 
             planning_start = time.time()
-            qie_result = qie_process(message)
-            message = qie_result.canonical_text
-            query_plan = plan_query(message)
+            from intent_engine.personal_details_parser import parse_personal_details
+            pd_intent_early = parse_personal_details(user_query or message)
+            
+            if pd_intent_early:
+                # Bypass LLM completely for personal details
+                from intent_engine.query_planner import QueryPlan, SubOperation
+                from intent_engine.query_intelligence_engine import NormalizedQuery
+                
+                qie_result = NormalizedQuery(
+                    original_query=message,
+                    normalized_text=message,
+                    canonical_text=message
+                )
+                query_plan = QueryPlan(
+                    raw_query=message,
+                    query_type=QueryType.SIMPLE,
+                    operations=[SubOperation(raw_fragment=message, intent_result=pd_intent_early)],
+                    confidence=1.0,
+                    reasoning="Heuristically matched personal details"
+                )
+            else:
+                qie_result = qie_process(message)
+                message = qie_result.canonical_text
+                query_plan = plan_query(message)
+                
             planning_duration = time.time() - planning_start
             planner_duration = time.time() - planner_start
             logger.info(
@@ -1030,6 +1052,10 @@ def execute_admin_query(
                 primary_intent = merge_frontend_intent(
                     frontend_intent, extracted_entities
                 )
+
+            if pd_intent_early:
+                primary_intent.update(pd_intent_early)
+                query_plan.operations = []
 
             primary_intent["operations"] = [
                 op.intent_result for op in query_plan.operations
@@ -1128,116 +1154,116 @@ def execute_admin_query(
                             "Could you please rephrase it?"
                         )
 
-                    total_duration = time.time() - start_time
-                    durations = {
-                        "entity_resolution_ms": round(
-                            entity_resolution_duration * 1000, 2
-                        ),
-                        "planning_ms": round(planning_duration * 1000, 2),
-                        "planner_duration": round(planner_duration * 1000, 2),
-                        "intent_duration": round(intent_duration * 1000, 2),
-                        "dotnet_duration": round(dotnet_duration * 1000, 2),
-                        "combiner_duration": round(combiner_duration * 1000, 2),
-                        "widget_duration": 0.0,
-                        "response_assembly_duration": 0.0,
-                        "report_duration": round(report_duration * 1000, 2),
-                        "total_duration": round(total_duration * 1000, 2),
-                    }
-
-                    response_payload = build_conversation_payload(
-                        unrecognised_msg,
-                        session_id=session_id,
-                        query_type="unclear",
-                    )
-                    response_payload.setdefault("metadata", {})
-                    response_payload["metadata"].setdefault("timings", {})
-                    response_payload["metadata"]["timings"].update(
-                        {
-                            "entityResolutionMs": round(
-                                entity_resolution_duration * 1000
+                        total_duration = time.time() - start_time
+                        durations = {
+                            "entity_resolution_ms": round(
+                                entity_resolution_duration * 1000, 2
                             ),
-                            "planningMs": round(planning_duration * 1000),
-                            "plannerDurationMs": round(planner_duration * 1000),
-                            "intentDurationMs": round(intent_duration * 1000),
-                            "dotnetDurationMs": round(dotnet_duration * 1000),
-                            "combineDurationMs": 0,
-                            "widgetMs": 0,
-                            "responseAssemblyMs": 0,
-                            "analysisDurationMs": 0,
-                            "predictionDurationMs": 0,
-                            "conclusionDurationMs": 0,
-                            "totalDurationMs": round(total_duration * 1000),
-                            "executionTimeMs": round(total_duration * 1000),
+                            "planning_ms": round(planning_duration * 1000, 2),
+                            "planner_duration": round(planner_duration * 1000, 2),
+                            "intent_duration": round(intent_duration * 1000, 2),
+                            "dotnet_duration": round(dotnet_duration * 1000, 2),
+                            "combiner_duration": round(combiner_duration * 1000, 2),
+                            "widget_duration": 0.0,
+                            "response_assembly_duration": 0.0,
+                            "report_duration": round(report_duration * 1000, 2),
+                            "total_duration": round(total_duration * 1000, 2),
                         }
-                    )
-                    response_payload["metadata"].setdefault("metrics", {})
-                    response_payload["metadata"]["metrics"]["confidence"] = round(
-                        float(query_plan.confidence), 2
-                    )
-                    response_payload["intent"] = {
-                        "category": primary_intent.get("category") or "unclear",
-                        "confidence": round(float(query_plan.confidence), 2),
-                        "operation": primary_intent.get("operation"),
-                        "query_type": "unrecognised",
-                    }
 
-                    logger.info(
-                        json.dumps(
+                        response_payload = build_conversation_payload(
+                            unrecognised_msg,
+                            session_id=session_id,
+                            query_type="unclear",
+                        )
+                        response_payload.setdefault("metadata", {})
+                        response_payload["metadata"].setdefault("timings", {})
+                        response_payload["metadata"]["timings"].update(
                             {
-                                "message": "Admin pipeline complete",
-                                "question": user_query,
-                                "query_type": "unrecognised",
-                                "intent_formed": primary_intent,
-                                "trace_id": trace_id,
+                                "entityResolutionMs": round(
+                                    entity_resolution_duration * 1000
+                                ),
+                                "planningMs": round(planning_duration * 1000),
+                                "plannerDurationMs": round(planner_duration * 1000),
+                                "intentDurationMs": round(intent_duration * 1000),
+                                "dotnetDurationMs": round(dotnet_duration * 1000),
+                                "combineDurationMs": 0,
+                                "widgetMs": 0,
+                                "responseAssemblyMs": 0,
+                                "analysisDurationMs": 0,
+                                "predictionDurationMs": 0,
+                                "conclusionDurationMs": 0,
+                                "totalDurationMs": round(total_duration * 1000),
+                                "executionTimeMs": round(total_duration * 1000),
                             }
                         )
-                    )
+                        response_payload["metadata"].setdefault("metrics", {})
+                        response_payload["metadata"]["metrics"]["confidence"] = round(
+                            float(query_plan.confidence), 2
+                        )
+                        response_payload["intent"] = {
+                            "category": primary_intent.get("category") or "unclear",
+                            "confidence": round(float(query_plan.confidence), 2),
+                            "operation": primary_intent.get("operation"),
+                            "query_type": "unrecognised",
+                        }
 
-                    metrics_collector.inc_requests("unrecognised")
-                    metrics_collector.record_duration(
-                        "planner_duration", durations["planner_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "intent_duration", durations["intent_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "dotnet_duration", durations["dotnet_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "report_duration", durations["report_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "pipeline_duration", durations["total_duration"]
-                    )
-
-                    if total_duration > SLOW_QUERY_THRESHOLD:
-                        logger.warning(
+                        logger.info(
                             json.dumps(
                                 {
-                                    "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                                    "trace_id": trace_id,
-                                    "session_id": session_id,
+                                    "message": "Admin pipeline complete",
+                                    "question": user_query,
                                     "query_type": "unrecognised",
-                                    "duration_ms": round(total_duration * 1000, 2),
+                                    "intent_formed": primary_intent,
+                                    "trace_id": trace_id,
                                 }
                             )
                         )
 
-                    write_audit_log(
-                        trace_id=trace_id,
-                        session_id=session_id,
-                        query_type="unrecognised",
-                        query_duration=durations["total_duration"],
-                        success=True,
-                    )
+                        metrics_collector.inc_requests("unrecognised")
+                        metrics_collector.record_duration(
+                            "planner_duration", durations["planner_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "intent_duration", durations["intent_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "dotnet_duration", durations["dotnet_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "report_duration", durations["report_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "pipeline_duration", durations["total_duration"]
+                        )
 
-                    combined_message = response_payload.get("message", "")
-                    metrics_collector.inc_success("unrecognised")
-                    return {
-                        "type": "unrecognised",
-                        "response_payload": response_payload,
-                        "combined_message": combined_message,
-                    }
+                        if total_duration > SLOW_QUERY_THRESHOLD:
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
+                                        "trace_id": trace_id,
+                                        "session_id": session_id,
+                                        "query_type": "unrecognised",
+                                        "duration_ms": round(total_duration * 1000, 2),
+                                    }
+                                )
+                            )
+
+                        write_audit_log(
+                            trace_id=trace_id,
+                            session_id=session_id,
+                            query_type="unrecognised",
+                            query_duration=durations["total_duration"],
+                            success=True,
+                        )
+
+                        combined_message = response_payload.get("message", "")
+                        metrics_collector.inc_success("unrecognised")
+                        return {
+                            "type": "unrecognised",
+                            "response_payload": response_payload,
+                            "combined_message": combined_message,
+                        }
 
                 # ── SQL backend answered — shape results exactly like the
                 # retired .NET branches did, so Step 4 onward needs no changes

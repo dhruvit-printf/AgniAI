@@ -272,6 +272,8 @@ def build_filters_from_entities(entities: Dict[str, Any]) -> Dict[str, Any]:
         "fromAttempt",
         "toAttempt",
         "date",
+        "fromDate",
+        "toDate",
         "companyId",
         "platoonId",
         "batchId",
@@ -286,7 +288,10 @@ def build_filters_from_entities(entities: Dict[str, Any]) -> Dict[str, Any]:
             filters[key] = val
 
     if entities.get("leaveType") == "Current":
-        filters["leaveStatus"] = "Current"
+        # If the user asked about a specific date (like "today"), we'll have fromDate/toDate/date.
+        # Only use the "Current" leave status macro (which enforces GETDATE()) if no explicit date is set.
+        if not entities.get("fromDate") and not entities.get("toDate") and not entities.get("date"):
+            filters["leaveStatus"] = "Current"
 
     return filters
 

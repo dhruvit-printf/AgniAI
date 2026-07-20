@@ -143,6 +143,7 @@ def _build_base_intent(
         "blood_group": None,
         "type": None,
         "medical_status": None,
+        "verification_status": None,
         "diagnose": None,
         "responseType": "Summary",
         "raw_query": raw_query,
@@ -230,6 +231,7 @@ def classify_admin_intent(
                 "bmi_category": entities.get("bmiCategory"),
                 "blood_group": entities.get("bloodGroup"),
                 "medical_status": entities.get("medicalStatus"),
+                "verification_status": entities.get("verificationStatus"),
                 "diagnose": entities.get("diagnose"),
                 "days": entities.get("days"),
             }
@@ -248,6 +250,8 @@ def classify_admin_intent(
                 ("fromAttempt", base["from_attempt"]),
                 ("toAttempt", base["to_attempt"]),
                 ("date", base["date"]),
+                ("fromDate", base["from_date"]),
+                ("toDate", base["to_date"]),
                 ("companyId", base["company_id"]),
                 ("platoonId", base["platoon_id"]),
                 ("batchId", base["batch_id"]),
@@ -256,6 +260,7 @@ def classify_admin_intent(
                 ("bloodGroup", base["blood_group"]),
                 ("equipmentName", base["item_name"]),
                 ("medicalStatus", base["medical_status"]),
+                ("verificationStatus", base["verification_status"]),
                 ("diagnose", base["diagnose"]),
                 ("days", base["days"]),
             )
@@ -417,7 +422,7 @@ def classify_admin_intent(
     # phrases like "current month" or "June". Resolve whatever was extracted
     # into concrete dates, and default Monthly/Weekly/Daily to the current
     # period when the query didn't mention one at all.
-    if category in ("Attendance", "Schedule"):
+    if category in ("Attendance", "Schedule", "Leave", "disqualified", "Medical"):
         resolved_date, resolved_from_date, resolved_to_date = resolve_date_range(
             operation=operation,
             date=entities.get("date"),
@@ -483,7 +488,9 @@ def classify_admin_intent(
         "blood_group": entities.get("bloodGroup"),
         "type": legacy_type,
         "medical_status": entities.get("medicalStatus"),
+        "verification_status": entities.get("verificationStatus"),
         "diagnose": entities.get("diagnose"),
+        "hospital_name": entities.get("hospitalName"),
         "days": entities.get("days"),
         "given_condition": entities.get("givenCondition"),
         "return_condition": entities.get("returnCondition"),
@@ -518,6 +525,7 @@ def classify_admin_intent(
             ("equipmentName", result["item_name"]),
             ("equipmentType", result["equipment_type"]),
             ("medicalStatus", result["medical_status"]),
+            ("verificationStatus", result["verification_status"]),
             ("diagnose", result["diagnose"]),
             ("givenCondition", result["given_condition"]),
             ("returnCondition", result["return_condition"]),
