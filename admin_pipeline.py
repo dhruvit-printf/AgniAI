@@ -1173,8 +1173,9 @@ def execute_admin_query(
                     )
                     from sql_executor import execute_sql_query
 
+                    fallback_intent = {**primary_intent, "query_type": "text2sql"}
                     fallback_section, fallback_err = execute_sql_query(
-                        question=message, intent={"query_type": "text2sql"}
+                        question=message, intent=fallback_intent
                     )
 
                     if not fallback_err and fallback_section:

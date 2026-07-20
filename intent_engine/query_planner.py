@@ -36,6 +36,13 @@ def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", (text or "").lower())).strip()
 
 
+def _clamp_confidence(value: float) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except Exception:
+        return 0.0
+
+
 def _should_treat_cross_filter_as_multi_independent(semantic: Dict[str, Any]) -> bool:
     """Promote same-subject, multi-section requests and independent
     multi-category report requests to multi-independent.
@@ -1001,7 +1008,9 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             return QueryPlan(
                 query_type=QueryType.COMPARE,
                 operations=ops,
-                confidence=max(float(semantic.get("confidence") or 0.85), 0.85),
+                confidence=_clamp_confidence(
+                    max(float(semantic.get("confidence") or 0.85), 0.85)
+                ),
                 raw_query=raw_query,
                 reasoning="Comparison query detected semantically",
                 filters=combined_filters,
@@ -1066,7 +1075,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             return QueryPlan(
                 QueryType.COMPARE,
                 valid_ops,
-                max(float(semantic.get("confidence") or 0.85), 0.85),
+                _clamp_confidence(max(float(semantic.get("confidence") or 0.85), 0.85)),
                 raw_query,
                 "Comparison query detected from semantic understanding",
                 filters=combined_filters,
@@ -1099,7 +1108,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             return QueryPlan(
                 QueryType.MULTI_INDEPENDENT,
                 valid_ops,
-                max(float(semantic.get("confidence") or 0.8), 0.8),
+                _clamp_confidence(max(float(semantic.get("confidence") or 0.8), 0.8)),
                 raw_query,
                 f"Multi-independent semantic query: {', '.join(sorted(categories))}",
                 filters=combined_filters,
@@ -1167,7 +1176,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             return QueryPlan(
                 QueryType.CROSS_FILTER,
                 valid_ops,
-                max(float(semantic.get("confidence") or 0.8), 0.8),
+                _clamp_confidence(max(float(semantic.get("confidence") or 0.8), 0.8)),
                 raw_query,
                 "Cross-filter semantic query detected",
                 filters=combined_filters,
@@ -1179,7 +1188,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         return QueryPlan(
             QueryType.TREND,
             [op],
-            max(float(semantic.get("confidence") or 0.85), 0.85),
+            _clamp_confidence(max(float(semantic.get("confidence") or 0.85), 0.85)),
             raw_query,
             "Trend query detected from semantic understanding",
             filters=filters,
@@ -1191,7 +1200,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         return QueryPlan(
             QueryType.DISTRIBUTION,
             [op],
-            max(float(semantic.get("confidence") or 0.85), 0.85),
+            _clamp_confidence(max(float(semantic.get("confidence") or 0.85), 0.85)),
             raw_query,
             "Distribution query detected from semantic understanding",
             filters=filters,
@@ -1216,7 +1225,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         return QueryPlan(
             QueryType.ANALYTICS,
             [op],
-            max(confidence, 0.75),
+            _clamp_confidence(max(confidence, 0.75)),
             raw_query,
             "Semantic ranking query detected",
             filters=filters,
@@ -1225,7 +1234,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
     return QueryPlan(
         QueryType.SIMPLE,
         [op],
-        max(confidence, 0.5 if filters else 0.3),
+        _clamp_confidence(max(confidence, 0.5 if filters else 0.3)),
         raw_query,
         "Single-intent query with filters",
         filters=filters,

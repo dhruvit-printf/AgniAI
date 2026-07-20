@@ -345,6 +345,31 @@ class TestExecuteSqlQuery:
             # execution_metadata was also added in the new pipeline
             assert "execution_metadata" in data
 
+    def test_medical_bmi_uses_formula_not_stored_column(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+            patch("sql_executor.metrics_hook"),
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.return_value = ([{"AgniveerNo": "A1", "FullName": "X"}], None)
+            data, err = execute_sql_query(
+                question="who is overweight",
+                intent={
+                    "category": "Medical",
+                    "operation": "BMI",
+                    "bmiCategory": "Overweight",
+                },
+            )
+            assert err is None
+            assert data["success"] is True
+            sql = mock_run.call_args[0][0]
+            assert "MedicalRecordMaster" in sql
+            assert "POWER(EffHeight / 100.0, 2)" in sql
+            assert "a.BmiValue" not in sql
+            assert "BmiCategory" in sql
+            assert "BmiValue >= 25.0 AND BmiValue < 30.0" in sql
+
     @pytest.mark.parametrize(
         "intent, expected_fragment",
         [
@@ -802,4 +827,4 @@ class TestDecimalPrecisionAudit:
 
         # The return dict contains only display fields — no grade boundary check.
         for row in result:
-            assert set(row.keys()) <= {"group", "count", "averageScore"}
+            assert set(row.keys()) <= {"group", "count", "averageScore"}

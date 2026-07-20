@@ -39,6 +39,13 @@ def _entities(query: str) -> dict:
     return extract_entities(query)
 
 
+def test_confidence_score_is_clamped_to_one():
+    result = _classify(
+        "Show top BPET performers for company 1 batch 1 platoon 1 agniveer A0701882L"
+    )
+    assert 0.0 <= result["confidence_score"] <= 1.0
+
+
 # =============================================================================
 # TASK 8 — Mandated test cases (1-10)
 # =============================================================================

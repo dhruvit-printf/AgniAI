@@ -1,15 +1,17 @@
-
 import logging
-from typing import Dict, Any, List, Optional, Tuple
-from sql_executor import run_readonly, _to_section, SQL_MAX_ROWS
+from typing import Any, Dict, List, Optional, Tuple
+
+from sql_executor import SQL_MAX_ROWS, _to_section, run_readonly
 
 logger = logging.getLogger("performance_executor")
 
-def execute_performance_query(intent: Dict) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+
+def execute_performance_query(
+    intent: Dict,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     category = intent.get("category", "")
     operation = intent.get("operation", "")
-    
-    # Common filters
+
     batch_id = intent.get("batchId")
     agniveer_class = intent.get("class")
     platoon_id = intent.get("platoonId")
@@ -18,247 +20,458 @@ def execute_performance_query(intent: Dict) -> Tuple[Optional[Dict[str, Any]], O
     section = str(intent.get("section") or "").strip()
     sub_section = str(intent.get("sub_section") or "").strip()
     attempt_no = intent.get("attemptNo") or intent.get("attempt_no")
-    
-    args = []
-    
-    # Reusable Scoped-Agniveer EXISTS filter
-    scoped_exists = '''
-    EXISTS (
-        SELECT 1 FROM AgniveerMaster m
-        WHERE m.Id = {outer_alias}.AgniveerId
-          AND m.IsActive = 1
-          AND ISNULL(m.IsDisqualified,0) = 0
-          {batch_filter}
-          {class_filter}
-          {platoon_filter}
-          {company_filter}
-          {agniveer_filter}
-    )'''
-    
-    batch_filter = ""
-    if batch_id is not None:
-        batch_filter = "AND m.BatchId = ?"
-        args.append(int(batch_id))
-        
-    class_filter = ""
-    if agniveer_class is not None:
-        class_filter = "AND LOWER(m.Class) = LOWER(?)"
-        args.append(str(agniveer_class))
-        
-    platoon_filter = ""
-    if platoon_id is not None:
-        platoon_filter = "AND m.PlatoonId = ?"
-        args.append(int(platoon_id))
-        
-    company_filter = ""
-    if company_id is not None:
-        company_filter = "AND EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = m.PlatoonId AND p.CompanyId = ?)"
-        args.append(int(company_id))
-        
-    agniveer_filter = ""
-    if agniveer_no is not None:
-        agniveer_filter = "AND LOWER(m.AgniveerNo) LIKE '%' + LOWER(?) + '%'"
-        args.append(str(agniveer_no))
+    from_attempt = intent.get("from_attempt") or intent.get("fromAttempt")
+    to_attempt = intent.get("to_attempt") or intent.get("toAttempt")
+    requested_grade = intent.get("grading")
+    top_n = int(intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS)
 
-    def get_scoped_exists(outer_alias: str, is_nested=False) -> str:
-        res = scoped_exists.format(
-            outer_alias=outer_alias,
-            batch_filter=batch_filter,
-            class_filter=class_filter,
-            platoon_filter=platoon_filter,
-            company_filter=company_filter,
-            agniveer_filter=agniveer_filter
-        )
-        return res
+    def _scope_clause(alias: str = "a") -> Tuple[str, List[Any]]:
+        clauses = [
+            f"({alias}.IsActive = 1 AND ISNULL({alias}.IsDisqualified, 0) = 0)"
+        ]
+        params: List[Any] = []
 
-    def append_scoped_args(target_args: list):
-        if batch_id is not None: target_args.append(int(batch_id))
-        if agniveer_class is not None: target_args.append(str(agniveer_class))
-        if platoon_id is not None: target_args.append(int(platoon_id))
-        if company_id is not None: target_args.append(int(company_id))
-        if agniveer_no is not None: target_args.append(str(agniveer_no))
+        if batch_id is not None:
+            clauses.append(f"{alias}.BatchId = ?")
+            params.append(int(batch_id))
+        if agniveer_class is not None:
+            clauses.append(f"LOWER({alias}.Class) = LOWER(?)")
+            params.append(str(agniveer_class))
+        if platoon_id is not None:
+            clauses.append(f"{alias}.PlatoonId = ?")
+            params.append(int(platoon_id))
+        if company_id is not None:
+            clauses.append(
+                f"EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = {alias}.PlatoonId AND p.CompanyId = ?)"
+            )
+            params.append(int(company_id))
+        if agniveer_no is not None:
+            clauses.append(f"LOWER({alias}.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
+            params.append(str(agniveer_no))
 
-    if operation in ("Top", "Bottom", "OverallPerformance", "BestAttempt"):
-        # Q1/Q2 logic
-        top_n = intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS
-        descending = False if operation == "Bottom" else True
-        order_dir = "DESC" if descending else "ASC"
-        
-        q_args = []
-        if attempt_no is not None:
-            attempt_filter = "sa.AttemptNo = ?"
-            q_args.append(str(attempt_no))
-        else:
-            attempt_filter = "sa.IsBestAttempt = 1"
-            
+        return " AND ".join(clauses), params
+
+    def _section_clause(section_alias: str = "sec", subitem_alias: str = "si") -> Tuple[str, List[Any]]:
+        clauses: List[str] = [f"ISNULL({section_alias}.IsExceptional, 0) = 0"]
+        params: List[Any] = []
+
+        if section:
+            clauses.append(
+                f"LOWER({section_alias}.SectionName) LIKE '%' + LOWER(?) + '%'"
+            )
+            params.append(section)
         if sub_section:
-            sql = f'''
-            SELECT a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS BestTotal 
-            FROM AgniveerScoreAttempt sa
-            JOIN AgniveerMaster a ON a.Id = sa.AgniveerId
-            WHERE sa.SubItemId IN (SELECT si.Id FROM ScoreSubItemMaster si WHERE LOWER(si.Name) LIKE '%' + LOWER(?) + '%')
-              AND sa.MarksObtained IS NOT NULL
-              AND {attempt_filter}
-              AND {get_scoped_exists('sa')}
-            GROUP BY a.AgniveerNo, a.FullName
-            ORDER BY BestTotal {order_dir}
-            '''
-            q_args.insert(0, sub_section)
-        else:
-            if section:
-                sec_filter = "(LOWER(sec.SectionName) LIKE '%' + LOWER(?) + '%' AND ISNULL(sec.IsExceptional,0)=0)"
-                q_args.insert(0, section)
-            else:
-                sec_filter = "ISNULL(sec.IsExceptional,0)=0"
-                
-            sql = f'''
-            SELECT a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS BestTotal 
-            FROM AgniveerScoreAttempt sa
-            JOIN AgniveerMaster a ON a.Id = sa.AgniveerId
-            WHERE sa.MarksObtained IS NOT NULL
-              AND {attempt_filter}
-              AND EXISTS (
-                  SELECT 1 FROM ScoreSubItemMaster si JOIN ScoreSectionMaster sec ON sec.Id = si.SectionId
-                  WHERE si.Id = sa.SubItemId AND {sec_filter}
-              )
-              AND {get_scoped_exists('sa')}
-            GROUP BY a.AgniveerNo, a.FullName
-            ORDER BY BestTotal {order_dir}
-            '''
-            
-        append_scoped_args(q_args)
-        
-        try:
-            rows, err = run_readonly(sql, tuple(q_args))
-            if err: return None, err
-            top_n = int(top_n)
-            rows = rows[:top_n] if rows else []
-            section_payload = _to_section(rows=rows, intent=intent, sql=sql)
-            return section_payload, None
-        except Exception as e:
-            return None, str(e)
-            
-    elif operation in ("Grading", "GradingSummary"):
-        try:
-            top_n = intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS
-            requested_grade = intent.get("grading")
-            
-            sec_sql = "SELECT Id, SectionName FROM ScoreSectionMaster WHERE ISNULL(IsExceptional,0) = 0"
-            sec_args = []
-            if section:
-                sec_sql += " AND LOWER(SectionName) LIKE '%' + LOWER(?) + '%'"
-                sec_args.append(section)
-                
-            sec_rows, err = run_readonly(sec_sql, tuple(sec_args))
-            if err: 
-                print(f"[DEBUG SEC ERR] {err}", flush=True)
-                return None, err
-            if not sec_rows: return _to_section(rows=[], intent=intent, sql=sec_sql), None
-            
-            target_section_ids = [r["Id"] for r in sec_rows]
-            section_map = {r["Id"]: r["SectionName"] for r in sec_rows}
-            
-            q_marks = ",".join(["?"] * len(target_section_ids))
-            si_sql = f"SELECT Id, SectionId, MaxMarks FROM ScoreSubItemMaster WHERE SectionId IN ({q_marks})"
-            si_rows, err = run_readonly(si_sql, tuple(target_section_ids))
-            if err: 
-                print(f"[DEBUG SI ERR] {err}", flush=True)
-                return None, err
-            subitem_map = {r["Id"]: {"SectionId": r["SectionId"], "MaxMarks": r["MaxMarks"]} for r in si_rows}
-            target_subitem_ids = list(subitem_map.keys())
-            if not target_subitem_ids: return _to_section(rows=[], intent=intent, sql=si_sql), None
-            
-            ag_sql = f'''
-            SELECT Id, AgniveerNo, FullName
-            FROM AgniveerMaster m
-            WHERE m.IsActive = 1 AND ISNULL(m.IsDisqualified,0) = 0
-              {batch_filter} {class_filter} {platoon_filter} {company_filter} {agniveer_filter}
-            '''
-            ag_args = []
-            append_scoped_args(ag_args)
-            ag_rows, err = run_readonly(ag_sql, tuple(ag_args))
-            if err: 
-                print(f"[DEBUG AG ERR] {err}", flush=True)
-                return None, err
-            ag_map = {r["Id"]: r for r in ag_rows}
-            scoped_ag_ids = list(ag_map.keys())
-            if not scoped_ag_ids: return _to_section(rows=[], intent=intent, sql=ag_sql), None
-            
-            q_ags = ",".join(["?"] * len(scoped_ag_ids))
-            q_sis = ",".join(["?"] * len(target_subitem_ids))
-            sa_sql = f'''
-            SELECT sa.AgniveerId, sa.SubItemId, sa.MarksObtained
-            FROM AgniveerScoreAttempt sa
-            WHERE sa.IsBestAttempt = 1 AND sa.MarksObtained IS NOT NULL
-              AND sa.AgniveerId IN ({q_ags}) AND sa.SubItemId IN ({q_sis})
-            '''
-            sa_args = scoped_ag_ids + target_subitem_ids
-            sa_rows, err = run_readonly(sa_sql, tuple(sa_args))
-            if err: 
-                print(f"[DEBUG SA ERR] {err}", flush=True)
-                return None, err
-            
-            import collections
-            ag_sec_group = collections.defaultdict(lambda: collections.defaultdict(list))
-            for row in sa_rows:
-                ag_id, si_id = row["AgniveerId"], row["SubItemId"]
-                sec_id = subitem_map[si_id]["SectionId"]
-                ag_sec_group[ag_id][sec_id].append(row)
-                
-            def get_grade(pct: float) -> str:
-                if pct >= 90: return 'Exceptionally Well'
-                if pct >= 75: return 'Excellent'
-                if pct >= 60: return 'Good'
-                if pct >= 45: return 'SAT'
-                return 'Fail'
-                
-            results = []
-            if operation == "GradingSummary":
-                grade_counts = collections.defaultdict(lambda: collections.defaultdict(int))
-                for ag_id, sec_dict in ag_sec_group.items():
-                    for sec_id, rows in sec_dict.items():
-                        obtained = sum(r["MarksObtained"] for r in rows)
-                        distinct_si = set(r["SubItemId"] for r in rows)
-                        dyn_max = sum(subitem_map[si]["MaxMarks"] for si in distinct_si)
-                        pct = round((obtained / dyn_max * 100), 2) if dyn_max > 0 else 0
-                        grade_counts[sec_id][get_grade(pct)] += 1
-                
-                for sec_id, counts in grade_counts.items():
-                    sec_name = section_map[sec_id]
-                    for grade in ['Exceptionally Well', 'Excellent', 'Good', 'SAT', 'Fail']:
-                        if counts[grade] > 0:
-                            results.append({"SectionName": sec_name, "Grade": grade, "Count": counts[grade]})
-                results.sort(key=lambda x: x["SectionName"])
-                return _to_section(rows=results, intent=intent, sql=sa_sql), None
-            else:
-                for ag_id, sec_dict in ag_sec_group.items():
-                    ag_info = ag_map[ag_id]
-                    if section:
-                        for sec_id, rows in sec_dict.items():
-                            obtained = sum(r["MarksObtained"] for r in rows)
-                            distinct_si = set(r["SubItemId"] for r in rows)
-                            dyn_max = sum(subitem_map[si]["MaxMarks"] for si in distinct_si)
-                            pct = round((obtained / dyn_max * 100), 2) if dyn_max > 0 else 0
-                            grade = get_grade(pct)
-                            if requested_grade and grade.lower() != requested_grade.lower(): continue
-                            results.append({"AgniveerNo": ag_info["AgniveerNo"], "FullName": ag_info["FullName"], "SectionName": section_map[sec_id], "Percentage": pct, "Grade": grade})
-                    else:
-                        total_obtained = 0
-                        overall_distinct_si = set()
-                        for sec_id, rows in sec_dict.items():
-                            total_obtained += sum(r["MarksObtained"] for r in rows)
-                            overall_distinct_si.update(r["SubItemId"] for r in rows)
-                        dyn_max = sum(subitem_map[si]["MaxMarks"] for si in overall_distinct_si)
-                        pct = round((total_obtained / dyn_max * 100), 2) if dyn_max > 0 else 0
-                        grade = get_grade(pct)
-                        if requested_grade and grade.lower() != requested_grade.lower(): continue
-                        results.append({"AgniveerNo": ag_info["AgniveerNo"], "FullName": ag_info["FullName"], "OverallPercentage": pct, "Grade": grade})
-                
-                top_n = int(top_n)
-                sort_key = "Percentage" if section else "OverallPercentage"
-                results.sort(key=lambda x: x[sort_key], reverse=True)
-                return _to_section(rows=results[:top_n], intent=intent, sql=sa_sql), None
-        except Exception as e:
-            return None, str(e)
+            clauses.append(
+                f"LOWER({subitem_alias}.Name) LIKE '%' + LOWER(?) + '%'"
+            )
+            params.append(sub_section)
 
-    return None, f"Operation {operation} logic not yet fully translated in executor."
+        return " AND ".join(clauses), params
+
+    def _attempt_clause(require_best_attempt: bool) -> Tuple[str, List[Any]]:
+        if attempt_no is not None:
+            return "sa.AttemptNo = ?", [int(attempt_no)]
+        if require_best_attempt:
+            return "sa.IsBestAttempt = 1", []
+        if from_attempt is not None and to_attempt is not None:
+            return "sa.AttemptNo IN (?, ?)", [int(from_attempt), int(to_attempt)]
+        return "1 = 1", []
+
+    def _filtered_attempts_source(
+        *, require_best_attempt: bool, include_attempt_window: bool = False
+    ) -> Tuple[str, List[Any]]:
+        section_sql, section_params = _section_clause()
+        scope_sql, scope_params = _scope_clause("a")
+
+        attempt_sql, attempt_params = _attempt_clause(require_best_attempt)
+        if include_attempt_window and from_attempt is not None and to_attempt is not None:
+            attempt_sql = "sa.AttemptNo IN (?, ?)"
+            attempt_params = [int(from_attempt), int(to_attempt)]
+
+        sql = f"""
+        SELECT
+            a.Id AS AgniveerId,
+            a.AgniveerNo,
+            a.FullName,
+            sa.AttemptNo,
+            sa.AttemptedDate,
+            sa.MarksObtained,
+            sa.IsBestAttempt,
+            sec.Id AS SectionId,
+            sec.SectionName,
+            si.Id AS SubItemId,
+            si.Name AS SubItemName,
+            si.MaxMarks
+        FROM AgniveerScoreAttempt sa
+            INNER JOIN AgniveerMaster a ON a.Id = sa.AgniveerId
+            INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+            INNER JOIN ScoreSectionMaster sec ON sec.Id = si.SectionId
+        WHERE sa.MarksObtained IS NOT NULL
+            AND {attempt_sql}
+            AND {section_sql}
+            AND {scope_sql}
+        """
+        params = attempt_params + section_params + scope_params
+        return sql, params
+
+    def _run(sql: str, params: List[Any]) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+        rows, err = run_readonly(sql, tuple(params))
+        if err:
+            return None, err
+        return rows or [], None
+
+    def _mark_generated() -> None:
+        try:
+            from sql_executor import metrics_hook
+
+            metrics_hook("generated")
+        except Exception:
+            pass
+
+    try:
+        if operation in ("Top", "Bottom", "OverallPerformance", "BestAttempt"):
+            descending = operation != "Bottom"
+            order_dir = "DESC" if descending else "ASC"
+            source_sql, source_params = _filtered_attempts_source(
+                require_best_attempt=(attempt_no is None)
+            )
+            sql = f"""
+            WITH FilteredAttempts AS (
+                {source_sql}
+            )
+            SELECT
+                AgniveerNo,
+                FullName,
+                SUM(MarksObtained) AS BestTotal
+            FROM FilteredAttempts
+            GROUP BY AgniveerNo, FullName
+            ORDER BY BestTotal {order_dir}, AgniveerNo ASC
+            """
+            rows, err = _run(sql, source_params)
+            if err:
+                return None, err
+            rows = rows[:top_n]
+            _mark_generated()
+            return _to_section(rows=rows, intent=intent, sql=sql), None
+
+        if operation == "Average":
+            source_sql, source_params = _filtered_attempts_source(
+                require_best_attempt=(attempt_no is None)
+            )
+            sql = f"""
+            WITH FilteredAttempts AS (
+                {source_sql}
+            )
+            SELECT
+                AgniveerNo,
+                FullName,
+                SectionName,
+                AVG(CAST(MarksObtained AS DECIMAL(18, 2))) AS AverageMarks
+            FROM FilteredAttempts
+            GROUP BY AgniveerNo, FullName, SectionName
+            ORDER BY AverageMarks DESC, AgniveerNo ASC
+            """
+            rows, err = _run(sql, source_params)
+            if err:
+                return None, err
+            rows = rows[:top_n]
+            _mark_generated()
+            return _to_section(rows=rows, intent=intent, sql=sql), None
+
+        if operation == "AttemptWise":
+            source_sql, source_params = _filtered_attempts_source(
+                require_best_attempt=False
+            )
+            sql = f"""
+            WITH FilteredAttempts AS (
+                {source_sql}
+            )
+            SELECT
+                AgniveerNo,
+                FullName,
+                SectionName,
+                AttemptNo,
+                SUM(MarksObtained) AS AttemptTotal
+            FROM FilteredAttempts
+            GROUP BY AgniveerNo, FullName, SectionName, AttemptNo
+            ORDER BY AgniveerNo ASC, SectionName ASC, AttemptNo ASC
+            """
+            rows, err = _run(sql, source_params)
+            if err:
+                return None, err
+            rows = rows[:top_n]
+            _mark_generated()
+            return _to_section(rows=rows, intent=intent, sql=sql), None
+
+        if operation == "Trend":
+            source_sql, source_params = _filtered_attempts_source(
+                require_best_attempt=False
+            )
+            sql = f"""
+            WITH FilteredAttempts AS (
+                {source_sql}
+            )
+            SELECT
+                SectionName,
+                AttemptNo,
+                COUNT(DISTINCT AgniveerId) AS AgniveerCount,
+                AVG(CAST(MarksObtained AS DECIMAL(18, 2))) AS AverageMarks,
+                SUM(MarksObtained) AS TotalMarks
+            FROM FilteredAttempts
+            GROUP BY SectionName, AttemptNo
+            ORDER BY SectionName ASC, AttemptNo ASC
+            """
+            rows, err = _run(sql, source_params)
+            if err:
+                return None, err
+            rows = rows[:top_n]
+            _mark_generated()
+            return _to_section(rows=rows, intent=intent, sql=sql), None
+
+        if operation in ("Improvement", "Drop"):
+            if from_attempt is not None and to_attempt is not None:
+                current_attempt = int(to_attempt)
+                previous_attempt = int(from_attempt)
+                source_sql, source_params = _filtered_attempts_source(
+                    require_best_attempt=False, include_attempt_window=True
+                )
+                delta_filter = "Delta > 0" if operation == "Improvement" else "Delta < 0"
+                order_column = "Improvement" if operation == "Improvement" else "Drop"
+                sql = f"""
+                WITH FilteredAttempts AS (
+                    {source_sql}
+                ),
+                AttemptTotals AS (
+                    SELECT
+                        AgniveerId,
+                        AgniveerNo,
+                        FullName,
+                        SectionName,
+                        AttemptNo,
+                        SUM(MarksObtained) AS AttemptTotal,
+                        MAX(AttemptedDate) AS AttemptedDate
+                    FROM FilteredAttempts
+                    GROUP BY AgniveerId, AgniveerNo, FullName, SectionName, AttemptNo
+                ),
+                Compared AS (
+                    SELECT
+                        cur.AgniveerNo,
+                        cur.FullName,
+                        cur.SectionName,
+                        cur.AttemptNo AS CurrentAttemptNo,
+                        prev.AttemptNo AS PreviousAttemptNo,
+                        cur.AttemptTotal AS CurrentTotal,
+                        prev.AttemptTotal AS PreviousTotal,
+                        cur.AttemptTotal - prev.AttemptTotal AS Delta
+                    FROM AttemptTotals cur
+                        INNER JOIN AttemptTotals prev
+                            ON prev.AgniveerId = cur.AgniveerId
+                            AND prev.SectionName = cur.SectionName
+                    WHERE cur.AttemptNo = ? AND prev.AttemptNo = ?
+                )
+                SELECT
+                    AgniveerNo,
+                    FullName,
+                    SectionName,
+                    CurrentAttemptNo,
+                    PreviousAttemptNo,
+                    CurrentTotal,
+                    PreviousTotal,
+                    CASE WHEN Delta > 0 THEN Delta ELSE 0 END AS Improvement,
+                    CASE WHEN Delta < 0 THEN -Delta ELSE 0 END AS Drop
+                FROM Compared
+                WHERE {delta_filter}
+                ORDER BY {order_column} DESC, AgniveerNo ASC
+                """
+                params = source_params + [current_attempt, previous_attempt]
+            else:
+                source_sql, source_params = _filtered_attempts_source(
+                    require_best_attempt=False
+                )
+                delta_filter = "Delta > 0" if operation == "Improvement" else "Delta < 0"
+                order_column = "Improvement" if operation == "Improvement" else "Drop"
+                sql = f"""
+                WITH FilteredAttempts AS (
+                    {source_sql}
+                ),
+                AttemptTotals AS (
+                    SELECT
+                        AgniveerId,
+                        AgniveerNo,
+                        FullName,
+                        SectionName,
+                        AttemptNo,
+                        SUM(MarksObtained) AS AttemptTotal,
+                        MAX(AttemptedDate) AS AttemptedDate
+                    FROM FilteredAttempts
+                    GROUP BY AgniveerId, AgniveerNo, FullName, SectionName, AttemptNo
+                ),
+                Ranked AS (
+                    SELECT
+                        *,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY AgniveerId, SectionName
+                            ORDER BY AttemptNo DESC, AttemptedDate DESC
+                        ) AS rn
+                    FROM AttemptTotals
+                ),
+                Compared AS (
+                    SELECT
+                        cur.AgniveerNo,
+                        cur.FullName,
+                        cur.SectionName,
+                        cur.AttemptNo AS CurrentAttemptNo,
+                        prev.AttemptNo AS PreviousAttemptNo,
+                        cur.AttemptTotal AS CurrentTotal,
+                        prev.AttemptTotal AS PreviousTotal,
+                        cur.AttemptTotal - prev.AttemptTotal AS Delta
+                    FROM Ranked cur
+                        INNER JOIN Ranked prev
+                            ON prev.AgniveerId = cur.AgniveerId
+                            AND prev.SectionName = cur.SectionName
+                    WHERE cur.rn = 1 AND prev.rn = 2
+                )
+                SELECT
+                    AgniveerNo,
+                    FullName,
+                    SectionName,
+                    CurrentAttemptNo,
+                    PreviousAttemptNo,
+                    CurrentTotal,
+                    PreviousTotal,
+                    CASE WHEN Delta > 0 THEN Delta ELSE 0 END AS Improvement,
+                    CASE WHEN Delta < 0 THEN -Delta ELSE 0 END AS Drop
+                FROM Compared
+                WHERE {delta_filter}
+                ORDER BY {order_column} DESC, AgniveerNo ASC
+                """
+                params = source_params
+
+            rows, err = _run(sql, params)
+            if err:
+                return None, err
+            rows = rows[:top_n]
+            _mark_generated()
+            return _to_section(rows=rows, intent=intent, sql=sql), None
+
+        if operation in ("Grading", "GradingSummary"):
+            source_sql, source_params = _filtered_attempts_source(
+                require_best_attempt=True
+            )
+            sql = f"""
+            WITH FilteredAttempts AS (
+                {source_sql}
+            ),
+            AttemptedMax AS (
+                SELECT DISTINCT
+                    AgniveerId,
+                    SectionId,
+                    SubItemId,
+                    MaxMarks
+                FROM FilteredAttempts
+            ),
+            DynamicMax AS (
+                SELECT
+                    AgniveerId,
+                    SectionId,
+                    SUM(COALESCE(MaxMarks, 0)) AS DynamicMax
+                FROM AttemptedMax
+                GROUP BY AgniveerId, SectionId
+            ),
+            BestTotals AS (
+                SELECT
+                    AgniveerId,
+                    AgniveerNo,
+                    FullName,
+                    SectionId,
+                    SectionName,
+                    SUM(MarksObtained) AS BestTotal
+                FROM FilteredAttempts
+                GROUP BY AgniveerId, AgniveerNo, FullName, SectionId, SectionName
+            ),
+            Scored AS (
+                SELECT
+                    bt.AgniveerId,
+                    bt.AgniveerNo,
+                    bt.FullName,
+                    bt.SectionName,
+                    bt.BestTotal,
+                    dm.DynamicMax,
+                    CASE
+                        WHEN dm.DynamicMax IS NULL OR dm.DynamicMax = 0 THEN NULL
+                        WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 90 THEN 'Exceptionally Well'
+                        WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 75 THEN 'Excellent'
+                        WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 60 THEN 'Good'
+                        WHEN 100.0 * bt.BestTotal / dm.DynamicMax >= 45 THEN 'SAT'
+                        ELSE 'Fail'
+                    END AS Grade,
+                    CASE
+                        WHEN dm.DynamicMax > 0 THEN ROUND(100.0 * bt.BestTotal / dm.DynamicMax, 2)
+                        ELSE NULL
+                    END AS Percentage
+                FROM BestTotals bt
+                    LEFT JOIN DynamicMax dm
+                        ON dm.AgniveerId = bt.AgniveerId
+                        AND dm.SectionId = bt.SectionId
+            )
+            """
+            params = source_params
+
+            if operation == "GradingSummary":
+                sql += """
+                SELECT
+                    SectionName,
+                    Grade,
+                    COUNT(*) AS Count
+                FROM Scored
+                GROUP BY SectionName, Grade
+                ORDER BY SectionName ASC, Grade ASC
+                """
+            else:
+                if section:
+                    sql += """
+                    SELECT
+                        AgniveerNo,
+                        FullName,
+                        SectionName,
+                        Percentage,
+                        Grade
+                    FROM Scored
+                    """
+                else:
+                    sql += """
+                    SELECT
+                        AgniveerNo,
+                        FullName,
+                        SectionName,
+                        Percentage AS OverallPercentage,
+                        Grade
+                    FROM Scored
+                    """
+
+                if requested_grade:
+                    sql += " WHERE LOWER(Grade) = LOWER(?)"
+                    params = params + [str(requested_grade)]
+                if section:
+                    sql += (
+                        " ORDER BY Percentage DESC, AgniveerNo ASC"
+                    )
+                else:
+                    sql += (
+                        " ORDER BY OverallPercentage DESC, AgniveerNo ASC"
+                    )
+                if top_n:
+                    sql += ""
+
+            rows, err = _run(sql, params)
+            if err:
+                return None, err
+            if operation != "GradingSummary":
+                rows = rows[:top_n]
+            _mark_generated()
+            return _to_section(rows=rows, intent=intent, sql=sql), None
+
+        return None, f"Operation {operation} logic not yet fully translated in executor."
+    except Exception as exc:
+        logger.error("Performance executor failed: %s", exc, exc_info=True)
+        return None, str(exc)

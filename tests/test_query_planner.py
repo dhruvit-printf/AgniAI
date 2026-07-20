@@ -7,6 +7,13 @@ from intent_engine.query_planner import QueryType, plan_query
 
 class TestQueryPlanner(unittest.TestCase):
 
+    def test_confidence_is_clamped_to_one(self):
+        plan = plan_query(
+            "Show top BPET performers",
+            semantic={"query_type": "simple", "confidence": 1.7},
+        )
+        self.assertLessEqual(plan.confidence, 1.0)
+
     def test_comparison_markers_share_single_source(self):
         """Regression guard: query_planner._COMPARISON_KEYWORDS must stay an
         import of query_understanding_engine._COMPARISON_MARKERS, not an

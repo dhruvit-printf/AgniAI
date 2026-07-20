@@ -617,6 +617,13 @@ def _compute_confidence(
     return confidence_score
 
 
+def _clamp_confidence(value: float) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except Exception:
+        return 0.0
+
+
 def _should_entity_override_category(
     entities: Optional[Dict[str, Any]],
     classified_category: Optional[str],
@@ -892,7 +899,9 @@ def classify_intent(
                         "operation": None,
                         "responseType": _detect_response_type(query_text),
                         "raw_query": query,
-                        "confidence_score": round(sem_result.get("confidence", 0.0), 2),
+                        "confidence_score": round(
+                            _clamp_confidence(sem_result.get("confidence", 0.0)), 2
+                        ),
                         "confidence": "low",
                         "needs_clarification": True,
                         "clarification_question": sem_result.get(
@@ -901,7 +910,7 @@ def classify_intent(
                     }
                 sem_cat = sem_result.get("category")
                 sem_op = sem_result.get("operation")
-                sem_conf = float(sem_result.get("confidence", 0.0))
+                sem_conf = _clamp_confidence(sem_result.get("confidence", 0.0))
                 if sem_cat:
                     logger.info(
                         "[SEMANTIC STAGE2] %s → %s/%s conf=%.3f",
@@ -969,6 +978,7 @@ def classify_intent(
             category, category_score, operation, operation_score, semantic, entities
         )
 
+    confidence_score = _clamp_confidence(confidence_score)
     response_type = _detect_response_type(query_text, category)
 
     return {

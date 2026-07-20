@@ -16,13 +16,10 @@ from metrics import Metrics
 
 
 class TestSqlMetricsCounters:
-    def test_llm_fallback_increments_counter(self):
+    def test_performance_executor_increments_generated_counter(self):
         m = Metrics()
         with (
             patch("metrics.metrics_collector", m),
-            patch("query_planner_v2.query_planner_v2.plan_query", side_effect=Exception("AST Failed")),
-            patch("sql_executor.generate_sql", return_value=("SELECT 1", None)),
-            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
             patch("sql_executor.run_readonly", return_value=([], None)),
         ):
             from sql_executor import execute_sql_query
@@ -35,8 +32,9 @@ class TestSqlMetricsCounters:
                     "operation": "Top",
                 },
             )
-        assert m.sql_llm_fallback_total == 1
         assert m.sql_generated_total == 1
+        assert m.sql_llm_fallback_total == 0
+        assert m.sql_capability_gap_fallback_total == 0
 
     def test_generated_increments_counter(self):
         m = Metrics()
@@ -123,12 +121,10 @@ class TestSqlMetricsCounters:
         assert "sql_capability_gap_fallback_total 1" in text
         assert "sql_latency_seconds_sum" in text
 
-    def test_capability_gap_fallback_increments_counter(self):
+    def test_performance_average_increments_generated_counter(self):
         m = Metrics()
         with (
             patch("metrics.metrics_collector", m),
-            patch("sql_executor.generate_sql", return_value=("SELECT 1", None)),
-            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
             patch("sql_executor.run_readonly", return_value=([], None)),
         ):
             from sql_executor import execute_sql_query
@@ -140,8 +136,9 @@ class TestSqlMetricsCounters:
                     "operation": "Average",
                 },
             )
-        assert m.sql_capability_gap_fallback_total == 1
-        assert m.sql_llm_fallback_total == 1
+        assert m.sql_generated_total == 1
+        assert m.sql_capability_gap_fallback_total == 0
+        assert m.sql_llm_fallback_total == 0
 
     def test_structural_reject_fallback_increments_counter(self):
         m = Metrics()

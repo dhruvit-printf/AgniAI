@@ -46,10 +46,13 @@ SAFETY MODEL (do not weaken any of these):
 from __future__ import annotations
 
 import datetime
+import json
 import decimal
 import logging
 import os
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from sql_validator import sql_validator
@@ -164,6 +167,61 @@ _GENERATION_SYSTEM = (
 # counts), always as-of-today — not a filterable row list — so it doesn't fit
 # query_planner_v2's one-condition-set-per-query AST model. Each count is a
 # scalar subquery so the whole card is one round trip.
+@lru_cache(maxsize=1)
+def _load_business_ontology() -> Dict[str, Any]:
+    """Load the business ontology that maps concepts to tables and default filters."""
+    ontology_path = Path(__file__).with_name("business_ontology.json")
+    try:
+        return json.loads(ontology_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"concepts": {}}
+
+
+def _build_project_overview_context() -> str:
+    """Build the compact prompt context injected into text2sql fallback."""
+    ontology = _load_business_ontology().get("concepts", {})
+
+    lines = [
+        "PROJECT OVERVIEW:",
+        "  User question -> intent classification -> deterministic executor if available -> SQL fallback -> validation -> read-only execution -> grounded answer.",
+        "",
+        "DETERMINISTIC EXECUTORS IN CODE:",
+        "  - Performance / Overall: performance_executor.execute_performance_query handles Top, Bottom, OverallPerformance, BestAttempt, Average, AttemptWise, Trend, Improvement, Drop, Grading, GradingSummary.",
+        "  - Medical / BMI: compute per agniveer from the latest MedicalRecordMaster row with fallback to AgniveerMaster Height/Weight, using BMI = Weight / POWER(Height / 100.0, 2).",
+        "  - Strength: sql_executor._build_strength_breakdown_sql returns the fixed dashboard card for active/leave/disqualified counts.",
+        "  - Verification: sql_executor has explicit SQL branches for Pending, NotResponded, Verified/Completed, Rejected, Sent, and the default status listing.",
+        "  - Leave: sql_executor has explicit SQL branches for Current, Most, Least, and Threshold leave queries.",
+        "  - Attendance: sql_executor builds the daily/weekly/monthly attendance calendar directly for a named agniveer.",
+        "  - Everything else: the AST planner and sql_builder compile the intent before any text-to-SQL fallback is used.",
+        "",
+        "BUSINESS CONCEPT TO TABLE MAP:",
+    ]
+
+    for concept, meta in ontology.items():
+        table = meta.get("table", "unknown_table")
+        concept_type = meta.get("type", "unknown")
+        default_date = meta.get("default_date_column") or "none"
+        implicit_filters = meta.get("implicit_filters") or {}
+        if implicit_filters:
+            implicit_text = ", ".join(f"{k}={v}" for k, v in implicit_filters.items())
+        else:
+            implicit_text = "none"
+        lines.append(
+            f"  - {concept}: {table} [{concept_type}], default_date={default_date}, implicit_filters={implicit_text}"
+        )
+
+    lines.extend(
+        [
+            "",
+            "LLM FALLBACK RULES:",
+            "  - Prefer the exact tables, joins, and filters used by the codebase.",
+            "  - Do not invent columns, aliases, or business meanings that conflict with the executor logic.",
+            "  - If a query maps to a supported executor above, mirror that executor's semantics exactly.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _build_strength_breakdown_sql() -> str:
     today_in_range = (
         "CAST(GETDATE() AS DATE) BETWEEN CAST(FromDate AS DATE) AND CAST(ToDate AS DATE)"
@@ -222,6 +280,133 @@ def _build_attendance_calendar_sql() -> str:
     )
 
 
+def _build_medical_bmi_sql(
+    *,
+    top_n: int,
+    bmi_category: str = "",
+    batch_id: Optional[int] = None,
+    platoon_id: Optional[int] = None,
+    company_id: Optional[int] = None,
+    company_name: Optional[str] = None,
+    agniveer_no: Optional[str] = None,
+    agniveer_class: Optional[str] = None,
+) -> Tuple[str, List[Any]]:
+    """Build a deterministic per-agniveer BMI query from raw medical records."""
+    clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)"]
+    params: List[Any] = []
+
+    if batch_id is not None:
+        clauses.append("a.BatchId = ?")
+        params.append(int(batch_id))
+    if agniveer_class is not None:
+        clauses.append("LOWER(a.Class) = LOWER(?)")
+        params.append(str(agniveer_class))
+    if platoon_id is not None:
+        clauses.append("a.PlatoonId = ?")
+        params.append(int(platoon_id))
+    if company_id is not None:
+        clauses.append("c.Id = ?")
+        params.append(int(company_id))
+    if company_name is not None:
+        clauses.append("LOWER(c.Name) = LOWER(?)")
+        params.append(str(company_name))
+    if agniveer_no is not None:
+        clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
+        params.append(str(agniveer_no))
+
+    category = bmi_category.strip().lower()
+    category_filter = ""
+    if category == "underweight":
+        category_filter = "WHERE BmiValue < 18.5"
+    elif category == "normal":
+        category_filter = "WHERE BmiValue >= 18.5 AND BmiValue < 25.0"
+    elif category == "overweight":
+        category_filter = "WHERE BmiValue >= 25.0 AND BmiValue < 30.0"
+    elif category == "obese":
+        category_filter = "WHERE BmiValue >= 30.0"
+
+    if category:
+        final_select = (
+            f"SELECT TOP ({top_n}) "
+            "AgniveerNo, FullName, "
+            "CASE "
+            "WHEN BmiValue IS NULL THEN NULL "
+            "WHEN BmiValue < 18.5 THEN 'Underweight' "
+            "WHEN BmiValue < 25.0 THEN 'Normal' "
+            "WHEN BmiValue < 30.0 THEN 'Overweight' "
+            "ELSE 'Obese' "
+            "END AS BmiCategory "
+            "FROM Scored "
+            f"{category_filter} "
+            "ORDER BY AgniveerNo ASC"
+        )
+    else:
+        final_select = (
+            f"SELECT TOP ({top_n}) "
+            "AgniveerNo, FullName, BmiValue, "
+            "CASE "
+            "WHEN BmiValue IS NULL THEN NULL "
+            "WHEN BmiValue < 18.5 THEN 'Underweight' "
+            "WHEN BmiValue < 25.0 THEN 'Normal' "
+            "WHEN BmiValue < 30.0 THEN 'Overweight' "
+            "ELSE 'Obese' "
+            "END AS BmiCategory "
+            "FROM Scored "
+            "WHERE BmiValue IS NOT NULL "
+            "ORDER BY BmiValue DESC, AgniveerNo ASC"
+        )
+
+    sql = f"""
+    WITH LatestMedical AS (
+        SELECT
+            mr.AgniveerId,
+            mr.Height,
+            mr.Weight,
+            ROW_NUMBER() OVER (
+                PARTITION BY mr.AgniveerId
+                ORDER BY mr.VisitDate DESC, mr.Id DESC
+            ) AS rn
+        FROM MedicalRecordMaster mr
+        WHERE mr.Height IS NOT NULL
+            AND mr.Weight IS NOT NULL
+    ),
+    Vitals AS (
+        SELECT
+            a.Id AS AgniveerId,
+            a.AgniveerNo,
+            a.FullName,
+            a.BatchId,
+            a.Class,
+            p.Id AS PlatoonId,
+            p.CompanyId,
+            c.Name AS CompanyName,
+            COALESCE(lm.Height, a.Height) AS EffHeight,
+            COALESCE(lm.Weight, a.Weight) AS EffWeight
+        FROM AgniveerMaster a
+            LEFT JOIN LatestMedical lm
+                ON lm.AgniveerId = a.Id
+                AND lm.rn = 1
+            LEFT JOIN PlatoonMaster p
+                ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c
+                ON c.Id = p.CompanyId
+        WHERE {" AND ".join(clauses)}
+    ),
+    Scored AS (
+        SELECT
+            AgniveerNo,
+            FullName,
+            CASE
+                WHEN EffHeight IS NULL OR EffWeight IS NULL OR EffHeight <= 0 THEN NULL
+                ELSE CAST(EffWeight / POWER(EffHeight / 100.0, 2) AS DECIMAL(10, 2))
+            END AS BmiValue
+        FROM Vitals
+    )
+    {final_select}
+    """
+    return sql, params
+
+
 def _resolve_attendance_range(intent: Dict) -> Tuple[Optional[str], Optional[str]]:
     """Returns (range_start, range_end) as date strings. Monthly/Weekly rely
     on date_resolver having already expanded "current month"/"this week"/etc.
@@ -274,6 +459,7 @@ def generate_sql(
     if intent:
         hint = f"\nCLASSIFIER HINT (may be partial): {intent}\n"
 
+    project_overview = _build_project_overview_context()
     dynamic_schema = generate_dynamic_schema_card()
 
     if SQL_SERVER_2008_COMPAT:
@@ -281,7 +467,15 @@ def generate_sql(
     else:
         dialect_hint = ""
 
-    user = f"{dynamic_schema}\n{LLM_HARD_RULES}\n{dialect_hint}\n{hint}\nQUESTION: {question}\nSQL:"
+    user = (
+        f"{project_overview}\n\n"
+        f"{dynamic_schema}\n\n"
+        f"{LLM_HARD_RULES}\n"
+        f"{dialect_hint}\n"
+        f"{hint}\n"
+        f"QUESTION: {question}\n"
+        "SQL:"
+    )
     try:
         result = chat_with_fallback(
             ollama_session,
@@ -456,6 +650,31 @@ def execute_sql_query(
         return None, "No intent provided to query planner."
         
     print(f"[DEBUG INTERCEPT] intent: {intent}", flush=True)
+
+    if intent.get("query_type") == "text2sql":
+        try:
+            sql, gen_err = generate_sql(question, intent)
+            if gen_err:
+                metrics_hook("cannot_answer")
+                return None, f"Fallback SQL generation failed: {gen_err}"
+
+            is_sql_valid, sql_err = sql_validator.validate_sql(sql)
+            if not is_sql_valid:
+                metrics_hook("validator_rejected")
+                return None, f"Fallback SQL validation failed: {sql_err}"
+
+            rows, run_err = run_readonly(sql, [])
+            if run_err:
+                metrics_hook("exec_error")
+                return None, f"Fallback SQL execution failed: {run_err}"
+
+            metrics_hook("generated")
+            metrics_hook("llm_fallback")
+            res = _to_section(rows or [], intent, sql=sql)
+            return res, None
+        except Exception as exc:
+            logger.error("Explicit text2sql fallback failed: %s", exc, exc_info=True)
+            return None, f"Fallback LLM pipeline failed: {exc}"
         
     if intent.get("category") in ("Performance", "Overall"):
         from performance_executor import execute_performance_query
@@ -1035,6 +1254,29 @@ ORDER BY TotalLeaveDays DESC
                 {"concept": "Agniveer", "column": "AgniveerNo", "descending": False},
             ]
 
+        elif category == "Medical" and operation == "BMI":
+            bmi_category = str(
+                intent.get("bmiCategory") or intent.get("bmi_category") or ""
+            ).strip()
+            sql, params = _build_medical_bmi_sql(
+                top_n=int(intent.get("number") or SQL_MAX_ROWS),
+                bmi_category=bmi_category,
+                batch_id=batch_id,
+                platoon_id=platoon_id,
+                company_id=company_id,
+                company_name=company_name,
+                agniveer_no=agniveer_no,
+                agniveer_class=class_,
+            )
+            is_sql_valid, sql_err = sql_validator.validate_sql(sql)
+            if not is_sql_valid:
+                return None, f"Medical BMI SQL validation failed: {sql_err}"
+            rows, run_err = run_readonly(sql, params)
+            if run_err:
+                return None, f"Medical BMI execution failed: {run_err}"
+            metrics_hook("generated")
+            return _to_section(rows or [], intent, sql=sql), None
+
         # 2. Gaps/Unsupported aggregation operations (routed to Tier 2 Fallback)
         elif (
             (
@@ -1051,7 +1293,7 @@ ORDER BY TotalLeaveDays DESC
                     "Trend",
                 )
             )
-            or (category == "Medical" and operation in ("BMI", "BloodGroup"))
+            or (category == "Medical" and operation == "BloodGroup")
             # "Disease" only needs the LLM/CTE path for genuine aggregates
             # ("top diseases", "most common disease" — no specific disease
             # named, so `diagnose` is None). A named-disease lookup ("who has
