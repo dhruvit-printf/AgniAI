@@ -421,6 +421,183 @@ class TestExecuteSqlQuery:
             assert "COUNT(*) AS AgniveerCount" in sql
             assert "AgniveerNo, FullName, BloodGroup" not in sql
 
+    def test_schedule_by_company_id_skips_lookup(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.return_value = (
+                [{"CompanyName": "Alpha", "ScheduleDate": "2026-07-20", "Pd": "1"}],
+                None,
+            )
+            data, err = execute_sql_query(
+                question="schedule for company 5",
+                intent={"category": "Schedule", "operation": "bycompany", "company_id": 5},
+            )
+            assert err is None
+            assert data["success"] is True
+            assert mock_run.call_count == 1
+            sql, params = mock_run.call_args[0]
+            assert "CompanySchedule" in sql
+            assert "s.CompanyId = ?" in sql
+            assert params == [5]
+
+    def test_schedule_by_company_name_resolves_id_first(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.side_effect = [
+                ([{"CompanyId": 5}], None),
+                ([{"CompanyName": "Lakhwinder", "ScheduleDate": "2026-07-20"}], None),
+            ]
+            data, err = execute_sql_query(
+                question="give schedule for lakhwinder company",
+                intent={"category": "Schedule", "operation": "bycompany", "company_name": "Lakhwinder"},
+            )
+            assert err is None
+            assert data["success"] is True
+            assert mock_run.call_count == 2
+            lookup_sql, lookup_params = mock_run.call_args_list[0][0]
+            assert "CompanyMaster" in lookup_sql
+            assert lookup_params == ["Lakhwinder"]
+            final_sql, final_params = mock_run.call_args_list[1][0]
+            assert "CompanySchedule" in final_sql
+            assert final_params == [5]
+
+    def test_schedule_by_platoon_resolves_company_via_platoon(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.side_effect = [
+                ([{"CompanyId": 7}], None),
+                ([{"CompanyName": "Bravo"}], None),
+            ]
+            data, err = execute_sql_query(
+                question="schedule for platoon 3",
+                intent={"category": "Schedule", "operation": "bycompany", "platoon_id": 3},
+            )
+            assert err is None
+            lookup_sql, lookup_params = mock_run.call_args_list[0][0]
+            assert "PlatoonMaster" in lookup_sql
+            assert lookup_params == [3]
+            final_sql, final_params = mock_run.call_args_list[1][0]
+            assert final_params == [7]
+
+    def test_schedule_by_agniveer_no_resolves_company_via_platoon_join(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.side_effect = [
+                ([{"CompanyId": 9}], None),
+                ([{"CompanyName": "Charlie"}], None),
+            ]
+            data, err = execute_sql_query(
+                question="what is the schedule for agniveer A0701882L today",
+                intent={
+                    "category": "Schedule",
+                    "operation": "byagniveer",
+                    "agniveer_no": "A0701882L",
+                    "date": "2026-07-20",
+                },
+            )
+            assert err is None
+            lookup_sql, lookup_params = mock_run.call_args_list[0][0]
+            assert "AgniveerMaster" in lookup_sql
+            assert "PlatoonMaster" in lookup_sql
+            assert lookup_params == ["A0701882L"]
+            final_sql, final_params = mock_run.call_args_list[1][0]
+            assert "CAST(s.ScheduleDate AS DATE) = CAST(? AS DATE)" in final_sql
+            assert final_params == [9, "2026-07-20"]
+
+    def test_schedule_bytoday_filters_on_resolved_date(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.return_value = ([{"ScheduleDate": "2026-07-20"}], None)
+            data, err = execute_sql_query(
+                question="what is today's schedule for company 5",
+                intent={
+                    "category": "Schedule",
+                    "operation": "bytoday",
+                    "company_id": 5,
+                    "date": "2026-07-20",
+                },
+            )
+            assert err is None
+            sql, params = mock_run.call_args[0]
+            assert "CAST(s.ScheduleDate AS DATE) = CAST(? AS DATE)" in sql
+            assert params == [5, "2026-07-20"]
+
+    def test_schedule_bydate_range_uses_from_to(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.return_value = ([{"ScheduleDate": "2026-07-20"}], None)
+            data, err = execute_sql_query(
+                question="schedule for company 5 this week",
+                intent={
+                    "category": "Schedule",
+                    "operation": "bydate",
+                    "company_id": 5,
+                    "from_date": "2026-07-20",
+                    "to_date": "2026-07-26",
+                },
+            )
+            assert err is None
+            sql, params = mock_run.call_args[0]
+            assert "CAST(s.ScheduleDate AS DATE) >= CAST(? AS DATE)" in sql
+            assert "CAST(s.ScheduleDate AS DATE) <= CAST(? AS DATE)" in sql
+            assert params == [5, "2026-07-20", "2026-07-26"]
+
+    def test_schedule_bycompany_without_date_returns_full_schedule(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.return_value = ([{"ScheduleDate": "2026-07-20"}], None)
+            data, err = execute_sql_query(
+                question="schedule for company 5",
+                intent={"category": "Schedule", "operation": "bycompany", "company_id": 5},
+            )
+            assert err is None
+            sql, params = mock_run.call_args[0]
+            assert "ScheduleDate AS DATE) =" not in sql
+            assert params == [5]
+
+    def test_schedule_without_any_scope_errors(self):
+        data, err = execute_sql_query(
+            question="show me the schedule",
+            intent={"category": "Schedule", "operation": "bytoday", "date": "2026-07-20"},
+        )
+        assert data is None
+        assert "Please specify a company, platoon, or agniveer" in err
+
+    def test_schedule_unresolvable_entity_errors(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.return_value = ([], None)
+            data, err = execute_sql_query(
+                question="schedule for nonexistent company",
+                intent={"category": "Schedule", "operation": "bycompany", "company_name": "Nonexistent"},
+            )
+            assert data is None
+            assert "Could not find a company" in err
+
     @pytest.mark.parametrize(
         "intent, expected_fragment",
         [

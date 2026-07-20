@@ -503,6 +503,83 @@ def _build_medical_blood_group_sql(
     return sql, params
 
 
+# ── Company Schedule (deterministic — Tier 0) ──────────────────────────────
+# CompanySchedule only carries a CompanyId column (no PlatoonId/AgniveerId),
+# so a schedule asked "for a platoon" or "for an agniveer" must first resolve
+# up the chain to the company that platoon/agniveer belongs to:
+#   AgniveerMaster.AgniveerNo -> AgniveerMaster.PlatoonId
+#   -> PlatoonMaster.Id/CompanyId -> CompanyMaster.Id -> CompanySchedule.CompanyId
+_COMPANY_ID_BY_NAME_SQL = (
+    "SELECT TOP (1) Id AS CompanyId FROM CompanyMaster WHERE LOWER(Name) = LOWER(?)"
+)
+_COMPANY_ID_BY_PLATOON_ID_SQL = (
+    "SELECT TOP (1) CompanyId FROM PlatoonMaster WHERE Id = ?"
+)
+_COMPANY_ID_BY_PLATOON_NAME_SQL = (
+    "SELECT TOP (1) CompanyId FROM PlatoonMaster WHERE LOWER(Name) = LOWER(?)"
+)
+_COMPANY_ID_BY_AGNIVEER_NO_SQL = (
+    "SELECT TOP (1) p.CompanyId AS CompanyId "
+    "FROM AgniveerMaster a "
+    "LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId "
+    "WHERE LOWER(a.AgniveerNo) = LOWER(?)"
+)
+
+
+def _build_company_schedule_sql(
+    *,
+    company_id: Optional[int] = None,
+    date: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    top_n: int = 500,
+) -> Tuple[str, List[Any]]:
+    """Build the deterministic CompanySchedule query for a resolved company or all companies.
+
+    No date scope (bycompany with nothing else specified) returns the whole
+    schedule; a single `date` scopes to that day; a `from_date`/`to_date` pair
+    scopes to that range.
+    """
+    clauses = []
+    params: List[Any] = []
+
+    if company_id is not None:
+        clauses.append("s.CompanyId = ?")
+        params.append(int(company_id))
+
+    if from_date or to_date:
+        if from_date:
+            clauses.append("CAST(s.ScheduleDate AS DATE) >= CAST(? AS DATE)")
+            params.append(str(from_date)[:10])
+        if to_date:
+            clauses.append("CAST(s.ScheduleDate AS DATE) <= CAST(? AS DATE)")
+            params.append(str(to_date)[:10])
+    elif date:
+        clauses.append("CAST(s.ScheduleDate AS DATE) = CAST(? AS DATE)")
+        params.append(str(date)[:10])
+
+    where_str = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    sql = f"""
+    SELECT TOP ({top_n})
+        c.Name AS CompanyName,
+        s.ScheduleDate,
+        s.Pd,
+        s.TimeRange,
+        s.Code,
+        s.Type,
+        s.Details,
+        s.Location,
+        s.Resp
+    FROM CompanySchedule s
+        LEFT JOIN CompanyMaster c ON c.Id = s.CompanyId
+    {where_str}
+    ORDER BY s.ScheduleDate ASC, s.Pd ASC
+    """
+    return sql, params
+
+
+
 def _resolve_attendance_range(intent: Dict) -> Tuple[Optional[str], Optional[str]]:
     """Returns (range_start, range_end) as YYYY-MM-DD date strings.
     Handles Daily, Weekly, Monthly, Summary operations cleanly."""
@@ -1034,6 +1111,68 @@ ORDER BY TotalLeaveDays DESC
                 row["FullName"] = agniveer_row["FullName"]
             res = _to_section(rows or [], intent, sql=sql)
             return res, None
+
+    if intent.get("category") == "Schedule":
+        _s_company_id = intent.get("company_id") or intent.get("companyId")
+        _s_company_name = (
+            intent.get("company_name")
+            or intent.get("companyName")
+            or intent.get("Company")
+            or intent.get("company")
+        )
+        _s_platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+        _s_platoon_name = intent.get("platoon_name") or intent.get("platoonName")
+        _s_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        _s_date = intent.get("date")
+        _s_from_date = intent.get("from_date") or intent.get("fromDate")
+        _s_to_date = intent.get("to_date") or intent.get("toDate")
+        _s_top_n = intent.get("number") or 500
+
+        _resolved_company_id: Optional[int] = None
+        _lookup_sql: Optional[str] = None
+        _lookup_params: Optional[List[Any]] = None
+
+        if _s_company_id is not None:
+            _resolved_company_id = int(_s_company_id)
+        elif _s_agniveer_no:
+            _lookup_sql = _COMPANY_ID_BY_AGNIVEER_NO_SQL
+            _lookup_params = [str(_s_agniveer_no)]
+        elif _s_platoon_id is not None:
+            _lookup_sql = _COMPANY_ID_BY_PLATOON_ID_SQL
+            _lookup_params = [int(_s_platoon_id)]
+        elif _s_platoon_name:
+            _lookup_sql = _COMPANY_ID_BY_PLATOON_NAME_SQL
+            _lookup_params = [str(_s_platoon_name)]
+        elif _s_company_name:
+            _lookup_sql = _COMPANY_ID_BY_NAME_SQL
+            _lookup_params = [str(_s_company_name)]
+
+        if _resolved_company_id is None and _lookup_sql is not None:
+            _is_lookup_valid, _lookup_err = sql_validator.validate_sql(_lookup_sql)
+            if not _is_lookup_valid:
+                return None, f"Schedule company lookup SQL validation failed: {_lookup_err}"
+            _lookup_rows, _lookup_run_err = run_readonly(_lookup_sql, _lookup_params)
+            if _lookup_run_err:
+                return None, f"Schedule company lookup failed: {_lookup_run_err}"
+            _resolved_company_id = _lookup_rows[0].get("CompanyId") if _lookup_rows else None
+            if _resolved_company_id is None:
+                return _to_section([], intent), None
+
+
+        sql, params = _build_company_schedule_sql(
+            company_id=_resolved_company_id,
+            date=_s_date,
+            from_date=_s_from_date,
+            to_date=_s_to_date,
+            top_n=_s_top_n,
+        )
+        is_sql_valid, sql_err = sql_validator.validate_sql(sql)
+        if not is_sql_valid:
+            return None, f"Schedule SQL validation failed: {sql_err}"
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Schedule execution failed: {run_err}"
+        return _to_section(rows or [], intent, sql=sql), None
 
     from query_planner_v2 import query_planner_v2
     from sql_builder import sql_builder
