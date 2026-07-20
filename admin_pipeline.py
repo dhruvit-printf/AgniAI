@@ -559,6 +559,26 @@ _ADMIN_SIGNAL_WORDS = {
     "responded",
     "agniveer",
     "agniveers",
+    # Medical / Leave terms that appear in short queries
+    "hospitalized",
+    "hospitalization",
+    "sick",
+    "threshold",
+    "disqualified",
+    "annual",
+    "abscond",
+    "absconded",
+    "cricket",
+    "football",
+    "volleyball",
+    "sports",
+    "hobby",
+    "height",
+    "weight",
+    "eyesight",
+    "platoon",
+    "company",
+    "batch",
 }
 
 _ADMIN_SIGNAL_PHRASES = (
@@ -569,6 +589,20 @@ _ADMIN_SIGNAL_PHRASES = (
     "approved",
     "cleared",
     "rejected",
+    "is hospitalized",
+    "has been hospitalized",
+    "on sick leave",
+    "on medical leave",
+    "on annual leave",
+    "on leave",
+    "leave threshold",
+    "threshold leave",
+    "most leaves",
+    "least leaves",
+    "plays cricket",
+    "plays football",
+    "average height",
+    "average weight",
 )
 
 

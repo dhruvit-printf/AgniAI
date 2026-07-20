@@ -1,7 +1,7 @@
 
 import logging
 from typing import Dict, Any, List, Optional, Tuple
-from sql_executor import run_readonly, _to_section
+from sql_executor import run_readonly, _to_section, SQL_MAX_ROWS
 
 logger = logging.getLogger("performance_executor")
 
@@ -80,7 +80,7 @@ def execute_performance_query(intent: Dict) -> Tuple[Optional[Dict[str, Any]], O
 
     if operation in ("Top", "Bottom", "OverallPerformance", "BestAttempt"):
         # Q1/Q2 logic
-        top_n = intent.get("number") or intent.get("top_n") or 10
+        top_n = intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS
         descending = False if operation == "Bottom" else True
         order_dir = "DESC" if descending else "ASC"
         
@@ -140,7 +140,7 @@ def execute_performance_query(intent: Dict) -> Tuple[Optional[Dict[str, Any]], O
             
     elif operation in ("Grading", "GradingSummary"):
         try:
-            top_n = intent.get("number") or intent.get("top_n") or 10
+            top_n = intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS
             requested_grade = intent.get("grading")
             
             sec_sql = "SELECT Id, SectionName FROM ScoreSectionMaster WHERE ISNULL(IsExceptional,0) = 0"

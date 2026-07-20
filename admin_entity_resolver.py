@@ -375,8 +375,22 @@ def resolve_entities_from_query(
     # Fetched once and reused for every lookup below (resolve_*_id calls,
     # the authoritative directory scan, and the name backfill) instead of
     # each one re-fetching the same directory independently.
-    companies = _fetch_companies(trace_id=trace_id)
-    platoons = _fetch_platoons(trace_id=trace_id)
+    # Fetch companies and platoons in parallel so a slow/failing .NET tunnel
+    # only blocks for _TIMEOUT seconds ONCE, not twice sequentially.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    companies: List[Dict[str, Any]] = []
+    platoons: List[Dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=2) as _pool:
+        _f_co = _pool.submit(_fetch_companies, trace_id=trace_id)
+        _f_pl = _pool.submit(_fetch_platoons, trace_id=trace_id)
+        try:
+            companies = _f_co.result(timeout=5)
+        except Exception:
+            companies = []
+        try:
+            platoons = _f_pl.result(timeout=5)
+        except Exception:
+            platoons = []
 
     # `extract_company_mention`/`extract_platoon_mention` are a positional
     # heuristic (the word(s) next to "company"/"platoon") — they can pick up

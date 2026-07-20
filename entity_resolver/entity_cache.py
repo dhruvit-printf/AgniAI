@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -17,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 _DOTNET_BASE = get_dotnet_config().BASE_URL.rstrip("/")
 _DOTNET_API_KEY = os.getenv("DOTNET_API_KEY", "")
-_TIMEOUT = int(os.getenv("DOTNET_TIMEOUT", "15"))
+# Reduced from 15s to 3s — if the .NET tunnel is down we fail fast and
+# serve stale cache rather than blocking the pipeline for 30 seconds.
+_TIMEOUT = int(os.getenv("DOTNET_TIMEOUT", "3"))
 _AGNIVEER_URL = f"{_DOTNET_BASE}/api/Agniveer/GetAgniveerDetails"
 _COMPANY_URL = f"{_DOTNET_BASE}/api/CompanyDetails/Get"
 _PLATOON_URL = f"{_DOTNET_BASE}/api/PlatoonDetails/Get"

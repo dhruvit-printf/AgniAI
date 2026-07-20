@@ -472,6 +472,193 @@ def execute_sql_query(
         res = _to_section(rows or [], intent, sql=sql)
         return res, None
 
+    if intent.get("category") == "Verification":
+        # Raw SQL fast-path: the AST planner cannot express OR filters or
+        # LEFT JOIN + IS NULL checks needed for Pending / NotResponded.
+        # We build the SQL directly here for all 5 verification statuses.
+        _v_status_raw = (
+            intent.get("filters", {}).get("operation")
+            or intent.get("operation")
+            or ""
+        )
+        _v_status = _v_status_raw.lower() if _v_status_raw else ""
+
+        _limit = intent.get("number") or 500
+        _base_cols = (
+            "m.AgniveerNo, m.FullName, pv.Status, pv.SentDate, "
+            "pv.PoliceStation, pv.ReceivedDate, pv.Remarks"
+        )
+        _args: List[Any] = []
+
+        if _v_status == "pending":
+            # Pending = Rejected status OR no record in PoliceVerificationMaster at all
+            _sql = f"""
+SELECT TOP ({_limit}) {_base_cols}
+FROM AgniveerMaster m
+LEFT JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
+WHERE ISNULL(m.IsDisqualified,0) = 0
+  AND (pv.Status = 'Rejected' OR pv.AgniveerId IS NULL)
+ORDER BY m.AgniveerNo ASC
+"""
+        elif _v_status == "notresponded":
+            # NotResponded = Status is 'Sent' AND ReturnDate/ReceivedDate IS NULL
+            _sql = f"""
+SELECT TOP ({_limit}) {_base_cols}
+FROM AgniveerMaster m
+INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
+WHERE ISNULL(m.IsDisqualified,0) = 0
+  AND pv.Status = 'Sent'
+  AND (pv.ReceivedDate IS NULL AND pv.ReturnDate IS NULL)
+ORDER BY pv.SentDate ASC
+"""
+        elif _v_status in ("verified", "completed"):
+            _sql = f"""
+SELECT TOP ({_limit}) {_base_cols}
+FROM AgniveerMaster m
+INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
+WHERE ISNULL(m.IsDisqualified,0) = 0
+  AND pv.Status IN ('Verified', 'Completed')
+ORDER BY pv.ReceivedDate DESC
+"""
+        elif _v_status == "rejected":
+            _sql = f"""
+SELECT TOP ({_limit}) {_base_cols}
+FROM AgniveerMaster m
+INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
+WHERE ISNULL(m.IsDisqualified,0) = 0
+  AND pv.Status = 'Rejected'
+ORDER BY m.AgniveerNo ASC
+"""
+        elif _v_status == "sent":
+            _sql = f"""
+SELECT TOP ({_limit}) {_base_cols}
+FROM AgniveerMaster m
+INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
+WHERE ISNULL(m.IsDisqualified,0) = 0
+  AND pv.Status = 'Sent'
+ORDER BY pv.SentDate DESC
+"""
+        else:
+            # Generic — show all with their current status
+            _sql = f"""
+SELECT TOP ({_limit}) {_base_cols}
+FROM AgniveerMaster m
+LEFT JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
+WHERE ISNULL(m.IsDisqualified,0) = 0
+ORDER BY m.AgniveerNo ASC
+"""
+
+        _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
+        if not _is_sql_valid:
+            return None, f"Verification SQL validation failed: {_sql_err}"
+        _rows, _run_err = run_readonly(_sql, _args)
+        if _run_err:
+            return None, f"Verification execution failed: {_run_err}"
+        return _to_section(_rows or [], intent, sql=_sql), None
+
+
+    if intent.get("category") == "Leave":
+        _op = intent.get("operation", "")
+        _limit = intent.get("number") or 500
+        _leave_type = (
+            intent.get("filters", {}).get("leaveType")
+            or intent.get("leave_type")
+            or ""
+        )
+
+        # Map leave type name to actual DB column name
+        _leave_col_map = {
+            "Sick": "OnSickLeave",
+            "Hospitalized": "IsHospitalized",
+            "Medical": "OnMedicalLeave",
+            "Absconded": "IsAbscondedLeave",
+            "Annual": "OnAnnualLeave",
+            "ExPPG": "OnEX PPG",
+            "ATTNC": "OnATTN'C'",
+        }
+        _leave_col_filter = ""
+        if _leave_type in _leave_col_map:
+            _leave_col_filter = f"AND lm.[{_leave_col_map[_leave_type]}] = 1"
+
+        _base_select = (
+            "lm.FromDate, lm.ToDate, lm.Remarks, lm.MarkedBy, "
+            "lm.OnSickLeave, lm.IsHospitalized, lm.OnMedicalLeave, "
+            "lm.IsAbscondedLeave, lm.OnAnnualLeave, "
+            "m.AgniveerNo, m.FullName"
+        )
+
+        # When intent engine sends leaveType=Threshold (misfired from intent),
+        # treat it as the Threshold operation explicitly
+        _effective_op = _op
+        if _leave_type and _leave_type.lower() == "threshold":
+            _effective_op = "Threshold"
+            _leave_col_filter = ""  # No per-type filter for threshold
+
+        if _effective_op == "Current":
+            import datetime as _dt
+            _today = _dt.date.today().isoformat()
+            _sql = f"""
+SELECT TOP ({_limit}) {_base_select}
+FROM AgniveerLeaveMaster lm
+INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
+WHERE ISNULL(m.IsDisqualified,0) = 0
+  AND lm.FromDate <= '{_today}'
+  AND lm.ToDate >= '{_today}'
+  {_leave_col_filter}
+ORDER BY lm.FromDate ASC
+"""
+
+            _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
+            if not _is_sql_valid:
+                return None, f"Leave Current SQL validation failed: {_sql_err}"
+            _rows, _run_err = run_readonly(_sql, [])
+            if _run_err:
+                return None, f"Leave Current execution failed: {_run_err}"
+            return _to_section(_rows or [], intent, sql=_sql), None
+
+        elif _effective_op in ("Most", "Least"):
+            _order = "DESC" if _effective_op == "Most" else "ASC"
+            _sql = f"""
+SELECT TOP ({_limit}) m.AgniveerNo, m.FullName,
+    SUM(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) AS TotalLeaveDays
+FROM AgniveerLeaveMaster lm
+INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
+WHERE ISNULL(m.IsDisqualified,0) = 0
+  {_leave_col_filter}
+GROUP BY m.AgniveerNo, m.FullName
+ORDER BY TotalLeaveDays {_order}, m.AgniveerNo ASC
+"""
+            _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
+            if not _is_sql_valid:
+                return None, f"Leave {_effective_op} SQL validation failed: {_sql_err}"
+            _rows, _run_err = run_readonly(_sql, [])
+            if _run_err:
+                return None, f"Leave {_effective_op} execution failed: {_run_err}"
+            return _to_section(_rows or [], intent, sql=_sql), None
+
+        elif _effective_op == "Threshold":
+            _sql = f"""
+SELECT TOP ({_limit}) m.AgniveerNo, m.FullName,
+    SUM(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) AS TotalLeaveDays,
+    MAX(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) AS MaxContinuousLeave
+FROM AgniveerLeaveMaster lm
+INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
+WHERE ISNULL(m.IsDisqualified,0) = 0
+GROUP BY m.AgniveerNo, m.FullName
+HAVING SUM(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) >= 55
+    OR MAX(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) >= 40
+ORDER BY TotalLeaveDays DESC
+"""
+            _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
+            if not _is_sql_valid:
+                return None, f"Leave Threshold SQL validation failed: {_sql_err}"
+            _rows, _run_err = run_readonly(_sql, [])
+            if _run_err:
+                return None, f"Leave Threshold execution failed: {_run_err}"
+            return _to_section(_rows or [], intent, sql=_sql), None
+        # For other leave operations, fall through to AST pipeline
+
+
     if intent.get("category") == "Attendance" and intent.get("operation") in (
         "Monthly",
         "Weekly",
@@ -815,18 +1002,15 @@ def execute_sql_query(
         # Intercept and translate/route aggregation & ranking operations
         section = str(intent.get("section") or intent.get("sub_section") or "").strip()
 
-        # 1. Supported ranking/aggregation queries (Mapped to AST)
+        # 1. Supported ranking/aggregation queries (Mapped to AST / performance_executor)
+        # NOTE: All Performance/Overall intents are dispatched to performance_executor.py
+        # at the top of execute_sql_query (line 460) BEFORE reaching this block.
+        # This guard here is only a safety fallback for non-performance categories.
         if (category == "Performance" and operation in ("Top", "Bottom")) or (
             category == "Overall" and operation == "OverallPerformance"
         ):
-            if section:
-                # Section filters on Performance require a chain join through ScoreSubItemMaster -> ScoreSectionMaster,
-                # which is a capability gap for the current shortest-path planner (since base_concept is Agniveer).
-                raise CapabilityGapError(
-                    f"Performance ranking queries with section filter '{section}' are not supported in AST."
-                )
+            # performance_executor.py handles section filters natively — no CapabilityGapError needed
 
-            # Overall performance or ranking queries (no section filter)
             base_concept = "Agniveer"
             v2_intent["base_concept"] = "Agniveer"
 
