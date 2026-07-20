@@ -897,7 +897,8 @@ def execute_sql_query(
         )
         _v_status = _v_status_raw.lower() if _v_status_raw else ""
 
-        _limit = intent.get("number") or 500
+        _limit = _get_top_n(intent)
+
         _base_cols = (
             "m.AgniveerNo, m.FullName, pv.Status, pv.SentDate, "
             "pv.PoliceStation, pv.ReceivedDate, pv.Remarks"
@@ -974,7 +975,8 @@ ORDER BY m.AgniveerNo ASC
 
     if intent.get("category") == "Leave":
         _op = intent.get("operation", "")
-        _limit = intent.get("number") or 500
+        _limit = _get_top_n(intent)
+
         _leave_type = (
             intent.get("filters", {}).get("leaveType")
             or intent.get("leave_type")
@@ -1114,15 +1116,42 @@ ORDER BY TotalLeaveDays DESC
                 row["AgniveerNo"] = agniveer_row["AgniveerNo"]
                 row["FullName"] = agniveer_row["FullName"]
     # ── Medical Fast-Path ──────────────────────────────────────────────────
-    if intent.get("category") == "Medical":
+    _raw_q = (question or intent.get("raw_query") or "").lower()
+    if intent.get("category") == "Medical" or "bmi" in _raw_q:
         _med_op = intent.get("operation") or intent.get("subcategory")
         _m_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         _m_diagnosis = intent.get("diagnose") or intent.get("diagnosis")
         _m_hospital = intent.get("hospital_name") or intent.get("hospitalName")
         _m_batch_id = intent.get("batch_id") or intent.get("batchId")
-        _limit = intent.get("number") or 500
+        _m_blood_group = (
+            intent.get("blood_group")
+            or intent.get("bloodGroup")
+            or intent.get("filters", {}).get("bloodGroup")
+            or intent.get("filters", {}).get("blood_group")
+        )
+        _limit = _get_top_n(intent)
 
-        if _med_op in ("BMI", "BMIAnalysis"):
+
+        if _med_op in ("BMI", "BMIAnalysis") or "bmi" in _raw_q:
+            bmi_clause = "BmiValue IS NOT NULL"
+            params = []
+            if "above 25" in _raw_q or "overweight" in _raw_q or "greater than 25" in _raw_q or "> 25" in _raw_q or ">25" in _raw_q:
+                bmi_clause = "BmiValue > 25.0"
+            elif "below 18.5" in _raw_q or "underweight" in _raw_q or "< 18.5" in _raw_q or "<18.5" in _raw_q:
+                bmi_clause = "BmiValue < 18.5"
+
+            bg_clause = ""
+            if _m_blood_group or "o+" in _raw_q or "b+" in _raw_q or "a+" in _raw_q or "ab+" in _raw_q:
+                bg_val = _m_blood_group
+                if not bg_val:
+                    for bg_token in ("o+", "b+", "a+", "ab+", "o-", "b-", "a-", "ab-"):
+                        if bg_token in _raw_q:
+                            bg_val = bg_token.upper()
+                            break
+                if bg_val:
+                    bg_clause = " AND UPPER(REPLACE(BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))"
+                    params.append(str(bg_val))
+
             _sql = f"""
 WITH LatestMedical AS (
     SELECT mr.AgniveerId, mr.Height, mr.Weight,
@@ -1131,7 +1160,7 @@ WITH LatestMedical AS (
     WHERE mr.Height IS NOT NULL AND mr.Weight IS NOT NULL
 ),
 Vitals AS (
-    SELECT a.Id AS AgniveerId, a.AgniveerNo, a.FullName, a.BatchId, a.Class,
+    SELECT a.Id AS AgniveerId, a.AgniveerNo, a.FullName, a.BatchId, a.Class, a.BloodGroup,
            COALESCE(lm.Height, a.Height) AS EffHeight,
            COALESCE(lm.Weight, a.Weight) AS EffWeight
     FROM AgniveerMaster a
@@ -1139,23 +1168,23 @@ Vitals AS (
     WHERE ISNULL(a.IsDisqualified,0) = 0
 ),
 Scored AS (
-    SELECT AgniveerNo, FullName, EffHeight AS Height, EffWeight AS Weight,
+    SELECT AgniveerNo, FullName, BloodGroup, EffHeight AS Height, EffWeight AS Weight,
            CASE WHEN EffHeight IS NULL OR EffWeight IS NULL OR EffHeight <= 0 THEN NULL
                 ELSE CAST(EffWeight / POWER(EffHeight / 100.0, 2) AS DECIMAL(10, 2))
            END AS BmiValue
     FROM Vitals
 )
-SELECT TOP ({_limit}) AgniveerNo, FullName, Height, Weight, BmiValue,
+SELECT TOP ({_limit}) AgniveerNo, FullName, BloodGroup, Height, Weight, BmiValue,
        CASE WHEN BmiValue IS NULL THEN NULL
             WHEN BmiValue < 18.5 THEN 'Underweight'
             WHEN BmiValue < 25.0 THEN 'Normal'
             WHEN BmiValue < 30.0 THEN 'Overweight'
             ELSE 'Obese' END AS BmiCategory
 FROM Scored
-WHERE BmiValue IS NOT NULL
+WHERE {bmi_clause}{bg_clause}
 ORDER BY BmiValue DESC
 """
-            _rows, _run_err = run_readonly(_sql, [])
+            _rows, _run_err = run_readonly(_sql, params)
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
@@ -1195,7 +1224,8 @@ ORDER BY mr.VisitDate DESC, m.AgniveerNo ASC
         _eq_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         _eq_batch_id = intent.get("batch_id") or intent.get("batchId")
         _eq_platoon_id = intent.get("platoon_id") or intent.get("platoonId")
-        _limit = intent.get("number") or 500
+        _limit = _get_top_n(intent)
+
 
         clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
         params = []
@@ -1238,9 +1268,36 @@ ORDER BY eq.GivenDateTime DESC, m.AgniveerNo ASC
         _p_class = intent.get("class") or intent.get("class_")
         _p_state = intent.get("state") or intent.get("district")
         _p_sport = intent.get("sport")
-        _p_blood_group = intent.get("blood_group") or intent.get("bloodGroup")
+        _p_blood_group = (
+            intent.get("blood_group")
+            or intent.get("bloodGroup")
+            or intent.get("filters", {}).get("bloodGroup")
+            or intent.get("filters", {}).get("blood_group")
+        )
+        if not _p_blood_group:
+            for bg_token in ("o+", "b+", "a+", "ab+", "o-", "b-", "a-", "ab-"):
+                if bg_token in _raw_q:
+                    _p_blood_group = bg_token.upper()
+                    break
+
         _p_batch_id = intent.get("batch_id") or intent.get("batchId")
-        _limit = intent.get("number") or 500
+        _p_op = intent.get("operation") or ""
+        _p_metric = intent.get("metric") or ""
+        _limit = _get_top_n(intent)
+
+
+        # BloodGroup summary breakdown query (e.g. "Show blood group details")
+        if ("blood group" in _raw_q or _p_metric == "BloodGroup" or _p_op in ("BloodGroup", "BloodGroupDetails")) and not _p_blood_group and not _p_agniveer_no:
+            _sql = f"""
+SELECT TOP ({_limit}) m.BloodGroup, COUNT(*) AS AgniveerCount
+FROM AgniveerMaster m
+WHERE ISNULL(m.IsDisqualified,0) = 0 AND m.BloodGroup IS NOT NULL AND TRIM(m.BloodGroup) <> ''
+GROUP BY m.BloodGroup
+ORDER BY AgniveerCount DESC
+"""
+            _rows, _run_err = run_readonly(_sql, [])
+            if not _run_err:
+                return _to_section(_rows or [], intent, sql=_sql), None
 
         clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
         params = []
@@ -1258,7 +1315,7 @@ ORDER BY eq.GivenDateTime DESC, m.AgniveerNo ASC
             clauses.append("(LOWER(m.Sports) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Skill) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Hobby) LIKE '%' + LOWER(?) + '%')")
             params.extend([str(_p_sport)] * 3)
         if _p_blood_group:
-            clauses.append("LOWER(m.BloodGroup) = LOWER(?)")
+            clauses.append("UPPER(REPLACE(m.BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))")
             params.append(str(_p_blood_group))
         if _p_batch_id:
             clauses.append("m.BatchId = ?")
@@ -1275,6 +1332,9 @@ ORDER BY m.AgniveerNo ASC
         if not _run_err:
             return _to_section(_rows or [], intent, sql=_sql), None
 
+
+
+
     if intent.get("category") == "Schedule":
 
         _s_company_id = intent.get("company_id") or intent.get("companyId")
@@ -1290,7 +1350,8 @@ ORDER BY m.AgniveerNo ASC
         _s_date = intent.get("date")
         _s_from_date = intent.get("from_date") or intent.get("fromDate")
         _s_to_date = intent.get("to_date") or intent.get("toDate")
-        _s_top_n = intent.get("number") or 500
+        _s_top_n = _get_top_n(intent)
+
 
         _resolved_company_id: Optional[int] = None
         _lookup_sql: Optional[str] = None
@@ -1896,6 +1957,17 @@ ORDER BY m.AgniveerNo ASC
     res = _to_section(rows or [], intent, sql=sql)
     res["execution_metadata"] = execution_metadata
     return res, None
+
+
+def _get_top_n(intent: Dict, default: int = 500) -> int:
+    num = intent.get("number")
+    if num is None:
+        return default
+    op = str(intent.get("operation") or intent.get("subcategory") or "").lower()
+    raw_q = str(intent.get("raw_query") or "").lower()
+    if op in ("top", "bottom", "rank", "topperformers", "lowestperformers") or "top" in raw_q or "bottom" in raw_q or "rank" in raw_q:
+        return int(num)
+    return default
 
 
 def metrics_hook(event: str) -> None:

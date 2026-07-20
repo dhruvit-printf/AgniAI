@@ -1481,7 +1481,10 @@ def _extract_sub_requests(
             r"\bsuffering\b",
             r"\bsuffered\b",
         ):
-            split_parts = re.split(sep, current, maxsplit=1, flags=re.IGNORECASE)
+            # Capturing group around `sep` so the separator's own matched
+            # text survives the split instead of being discarded — every
+            # word of the original query must end up in some fragment.
+            split_parts = re.split(f"({sep})", current, maxsplit=1, flags=re.IGNORECASE)
             # A leading interrogative ("Who improved... among the badminton
             # players?") matches "who" at position 0, leaving an empty lead
             # fragment that then gets dropped entirely — collapsing the
@@ -1490,7 +1493,15 @@ def _extract_sub_requests(
             # "among") instead of accepting the degenerate split.
             if len(split_parts) > 1 and split_parts[0].strip(" ,"):
                 lead = split_parts[0].strip(" ,")
-                remainder = " ".join(split_parts[1:]).strip()
+                matched_word = split_parts[1]
+                remainder = split_parts[2].strip()
+                # Sticks the matched separator back onto whichever fragment
+                # ends up owning it. Defaults to the remainder (relative
+                # pronouns/prepositions like "who"/"whose"/"that"/"among"
+                # grammatically open the clause that follows); the
+                # diagnosed-with/suffering-from branches below re-embed it
+                # into `lead` themselves and flip this off.
+                reattached_to_remainder = True
                 # "diagnosed with fever" / "suffering from fever" / "suffered
                 # from fever" — the value right after "with"/"from" names the
                 # medical condition itself and is what "diagnosed"/"suffering"
@@ -1507,6 +1518,7 @@ def _extract_sub_requests(
                     if disease:
                         lead = f"{lead} with {disease}"
                         remainder = remainder[len(disease) :].strip()
+                        reattached_to_remainder = False
                     else:
                         value_match = re.match(
                             r"(\S+)\s*(.*)", remainder, flags=re.DOTALL
@@ -1514,6 +1526,7 @@ def _extract_sub_requests(
                         if value_match and value_match.group(1):
                             lead = f"{lead} with {value_match.group(1)}"
                             remainder = value_match.group(2).strip()
+                            reattached_to_remainder = False
                 elif sep in (r"\bsuffering\b", r"\bsuffered\b"):
                     from_match = re.match(
                         r"from\s+(.*)", remainder, flags=re.IGNORECASE | re.DOTALL
@@ -1525,6 +1538,7 @@ def _extract_sub_requests(
                         if disease:
                             lead = f"{lead} {verb} from {disease}"
                             remainder = after_from[len(disease) :].strip()
+                            reattached_to_remainder = False
                         else:
                             single_match = re.match(
                                 r"(\S+)\s*(.*)", after_from, flags=re.DOTALL
@@ -1532,6 +1546,9 @@ def _extract_sub_requests(
                             if single_match and single_match.group(1):
                                 lead = f"{lead} {verb} from {single_match.group(1)}"
                                 remainder = single_match.group(2).strip()
+                                reattached_to_remainder = False
+                if reattached_to_remainder:
+                    remainder = f"{matched_word} {remainder}".strip()
                 parts.append(lead)
                 current = remainder
                 break

@@ -149,6 +149,10 @@ def _extract_number(query: str) -> Optional[int]:
         "batch",
         "platoon",
         "plt",
+        "coy",
+        "co",
+        "pl",
+        "p",
         "agniveer",
         "attempt",
         "section",
@@ -157,6 +161,13 @@ def _extract_number(query: str) -> Optional[int]:
         "day",
         "month",
         "year",
+        "below",
+        "above",
+        "over",
+        "under",
+        "than",
+        "least",
+        "at",
     )
 
     for phrase in RANKING_CONTEXT_PHRASES:
@@ -164,14 +175,15 @@ def _extract_number(query: str) -> Optional[int]:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             start = max(0, match.start() - 24)
-            context = text[start : match.start()].strip()
-            if any(context.endswith(prefix) for prefix in blocked_prefixes):
+            context = text[start : match.start()].strip().lower()
+            clean_ctx = re.sub(r"[-\s]+", " ", context)
+            if any(clean_ctx.endswith(prefix) for prefix in blocked_prefixes):
                 continue
             return int(match.group(1))
 
-    match = re.search(r"\brank\s+(\d+)\b", text)
+    match = re.search(r"\b(rank|top|bottom)\s+(\d+)\b", text, re.IGNORECASE)
     if match:
-        return int(match.group(1))
+        return int(match.group(2))
 
     blocked_suffixes = (
         "days",
@@ -179,10 +191,12 @@ def _extract_number(query: str) -> Optional[int]:
         "marks",
         "percent",
         "percentage",
+        "%",
         "score",
         "kg",
         "cm",
         "times",
+        ".",
     )
 
     # Generic fallback: find any standalone number that isn't preceded by blocked prefixes
@@ -195,12 +209,13 @@ def _extract_number(query: str) -> Optional[int]:
             continue
 
         start_before = max(0, match.start() - 24)
-        context_before = text[start_before : match.start()].strip()
+        context_before = text[start_before : match.start()].strip().lower()
+        clean_ctx_before = re.sub(r"[-\s]+", " ", context_before)
 
         end_after = min(len(text), match.end() + 24)
-        context_after = text[match.end() : end_after].strip()
+        context_after = text[match.end() : end_after].strip().lower()
 
-        if any(context_before.endswith(prefix) for prefix in blocked_prefixes):
+        if any(clean_ctx_before.endswith(prefix) for prefix in blocked_prefixes):
             continue
 
         if any(context_after.startswith(suffix) for suffix in blocked_suffixes):
@@ -209,6 +224,7 @@ def _extract_number(query: str) -> Optional[int]:
         return num
 
     return None
+
 
 
 def detect_query_number_override(raw_query: str) -> Optional[int]:
@@ -648,22 +664,41 @@ def _extract_unit_name(query: str) -> Optional[str]:
 
 def _extract_numeric_id(query: str, id_pattern: str) -> Optional[int]:
     query_lower = _normalise(query)
-    match = re.search(rf"\b(?:{id_pattern})\s+(\d+)\b", query_lower, re.IGNORECASE)
+    match = re.search(rf"\b(?:{id_pattern})\s*[-#]?\s*(\d+)\b", query_lower, re.IGNORECASE)
     if match:
         return int(match.group(1))
     return None
 
 
 def _extract_company_id(query: str) -> Optional[int]:
-    return _extract_numeric_id(query, "company")
+    return _extract_numeric_id(query, "company|coy|co")
 
 
 def _extract_platoon_id(query: str) -> Optional[int]:
-    return _extract_numeric_id(query, "platoon|plt")
+    return _extract_numeric_id(query, "platoon|plt|pl")
 
 
 def _extract_batch_id(query: str) -> Optional[int]:
     return _extract_numeric_id(query, "batch")
+
+
+def _extract_state(query: str) -> Optional[str]:
+    text = query.lower()
+    m = re.search(r"\bfrom\s+([a-z\s]+?)(?:\s+who|\s+and|\s+belong|\s+with|\s*[\.,!]|$)", text)
+    if m:
+        val = m.group(1).strip()
+        if val not in ("batch", "platoon", "company", "unit", "class"):
+            return val.title()
+    return None
+
+
+def _extract_company_name(query: str) -> Optional[str]:
+    text = query.lower()
+    m = re.search(r"\bcompany\s+([a-z0-9\-_]+)", text)
+    if m:
+        return m.group(1)
+    return None
+
 
 
 def _extract_agniveer_no(query: str) -> Optional[str]:
@@ -802,10 +837,13 @@ CANONICAL_ENTITY_KEYS = frozenset(
         "returnCondition",
         "givenCondition",
         "hospitalName",
+        "state",
+        "companyName",
         "Operation",
         "Category",
     }
 )
+
 
 
 def assert_canonical_entity_keys(entities: Dict[str, Any]) -> None:
@@ -1050,7 +1088,13 @@ def extract_entities(
     result["bloodGroup"] = _extract_blood_group(raw_query)
     result["sport"] = _extract_sport(raw_query)
     result["class"] = _extract_class(raw_query)
+    result["state"] = _extract_state(raw_query)
+    result["companyName"] = _extract_company_name(raw_query)
+    result["platoonId"] = _extract_platoon_id(raw_query)
+    result["batchId"] = _extract_batch_id(raw_query)
+    result["companyId"] = _extract_company_id(raw_query)
     result["equipmentName"] = _extract_equipment_item(raw_query)
+
     eq_type = _extract_equipment_type(raw_query)
     if not eq_type and result["equipmentName"]:
         if result["equipmentName"] in ISSUED_EQUIPMENT_ITEMS:

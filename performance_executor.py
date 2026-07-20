@@ -12,10 +12,11 @@ def execute_performance_query(
     category = intent.get("category", "")
     operation = intent.get("operation", "")
 
-    batch_id = intent.get("batchId")
+    batch_id = intent.get("batch_id") or intent.get("batchId")
     agniveer_class = intent.get("class")
-    platoon_id = intent.get("platoonId")
-    company_id = intent.get("companyId")
+    platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+    company_id = intent.get("company_id") or intent.get("companyId")
+
     agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
     section = str(intent.get("section") or "").strip()
     sub_section = str(intent.get("sub_section") or "").strip()

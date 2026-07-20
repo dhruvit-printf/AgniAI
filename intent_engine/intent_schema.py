@@ -3384,15 +3384,14 @@ METADATA: Dict[str, Any] = {
 
 
 def agniveer_no_required(category: Optional[str], operation: Optional[str]) -> bool:
-    """Whether this category/operation combination must have an agniveerNo."""
+    """Whether this category/operation combination must have an agniveerNo.
+    Only individual-level targeted lookups require agniveerNo."""
     if not category:
         return False
-    if category in AGNIVEER_NO_ALWAYS_REQUIRED_CATEGORIES:
+    if operation in ("Individual", "IndividualMedical", "IndividualPersonalDetail", "IndividualEquipment"):
         return True
-    exempt_operations = AGNIVEER_NO_REQUIRED_EXCEPT_OPERATIONS.get(category)
-    if exempt_operations is not None:
-        return operation not in exempt_operations
     return False
+
 
 
 def is_valid_category(category: str) -> bool:

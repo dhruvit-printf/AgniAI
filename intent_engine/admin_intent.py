@@ -171,6 +171,25 @@ def classify_admin_intent(
 
     No re-inference is performed here.  Each field is set exactly once.
 
+    """
+
+
+
+def classify_admin_intent(
+    query: str,
+    resolved_entities: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Coordinator — assembles the final intent dict.
+
+    Decision ownership:
+      - Category, Operation, ResponseType → intent_classifier.py (classify_intent)
+      - Entities                          → entity_extractor.py  (extract_entities)
+      - Semantic understanding            → query_understanding_engine.py (understand_query)
+      - Subcategory                       → CATEGORY_OPERATION_TO_SUBCATEGORY table (pure lookup)
+
+    No re-inference is performed here.  Each field is set exactly once.
+
     Post text-to-SQL migration: this is called from
     intent_engine/query_planner.py._build_sub_operation() for every query
     shape, and its output (category/operation/section/entities) is used as
@@ -229,15 +248,7 @@ def classify_admin_intent(
                 "platoon_id": entities.get("platoonId"),
                 "platoon_name": entities.get("platoonName"),
                 "batch_id": entities.get("batchId"),
-                "from_date": entities.get("fromDate"),
-                "to_date": entities.get("toDate"),
-                "agniveer_no": entities.get("agniveerNo"),
-                "bmi_category": entities.get("bmiCategory"),
-                "blood_group": entities.get("bloodGroup"),
-                "medical_status": entities.get("medicalStatus"),
-                "verification_status": entities.get("verificationStatus"),
-                "diagnose": entities.get("diagnose"),
-                "days": entities.get("days"),
+                "state": entities.get("state"),
             }
         )
         base["filters"] = {
@@ -259,16 +270,7 @@ def classify_admin_intent(
                 ("companyId", base["company_id"]),
                 ("companyName", base["company_name"]),
                 ("platoonId", base["platoon_id"]),
-                ("platoonName", base["platoon_name"]),
                 ("batchId", base["batch_id"]),
-                ("agniveerNo", base["agniveer_no"]),
-                ("bmiCategory", base["bmi_category"]),
-                ("bloodGroup", base["blood_group"]),
-                ("equipmentName", base["item_name"]),
-                ("medicalStatus", base["medical_status"]),
-                ("verificationStatus", base["verification_status"]),
-                ("diagnose", base["diagnose"]),
-                ("days", base["days"]),
             )
             if value is not None
         }
@@ -276,9 +278,9 @@ def classify_admin_intent(
 
     # ── Stage 1: Extract entities ────────────────────────────────────────────
     entities = extract_entities(raw_query, resolved_entities)
-    # FIX 4: Assert canonical entity keys (camelCase)
     assert_canonical_entity_keys(entities)
 
+    
     # ── Stage 2: Semantic understanding ─────────────────────────────────────
     semantic = understand_query(raw_query)
 

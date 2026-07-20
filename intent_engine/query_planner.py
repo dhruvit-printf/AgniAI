@@ -1116,27 +1116,20 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
 
     if qtype == "cross_filter":
         ops = _ops_from_semantic_fragments(raw_query)
-        # Schedule is a standalone category (timetable/agenda), never a filter condition
         valid_ops = [
             op
             for op in ops
             if op.intent_result.get("category")
-            and op.intent_result.get("category") != "Schedule"
         ]
         if len([op for op in valid_ops if not _is_leftover_subject_op(op)]) >= 2:
             valid_ops = [op for op in valid_ops if not _is_leftover_subject_op(op)]
 
         if len(valid_ops) >= 2:
             for op in valid_ops:
-                if op.intent_result.get(
-                    "category"
-                ) == "Roster" and op.intent_result.get("sport"):
+                if op.intent_result.get("category") == "Roster" and op.intent_result.get("sport"):
                     op.intent_result["category"] = "Skills"
                     op.dotnet_payload = format_admin_payload(op.intent_result)
-            # Cross-filter intersects individual agniveer records by
-            # agniveerNo. A "Summary" responseType returns aggregate counts
-            # (e.g. improvedCount, totalAgniveers) with no per-agniveer rows
-            # at all, so intersection silently finds nothing. Every leg needs
+
             # the Detailed, per-agniveer response for the intersection to
             # have anything to match on.
             for op in valid_ops:
@@ -1213,11 +1206,20 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
     # "give details of A0701763P" -> personaldetail/info at 0.52) — the
     # semantic-understanding score is a separate, more conservative signal
     # and must not silently override a real classification result.
+    sem_conf = semantic.get("confidence")
+    if isinstance(sem_conf, str):
+        sem_conf = {"low": 0.3, "medium": 0.6, "high": 0.9}.get(sem_conf.lower(), 0.0)
+    try:
+        sem_conf_val = float(sem_conf or 0.0)
+    except (ValueError, TypeError):
+        sem_conf_val = 0.0
+
     confidence = max(
         0.3,
-        float(semantic.get("confidence") or 0.0),
+        sem_conf_val,
         float(op.intent_result.get("confidence_score") or 0.0),
     )
+
     if (
         semantic.get("operation") == "ranking"
         or semantic.get("query_type") == "ranking"
