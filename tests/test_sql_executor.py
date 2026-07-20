@@ -370,6 +370,57 @@ class TestExecuteSqlQuery:
             assert "BmiCategory" in sql
             assert "BmiValue >= 25.0 AND BmiValue < 30.0" in sql
 
+    def test_medical_blood_group_detail_uses_person_and_scope(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+            patch("sql_executor.metrics_hook"),
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.return_value = ([{"AgniveerNo": "A0701882L", "FullName": "X"}], None)
+            data, err = execute_sql_query(
+                question="What is the blood group of Agniveer A0701882L in Alpha company?",
+                intent={
+                    "category": "Medical",
+                    "operation": "BloodGroup",
+                    "agniveer_no": "A0701882L",
+                    "companyName": "Alpha",
+                },
+            )
+            assert err is None
+            assert data["success"] is True
+            sql = mock_run.call_args[0][0]
+            assert "AgniveerMaster" in sql
+            assert "BloodGroup" in sql
+            assert "COUNT(*) AS AgniveerCount" not in sql
+            assert "a.AgniveerNo" in sql
+            assert "a.FullName" in sql
+            assert "COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown')" in sql
+            assert "LOWER(a.AgniveerNo) LIKE" in sql
+            assert "LOWER(c.Name) = LOWER(?)" in sql
+
+    def test_medical_blood_group_report_counts_each_group(self):
+        with (
+            patch("sql_executor.run_readonly") as mock_run,
+            patch("sql_validator.sql_validator.validate_sql") as mock_validate_sql,
+            patch("sql_executor.metrics_hook"),
+        ):
+            mock_validate_sql.return_value = (True, None)
+            mock_run.return_value = ([{"BloodGroup": "A+", "AgniveerCount": 10}], None)
+            data, err = execute_sql_query(
+                question="Show the blood group report",
+                intent={
+                    "category": "Medical",
+                    "operation": "BloodGroup",
+                },
+            )
+            assert err is None
+            assert data["success"] is True
+            sql = mock_run.call_args[0][0]
+            assert "GROUP BY BloodGroup" in sql
+            assert "COUNT(*) AS AgniveerCount" in sql
+            assert "AgniveerNo, FullName, BloodGroup" not in sql
+
     @pytest.mark.parametrize(
         "intent, expected_fragment",
         [

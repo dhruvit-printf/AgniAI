@@ -193,6 +193,66 @@ def extract_platoon_mention(text: str) -> Optional[str]:
     return None
 
 
+def _normalise_company_or_platoon_name(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r"\b(?:company|coy|platoon|pl|unit)\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"[\s\-_./]+", " ", text)
+    return text.strip()
+
+
+def extract_company_name(text: str) -> Optional[str]:
+    q = text.lower().strip()
+    if not q:
+        return None
+
+    for pattern in (
+        re.compile(r"\bcompany\s+([a-z0-9][a-z0-9\s\-_./]*)\b", re.IGNORECASE),
+        re.compile(r"\b([a-z0-9][a-z0-9\s\-_./]*)\s+company\b", re.IGNORECASE),
+        re.compile(r"\bcoy\s+([a-z0-9][a-z0-9\s\-_./]*)\b", re.IGNORECASE),
+        re.compile(r"\b([a-z0-9][a-z0-9\s\-_./]*)\s+coy\b", re.IGNORECASE),
+    ):
+        m = pattern.search(q)
+        if m:
+            candidate = _clean_candidate(_normalise_company_or_platoon_name(m.group(1)))
+            if candidate:
+                return candidate
+
+    tokens = _COMPANY_TOKEN_RE.findall(q)
+    for idx, token in enumerate(tokens):
+        if token not in ("company", "coy"):
+            continue
+        before = [t for t in tokens[max(0, idx - 3) : idx] if t not in _NOISE_WORDS]
+        after = [t for t in tokens[idx + 1 : idx + 4] if t not in _NOISE_WORDS]
+        if before:
+            candidate = _clean_candidate(_normalise_company_or_platoon_name(" ".join(before)))
+            if candidate:
+                return candidate
+        if after:
+            candidate = _clean_candidate(_normalise_company_or_platoon_name(" ".join(after)))
+            if candidate:
+                return candidate
+
+    return None
+
+
+def extract_platoon_name(text: str) -> Optional[str]:
+    q = text.lower().strip()
+    if not q:
+        return None
+
+    for pattern in (
+        re.compile(r"\bplatoon\s+([a-z0-9][a-z0-9\s\-_./]*)\b", re.IGNORECASE),
+        re.compile(r"\bpl\s*[- ]?\s*([a-z0-9][a-z0-9\-./]*)\b", re.IGNORECASE),
+    ):
+        m = pattern.search(q)
+        if m:
+            candidate = _clean_candidate(_normalise_company_or_platoon_name(m.group(1)))
+            if candidate:
+                return candidate
+
+    return None
+
+
 def extract_agniveer_mention(text: str) -> Optional[str]:
     m = _AGNIVEER_NUM_RE.search(text)
     if m:
@@ -364,6 +424,8 @@ def resolve_entities_from_query(
 
     company_mention = extract_company_mention(query)
     platoon_mention = extract_platoon_mention(query)
+    company_name_mention = extract_company_name(query)
+    platoon_name_mention = extract_platoon_name(query)
     batch_mention = extract_batch_mention(query)
     agniveer_mention = extract_agniveer_mention(query)
 
@@ -406,6 +468,15 @@ def resolve_entities_from_query(
             session_id=session_id,
             companies=companies,
         )
+    if company_name_mention:
+        if result["companyId"] is None:
+            result["companyId"] = resolve_company_id(
+                company_name_mention,
+                trace_id=trace_id,
+                session_id=session_id,
+                companies=companies,
+            )
+        result["companyName"] = company_name_mention
     elif result["companyId"] is None:
         result["companyId"] = existing_company_id
 
@@ -417,6 +488,16 @@ def resolve_entities_from_query(
             session_id=session_id,
             platoons=platoons,
         )
+    if platoon_name_mention:
+        if result["platoonId"] is None:
+            result["platoonId"] = resolve_platoon_id(
+                platoon_name_mention,
+                company_id=result["companyId"],
+                trace_id=trace_id,
+                session_id=session_id,
+                platoons=platoons,
+            )
+        result["platoonName"] = platoon_name_mention
     elif result["platoonId"] is None:
         result["platoonId"] = existing_platoon_id
 

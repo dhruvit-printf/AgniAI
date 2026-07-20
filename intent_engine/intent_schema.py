@@ -2147,7 +2147,9 @@ CATEGORY_ENTITY_COMPATIBILITY: Dict[str, Set[str]] = {
 # Common entities allowed in ALL categories
 COMMON_ENTITY_TYPES: Set[str] = {
     "companyId",
+    "companyName",
     "platoonId",
+    "platoonName",
     "batchId",
     "agniveerNo",
     "unitName",

@@ -162,8 +162,13 @@ _SINGLE_AGNIVEER_OPERATIONS = frozenset(
         "Individual",  # Medical
         "AgniveerWise",  # Equipment
         "byagniveer",  # Schedule
+        "Monthly",  # Attendance
+        "Weekly",  # Attendance
+        "Daily",  # Attendance
+        "Summary",  # Attendance
     }
 )
+
 
 
 def _allows_agniveer_carry_forward(
@@ -1056,7 +1061,11 @@ def execute_admin_query(
             # Present) require an agniveerNo before the SQL backend runs.
             for op in query_plan.operations or [None]:
                 op_intent = op.intent_result if op is not None else {}
-                op_agniveer_no = op_intent.get("agniveer_no") or resolved_agniveer_no
+                op_agniveer_no = (
+                    op_intent.get("agniveer_no")
+                    or op_intent.get("agniveerNo")
+                    or resolved_agniveer_no
+                )
                 if (
                     agniveer_no_required(
                         op_intent.get("category"), op_intent.get("operation")
@@ -1064,6 +1073,10 @@ def execute_admin_query(
                     and not op_agniveer_no
                 ):
                     return _agniveer_no_missing_response(session_id)
+                elif op_agniveer_no and op_intent:
+                    op_intent["agniveerNo"] = op_agniveer_no
+                    op_intent["agniveer_no"] = op_agniveer_no
+
 
             if query_plan.operations:
                 # op.intent_result already carries classify_admin_intent's

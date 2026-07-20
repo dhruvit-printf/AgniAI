@@ -280,6 +280,25 @@ def _build_attendance_calendar_sql() -> str:
     )
 
 
+def _build_attendance_summary_sql() -> str:
+    return (
+        "WITH LeaveDays AS ("
+        "SELECT DISTINCT lm.AgniveerId, d.AttendanceDate "
+        "FROM AgniveerLeaveMaster lm "
+        "CROSS APPLY ("
+        "SELECT CAST(lm.FromDate AS DATE) AS AttendanceDate "
+        "UNION ALL "
+        "SELECT CAST(DATEADD(day, v.number, CAST(lm.FromDate AS DATE)) AS DATE) "
+        "FROM master..spt_values v "
+        "WHERE v.type = 'P' "
+        "AND v.number > 0 "
+        "AND CAST(DATEADD(day, v.number, CAST(lm.FromDate AS DATE)) AS DATE) <= CAST(lm.ToDate AS DATE)"
+        ") d"
+        ") "
+        "SELECT COUNT(*) AS LeaveDayCount FROM LeaveDays"
+    )
+
+
 def _build_medical_bmi_sql(
     *,
     top_n: int,
@@ -407,12 +426,86 @@ def _build_medical_bmi_sql(
     return sql, params
 
 
+def _build_medical_blood_group_sql(
+    *,
+    top_n: int,
+    report_mode: bool,
+    blood_group: str = "",
+    batch_id: Optional[int] = None,
+    platoon_id: Optional[int] = None,
+    company_id: Optional[int] = None,
+    company_name: Optional[str] = None,
+    platoon_name: Optional[str] = None,
+    agniveer_no: Optional[str] = None,
+    agniveer_class: Optional[str] = None,
+) -> Tuple[str, List[Any]]:
+    """Build a deterministic blood-group query from AgniveerMaster."""
+    clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)"]
+    params: List[Any] = []
+
+    if batch_id is not None:
+        clauses.append("a.BatchId = ?")
+        params.append(int(batch_id))
+    if agniveer_class is not None:
+        clauses.append("LOWER(a.Class) = LOWER(?)")
+        params.append(str(agniveer_class))
+    if platoon_id is not None:
+        clauses.append("a.PlatoonId = ?")
+        params.append(int(platoon_id))
+    if company_id is not None:
+        clauses.append("c.Id = ?")
+        params.append(int(company_id))
+    if company_name is not None:
+        clauses.append("LOWER(c.Name) = LOWER(?)")
+        params.append(str(company_name))
+    if platoon_name is not None:
+        clauses.append("LOWER(p.Name) = LOWER(?)")
+        params.append(str(platoon_name))
+    if agniveer_no is not None:
+        clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
+        params.append(str(agniveer_no))
+    if blood_group:
+        clauses.append("LOWER(COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown')) = LOWER(?)")
+        params.append(blood_group)
+
+    sql = f"""
+    WITH Scoped AS (
+        SELECT
+            a.AgniveerNo,
+            a.FullName,
+            COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown') AS BloodGroup
+        FROM AgniveerMaster a
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        WHERE {" AND ".join(clauses)}
+    )
+    """
+
+    if report_mode:
+        sql += f"""
+        SELECT
+            BloodGroup,
+            COUNT(*) AS AgniveerCount
+        FROM Scoped
+        GROUP BY BloodGroup
+        ORDER BY AgniveerCount DESC, BloodGroup ASC
+        """
+    else:
+        sql += f"""
+        SELECT TOP ({top_n})
+            AgniveerNo,
+            FullName,
+            BloodGroup
+        FROM Scoped
+        ORDER BY AgniveerNo ASC
+        """
+
+    return sql, params
+
+
 def _resolve_attendance_range(intent: Dict) -> Tuple[Optional[str], Optional[str]]:
-    """Returns (range_start, range_end) as date strings. Monthly/Weekly rely
-    on date_resolver having already expanded "current month"/"this week"/etc.
-    into fromDate/toDate; Daily relies on it having resolved a single date
-    (defaulting to today when the query named none — see date_resolver.
-    resolve_date_range's Daily/Weekly/Monthly fallback)."""
+    """Returns (range_start, range_end) as YYYY-MM-DD date strings.
+    Handles Daily, Weekly, Monthly, Summary operations cleanly."""
     operation = intent.get("operation")
     single_date = intent.get("date")
     from_date = intent.get("from_date")
@@ -421,10 +514,32 @@ def _resolve_attendance_range(intent: Dict) -> Tuple[Optional[str], Optional[str
         day = single_date or from_date or to_date
         if not day:
             day = datetime.date.today().isoformat()
-        return day, day
+        return str(day)[:10], str(day)[:10]
+    if operation in ("Weekly", "Monthly", "Summary"):
+        if from_date and to_date:
+            return str(from_date)[:10], str(to_date)[:10]
+        if operation == "Weekly":
+            today = datetime.date.today()
+            monday = today - datetime.timedelta(days=today.weekday())
+            sunday = monday + datetime.timedelta(days=6)
+            return monday.isoformat()[:10], sunday.isoformat()[:10]
+        if operation in ("Monthly", "Summary"):
+            today = datetime.date.today()
+            first = today.replace(day=1)
+            if first.month == 12:
+                next_month = first.replace(year=first.year + 1, month=1)
+            else:
+                next_month = first.replace(month=first.month + 1)
+            last = next_month - datetime.timedelta(days=1)
+            return first.isoformat()[:10], last.isoformat()[:10]
     range_start = from_date or single_date
     range_end = to_date or single_date
+    if range_start:
+        range_start = str(range_start)[:10]
+    if range_end:
+        range_end = str(range_end)[:10]
     return range_start, range_end
+
 
 
 # ── Safety validator ───────────────────────────────────────────────────────
@@ -881,9 +996,14 @@ ORDER BY TotalLeaveDays DESC
     if intent.get("category") == "Attendance" and intent.get("operation") in (
         "Monthly",
         "Weekly",
+        "Summary",
         "Daily",
+        "Present",
     ):
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        if not agniveer_no and intent.get("operation") in ("Monthly", "Weekly", "Summary", "Daily"):
+            return None, "Please provide an Agniveer number for the attendance query."
+
         if agniveer_no:
             is_lookup_valid, lookup_err = sql_validator.validate_sql(_AGNIVEER_LOOKUP_SQL)
             if not is_lookup_valid:
@@ -892,12 +1012,13 @@ ORDER BY TotalLeaveDays DESC
             if lookup_run_err:
                 return None, f"Attendance lookup failed: {lookup_run_err}"
             if not agniveer_rows:
-                return None, f"No agniveer found with AgniveerNo '{agniveer_no}'."
+                return _to_section([], intent), None
 
             agniveer_row = agniveer_rows[0]
             range_start, range_end = _resolve_attendance_range(intent)
             if not range_start or not range_end:
                 return None, "Could not resolve a date range for the attendance query."
+
 
             sql = _build_attendance_calendar_sql()
             is_sql_valid, sql_err = sql_validator.validate_sql(sql)
@@ -943,7 +1064,8 @@ ORDER BY TotalLeaveDays DESC
     batch_id = _pick_legacy_value("batchId", "batch_id")
     agniveer_no = _pick_legacy_value("agniveerNo", "agniveer_no")
     medical_status = _pick_legacy_value("medicalStatus", "medical_status")
-    company_name = _pick_legacy_value("Company", "company")
+    company_name = _pick_legacy_value("Company", "company", "companyName", "company_name")
+    platoon_name = _pick_legacy_value("platoonName", "platoon_name")
     class_ = _pick_legacy_value("class", "class_")
     blood_group = _pick_legacy_value("bloodGroup", "blood_group")
     sport = _pick_legacy_value("sport")
@@ -959,6 +1081,9 @@ ORDER BY TotalLeaveDays DESC
         filters.setdefault("Company.Id", company_id)
     elif company_name is not None:
         filters.setdefault("Company.Name", company_name)
+
+    if platoon_name is not None and platoon_id is None:
+        filters.setdefault("Platoon.Name", platoon_name)
 
     if platoon_id is not None:
         filters.setdefault("Agniveer.PlatoonId", platoon_id)
@@ -1277,6 +1402,44 @@ ORDER BY TotalLeaveDays DESC
             metrics_hook("generated")
             return _to_section(rows or [], intent, sql=sql), None
 
+        elif category == "Medical" and operation == "BloodGroup":
+            blood_group_value = str(
+                intent.get("bloodGroup") or intent.get("blood_group") or ""
+            ).strip()
+            report_mode = bool(
+                re.search(
+                    r"\b(report|summary|count|counts|distribution|breakdown|how many)\b",
+                    question,
+                    re.IGNORECASE,
+                )
+            )
+            sql, params = _build_medical_blood_group_sql(
+                top_n=int(intent.get("number") or SQL_MAX_ROWS),
+                report_mode=report_mode and not bool(
+                    intent.get("agniveer_no")
+                    or company_id
+                    or platoon_id
+                    or company_name
+                    or platoon_name
+                ),
+                blood_group=blood_group_value,
+                batch_id=batch_id,
+                platoon_id=platoon_id,
+                company_id=company_id,
+                company_name=company_name,
+                platoon_name=platoon_name,
+                agniveer_no=agniveer_no,
+                agniveer_class=class_,
+            )
+            is_sql_valid, sql_err = sql_validator.validate_sql(sql)
+            if not is_sql_valid:
+                return None, f"Medical blood group SQL validation failed: {sql_err}"
+            rows, run_err = run_readonly(sql, params)
+            if run_err:
+                return None, f"Medical blood group execution failed: {run_err}"
+            metrics_hook("generated")
+            return _to_section(rows or [], intent, sql=sql), None
+
         # 2. Gaps/Unsupported aggregation operations (routed to Tier 2 Fallback)
         elif (
             (
@@ -1293,7 +1456,7 @@ ORDER BY TotalLeaveDays DESC
                     "Trend",
                 )
             )
-            or (category == "Medical" and operation == "BloodGroup")
+            or (False and category == "Medical")
             # "Disease" only needs the LLM/CTE path for genuine aggregates
             # ("top diseases", "most common disease" — no specific disease
             # named, so `diagnose` is None). A named-disease lookup ("who has
