@@ -583,8 +583,22 @@ _LEAVE_STATUS_MARKERS = (
 # keeps it from firing on ordinary single-category queries that happen to
 # contain one of these very common words.
 _CROSS_FILTER_GENERIC_CONNECTORS = re.compile(
-    r"\bwho\b|\bwith\b|\bwhose\b|\bwhich\b|\bhaving\b|\bhas\b|\bhave\b"
+    r"\bwho\b|\bwith\b|\bwhose\b|\bwhich\b|\bhaving\b|\bhas\b|\bhave\b|\bhad\b|\bwhom\b|\bthat\b|\bwhere\b|\bwherein\b|\bwhereby\b|\bbelonging\b|\bbelongs?\b|\bbelong\b|\bholding\b|\bholds?\b|\bpossessing\b|\bcarrying\b|\bkeeping\b|\bowning\b|\bassigned\b|\bissued\b|\ballocated\b|\bgiven\b|\bsuffering\b|\bsuffered\b|\bdiagnosed\b|\badmitted\b|\bhospitalized\b|\bscored\b|\bscoring\b|\bpassed\b|\bpassing\b|\bfailed\b|\bfailing\b|\bqualified\b|\bqualifying\b|\bdisqualified\b|\bverified\b|\bapproved\b|\brejected\b|\bon\s+leave\b|\babsent\b|\bpresent\b",
+    re.IGNORECASE,
 )
+
+_GENERIC_INTRO_RE = re.compile(
+    r"^(?:show|give\s+me|list|display|find|get|fetch|filter|search\s+for|view|provide|tell\s+me\s+about|check|see)?\s*(?:all\s+)?(?:agniveer|agniveers|candidates|personnel|soldiers|trainees)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_generic_lead(text: str) -> bool:
+    clean = text.strip(" ,.?!")
+    if not clean:
+        return True
+    return bool(_GENERIC_INTRO_RE.match(clean))
+
 
 # "... for Dogra class agniveers" / "... among Dogra class" — a ranking/trend
 # query scoped to a community/class roster. Matched separately from the
@@ -1470,47 +1484,96 @@ def _extract_sub_requests(
         parts = []
         current = text
         for sep in (
+            r"\band\s+who\b",
+            r"\band\s+whose\b",
+            r"\band\s+whom\b",
+            r"\band\s+that\b",
+            r"\band\s+which\b",
+            r"\band\s+having\b",
+            r"\band\s+belonging(?:\s+to)?\b",
+            r"\band\s+belongs?\s+to\b",
+            r"\band\s+from\b",
+            r"\band\s+with\b",
+            r"\band\s+also\b",
+            r"\bas\s+well\s+as\b",
+            r"\balong\s+with\b",
+            r"\btogether\s+with\b",
+            r"\bplus\b",
             r"\bwho\b",
             r"\bwhose\b",
             r"\bwhom\b",
             r"\bthat\b",
             r"\bwhich\b",
+            r"\bwhere\b",
+            r"\bwherein\b",
+            r"\bwhereby\b",
             r"\bwith\b",
+            r"\bwithout\b",
             r"\bamong\b",
             r"\bwithin\b",
-            r"\bsuffering\b",
-            r"\bsuffered\b",
+            r"\bfrom\b",
+            r"\bout\s+of\b",
+            r"\binside\b",
+            r"\bunder\b",
+            r"\bbelonging(?:\s+to)?\b",
+            r"\bbelongs?\s+to\b",
+            r"\bbelong\s+to\b",
+            r"\bbelonged\s+to\b",
+            r"\bhaving\b",
+            r"\bhas\b",
+            r"\bhave\b",
+            r"\bhad\b",
+            r"\bholding\b",
+            r"\bholds?\b",
+            r"\bheld\b",
+            r"\bpossessing\b",
+            r"\bpossesses?\b",
+            r"\bcarrying\b",
+            r"\bcarries\b",
+            r"\bkeeping\b",
+            r"\bkeeps?\b",
+            r"\bowning\b",
+            r"\bowns?\b",
+            r"\bassigned(?:\s+to)?\b",
+            r"\bissued(?:\s+with)?\b",
+            r"\ballocated(?:\s+to)?\b",
+            r"\bgiven(?:\s+to)?\b",
+            r"\bsuffering(?:\s+from)?\b",
+            r"\bsuffered(?:\s+from)?\b",
+            r"\bdiagnosed(?:\s+with)?\b",
+            r"\badmitted(?:\s+to)?\b",
+            r"\bhospitalized(?:\s+for)?\b",
+            r"\bscored\b",
+            r"\bscoring\b",
+            r"\bscores?\b",
+            r"\bpassed\b",
+            r"\bpassing\b",
+            r"\bpasses?\b",
+            r"\bfailed\b",
+            r"\bfailing\b",
+            r"\bfails?\b",
+            r"\bqualified\b",
+            r"\bqualifying\b",
+            r"\bqualifies?\b",
+            r"\bdisqualified\b",
+            r"\bverified\b",
+            r"\bapproved\b",
+            r"\brejected\b",
+            r"\bon\s+leave\b",
+            r"\babsent\b",
+            r"\bpresent\b",
+            r"\battending\b",
+            r"\battended\b",
         ):
             # Capturing group around `sep` so the separator's own matched
             # text survives the split instead of being discarded — every
             # word of the original query must end up in some fragment.
             split_parts = re.split(f"({sep})", current, maxsplit=1, flags=re.IGNORECASE)
-            # A leading interrogative ("Who improved... among the badminton
-            # players?") matches "who" at position 0, leaving an empty lead
-            # fragment that then gets dropped entirely — collapsing the
-            # query back to one unsplit fragment. Skip a match that produces
-            # an empty lead and keep trying the remaining separators (e.g.
-            # "among") instead of accepting the degenerate split.
             if len(split_parts) > 1 and split_parts[0].strip(" ,"):
                 lead = split_parts[0].strip(" ,")
                 matched_word = split_parts[1]
                 remainder = split_parts[2].strip()
-                # Sticks the matched separator back onto whichever fragment
-                # ends up owning it. Defaults to the remainder (relative
-                # pronouns/prepositions like "who"/"whose"/"that"/"among"
-                # grammatically open the clause that follows); the
-                # diagnosed-with/suffering-from branches below re-embed it
-                # into `lead` themselves and flip this off.
                 reattached_to_remainder = True
-                # "diagnosed with fever" / "suffering from fever" / "suffered
-                # from fever" — the value right after "with"/"from" names the
-                # medical condition itself and is what "diagnosed"/"suffering"
-                # /"suffered" is about. Left where the generic split above
-                # puts it, it gets handed to whatever clause follows instead
-                # (e.g. "...diagnosed" / "fever are currently on leave"),
-                # losing the condition from the diagnosis leg entirely and
-                # producing an incomplete Medical operation with no disease
-                # value. Pull it back onto the diagnosis fragment.
                 if sep == r"\bwith\b" and re.search(
                     r"\bdiagnosed\s*$", lead, flags=re.IGNORECASE
                 ):
@@ -1547,11 +1610,20 @@ def _extract_sub_requests(
                                 lead = f"{lead} {verb} from {single_match.group(1)}"
                                 remainder = single_match.group(2).strip()
                                 reattached_to_remainder = False
+
+                if _is_generic_lead(lead):
+                    if reattached_to_remainder:
+                        current = f"{matched_word} {remainder}".strip()
+                    else:
+                        current = remainder.strip()
+                    continue
+
                 if reattached_to_remainder:
                     remainder = f"{matched_word} {remainder}".strip()
                 parts.append(lead)
                 current = remainder
                 break
+
         else:
             # "currently on leave"-style phrases are handled by a dedicated
             # fallback splitter one level up (in understand_query, keyed off
@@ -1638,14 +1710,51 @@ def _extract_sub_requests(
         final_parts = []
         for p in parts:
             p_clean = p.strip(" ,")
-            if p_clean and p_clean not in (
+            if p_clean and p_clean.lower() not in (
                 "who",
+                "whose",
+                "whom",
+                "that",
+                "which",
                 "with",
+                "without",
                 "and",
                 "plays",
                 "suffering",
                 "suffered",
+                "having",
+                "has",
+                "have",
+                "had",
+                "belonging",
+                "belongs",
+                "belong",
+                "from",
+                "among",
+                "within",
+                "also",
+                "plus",
+                "where",
+                "as",
+                "is",
+                "are",
+                "was",
+                "were",
+                "been",
+                "being",
+                "the",
+                "a",
+                "an",
+                "or",
+                "in",
+                "on",
+                "at",
+                "to",
+                "by",
+                "for",
+                "of",
             ):
+
                 final_parts.append(p_clean)
 
         return [
@@ -1730,6 +1839,13 @@ def understand_query(query: str) -> Dict[str, Any]:
 
     comparison_intent = any(marker in text for marker in _COMPARISON_MARKERS)
 
+    sub_requests = _extract_sub_requests(text, category, operation, entities)
+    sub_req_cats = {
+        sub.get("category")
+        for sub in sub_requests
+        if isinstance(sub, dict) and sub.get("category")
+    }
+
     # cross_filter requires a marker AND at least 2 distinct inferred categories
     _cross_marker_hit = _has_cross_filter_marker(text)
     _cross_marker_strong = _has_strong_cross_filter_marker(text)
@@ -1738,8 +1854,14 @@ def understand_query(query: str) -> Dict[str, Any]:
         from intent_engine.query_planner import _detect_categories as _dc
 
         _cf_cats = _dc(text)
-        if len(set(_cf_cats[:3])) >= 2 or _distinct_performance_sections(text) >= 2:
+        if (
+            len(set(_cf_cats[:3])) >= 2
+            or _distinct_performance_sections(text) >= 2
+            or len(sub_req_cats) >= 2
+            or (len(sub_requests) >= 2 and _cross_marker_hit)
+        ):
             cross_filter_intent = True
+
 
     # A later clause naming its own report/analytics noun ("...and equipment
     # summary") is asking for an independent output, not filtering the first
