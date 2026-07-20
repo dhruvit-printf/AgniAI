@@ -404,6 +404,9 @@ def execute_sql_query(
     sport = _pick_legacy_value("sport")
     diagnose = _pick_legacy_value("diagnose")
     unit_name = _pick_legacy_value("unitName", "unit_name")
+    from_date = _pick_legacy_value("fromDate", "from_date")
+    to_date = _pick_legacy_value("toDate", "to_date")
+    leave_status = _pick_legacy_value("leaveStatus", "leave_status", "leaveType", "leave_type")
 
     if company_id is not None:
         filters.setdefault("Company.Id", company_id)
@@ -464,12 +467,132 @@ def execute_sql_query(
                     {"Agniveer.Class": {"operator": "!=", "value": ""}},
                 ],
             )
+    elif category == "Leave":
+        base_concept = "Leave"
+        
+        extra_aggregates = None
+        extra_order_by = None
+        extra_group_by = None
+        
+        # --- Type of Leave filters ---
+        # "these are the types of leaves exist in our system so if user has asked any types of these leaves then you have to check these columns in agniveer leave master tables if its true"
+        leave_col_mapping = {
+            "Sick": "OnSickLeave",
+            "Hospitalized": "IsHospitalized",
+            "Medical": "OnMedicalLeave",
+            "Absconded": "IsAbscondedLeave",
+            "ATTNC": "OnATTN'C'",
+            "ExPPG": "OnEX PPG",
+            "Annual": "OnAnnualLeave",
+        }
+        if leave_status in leave_col_mapping:
+            col_name = leave_col_mapping[leave_status]
+            filters.setdefault(f"Leave.{col_name}", 1)
+        
+        # --- Operation specific filters ---
+        if operation == "Current" and from_date is None and to_date is None:
+            import datetime
+            today = datetime.date.today().isoformat()
+            filters.setdefault("Leave.FromDate", {"operator": "<=", "value": today})
+            filters.setdefault("Leave.ToDate", {"operator": ">=", "value": today})
+        elif operation in ("Most", "Least"):
+            # We want to sum the datediff of leaves per Agniveer
+            extra_aggregates = [
+                {
+                    "function": "SUM",
+                    "concept": None,
+                    "column": "DATEDIFF(day, FromDate, ToDate) + 1",
+                    "alias": "TotalLeaveDays",
+                }
+            ]
+            descending = False if operation == "Least" else True
+            extra_order_by = [
+                {"concept": None, "column": "TotalLeaveDays", "descending": descending},
+                {"concept": "Agniveer", "column": "AgniveerNo", "descending": False},
+            ]
+            extra_group_by = [
+                {"concept": "Agniveer", "column": "AgniveerNo"},
+                {"concept": "Agniveer", "column": "FullName"},
+            ]
+        else:
+            if from_date is not None:
+                filters.setdefault("Leave.ToDate", {"operator": ">=", "value": from_date})
+            if to_date is not None:
+                filters.setdefault("Leave.FromDate", {"operator": "<=", "value": to_date})
+    elif category == "Verification":
+        base_concept = "Agniveer"
+        verification_status = _pick_legacy_value("verificationStatus", "verification_status")
+        if verification_status is not None:
+            v_status_lower = verification_status.lower()
+            if v_status_lower == "pending":
+                filters.setdefault("OR", [
+                    {"Verification.Status": "Rejected"},
+                    {"Verification.AgniveerId": {"operator": "=", "value": None}}
+                ])
+            elif v_status_lower == "not responded":
+                filters.setdefault("Verification.Status", "Sent")
+                filters.setdefault("Verification.ReceivedDate", {"operator": "=", "value": None})
+            elif v_status_lower in ("verified", "completed"):
+                filters.setdefault("OR", [
+                    {"Verification.Status": "Verified"},
+                    {"Verification.Status": "Completed"}
+                ])
+            else:
+                filters.setdefault("Verification.Status", verification_status.capitalize())
+    elif category == "Equipment":
+        base_concept = "Equipment"
+
+        # These arrive as flat camelCase keys inside intent["filters"] (set by
+        # admin_intent.py), which query_planner_v2._parse_filters silently
+        # drops since they have no "Concept.Column" dot. Pull them out and
+        # re-express them with the concept-qualified keys the AST planner
+        # actually understands.
+        equipment_name = _pick_legacy_value("equipmentName", "equipment_name", "item_name")
+        equipment_type = _pick_legacy_value("equipmentType", "equipment_type")
+        given_condition = _pick_legacy_value("givenCondition", "given_condition")
+        return_condition = _pick_legacy_value("returnCondition", "return_condition")
+        for legacy_key in ("equipmentName", "equipmentType", "givenCondition", "returnCondition"):
+            filters.pop(legacy_key, None)
+
+        # Equipment name -> join AgniveerEquipment.EquipmentId to
+        # EquipmentMaster.Id and match on the master item name.
+        if equipment_name is not None:
+            filters.setdefault(
+                "EquipmentMaster.Name", {"operator": "LIKE", "value": f"%{equipment_name}%"}
+            )
+        # "Issued" / "Procured" type of equipment -> AgniveerEquipment.Type.
+        if equipment_type is not None:
+            filters.setdefault("Equipment.Type", equipment_type)
+        if given_condition is not None:
+            filters.setdefault("Equipment.GivenCondition", given_condition)
+        if return_condition is not None:
+            filters.setdefault("Equipment.ReturnCondition", return_condition)
+
+        # "Holding" = who currently has equipment issued to them (borrowed it
+        # and hasn't returned it) -> ReturnDateTime IS NULL.
+        # "Returned" = who has returned their equipment -> ReturnDateTime IS NOT NULL.
+        if operation == "Holding":
+            filters.setdefault(
+                "Equipment.ReturnDateTime", {"operator": "IS NULL", "value": None}
+            )
+        elif operation == "Returned":
+            filters.setdefault(
+                "Equipment.ReturnDateTime", {"operator": "IS NOT NULL", "value": None}
+            )
 
     v2_intent = {
         "base_concept": base_concept,
         "filters": filters,
         "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS,
     }
+    
+    if category == "Leave":
+        if extra_aggregates:
+            v2_intent["aggregates"] = extra_aggregates
+        if extra_order_by:
+            v2_intent["order_by"] = extra_order_by
+        if extra_group_by:
+            v2_intent["group_by"] = extra_group_by
 
     ast = None
     sql = ""
@@ -540,7 +663,6 @@ def execute_sql_query(
                     "Trend",
                 )
             )
-            or (category == "Leave" and operation in ("Most", "Least"))
             or (category == "Medical" and operation in ("BMI", "Disease", "BloodGroup"))
             or (
                 category == "Attendance"
@@ -555,6 +677,11 @@ def execute_sql_query(
             )
 
         ast = query_planner_v2.plan_query(v2_intent)
+
+        if category == "Verification" and verification_status and verification_status.lower() == "pending":
+            for j in ast.joins:
+                if j.right_table == "PoliceVerificationMaster":
+                    j.join_type = "LEFT"
 
         is_ast_valid, ast_err = sql_validator.validate_ast(ast)
         if not is_ast_valid:

@@ -99,12 +99,13 @@ class QueryPlannerV2:
                 col = agg.get("column")
                 target_table = self.engine.get_table_for_concept(concept)
 
-                if target_table != base_table:
+                if target_table and target_table != base_table:
                     self._add_joins(ast, base_table, target_table)
 
+                col_name = f"{target_table}.{col}" if target_table else col
                 ast.aggregates.append(
                     AggregateNode(
-                        column=f"{target_table}.{col}",
+                        column=col_name,
                         function=func,
                         alias=agg.get("alias"),
                     )
@@ -135,21 +136,16 @@ class QueryPlannerV2:
                 target_table = (
                     self.engine.get_table_for_concept(concept) if concept else None
                 )
-                if target_table:
-                    if target_table != base_table:
-                        self._add_joins(ast, base_table, target_table)
-                    ast.order_by.append(
-                        OrderByNode(
-                            column=f"{target_table}.{o.get('column')}",
-                            descending=o.get("descending", True),
-                        )
+                if target_table and target_table != base_table:
+                    self._add_joins(ast, base_table, target_table)
+                
+                col_name = f"{target_table}.{o.get('column')}" if target_table else o.get("column")
+                ast.order_by.append(
+                    OrderByNode(
+                        column=col_name,
+                        descending=o.get("descending", True),
                     )
-                else:
-                    ast.order_by.append(
-                        OrderByNode(
-                            column=o.get("column"), descending=o.get("descending", True)
-                        )
-                    )
+                )
         elif ast.limit and not ast.group_by and not ast.aggregates:
             # Add an order by if limiting, typically by PK
             pk = self.engine.get_primary_key(base_table)
