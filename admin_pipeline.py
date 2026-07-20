@@ -107,6 +107,82 @@ def ensure_agniveer_no_in_data(
     pass
 
 
+def _find_agniveer_no_key(record: Dict[str, Any]) -> Optional[str]:
+    for key in record.keys():
+        if key.lower() == "agniveerno":
+            return key
+    return None
+
+
+def _collect_agniveer_nos(data: Any, out: set, depth: int = 0) -> None:
+    """Recursively walk a result section and collect every AgniveerNo value
+    found, regardless of how deeply it's nested (flat record lists, grouped/
+    distribution envelopes, etc.)."""
+    if depth > 10:
+        return
+    if isinstance(data, dict):
+        key = _find_agniveer_no_key(data)
+        if key is not None and data.get(key) not in (None, ""):
+            out.add(str(data[key]))
+        for value in data.values():
+            _collect_agniveer_nos(value, out, depth + 1)
+    elif isinstance(data, list):
+        for item in data:
+            _collect_agniveer_nos(item, out, depth + 1)
+
+
+def _prune_records_outside_batch(data: Any, allowed_agniveer_nos: set, depth: int = 0) -> Any:
+    """Mirror of `_collect_agniveer_nos` that drops any record whose
+    AgniveerNo isn't in `allowed_agniveer_nos`. Records with no AgniveerNo
+    (aggregate rows, counts, non-agniveer sections) are left untouched."""
+    if depth > 10:
+        return data
+    if isinstance(data, list):
+        kept = []
+        for item in data:
+            if isinstance(item, dict):
+                key = _find_agniveer_no_key(item)
+                if key is not None and item.get(key) not in (None, ""):
+                    if str(item[key]) not in allowed_agniveer_nos:
+                        continue
+                item = _prune_records_outside_batch(item, allowed_agniveer_nos, depth + 1)
+            kept.append(item)
+        return kept
+    if isinstance(data, dict):
+        return {
+            k: _prune_records_outside_batch(v, allowed_agniveer_nos, depth + 1)
+            for k, v in data.items()
+        }
+    return data
+
+
+def enforce_batch_scope(sections: List[Any], batch_id: Optional[int]) -> List[Any]:
+    """Defense-in-depth guard applied to every fetched result leg: whatever
+    agniveer records a SQL leg produced, drop any whose AgniveerMaster row
+    shows a different BatchId than the one the frontend passed — regardless
+    of the question asked.
+
+    SQL-level BatchId filters exist per query builder, but are applied
+    inconsistently (some aggregate builders and the text2sql fallback have
+    no code-level guarantee they filtered by batch at all — see
+    sql_executor.get_batch_ids_for_agniveers), so this is the single place
+    batch scoping is always enforced no matter which builder answered.
+    """
+    if batch_id is None:
+        return sections
+    agniveer_nos: set = set()
+    for section in sections:
+        _collect_agniveer_nos(section, agniveer_nos)
+    if not agniveer_nos:
+        return sections
+
+    from sql_executor import get_batch_ids_for_agniveers
+
+    batch_map = get_batch_ids_for_agniveers(sorted(agniveer_nos))
+    allowed = {no for no, bid in batch_map.items() if bid == batch_id}
+    return [_prune_records_outside_batch(section, allowed) for section in sections]
+
+
 def _normalize_dotnet_leg(dotnet_data: Any) -> Any:
     """Single canonical normalization step for one result leg (SQL or,
     historically, .NET) — used by every query type (simple, cross-filter,
@@ -861,6 +937,11 @@ def execute_admin_query(
         frontend_intent = _extract_frontend_intent(body)
         frontend_visualization_intent = _extract_frontend_visualization_intent(body)
         id_filters = _get_id_filters(body)
+        # Ground-truth batch scope for this request — captured before any
+        # later mutation of id_filters (e.g. query-text entity resolution),
+        # since whatever batch the frontend passed must govern every
+        # question, not what the free-text query happens to mention.
+        frontend_batch_id = id_filters.get("batchId")
         semantic_understanding = understand_query(message)
 
         # ── Greeting / conversational short-circuit ──────────────────────────
@@ -1332,6 +1413,9 @@ def execute_admin_query(
                 for section in sql_raw:
                     ensure_agniveer_no_in_data(section)
                 normalized_sections = [_normalize_dotnet_leg(s) for s in sql_raw]
+                normalized_sections = enforce_batch_scope(
+                    normalized_sections, frontend_batch_id
+                )
                 raw_results = normalized_sections
                 labeled_results = [
                     (label, normalized_sections[idx])

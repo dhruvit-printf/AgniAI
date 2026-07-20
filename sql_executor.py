@@ -828,6 +828,37 @@ def run_readonly(
                 pass
 
 
+def get_batch_ids_for_agniveers(
+    agniveer_nos: List[str],
+) -> Dict[str, Optional[int]]:
+    """Ground-truth AgniveerNo -> BatchId lookup straight from AgniveerMaster.
+
+    Per-builder SQL applies a BatchId filter inconsistently (some aggregate
+    builders and the text2sql fallback have no code-level guarantee), so
+    admin_pipeline.enforce_batch_scope uses this after the fact to verify
+    every agniveer a query leg returned really belongs to the batch the
+    frontend passed, dropping any that don't.
+    """
+    unique_nos = sorted({str(no) for no in agniveer_nos if no})
+    if not unique_nos:
+        return {}
+    result: Dict[str, Optional[int]] = {}
+    # Chunked to stay well under SQL Server's ~2100 parameter limit.
+    chunk_size = 900
+    for start in range(0, len(unique_nos), chunk_size):
+        chunk = unique_nos[start : start + chunk_size]
+        placeholders = ", ".join("?" for _ in chunk)
+        sql = f"SELECT AgniveerNo, BatchId FROM AgniveerMaster WHERE AgniveerNo IN ({placeholders})"
+        rows, err = run_readonly(sql, chunk)
+        if err or not rows:
+            continue
+        for row in rows:
+            no = row.get("AgniveerNo")
+            if no is not None:
+                result[str(no)] = row.get("BatchId")
+    return result
+
+
 # ── Public entrypoint — AST Pipeline ──────
 def execute_sql_query(
     payload: Optional[Dict] = None,

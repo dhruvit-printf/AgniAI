@@ -981,7 +981,10 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
         )
     ):
         return "Performance"
+    if any(token in text for token in ("platoon", "batch", "company", "class", "unit")):
+        return "PersonalDetails"
     return None
+
 
 
 def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
@@ -1511,7 +1514,8 @@ def _extract_sub_requests(
             r"\bwithout\b",
             r"\bamong\b",
             r"\bwithin\b",
-            r"\bfrom\b",
+            r"\bfrom\s+(?:them|those|these)\b",
+
             r"\bout\s+of\b",
             r"\binside\b",
             r"\bunder\b",
@@ -1858,9 +1862,9 @@ def understand_query(query: str) -> Dict[str, Any]:
             len(set(_cf_cats[:3])) >= 2
             or _distinct_performance_sections(text) >= 2
             or len(sub_req_cats) >= 2
-            or (len(sub_requests) >= 2 and _cross_marker_hit)
         ):
             cross_filter_intent = True
+
 
 
     # A later clause naming its own report/analytics noun ("...and equipment
