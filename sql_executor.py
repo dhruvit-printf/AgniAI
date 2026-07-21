@@ -1373,6 +1373,32 @@ ORDER BY BmiValue DESC
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
+        elif _med_op == "FollowUp":
+            # "which boys have follow-up appointments" / "...upcoming
+            # follow-up date" — MedicalRecordMaster.FollowUpDate, scoped to
+            # today-or-later for "upcoming" phrasing and otherwise just
+            # "has a follow-up scheduled at all" (any non-null date).
+            _fu_clauses = ["ISNULL(m.IsDisqualified,0) = 0", "mr.FollowUpDate IS NOT NULL"]
+            _fu_params: List[Any] = []
+            if "upcoming" in _raw_q or "scheduled" in _raw_q:
+                _fu_clauses.append("mr.FollowUpDate >= CAST(GETDATE() AS DATE)")
+            if _m_agniveer_no:
+                _fu_clauses.append("LOWER(m.AgniveerNo) = LOWER(?)")
+                _fu_params.append(str(_m_agniveer_no))
+            _fu_org_filter, _fu_org_params = _org_scope_sql("m", intent)
+            _fu_where = "WHERE " + " AND ".join(_fu_clauses) + _fu_org_filter
+            _fu_params.extend(_fu_org_params)
+            _sql = f"""
+SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, mr.FollowUpDate, mr.VisitDate, mr.Diagnosis, mr.HospitalNameLocation
+FROM MedicalRecordMaster mr
+INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
+{_fu_where}
+ORDER BY mr.FollowUpDate ASC, m.AgniveerNo ASC
+"""
+            _rows, _run_err = run_readonly(_sql, _fu_params)
+            if not _run_err:
+                return _to_section(_rows or [], intent, sql=_sql), None
+
         elif _med_op in ("Disease", "DiseaseStatistics", "Diagnosed", "Individual", "IndividualMedical") or _m_diagnosis or _m_agniveer_no:
             clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
             params = []

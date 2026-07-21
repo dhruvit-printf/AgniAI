@@ -75,6 +75,7 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "BloodGroup",
             "Disease",
             "Individual",
+            "FollowUp",
         ]
     ),
     "Attendance": frozenset(
@@ -277,6 +278,9 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "obesity",
         "overweight",
         "underweight",
+        "follow-up",
+        "follow up",
+        "followup",
     ),
     "Attendance": (
         "attendance",
@@ -1023,6 +1027,10 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "unaccounted for",
             "cannot be located",
             "went missing",
+            "absent without permission",
+            "without permission",
+            "without authorization",
+            "unauthorized",
         ),
     },
     "Medical": {
@@ -1142,6 +1150,16 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "health record of",
             "medical history of",
             "medical status for",
+        ),
+        "FollowUp": (
+            "follow-up",
+            "follow up",
+            "followup",
+            "follow-up appointment",
+            "follow-up appointments",
+            "follow-up date",
+            "upcoming follow-up",
+            "has a follow-up",
         ),
     },
     "Attendance": {
@@ -2264,6 +2282,9 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
         "ward",
         "medical record",
         "health status",
+        "follow-up",
+        "follow up",
+        "followup",
     ),
     "Attendance": (
         "attendance",

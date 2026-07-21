@@ -583,7 +583,10 @@ def _apply_number_override(ops: List[SubOperation], raw_query: str) -> None:
 
 
 def _is_semantic_comparison(
-    text_lower: str, categories: List[str], semantic: Dict[str, Any]
+    text_lower: str,
+    categories: List[str],
+    semantic: Dict[str, Any],
+    raw_query: str = "",
 ) -> bool:
     # Direct keywords
     if any(kw in text_lower for kw in _COMPARISON_KEYWORDS):
@@ -602,7 +605,18 @@ def _is_semantic_comparison(
     # override that decision back to compare — e.g. "Show BPET report, also
     # show firing report and leave status" names two sections but is three
     # independent requests, not a comparison.
-    if semantic and semantic.get("query_type") in ("cross_filter", "multi_independent"):
+    # Exception: "which platoon has better attendance, PL-01 or PL-02" is an
+    # unambiguous 2-way comparison (comparative adjective + "A or B"), but
+    # "platoon" + "attendance" as two separate category signals in the same
+    # sentence is exactly the shape the semantic layer's cross_filter
+    # heuristic looks for — it wins the race before this function ever gets
+    # a chance to recognise the comparison, so this specific high-precision
+    # pattern needs to override that guess rather than defer to it.
+    if (
+        semantic
+        and semantic.get("query_type") in ("cross_filter", "multi_independent")
+        and not _COMPARATIVE_OR_RE.search(raw_query or text_lower)
+    ):
         return False
 
     # Adjectives / comparative words
@@ -821,8 +835,39 @@ def _propagate_trailing_section(parts: List[str]) -> List[str]:
     return result
 
 
+_COMPARATIVE_OR_RE = re.compile(
+    r"\b(?:better|worse|higher|lower|more|fewer|stronger|weaker)\b\s*(.*?),\s*"
+    r"(.+?)\s+or\s+(.+?)[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
+
 def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
     text_lower = query_text.lower().strip()
+
+    # "Which company is doing better, Lak Company or Jas Company?" /
+    # "Which platoon has better attendance, PL-01 or PL-02?" — a comparison
+    # with no "vs"/"versus" at all, just a comparative adjective and an
+    # "A or B" pair after a comma. Checked before the "vs"/"versus" split
+    # below (neither separator is present here) and before the Sections/
+    # Units/Platoons/Batches fallback list (those only recognise a fixed,
+    # hardcoded vocabulary — not arbitrary company names like "Lak Company").
+    # Comma-then-"or" is deliberately narrow so it doesn't fire on unrelated
+    # "or" usage (e.g. "who is disqualified or absconded" has no comma).
+    # The metric between the comparative word and the comma ("attendance" in
+    # "better attendance, PL-01 or PL-02") is prepended to BOTH sides — left
+    # off, only one side (or neither) would carry that context.
+    or_match = _COMPARATIVE_OR_RE.search(query_text)
+    if or_match:
+        context = or_match.group(1).strip()
+        name_a, name_b = or_match.group(2).strip(), or_match.group(3).strip()
+        parts = (
+            [f"{context} {name_a}", f"{context} {name_b}"]
+            if context
+            else [name_a, name_b]
+        )
+        return _normalize_n_parts(parts)
+
     for sep in (" vs ", " versus "):
         if sep in text_lower:
             temp_text = query_text
@@ -995,7 +1040,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         )
 
     categories = _detect_categories(q)
-    is_compare = _is_semantic_comparison(q, categories, semantic)
+    is_compare = _is_semantic_comparison(q, categories, semantic, raw_query=raw_query)
 
     if is_compare:
         components = _extract_comparison_components(raw_query)
