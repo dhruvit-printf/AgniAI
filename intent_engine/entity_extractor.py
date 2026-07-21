@@ -411,8 +411,14 @@ def _extract_blood_group(query: str) -> Optional[str]:
             blood_group.replace("+", " positive").lower(),
             blood_group.replace("-", " negative").lower(),
         )
-        if any(variant in query_lower for variant in variants):
-            return blood_group
+        for variant in variants:
+            # A plain `in` substring check had no word boundary, so a code
+            # like "b-" matched inside unrelated words containing that exact
+            # letter run — e.g. "sub-item" contains "b-" — misfiring
+            # bloodGroup="B-" on queries that never mentioned blood type at
+            # all. \b anchors the match to a real word/token boundary.
+            if re.search(rf"\b{re.escape(variant)}", query_lower):
+                return blood_group
     return None
 
 
@@ -692,10 +698,24 @@ def _extract_state(query: str) -> Optional[str]:
     return None
 
 
+_COMPANY_NAME_STOPWORDS = frozenset(
+    {"in", "for", "of", "the", "a", "an", "this", "that", "and", "or",
+     "at", "to", "from", "by", "on", "with", "about", "vs", "versus"}
+)
+
+
 def _extract_company_name(query: str) -> Optional[str]:
     text = query.lower()
+    # "<Name> company" — checked first: this function only ever looked AFTER
+    # "company", so for "Lakhwinder company in BPET" it captured the next
+    # word after "company" ("in") as the company name and never saw
+    # "Lakhwinder" at all, which sits right before the keyword.
+    m = re.search(r"\b([a-z0-9][a-z0-9\-_]*)\s+company\b", text)
+    if m and m.group(1) not in _COMPANY_NAME_STOPWORDS:
+        return m.group(1)
+    # "company <Name>"
     m = re.search(r"\bcompany\s+([a-z0-9\-_]+)", text)
-    if m:
+    if m and m.group(1) not in _COMPANY_NAME_STOPWORDS:
         return m.group(1)
     return None
 

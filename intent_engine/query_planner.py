@@ -785,6 +785,42 @@ def _normalize_n_parts(parts: List[str]) -> List[Tuple[str, str]]:
     return [(p, p) for p in cleaned_parts if p]
 
 
+def _propagate_trailing_section(parts: List[str]) -> List[str]:
+    """Mirror of propagate_lead_in_across_parts, but for a shared qualifier
+    trailing the LAST part instead of leading the first.
+
+    "Compare Lakhwinder company vs Jaswant company in BPET" splits on " vs "
+    into ["Lakhwinder company", "Jaswant company in BPET"] — only the second
+    half carries "in BPET", so the first half has no section signal at all
+    and fails to classify (confidence ~0.1, no category). Neither company
+    name is in the hardcoded UNIT_ALIASES list, so the earlier
+    "Company/Units" split branch never even sees this pair — it falls all
+    the way through to the generic " vs " split, which has never
+    back-propagated a trailing qualifier.
+    """
+    if len(parts) < 2:
+        return parts
+    last = parts[-1]
+    m = re.search(
+        rf"\b(?:in|for)\s+({'|'.join(_COMPARISON_SECTIONS)})\b",
+        last,
+        flags=re.IGNORECASE,
+    )
+    if not m:
+        return parts
+    suffix = m.group(0)
+    section = m.group(1)
+    result = []
+    for i, p in enumerate(parts):
+        if i == len(parts) - 1 or re.search(
+            rf"\b{re.escape(section)}\b", p, flags=re.IGNORECASE
+        ):
+            result.append(p)
+        else:
+            result.append(f"{p} {suffix}".strip())
+    return result
+
+
 def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
     text_lower = query_text.lower().strip()
     for sep in (" vs ", " versus "):
@@ -797,6 +833,7 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
                     temp_lower = temp_text.lower().strip()
             parts = re.split(re.escape(sep), temp_text, flags=re.IGNORECASE)
             parts = propagate_lead_in_across_parts(parts)
+            parts = _propagate_trailing_section(parts)
             return _normalize_n_parts(parts)
 
     diff_match = re.search(

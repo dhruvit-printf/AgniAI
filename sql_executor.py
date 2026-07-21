@@ -1435,6 +1435,29 @@ ORDER BY eq.GivenDateTime DESC, m.AgniveerNo ASC
 
         _p_org_filter, _p_org_params = _org_scope_sql("m", intent)
 
+        # Active / inactive status (AgniveerMaster.IsActive — see
+        # personal_details_parser.py's ActiveStatusCount/ActiveStatusList).
+        if _p_op in ("ActiveStatusCount", "ActiveStatusList"):
+            _p_is_active = 1 if intent.get("is_active") else 0
+            if _p_op == "ActiveStatusCount":
+                _sql = f"""
+SELECT COUNT(*) AS AgniveerCount
+FROM AgniveerMaster m
+WHERE ISNULL(m.IsActive,0) = {_p_is_active}
+  {_p_org_filter}
+"""
+            else:
+                _sql = f"""
+SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, m.IsActive
+FROM AgniveerMaster m
+WHERE ISNULL(m.IsActive,0) = {_p_is_active}
+  {_p_org_filter}
+ORDER BY m.AgniveerNo ASC
+"""
+            _rows, _run_err = run_readonly(_sql, _p_org_params)
+            if not _run_err:
+                return _to_section(_rows or [], intent, sql=_sql), None
+
         # BloodGroup summary breakdown query (e.g. "Show blood group details")
         if ("blood group" in _raw_q or _p_metric == "BloodGroup" or _p_op in ("BloodGroup", "BloodGroupDetails")) and not _p_blood_group and not _p_agniveer_no:
             _sql = f"""
@@ -1471,17 +1494,29 @@ ORDER BY AgniveerCount DESC
         where_str = "WHERE " + " AND ".join(clauses) + _p_org_filter
         params.extend(_p_org_params)
 
-        # A specific field was asked about (e.g. "what is the height of
-        # X" -> metric="Height", set by personal_details_parser.py) — return
-        # just that field plus the identifying columns, not the entire
-        # 14-column profile. Validated against the same column whitelist
-        # personal_details_parser.py extracts `metric` from, so this can
-        # never become a column-name injection point.
+        # One or more specific fields were asked about (e.g. "height and
+        # weight of all agniveers" -> metrics=["Height","Weight"], set by
+        # personal_details_parser.py) — return just those fields plus the
+        # identifying columns, not the entire 14-column profile. A query
+        # naming N fields must get all N back, not just the first — this
+        # used to read only the singular `metric`, so a multi-field ask
+        # silently dropped every field but the first one requested.
+        # Validated against the same column whitelist personal_details_parser.py
+        # extracts metrics from, so this can never become a column-name
+        # injection point.
         from intent_engine.personal_details_parser import AGNIVEER_PERSONAL_COLUMNS
 
-        _p_metric = intent.get("metric")
-        if _p_metric and _p_metric in AGNIVEER_PERSONAL_COLUMNS and _p_metric not in ("AgniveerNo", "FullName"):
-            _select_cols = f"m.AgniveerNo, m.FullName, m.{_p_metric}"
+        _p_metrics = intent.get("metrics")
+        if not _p_metrics and intent.get("metric"):
+            _p_metrics = [intent.get("metric")]
+        _p_metrics = [
+            m for m in (_p_metrics or [])
+            if m in AGNIVEER_PERSONAL_COLUMNS and m not in ("AgniveerNo", "FullName")
+        ]
+        if _p_metrics:
+            _select_cols = "m.AgniveerNo, m.FullName, " + ", ".join(
+                f"m.{m}" for m in dict.fromkeys(_p_metrics)
+            )
         else:
             _select_cols = (
                 "m.AgniveerNo, m.FullName, m.Class, m.State, m.District, m.Qualification, "

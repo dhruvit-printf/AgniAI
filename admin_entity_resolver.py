@@ -288,6 +288,77 @@ def extract_agniveer_mention(text: str) -> Optional[str]:
     return None
 
 
+# Words that legitimately appear capitalised (sentence-start, or as a proper
+# category name in Title Case) but are never part of a person's name — used
+# to reject false-positive "name" matches like "Show Agniveers" or "Which
+# Platoon". Deliberately conservative: better to miss an unusual name than
+# to send a random 2-word phrase into a FullName LIKE lookup.
+_AGNIVEER_NAME_STOPWORDS = frozenset(_NOISE_WORDS) | {
+    "agniveer",
+    "agniveers",
+    "police",
+    "medical",
+    "equipment",
+    "verification",
+    "district",
+    "state",
+    "village",
+    "tehsil",
+    "which",
+    "who",
+    "what",
+    "when",
+    "where",
+    "why",
+    "how",
+    "compare",
+    "list",
+    "give",
+    "show",
+    "does",
+    "did",
+}
+
+_AGNIVEER_NAME_RE = re.compile(r"\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+\b")
+
+
+def extract_agniveer_name_mention(text: str) -> Optional[str]:
+    """Find a person-name-like phrase — 2+ consecutive Title-Case words
+    (e.g. "Harminder Singh", "Aditya Kanwar") — for when the user identifies
+    an Agniveer by name instead of by AgniveerNo. Only called as a fallback
+    when no AgniveerNo pattern was found (see extract_agniveer_mention)."""
+    for candidate in _AGNIVEER_NAME_RE.findall(text or ""):
+        words = candidate.split()
+        if any(w.lower() in _AGNIVEER_NAME_STOPWORDS for w in words):
+            continue
+        return candidate
+    return None
+
+
+def resolve_agniveer_nos_by_name(name: str) -> List[Dict[str, str]]:
+    """Look up every Agniveer whose FullName matches `name` (substring,
+    case-insensitive). Returns [] on no match, and — deliberately — every
+    match when more than one Agniveer shares the name, so the caller can
+    decide how to fan the query out rather than silently picking one.
+    """
+    if not name:
+        return []
+    from sql_executor import run_readonly
+
+    rows, err = run_readonly(
+        "SELECT AgniveerNo, FullName FROM AgniveerMaster "
+        "WHERE ISNULL(IsDisqualified,0) = 0 AND LOWER(FullName) LIKE '%' + LOWER(?) + '%'",
+        [name],
+    )
+    if err or not rows:
+        return []
+    return [
+        {"agniveerNo": r["AgniveerNo"], "fullName": r["FullName"]}
+        for r in rows
+        if r.get("AgniveerNo")
+    ]
+
+
 def extract_batch_mention(text: str) -> Optional[str]:
     q = text.lower().strip()
     for pattern in _BATCH_PATTERNS:
@@ -500,6 +571,22 @@ def resolve_entities_from_query(
     result["platoonName"] = platoon_mention
     result["batchName"] = batch_mention
     result["agniveerNo"] = agniveer_mention
+    result["agniveerMatches"] = []
+
+    # No AgniveerNo pattern (e.g. "A0701749H") in the query — try resolving
+    # by person NAME instead (e.g. "Who is Harminder Singh...", "What is
+    # Aditya Kanwar's date of birth"). Unlike company/platoon, Agniveers
+    # aren't a small enough set to prefetch into a directory, so this goes
+    # straight to the DB. If more than one Agniveer shares the name, every
+    # match is returned via agniveerMatches — the caller decides how to fan
+    # the query out across them, rather than this silently guessing one.
+    if not agniveer_mention:
+        name_mention = extract_agniveer_name_mention(query)
+        if name_mention:
+            matches = resolve_agniveer_nos_by_name(name_mention)
+            result["agniveerMatches"] = matches
+            if len(matches) == 1:
+                result["agniveerNo"] = matches[0]["agniveerNo"]
 
     # Fetched once and reused for every lookup below (resolve_*_id calls,
     # the authoritative directory scan, and the name backfill) instead of

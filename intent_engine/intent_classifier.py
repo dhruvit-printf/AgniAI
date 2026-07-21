@@ -643,6 +643,7 @@ def _should_entity_override_category(
     if (
         _entity_present(entities, "equipmentName")
         and classified_category != "Equipment"
+        and not _entity_present(entities, "section", "subSection")
     ):
         return (
             True,

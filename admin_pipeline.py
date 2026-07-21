@@ -1091,7 +1091,40 @@ def execute_admin_query(
                 qie_result = qie_process(message)
                 message = qie_result.canonical_text
                 query_plan = plan_query(message)
-                
+
+            # The query named a person ("Who is Harminder Singh...") rather
+            # than an AgniveerNo, and more than one Agniveer shares that
+            # name — resolve_entities_from_query() deliberately left
+            # agniveerNo unset in that case rather than guessing which one.
+            # Fan the single operation out into one per match so every one
+            # of them comes back, instead of silently answering for none or
+            # picking an arbitrary one.
+            _agniveer_matches = resolved_entities.get("agniveerMatches") or []
+            if len(_agniveer_matches) > 1 and len(query_plan.operations) == 1:
+                from intent_engine.query_planner import SubOperation
+
+                _template_op = query_plan.operations[0]
+                query_plan.operations = [
+                    SubOperation(
+                        raw_fragment=(
+                            f"{_template_op.raw_fragment} "
+                            f"({_match['fullName']} / {_match['agniveerNo']})"
+                        ),
+                        intent_result={
+                            **_template_op.intent_result,
+                            "agniveerNo": _match["agniveerNo"],
+                            "agniveer_no": _match["agniveerNo"],
+                        },
+                    )
+                    for _match in _agniveer_matches
+                ]
+                query_plan.query_type = QueryType.MULTI_INDEPENDENT
+                logger.info(
+                    "Name mention resolved to %d Agniveers — fanned out as multi_independent: %s",
+                    len(_agniveer_matches),
+                    [m["agniveerNo"] for m in _agniveer_matches],
+                )
+
             planning_duration = time.time() - planning_start
             planner_duration = time.time() - planner_start
             logger.info(
