@@ -1484,11 +1484,19 @@ ORDER BY eq.GivenDateTime DESC, m.AgniveerNo ASC
                 if _p_is_active is not None
                 else "1 = 1"
             )
+            # "Is A0701948W active?" — one specific Agniveer, not the whole
+            # roster.
+            _p_active_agn_filter = ""
+            _p_active_params = list(_p_org_params)
+            if _p_agniveer_no:
+                _p_active_agn_filter = "AND LOWER(m.AgniveerNo) = LOWER(?)"
+                _p_active_params = [str(_p_agniveer_no)] + _p_active_params
             if _p_op == "ActiveStatusCount":
                 _sql = f"""
 SELECT COUNT(*) AS AgniveerCount
 FROM AgniveerMaster m
 WHERE {_p_active_where}
+  {_p_active_agn_filter}
   {_p_org_filter}
 """
             else:
@@ -1496,10 +1504,11 @@ WHERE {_p_active_where}
 SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, m.IsActive
 FROM AgniveerMaster m
 WHERE {_p_active_where}
+  {_p_active_agn_filter}
   {_p_org_filter}
 ORDER BY m.AgniveerNo ASC
 """
-            _rows, _run_err = run_readonly(_sql, _p_org_params)
+            _rows, _run_err = run_readonly(_sql, _p_active_params)
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 

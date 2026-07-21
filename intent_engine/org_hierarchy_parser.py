@@ -22,8 +22,30 @@ _AGNIVEER_NO_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
 def parse_org_hierarchy(query: str) -> Optional[Dict[str, Any]]:
     q_lower = query.lower().strip()
 
-    if not any(kw in q_lower for kw in ("command", "platoon", "company", "companies")):
+    if not any(
+        kw in q_lower
+        for kw in ("command", "platoon", "company", "companies", "posted")
+    ):
         return None
+
+    # "Where is X posted?" / "Which platoon is X in?" — same answer shape as
+    # WhichCompanyForAgniveer below (it already selects both PlatoonName and
+    # CompanyName), just reached by different phrasing that doesn't
+    # necessarily say "belong" or "company".
+    if re.search(r"\bposted\b", q_lower) or re.search(
+        r"\bwhich\s+platoon\b.*\bin\b", q_lower
+    ):
+        m = _AGNIVEER_NO_RE.search(query)
+        if m:
+            return {
+                "category": "OrgHierarchy",
+                "operation": "WhichCompanyForAgniveer",
+                "agniveer_no": m.group(1).upper(),
+                "query_type": "simple",
+                "confidence": "high",
+                "confidence_score": 1.0,
+                "filters": {},
+            }
 
     target = "Platoon" if "platoon" in q_lower and "company" not in q_lower else "Company"
 

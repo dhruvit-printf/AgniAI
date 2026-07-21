@@ -176,7 +176,7 @@ def _extract_number(query: str) -> Optional[int]:
         if match:
             start = max(0, match.start() - 24)
             context = text[start : match.start()].strip().lower()
-            clean_ctx = re.sub(r"[-\s]+", " ", context)
+            clean_ctx = re.sub(r"[-\s]+", " ", context).strip()
             if any(clean_ctx.endswith(prefix) for prefix in blocked_prefixes):
                 continue
             return int(match.group(1))
@@ -210,7 +210,13 @@ def _extract_number(query: str) -> Optional[int]:
 
         start_before = max(0, match.start() - 24)
         context_before = text[start_before : match.start()].strip().lower()
-        clean_ctx_before = re.sub(r"[-\s]+", " ", context_before)
+        # .strip() above only trims whitespace, but a hyphenated reference
+        # like "PL-01" leaves the slice ending in "...pl-" (hyphen attached,
+        # no whitespace to strip) — normalise the hyphen to a space FIRST,
+        # then strip, or "pl-" -> "pl " never matches the blocked_prefixes
+        # entry "pl" (trailing space) and this platoon code's "01" gets
+        # returned as if the user asked for "top 1" / "number=1".
+        clean_ctx_before = re.sub(r"[-\s]+", " ", context_before).strip()
 
         end_after = min(len(text), match.end() + 24)
         context_after = text[match.end() : end_after].strip().lower()

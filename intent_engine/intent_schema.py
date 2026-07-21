@@ -342,6 +342,10 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "gear",
         "kit",
         "inventory",
+        "rifle",
+        "rifles",
+        "weapon",
+        "weapons",
     ),
     "Distribution": (
         "distribution",
@@ -1327,6 +1331,9 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "assigned equipment",
             "possessing",
             "who has issued items",
+            "still has",
+            "still hasn't returned",
+            "hasn't returned",
         ),
         "AgniveerWise": (
             "what does each person have",
@@ -2322,6 +2329,10 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
         "handed back",
         "equipment stats",
         "equipment summary",
+        "rifle",
+        "rifles",
+        "weapon",
+        "weapons",
     ),
     "Distribution": (
         "distribution",

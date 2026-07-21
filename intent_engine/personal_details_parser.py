@@ -25,26 +25,49 @@ COL_MAP["date of joining"] = "DateOfJoining"
 COL_MAP["next of kin"] = "NextOfKin"
 COL_MAP["house no"] = "HouseNo"
 
+_AGNIVEER_NO_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
+
+
 def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
     """
     Attempt to heuristically match personal detail queries.
     Returns an intent dictionary if matched, else None.
     """
     q_lower = query.lower().strip()
+    agn_match = _AGNIVEER_NO_RE.search(query)
 
-    # 0. Active / inactive status ("how many active Agniveers", "list all
-    # inactive/removed Agniveers"). This is the AgniveerMaster.IsActive flag
-    # — a distinct concept from IsDisqualified (the "disqualified" category)
-    # — so it needs its own match, or "inactive/removed" silently falls into
-    # the disqualified-tracking flow, and "active" isn't recognised at all.
-    if "agniveer" in q_lower and (
+    # -1. "When did A0701943X join?" — DateOfJoining via the verb "join",
+    # not the noun phrase "date of joining" the generic column-alias lookup
+    # (further below) requires. Checked before anything else needs the
+    # literal word "agniveer" since a query naming a specific AgniveerNo
+    # usually doesn't say "agniveer" at all.
+    if agn_match and re.search(r"\bjoin(?:ed|ing)?\b", q_lower):
+        return {
+            "category": "personaldetail",
+            "operation": "lookup",
+            "metric": "DateOfJoining",
+            "agniveer_no": agn_match.group(1).upper(),
+            "query_type": "simple",
+            "confidence": "high",
+            "confidence_score": 0.9,
+            "filters": {},
+        }
+
+    # 0. Active / inactive status — either a plain "how many active
+    # Agniveers" / "list all inactive/removed Agniveers" (the whole
+    # roster), or "Is A0701948W active?" (one specific Agniveer, via
+    # agn_match). AgniveerMaster.IsActive is a distinct concept from
+    # IsDisqualified (the "disqualified" category), so it needs its own
+    # match or "inactive/removed" silently falls into disqualified-tracking
+    # and "active" isn't recognised at all.
+    if ("agniveer" in q_lower or agn_match) and (
         re.search(r"\b(in)?active\b", q_lower) or "removed" in q_lower
     ):
         is_active = 0 if ("inactive" in q_lower or "removed" in q_lower) else 1
         wants_count = bool(
             re.search(r"\bhow many\b|\bcount of\b|\btotal number\b|\bnumber of\b", q_lower)
         )
-        return {
+        result: Dict[str, Any] = {
             "category": "personaldetail",
             "operation": "ActiveStatusCount" if wants_count else "ActiveStatusList",
             "is_active": is_active,
@@ -53,6 +76,9 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
             "confidence_score": 1.0,
             "filters": {},
         }
+        if agn_match and not wants_count:
+            result["agniveer_no"] = agn_match.group(1).upper()
+        return result
 
     # 0b. Attribute filters with no single "show me field X" ask (e.g. "list
     # every Agniveer belonging to Batch 3", "Agniveers taller than 175 cm",
@@ -103,6 +129,30 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                 "query_type": "simple",
                 "confidence": "high",
                 "confidence_score": 0.9,
+                "filters": {},
+            }
+
+        # A plain roster ask — "give me a list of agniveers in <Company/
+        # Platoon>" — with no aggregate/ranking language. Company/platoon
+        # NAME -> ID resolution happens separately upstream in
+        # admin_entity_resolver.py; this only needs to recognise the
+        # question shape. Without it, "agniveer" so close to "company"/
+        # "platoon" was winning a stray Equipment/AgniveerWise fuzzy-match
+        # instead (observed at ~0.28 confidence).
+        if (
+            re.search(r"\b(list|show|give)\b", q_lower)
+            and re.search(r"\b(in|of|from|belonging to|under)\b", q_lower)
+            and not re.search(
+                r"\bwhich\b|\bhow many\b|\bmost\b|\bfewest\b|\bleast\b|\beach\b|\btop\b|\bbest\b|\bworst\b",
+                q_lower,
+            )
+        ):
+            return {
+                "category": "personaldetail",
+                "operation": "lookup",
+                "query_type": "simple",
+                "confidence": "high",
+                "confidence_score": 0.85,
                 "filters": {},
             }
 
