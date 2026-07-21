@@ -230,6 +230,91 @@ def execute_performance_query(
             return _to_section(rows=rows, intent=intent, sql=sql), None
 
         if operation in ("Improvement", "Drop"):
+            _raw_q = str(intent.get("raw_query") or "").lower()
+            _wants_first_vs_best = (
+                from_attempt is None
+                and to_attempt is None
+                and "first" in _raw_q
+                and "best" in _raw_q
+            )
+            if _wants_first_vs_best:
+                # "improved between first and best attempt" has no numeric
+                # from/to attempt (entity extraction only recognises literal
+                # "attempt N" windows), so without this branch it silently
+                # fell through to the no-window default below, which compares
+                # the two MOST RECENT attempts (rn=1 vs rn=2) — answering a
+                # different question than the one asked whenever an
+                # Agniveer's best attempt isn't also their latest one.
+                source_sql, source_params = _filtered_attempts_source(
+                    require_best_attempt=False
+                )
+                delta_filter = "Delta > 0" if operation == "Improvement" else "Delta < 0"
+                order_column = "[Improvement]" if operation == "Improvement" else "[Drop]"
+
+                sql = f"""
+                WITH FilteredAttempts AS (
+                    {source_sql}
+                ),
+                AttemptTotals AS (
+                    SELECT
+                        AgniveerId,
+                        AgniveerNo,
+                        FullName,
+                        SectionName,
+                        AttemptNo,
+                        SUM(MarksObtained) AS AttemptTotal
+                    FROM FilteredAttempts
+                    GROUP BY AgniveerId, AgniveerNo, FullName, SectionName, AttemptNo
+                ),
+                FirstAttempt AS (
+                    SELECT * FROM AttemptTotals WHERE AttemptNo = 1
+                ),
+                BestAttempt AS (
+                    SELECT t.*
+                    FROM AttemptTotals t
+                    WHERE t.AttemptTotal = (
+                        SELECT MAX(t2.AttemptTotal)
+                        FROM AttemptTotals t2
+                        WHERE t2.AgniveerId = t.AgniveerId
+                            AND t2.SectionName = t.SectionName
+                    )
+                ),
+                Compared AS (
+                    SELECT
+                        cur.AgniveerNo,
+                        cur.FullName,
+                        cur.SectionName,
+                        first.AttemptNo AS FirstAttemptNo,
+                        cur.AttemptNo AS BestAttemptNo,
+                        first.AttemptTotal AS FirstTotal,
+                        cur.AttemptTotal AS BestTotal,
+                        cur.AttemptTotal - first.AttemptTotal AS Delta
+                    FROM BestAttempt cur
+                        INNER JOIN FirstAttempt first
+                            ON first.AgniveerId = cur.AgniveerId
+                            AND first.SectionName = cur.SectionName
+                )
+                SELECT
+                    AgniveerNo,
+                    FullName,
+                    SectionName,
+                    FirstAttemptNo,
+                    BestAttemptNo,
+                    FirstTotal,
+                    BestTotal,
+                    CASE WHEN Delta > 0 THEN Delta ELSE 0 END AS Improvement,
+                    CASE WHEN Delta < 0 THEN -Delta ELSE 0 END AS [Drop]
+                FROM Compared
+                WHERE {delta_filter}
+                ORDER BY {order_column} DESC, AgniveerNo ASC
+                """
+                rows, err = _run(sql, source_params)
+                if err:
+                    return None, err
+                rows = rows[:top_n]
+                _mark_generated()
+                return _to_section(rows=rows, intent=intent, sql=sql), None
+
             if from_attempt is not None and to_attempt is not None:
                 current_attempt = int(to_attempt)
                 previous_attempt = int(from_attempt)

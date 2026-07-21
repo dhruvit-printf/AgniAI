@@ -151,7 +151,13 @@ def extract_company_mention(text: str) -> Optional[str]:
             if candidate in _NOISE_WORDS and not (
                 len(candidate) == 1 and candidate.isalpha()
             ):
-                continue
+                # Stop at the first noise word walking outward from
+                # "company" — it marks the boundary of the actual name.
+                # Skipping past it (the old behaviour) let words from an
+                # unrelated earlier clause ("show agniveers OF alpha
+                # company") get glued onto the name as "agniveers of
+                # alpha" instead of just "alpha".
+                break
             before.append(candidate)
         if before:
             return " ".join(reversed(before)).strip()
@@ -200,16 +206,27 @@ def _normalise_company_or_platoon_name(text: str) -> str:
     return text.strip()
 
 
+_NAME_WORD = r"[a-z0-9][a-z0-9\-_./]*"
+# Bounded to at most 2 words (the longest real unit alias in UNIT_ALIASES is
+# 2 words, e.g. "golf zulu") — the old unbounded `[a-z0-9\s\-_./]*` let the
+# capture run all the way back to the start of the sentence for phrasing like
+# "show agniveers of alpha company", swallowing "agniveers of" into the
+# "company name" as well. Bounding the match keeps any stray noise word
+# (like "of") at the very edge of the capture, where _clean_candidate can
+# still trim it off.
+_COMPANY_NAME_WORDS = rf"(?:{_NAME_WORD}\s+){{0,1}}{_NAME_WORD}"
+
+
 def extract_company_name(text: str) -> Optional[str]:
     q = text.lower().strip()
     if not q:
         return None
 
     for pattern in (
-        re.compile(r"\bcompany\s+([a-z0-9][a-z0-9\s\-_./]*)\b", re.IGNORECASE),
-        re.compile(r"\b([a-z0-9][a-z0-9\s\-_./]*)\s+company\b", re.IGNORECASE),
-        re.compile(r"\bcoy\s+([a-z0-9][a-z0-9\s\-_./]*)\b", re.IGNORECASE),
-        re.compile(r"\b([a-z0-9][a-z0-9\s\-_./]*)\s+coy\b", re.IGNORECASE),
+        re.compile(rf"\bcompany\s+({_COMPANY_NAME_WORDS})\b", re.IGNORECASE),
+        re.compile(rf"\b({_COMPANY_NAME_WORDS})\s+company\b", re.IGNORECASE),
+        re.compile(rf"\bcoy\s+({_COMPANY_NAME_WORDS})\b", re.IGNORECASE),
+        re.compile(rf"\b({_COMPANY_NAME_WORDS})\s+coy\b", re.IGNORECASE),
     ):
         m = pattern.search(q)
         if m:

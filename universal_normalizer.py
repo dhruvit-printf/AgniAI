@@ -78,9 +78,12 @@ def _walk(
             # Build current context by inheriting non-aggregate scalars from this structural node
             current_context = {**parent_context}
             for k, v in node.items():
-                if k == "sql":
-                    # Keep the raw SQL in the internal envelope, but never
-                    # leak it into user-facing row records.
+                if k in ("sql", "success"):
+                    # "sql" is the internal envelope's raw query string and
+                    # "success" is its execution-status flag (from
+                    # sql_executor._to_section) — both are bookkeeping on the
+                    # wrapper, not Agniveer data, and must never be inherited
+                    # into every row record via context propagation.
                     continue
                 if _is_aggregate_field(k):
                     continue

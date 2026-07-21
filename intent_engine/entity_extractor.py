@@ -1009,6 +1009,24 @@ def _extract_diagnose_is_current(query: str) -> bool:
 
 _HOSPITAL_STOPWORDS = frozenset({"the", "a", "an", "this", "that", "which", "what", "which"})
 
+# Question/verb words that mean the text before "hospital" is part of the
+# QUESTION ("who was admitted to hospital this month?"), not a hospital's
+# proper name ("City Hospital") — the no-preposition fallback regex below has
+# no other way to tell those apart, so any overlap rejects the match.
+_HOSPITAL_NAME_REJECT_WORDS = frozenset(
+    {
+        "who", "was", "is", "are", "were", "did", "does", "do",
+        "admitted", "hospitalized", "hospitalised", "got", "went",
+        "show", "list", "find", "give", "tell", "please", "any",
+    }
+)
+
+
+def _looks_like_hospital_name(name: str) -> bool:
+    if not name or name in _HOSPITAL_STOPWORDS:
+        return False
+    return not (set(name.split()) & _HOSPITAL_NAME_REJECT_WORDS)
+
 
 def _extract_hospital_location(query: str) -> Optional[str]:
     """Extract a hospital name/location from free text, e.g. "hospitalized
@@ -1022,7 +1040,7 @@ def _extract_hospital_location(query: str) -> Optional[str]:
         match = re.search(r"\b([a-z][a-z0-9\s]{1,40}?)\s+hospital\b", query_lower)
     if match:
         name = match.group(1).strip()
-        if name and name not in _HOSPITAL_STOPWORDS:
+        if _looks_like_hospital_name(name):
             return name.title()
 
     match = re.search(
@@ -1031,7 +1049,7 @@ def _extract_hospital_location(query: str) -> Optional[str]:
     )
     if match:
         name = match.group(1).strip()
-        if name and name not in _HOSPITAL_STOPWORDS:
+        if _looks_like_hospital_name(name):
             return name.title()
     return None
 

@@ -859,6 +859,45 @@ def get_batch_ids_for_agniveers(
     return result
 
 
+def _org_scope_sql(
+    alias: str,
+    intent: Dict[str, Any],
+) -> Tuple[str, List[Any]]:
+    """Build the ' AND ...' fragment scoping `alias` (an AgniveerMaster
+    alias) to whichever of batch/platoon/company the request carries.
+
+    Several raw-SQL fast paths below only wired up a subset of these three
+    (e.g. Verification wired none, Equipment/PersonalDetails wired batch but
+    not company) — each one independently re-implementing this by hand is
+    exactly how those gaps happened. Centralising it here means a query
+    scoped to a specific batch/platoon/company (from the frontend's batchId,
+    or from a resolved company/platoon NAME upstream in
+    admin_entity_resolver.py) is honoured by every fast path, not just the
+    ones someone remembered to wire it into.
+    """
+    batch_id = intent.get("batch_id") or intent.get("batchId")
+    platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+    company_id = intent.get("company_id") or intent.get("companyId")
+
+    clauses: List[str] = []
+    params: List[Any] = []
+    if batch_id is not None:
+        clauses.append(f"{alias}.BatchId = ?")
+        params.append(int(batch_id))
+    if platoon_id is not None:
+        clauses.append(f"{alias}.PlatoonId = ?")
+        params.append(int(platoon_id))
+    if company_id is not None:
+        clauses.append(
+            f"EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = {alias}.PlatoonId AND p.CompanyId = ?)"
+        )
+        params.append(int(company_id))
+
+    if not clauses:
+        return "", []
+    return " AND " + " AND ".join(clauses), params
+
+
 # ── Public entrypoint — AST Pipeline ──────
 def execute_sql_query(
     payload: Optional[Dict] = None,
@@ -936,6 +975,23 @@ def execute_sql_query(
         )
         _args: List[Any] = []
 
+        # An agniveerNo in the intent means the user asked about ONE person
+        # (e.g. "police verification status of A0701749H") — every branch
+        # below must scope to them, or the query silently returns the whole
+        # roster's verification status instead.
+        _v_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        _agniveer_filter = ""
+        if _v_agniveer_no:
+            _agniveer_filter = "AND m.AgniveerNo = ?"
+            _args.append(_v_agniveer_no)
+
+        # Batch/platoon/company scope (e.g. the frontend's batchId, or a
+        # resolved company/platoon name) — was previously ignored entirely
+        # by every Verification branch.
+        _org_filter, _org_params = _org_scope_sql("m", intent)
+        _agniveer_filter = f"{_agniveer_filter} {_org_filter}".strip()
+        _args.extend(_org_params)
+
         if _v_status == "pending":
             # Pending = Rejected status OR no record in PoliceVerificationMaster at all
             _sql = f"""
@@ -944,6 +1000,7 @@ FROM AgniveerMaster m
 LEFT JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
   AND (pv.Status = 'Rejected' OR pv.AgniveerId IS NULL)
+  {_agniveer_filter}
 ORDER BY m.AgniveerNo ASC
 """
         elif _v_status == "notresponded":
@@ -955,7 +1012,7 @@ INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
   AND pv.Status = 'Sent'
   AND pv.ReceivedDate IS NULL
-
+  {_agniveer_filter}
 ORDER BY pv.SentDate ASC
 """
         elif _v_status in ("verified", "completed"):
@@ -965,6 +1022,7 @@ FROM AgniveerMaster m
 INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
   AND pv.Status IN ('Verified', 'Completed')
+  {_agniveer_filter}
 ORDER BY pv.ReceivedDate DESC
 """
         elif _v_status == "rejected":
@@ -974,6 +1032,7 @@ FROM AgniveerMaster m
 INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
   AND pv.Status = 'Rejected'
+  {_agniveer_filter}
 ORDER BY m.AgniveerNo ASC
 """
         elif _v_status == "sent":
@@ -983,6 +1042,7 @@ FROM AgniveerMaster m
 INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
   AND pv.Status = 'Sent'
+  {_agniveer_filter}
 ORDER BY pv.SentDate DESC
 """
         else:
@@ -992,6 +1052,7 @@ SELECT TOP ({_limit}) {_base_cols}
 FROM AgniveerMaster m
 LEFT JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
+  {_agniveer_filter}
 ORDER BY m.AgniveerNo ASC
 """
 
@@ -1028,10 +1089,28 @@ ORDER BY m.AgniveerNo ASC
         if _leave_type in _leave_col_map:
             _leave_col_filter = f"AND lm.[{_leave_col_map[_leave_type]}] = 1"
 
+        # Agniveer / batch / platoon / company scope — none of the three
+        # Leave branches below applied any of these before.
+        _l_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        _l_agniveer_filter = ""
+        _l_args: List[Any] = []
+        if _l_agniveer_no:
+            _l_agniveer_filter = "AND m.AgniveerNo = ?"
+            _l_args.append(_l_agniveer_no)
+        _l_org_filter, _l_org_params = _org_scope_sql("m", intent)
+        _leave_scope_filter = f"{_l_agniveer_filter} {_l_org_filter}".strip()
+        _l_args.extend(_l_org_params)
+
+        # All 7 real leave-type flags on AgniveerLeaveMaster — ATTNC and
+        # ExPPG were missing here even though the WHERE-clause filter above
+        # already scopes correctly to them: a leave record matched by
+        # `leave_type=ATTNC` came back with every OTHER flag shown as 0 and
+        # no ATTNC/ExPPG column at all, so the result looked unclassified.
         _base_select = (
             "lm.FromDate, lm.ToDate, lm.Remarks, lm.MarkedBy, "
             "lm.OnSickLeave, lm.IsHospitalized, lm.OnMedicalLeave, "
             "lm.IsAbscondedLeave, lm.OnAnnualLeave, "
+            "lm.[OnATTN'C'] AS OnATTNC, lm.[OnEX PPG] AS OnEXPPG, "
             "m.AgniveerNo, m.FullName"
         )
 
@@ -1053,13 +1132,14 @@ WHERE ISNULL(m.IsDisqualified,0) = 0
   AND lm.FromDate <= '{_today}'
   AND lm.ToDate >= '{_today}'
   {_leave_col_filter}
+  {_leave_scope_filter}
 ORDER BY lm.FromDate ASC
 """
 
             _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
             if not _is_sql_valid:
                 return None, f"Leave Current SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, [])
+            _rows, _run_err = run_readonly(_sql, _l_args)
             if _run_err:
                 return None, f"Leave Current execution failed: {_run_err}"
             return _to_section(_rows or [], intent, sql=_sql), None
@@ -1073,13 +1153,14 @@ FROM AgniveerLeaveMaster lm
 INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
 WHERE ISNULL(m.IsDisqualified,0) = 0
   {_leave_col_filter}
+  {_leave_scope_filter}
 GROUP BY m.AgniveerNo, m.FullName
 ORDER BY TotalLeaveDays {_order}, m.AgniveerNo ASC
 """
             _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
             if not _is_sql_valid:
                 return None, f"Leave {_effective_op} SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, [])
+            _rows, _run_err = run_readonly(_sql, _l_args)
             if _run_err:
                 return None, f"Leave {_effective_op} execution failed: {_run_err}"
             return _to_section(_rows or [], intent, sql=_sql), None
@@ -1092,6 +1173,7 @@ SELECT TOP ({_limit}) m.AgniveerNo, m.FullName,
 FROM AgniveerLeaveMaster lm
 INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
 WHERE ISNULL(m.IsDisqualified,0) = 0
+  {_leave_scope_filter}
 GROUP BY m.AgniveerNo, m.FullName
 HAVING SUM(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) >= 55
     OR MAX(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) >= 40
@@ -1100,7 +1182,7 @@ ORDER BY TotalLeaveDays DESC
             _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
             if not _is_sql_valid:
                 return None, f"Leave Threshold SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, [])
+            _rows, _run_err = run_readonly(_sql, _l_args)
             if _run_err:
                 return None, f"Leave Threshold execution failed: {_run_err}"
             return _to_section(_rows or [], intent, sql=_sql), None
@@ -1115,7 +1197,27 @@ ORDER BY TotalLeaveDays DESC
         "Present",
     ):
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
-        if not agniveer_no and intent.get("operation") in ("Monthly", "Weekly", "Summary", "Daily"):
+        # A platoon/company/batch scope with no agniveer_no is a unit-level
+        # aggregate (e.g. "attendance of Platoon 1" for a compare query), not
+        # an individual lookup — this fast path only builds a single person's
+        # day-by-day calendar, so let those fall through to the AST/LLM
+        # capability-gap pipeline below instead of hard-erroring here.
+        _has_unit_scope = any(
+            intent.get(k)
+            for k in (
+                "platoon_id",
+                "platoonId",
+                "company_id",
+                "companyId",
+                "batch_id",
+                "batchId",
+            )
+        )
+        if (
+            not agniveer_no
+            and not _has_unit_scope
+            and intent.get("operation") in ("Monthly", "Weekly", "Summary", "Daily")
+        ):
             return None, "Please provide an Agniveer number for the attendance query."
 
         if agniveer_no:
@@ -1146,6 +1248,7 @@ ORDER BY TotalLeaveDays DESC
             for row in rows or []:
                 row["AgniveerNo"] = agniveer_row["AgniveerNo"]
                 row["FullName"] = agniveer_row["FullName"]
+            return _to_section(rows or [], intent, sql=sql), None
     # ── Medical Fast-Path ──────────────────────────────────────────────────
     _raw_q = (question or intent.get("raw_query") or "").lower()
     if intent.get("category") == "Medical" or "bmi" in _raw_q:
@@ -1153,7 +1256,6 @@ ORDER BY TotalLeaveDays DESC
         _m_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         _m_diagnosis = intent.get("diagnose") or intent.get("diagnosis")
         _m_hospital = intent.get("hospital_name") or intent.get("hospitalName")
-        _m_batch_id = intent.get("batch_id") or intent.get("batchId")
         _m_blood_group = (
             intent.get("blood_group")
             or intent.get("bloodGroup")
@@ -1165,13 +1267,13 @@ ORDER BY TotalLeaveDays DESC
 
         if _med_op in ("BMI", "BMIAnalysis") or "bmi" in _raw_q:
             bmi_clause = "BmiValue IS NOT NULL"
-            params = []
             if "above 25" in _raw_q or "overweight" in _raw_q or "greater than 25" in _raw_q or "> 25" in _raw_q or ">25" in _raw_q:
                 bmi_clause = "BmiValue > 25.0"
             elif "below 18.5" in _raw_q or "underweight" in _raw_q or "< 18.5" in _raw_q or "<18.5" in _raw_q:
                 bmi_clause = "BmiValue < 18.5"
 
             bg_clause = ""
+            bg_param: List[Any] = []
             if _m_blood_group or "o+" in _raw_q or "b+" in _raw_q or "a+" in _raw_q or "ab+" in _raw_q:
                 bg_val = _m_blood_group
                 if not bg_val:
@@ -1181,7 +1283,19 @@ ORDER BY TotalLeaveDays DESC
                             break
                 if bg_val:
                     bg_clause = " AND UPPER(REPLACE(BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))"
-                    params.append(str(bg_val))
+                    bg_param.append(str(bg_val))
+
+            _bmi_agniveer_filter = ""
+            _bmi_agniveer_params: List[Any] = []
+            if _m_agniveer_no:
+                _bmi_agniveer_filter = "AND LOWER(a.AgniveerNo) = LOWER(?)"
+                _bmi_agniveer_params.append(str(_m_agniveer_no))
+            _bmi_org_filter, _bmi_org_params = _org_scope_sql("a", intent)
+
+            # Params must be positional in the SAME order their "?" appear in
+            # the compiled SQL text below: the Vitals CTE (agniveer/org scope)
+            # comes before the final SELECT's bg_clause.
+            params = [*_bmi_agniveer_params, *_bmi_org_params, *bg_param]
 
             _sql = f"""
 WITH LatestMedical AS (
@@ -1197,6 +1311,8 @@ Vitals AS (
     FROM AgniveerMaster a
     LEFT JOIN LatestMedical lm ON lm.AgniveerId = a.Id AND lm.rn = 1
     WHERE ISNULL(a.IsDisqualified,0) = 0
+      {_bmi_agniveer_filter}
+      {_bmi_org_filter}
 ),
 Scored AS (
     SELECT AgniveerNo, FullName, BloodGroup, EffHeight AS Height, EffWeight AS Weight,
@@ -1231,11 +1347,10 @@ ORDER BY BmiValue DESC
             if _m_hospital:
                 clauses.append("LOWER(mr.HospitalNameLocation) LIKE '%' + LOWER(?) + '%'")
                 params.append(str(_m_hospital))
-            if _m_batch_id:
-                clauses.append("m.BatchId = ?")
-                params.append(int(_m_batch_id))
 
-            where_str = "WHERE " + " AND ".join(clauses)
+            _org_filter, _org_params = _org_scope_sql("m", intent)
+            where_str = "WHERE " + " AND ".join(clauses) + _org_filter
+            params.extend(_org_params)
             _sql = f"""
 SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, mr.VisitDate, mr.Diagnosis, mr.HospitalNameLocation,
        mr.Height, mr.Weight, mr.EyeSight, mr.BloodPressure, mr.HeartRate, mr.Status, mr.Prescriptions, mr.Remarks
@@ -1253,15 +1368,22 @@ ORDER BY mr.VisitDate DESC, m.AgniveerNo ASC
         _eq_type = intent.get("equipment_type") or intent.get("item_name") or intent.get("equipmentType")
         _eq_op = intent.get("operation") or intent.get("subcategory")
         _eq_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
-        _eq_batch_id = intent.get("batch_id") or intent.get("batchId")
-        _eq_platoon_id = intent.get("platoon_id") or intent.get("platoonId")
         _limit = _get_top_n(intent)
 
 
         clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
         params = []
 
-        if _eq_op == "Issued" or _eq_type in ("Issued", "Holding"):
+        if _eq_op == "Holding" or _eq_type in ("Issued", "Holding"):
+            # "Holding" is the classifier's actual operation value for both
+            # "who's currently holding X" and "overdue equipment" queries
+            # (there's no due-date column in AgniveerEquipment, so "overdue"
+            # is intentionally treated as "still issued, not yet returned" —
+            # see intent_classifier.py / tests/test_equipment_items.py).
+            # "Issued" is not a real classifier operation value (Equipment's
+            # only operations are ByName/AgniveerWise/Holding/Stats/Returned)
+            # so this clause never fired and every Holding/overdue query
+            # silently returned ALL equipment records, issued or returned.
             clauses.append("eq.ReturnDateTime IS NULL")
         elif _eq_op == "Returned" or _eq_type == "Returned":
             clauses.append("eq.ReturnDateTime IS NOT NULL")
@@ -1272,14 +1394,10 @@ ORDER BY mr.VisitDate DESC, m.AgniveerNo ASC
         if _eq_type and _eq_type not in ("Issued", "Returned", "Holding"):
             clauses.append("LOWER(eq.Type) LIKE '%' + LOWER(?) + '%'")
             params.append(str(_eq_type))
-        if _eq_batch_id:
-            clauses.append("m.BatchId = ?")
-            params.append(int(_eq_batch_id))
-        if _eq_platoon_id:
-            clauses.append("m.PlatoonId = ?")
-            params.append(int(_eq_platoon_id))
 
-        where_str = "WHERE " + " AND ".join(clauses)
+        _org_filter, _org_params = _org_scope_sql("m", intent)
+        where_str = "WHERE " + " AND ".join(clauses) + _org_filter
+        params.extend(_org_params)
         _sql = f"""
 SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, eq.Type, eq.GivenCondition, eq.GivenDateTime, eq.ReturnCondition, eq.ReturnDateTime, eq.Remarks
 FROM AgniveerEquipment eq
@@ -1311,11 +1429,11 @@ ORDER BY eq.GivenDateTime DESC, m.AgniveerNo ASC
                     _p_blood_group = bg_token.upper()
                     break
 
-        _p_batch_id = intent.get("batch_id") or intent.get("batchId")
         _p_op = intent.get("operation") or ""
         _p_metric = intent.get("metric") or ""
         _limit = _get_top_n(intent)
 
+        _p_org_filter, _p_org_params = _org_scope_sql("m", intent)
 
         # BloodGroup summary breakdown query (e.g. "Show blood group details")
         if ("blood group" in _raw_q or _p_metric == "BloodGroup" or _p_op in ("BloodGroup", "BloodGroupDetails")) and not _p_blood_group and not _p_agniveer_no:
@@ -1323,10 +1441,11 @@ ORDER BY eq.GivenDateTime DESC, m.AgniveerNo ASC
 SELECT TOP ({_limit}) m.BloodGroup, COUNT(*) AS AgniveerCount
 FROM AgniveerMaster m
 WHERE ISNULL(m.IsDisqualified,0) = 0 AND m.BloodGroup IS NOT NULL AND TRIM(m.BloodGroup) <> ''
+  {_p_org_filter}
 GROUP BY m.BloodGroup
 ORDER BY AgniveerCount DESC
 """
-            _rows, _run_err = run_readonly(_sql, [])
+            _rows, _run_err = run_readonly(_sql, _p_org_params)
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
@@ -1348,13 +1467,30 @@ ORDER BY AgniveerCount DESC
         if _p_blood_group:
             clauses.append("UPPER(REPLACE(m.BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))")
             params.append(str(_p_blood_group))
-        if _p_batch_id:
-            clauses.append("m.BatchId = ?")
-            params.append(int(_p_batch_id))
 
-        where_str = "WHERE " + " AND ".join(clauses)
+        where_str = "WHERE " + " AND ".join(clauses) + _p_org_filter
+        params.extend(_p_org_params)
+
+        # A specific field was asked about (e.g. "what is the height of
+        # X" -> metric="Height", set by personal_details_parser.py) — return
+        # just that field plus the identifying columns, not the entire
+        # 14-column profile. Validated against the same column whitelist
+        # personal_details_parser.py extracts `metric` from, so this can
+        # never become a column-name injection point.
+        from intent_engine.personal_details_parser import AGNIVEER_PERSONAL_COLUMNS
+
+        _p_metric = intent.get("metric")
+        if _p_metric and _p_metric in AGNIVEER_PERSONAL_COLUMNS and _p_metric not in ("AgniveerNo", "FullName"):
+            _select_cols = f"m.AgniveerNo, m.FullName, m.{_p_metric}"
+        else:
+            _select_cols = (
+                "m.AgniveerNo, m.FullName, m.Class, m.State, m.District, m.Qualification, "
+                "m.Sports, m.Skill, m.Hobby, m.BloodGroup, m.DateOfBirth, m.Height, m.Weight, "
+                "m.MobileNo, m.Email, m.Address"
+            )
+
         _sql = f"""
-SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, m.Class, m.State, m.District, m.Qualification, m.Sports, m.Skill, m.Hobby, m.BloodGroup, m.DateOfBirth, m.Height, m.Weight, m.MobileNo, m.Email, m.Address
+SELECT TOP ({_limit}) {_select_cols}
 FROM AgniveerMaster m
 {where_str}
 ORDER BY m.AgniveerNo ASC
@@ -1488,6 +1624,24 @@ ORDER BY m.AgniveerNo ASC
         filters.setdefault("Agniveer.AgniveerNo", agniveer_no)
     if medical_status is not None:
         filters.setdefault("Medical.Status", medical_status)
+        # "admitted to hospital THIS MONTH" carries from_date/to_date on the
+        # intent, but nothing below this point ever reads them for a generic
+        # Medical/status query (only the "disqualified" and "Leave" branches
+        # apply their own date filters) — without this, the date range is
+        # silently dropped and the query returns every Admitted record ever,
+        # not just this month's.
+        if from_date is not None and to_date is not None:
+            filters.setdefault(
+                "AND",
+                [
+                    {"Medical.VisitDate": {"operator": ">=", "value": from_date}},
+                    {"Medical.VisitDate": {"operator": "<=", "value": to_date}},
+                ],
+            )
+        elif from_date is not None:
+            filters.setdefault("Medical.VisitDate", {"operator": ">=", "value": from_date})
+        elif to_date is not None:
+            filters.setdefault("Medical.VisitDate", {"operator": "<=", "value": to_date})
     if class_ is not None:
         filters.setdefault("Agniveer.Class", class_)
     if blood_group is not None:

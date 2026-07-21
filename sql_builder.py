@@ -168,6 +168,12 @@ class SqlBuilder:
                 return f"{aliased_col} {node.operator} {node.value['__raw_sql']}"
 
             if node.operator.upper() == "IN" and isinstance(node.value, (list, tuple)):
+                if not node.value:
+                    # "col IN ()" is a T-SQL syntax error, not "no rows" —
+                    # an empty candidate list (e.g. a resolved-but-empty
+                    # AgniveerNo/id set) must still compile to valid SQL, and
+                    # the correct semantics for "IN nothing" is zero matches.
+                    return "1 = 0"
                 params = [self._next_param(v) for v in node.value]
                 return f"{aliased_col} IN ({', '.join(params)})"
 

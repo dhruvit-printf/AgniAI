@@ -1237,6 +1237,39 @@ def execute_admin_query(
                 }
             )
 
+            # `id_filters` (the frontend's batchId, plus any companyId/
+            # platoonId resolved above from the query text or an existing
+            # session hint) was never actually merged into the per-operation
+            # intents that fetch_sql_results()/execute_sql_query() run
+            # against — only primary_intent, which sql_query_plan._fetch_simple
+            # ignores in favour of op.intent_result whenever operations exist
+            # (i.e. on almost every real query). That meant the frontend's
+            # batchId never reached a single generated WHERE clause; the only
+            # thing enforcing it was enforce_batch_scope() AFTER the fact —
+            # too late to help once a fast path's TOP(N) cap has already
+            # truncated the result set to the wrong universe. batchId always
+            # wins (matches enforce_batch_scope's own "governs every
+            # question" precedent); companyId/platoonId only fill a gap so a
+            # per-operation value already resolved from the query text itself
+            # (e.g. "Platoon 1 vs Platoon 2") is never clobbered.
+            for op in query_plan.operations:
+                op_intent = op.intent_result
+                if not isinstance(op_intent, dict):
+                    continue
+                if id_filters.get("batchId") is not None:
+                    op_intent["batchId"] = id_filters["batchId"]
+                    op_intent["batch_id"] = id_filters["batchId"]
+                if id_filters.get("companyId") is not None and not (
+                    op_intent.get("company_id") or op_intent.get("companyId")
+                ):
+                    op_intent["companyId"] = id_filters["companyId"]
+                    op_intent["company_id"] = id_filters["companyId"]
+                if id_filters.get("platoonId") is not None and not (
+                    op_intent.get("platoon_id") or op_intent.get("platoonId")
+                ):
+                    op_intent["platoonId"] = id_filters["platoonId"]
+                    op_intent["platoon_id"] = id_filters["platoonId"]
+
             # ── Step 3: Execute the SQL backend (the only backend) ───────────
             with span(SPAN_CALL_DOTNET, trace_id=trace_id):
                 sql_start = time.time()

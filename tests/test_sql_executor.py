@@ -177,17 +177,16 @@ class TestToSection:
     def test_normalize_response_resolves_rows_directly(self):
         # Resolves the rows found by _walk directly (agniveerNo present),
         # rather than falling back to _fallback_raw_rows scanning. The
-        # walker also inherits the envelope's top-level "success" scalar
-        # into each record (existing universal_normalizer context-inheritance
-        # behavior, unrelated to this adapter) — so every field of the
-        # original row is preserved, plus that one inherited key.
+        # envelope's top-level "success" bookkeeping flag must NOT leak into
+        # each record — same exclusion as "sql", see
+        # test_sql_is_not_inherited_into_row_records below.
         from universal_normalizer import normalize_response
 
         rows = [{"agniveerNo": "A1", "fullName": "X", "score": 91}]
         section = _to_section(rows, intent={"category": "Performance"})
         result = normalize_response(section)
         assert len(result) == len(rows)
-        assert result[0] == {**rows[0], "success": True}
+        assert result[0] == rows[0]
 
     def test_result_combiner_extract_records_resolves_rows_directly(self):
         from result_combiner import _extract_records
@@ -196,7 +195,7 @@ class TestToSection:
         section = _to_section(rows, intent=None)
         result = _extract_records(section)
         assert len(result) == len(rows)
-        assert result[0] == {**rows[0], "success": True}
+        assert result[0] == rows[0]
 
     def test_sql_is_not_inherited_into_row_records(self):
         from universal_normalizer import normalize_response
