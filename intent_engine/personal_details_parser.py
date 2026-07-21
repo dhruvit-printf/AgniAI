@@ -54,6 +54,76 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
             "filters": {},
         }
 
+    # 0b. Attribute filters with no single "show me field X" ask (e.g. "list
+    # every Agniveer belonging to Batch 3", "Agniveers taller than 175 cm",
+    # "who joined in 2024") — these have no category keyword the main
+    # classifier's vocabulary recognises at all, so nothing scores except a
+    # stray fuzzy-match point on an unrelated category (observed: Equipment/
+    # AgniveerWise winning by default at ~0.2 confidence).
+    if "agniveer" in q_lower:
+        height_match = re.search(
+            r"\b(taller|shorter|height)\b.*?\b(than|above|below|over|under)\s*(\d+(?:\.\d+)?)",
+            q_lower,
+        )
+        if height_match:
+            descriptor, comparator, threshold = (
+                height_match.group(1),
+                height_match.group(2),
+                float(height_match.group(3)),
+            )
+            op = "<" if descriptor == "shorter" or comparator in ("below", "under") else ">"
+            return {
+                "category": "personaldetail",
+                "operation": "lookup",
+                "height_filter": {"operator": op, "value": threshold},
+                "query_type": "simple",
+                "confidence": "high",
+                "confidence_score": 0.9,
+                "filters": {},
+            }
+
+        join_match = re.search(r"\bjoin(?:ed|ing)?\b[^.?]*?\b(19\d{2}|20\d{2})\b", q_lower)
+        if join_match:
+            return {
+                "category": "personaldetail",
+                "operation": "lookup",
+                "join_year": join_match.group(1),
+                "query_type": "simple",
+                "confidence": "high",
+                "confidence_score": 0.9,
+                "filters": {},
+            }
+
+        if re.search(r"\bbatch\s+[a-z0-9]+\b", q_lower) and re.search(
+            r"\b(belong|belonging|list|show|give|all|every)\b", q_lower
+        ):
+            return {
+                "category": "personaldetail",
+                "operation": "lookup",
+                "query_type": "simple",
+                "confidence": "high",
+                "confidence_score": 0.9,
+                "filters": {},
+            }
+
+    # 0c. Plain total headcount ("how many Agniveers are there in total?").
+    # Deliberately narrow — "are/is there" is distinctive phrasing that
+    # won't false-fire on "how many Agniveers WERE PRESENT..." or "...ARE
+    # HOSPITALIZED..." (those belong to Attendance/Leave, not a total count),
+    # and is skipped entirely if "active"/"inactive" already matched above.
+    if re.search(r"\bhow many agniveers?\s+(?:are|is)\s+there\b", q_lower) or re.search(
+        r"\btotal number of agniveers\b", q_lower
+    ):
+        return {
+            "category": "personaldetail",
+            "operation": "ActiveStatusCount",
+            "is_active": None,
+            "query_type": "simple",
+            "confidence": "high",
+            "confidence_score": 1.0,
+            "filters": {},
+        }
+
     # 1. Check for aggregators: average, above average, below average, max, min
     agg_match = re.search(r'\b(above average|below average|average|max|maximum|min|minimum)\s+([a-z\s]+)\b', q_lower)
     if agg_match:

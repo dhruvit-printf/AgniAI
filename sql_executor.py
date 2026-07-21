@@ -941,6 +941,44 @@ def execute_sql_query(
             logger.error("Explicit text2sql fallback failed: %s", exc, exc_info=True)
             return None, f"Fallback LLM pipeline failed: {exc}"
         
+    if intent.get("category") == "Performance":
+        _cutoff_raw_q = (question or intent.get("raw_query") or "").lower()
+        # "What's the cutoff for X" asks for the cutoff VALUE itself
+        # (ScoreSubItemMaster.Cutoff — a real stored column, no per-Agniveer
+        # data involved) — distinct from "who scored below/above the
+        # cutoff", a per-Agniveer comparison query that must NOT be hijacked
+        # by this value lookup, so it's excluded via the guard words below.
+        if "cutoff" in _cutoff_raw_q and not re.search(
+            r"\b(who|scored|below|above|passed|failed)\b", _cutoff_raw_q
+        ):
+            _co_section = str(intent.get("section") or "").strip()
+            _co_sub_item = str(
+                intent.get("sub_section") or intent.get("item_name") or ""
+            ).strip()
+            _co_clauses = []
+            _co_params: List[Any] = []
+            if _co_section:
+                _co_clauses.append("LOWER(sec.SectionName) LIKE '%' + LOWER(?) + '%'")
+                _co_params.append(_co_section)
+            if _co_sub_item:
+                _co_clauses.append("LOWER(si.Name) LIKE '%' + LOWER(?) + '%'")
+                _co_params.append(_co_sub_item)
+            _co_where = ("WHERE " + " AND ".join(_co_clauses)) if _co_clauses else ""
+            _co_sql = f"""
+SELECT sec.SectionName, si.Name AS SubItemName, si.MaxMarks, si.Cutoff
+FROM ScoreSubItemMaster si
+INNER JOIN ScoreSectionMaster sec ON sec.Id = si.SectionId
+{_co_where}
+ORDER BY sec.SectionName ASC, si.DisplayOrder ASC
+"""
+            _co_is_valid, _co_err = sql_validator.validate_sql(_co_sql)
+            if not _co_is_valid:
+                return None, f"Cutoff SQL validation failed: {_co_err}"
+            _co_rows, _co_run_err = run_readonly(_co_sql, _co_params)
+            if _co_run_err:
+                return None, f"Cutoff execution failed: {_co_run_err}"
+            return _to_section(_co_rows or [], intent, sql=_co_sql), None
+
     if intent.get("category") in ("Performance", "Overall"):
         from performance_executor import execute_performance_query
         return execute_performance_query(intent)
@@ -1437,20 +1475,27 @@ ORDER BY eq.GivenDateTime DESC, m.AgniveerNo ASC
 
         # Active / inactive status (AgniveerMaster.IsActive — see
         # personal_details_parser.py's ActiveStatusCount/ActiveStatusList).
+        # is_active is None for a plain total headcount ("how many Agniveers
+        # are there in total?") — no IsActive filter at all in that case.
         if _p_op in ("ActiveStatusCount", "ActiveStatusList"):
-            _p_is_active = 1 if intent.get("is_active") else 0
+            _p_is_active = intent.get("is_active")
+            _p_active_where = (
+                f"ISNULL(m.IsActive,0) = {1 if _p_is_active else 0}"
+                if _p_is_active is not None
+                else "1 = 1"
+            )
             if _p_op == "ActiveStatusCount":
                 _sql = f"""
 SELECT COUNT(*) AS AgniveerCount
 FROM AgniveerMaster m
-WHERE ISNULL(m.IsActive,0) = {_p_is_active}
+WHERE {_p_active_where}
   {_p_org_filter}
 """
             else:
                 _sql = f"""
 SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, m.IsActive
 FROM AgniveerMaster m
-WHERE ISNULL(m.IsActive,0) = {_p_is_active}
+WHERE {_p_active_where}
   {_p_org_filter}
 ORDER BY m.AgniveerNo ASC
 """
@@ -1490,6 +1535,14 @@ ORDER BY AgniveerCount DESC
         if _p_blood_group:
             clauses.append("UPPER(REPLACE(m.BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))")
             params.append(str(_p_blood_group))
+        _p_height_filter = intent.get("height_filter")
+        if isinstance(_p_height_filter, dict) and _p_height_filter.get("operator") in (">", "<", ">=", "<="):
+            clauses.append(f"m.Height {_p_height_filter['operator']} ?")
+            params.append(float(_p_height_filter["value"]))
+        _p_join_year = intent.get("join_year")
+        if _p_join_year:
+            clauses.append("YEAR(m.DateOfJoining) = ?")
+            params.append(int(_p_join_year))
 
         where_str = "WHERE " + " AND ".join(clauses) + _p_org_filter
         params.extend(_p_org_params)
@@ -1534,8 +1587,185 @@ ORDER BY m.AgniveerNo ASC
         if not _run_err:
             return _to_section(_rows or [], intent, sql=_sql), None
 
+    # ── Users & Roles Fast-Path ─────────────────────────────────────────────
+    if intent.get("category") == "UsersRoles":
+        _u_op = intent.get("operation")
+        _limit = _get_top_n(intent)
+        # Password is on the hard denylist (sql_validator.DENIED_COLUMNS) —
+        # never select it here either, defense in depth.
+        _u_cols = "u.Id, u.Username, u.FullName, u.Email, u.ContactNo, u.IsActive"
+        _u_sql: Optional[str] = None
+        _u_params: List[Any] = []
 
+        if _u_op == "ByAgniveer" and intent.get("agniveer_no"):
+            _u_sql = f"""
+SELECT TOP ({_limit}) {_u_cols}
+FROM UserMaster u
+INNER JOIN AgniveerMaster a ON a.Id = u.AgniVeerId
+WHERE LOWER(a.AgniveerNo) = LOWER(?)
+"""
+            _u_params = [str(intent.get("agniveer_no"))]
+        elif _u_op == "ActiveList":
+            _u_is_active = 1 if intent.get("is_active") else 0
+            _u_sql = f"""
+SELECT TOP ({_limit}) {_u_cols}
+FROM UserMaster u
+WHERE ISNULL(u.IsActive,0) = {_u_is_active}
+ORDER BY u.Username ASC
+"""
+        elif _u_op == "ByRole":
+            _u_role = str(intent.get("role") or "").strip()
+            _u_sql = f"""
+SELECT TOP ({_limit}) {_u_cols}, r.Role
+FROM UserMaster u
+INNER JOIN UserRole ur ON ur.UserId = u.Id
+INNER JOIN RoleMaster r ON r.Id = ur.RoleId
+WHERE LOWER(r.Role) LIKE '%' + LOWER(?) + '%'
+ORDER BY u.Username ASC
+"""
+            _u_params = [_u_role]
 
+        if _u_sql is not None:
+            _u_is_valid, _u_err = sql_validator.validate_sql(_u_sql)
+            if not _u_is_valid:
+                return None, f"Users/Roles SQL validation failed: {_u_err}"
+            _u_rows, _u_run_err = run_readonly(_u_sql, _u_params)
+            if _u_run_err:
+                return None, f"Users/Roles execution failed: {_u_run_err}"
+            return _to_section(_u_rows or [], intent, sql=_u_sql), None
+        return None, "Unsupported Users/Roles question — logged-in-session and login-token questions are not exposed by this system."
+
+    # ── Organizational Hierarchy Fast-Path ──────────────────────────────────
+    if intent.get("category") == "OrgHierarchy":
+        _oh_op = intent.get("operation")
+        _oh_company_id = intent.get("company_id") or intent.get("companyId")
+        _oh_platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+        _limit = _get_top_n(intent)
+        _oh_sql: Optional[str] = None
+        _oh_params: List[Any] = []
+
+        # CommanderId / CommandingOfficerId / PlatoonCommanderId reference
+        # UserMaster.Id — there is no separate "officer" table in the
+        # schema, and commanders are administrative accounts, not
+        # Agniveers, so UserMaster is the only sensible join target.
+        if _oh_op == "CurrentCommander":
+            if intent.get("target") == "Platoon":
+                _oh_sql = """
+SELECT p.Name AS PlatoonName, p.PlatoonNo, u.FullName AS CommanderName, u.Username
+FROM PlatoonMaster p
+LEFT JOIN UserMaster u ON u.Id = p.PlatoonCommanderId
+WHERE p.Id = ?
+"""
+                _oh_params = [int(_oh_platoon_id)] if _oh_platoon_id else []
+            else:
+                _oh_sql = """
+SELECT c.Name AS CompanyName, cmd.FullName AS CommanderName, cmd.Username AS CommanderUsername,
+       co.FullName AS CommandingOfficerName, co.Username AS CommandingOfficerUsername
+FROM CompanyMaster c
+LEFT JOIN UserMaster cmd ON cmd.Id = c.CompanyCommanderId
+LEFT JOIN UserMaster co ON co.Id = c.CommandingOfficerId
+WHERE c.Id = ?
+"""
+                _oh_params = [int(_oh_company_id)] if _oh_company_id else []
+
+        elif _oh_op == "HistoricalOfficer":
+            # "last year" / "previously" — the most recent tenure that has
+            # already ENDED (EndDate NOT NULL), i.e. the officer before the
+            # current one. A specific past date isn't extracted (none of
+            # the example questions gave one), so this returns the full
+            # history ordered most-recent-first rather than guess a cutoff.
+            if intent.get("target") == "Platoon":
+                _oh_sql = """
+SELECT p.Name AS PlatoonName, u.FullName AS CommanderName, h.StartDate, h.EndDate
+FROM PlatoonCommanderHistory h
+INNER JOIN PlatoonMaster p ON p.Id = h.PlatoonId
+LEFT JOIN UserMaster u ON u.Id = h.CommanderId
+WHERE h.PlatoonId = ? AND h.EndDate IS NOT NULL
+ORDER BY h.EndDate DESC
+"""
+                _oh_params = [int(_oh_platoon_id)] if _oh_platoon_id else []
+            else:
+                _oh_sql = """
+SELECT c.Name AS CompanyName, u.FullName AS CommandingOfficerName, h.StartDate, h.EndDate
+FROM CompanyCommandingOfficerHistory h
+INNER JOIN CompanyMaster c ON c.Id = h.CompanyId
+LEFT JOIN UserMaster u ON u.Id = h.CommandingOfficerId
+WHERE h.CompanyId = ? AND h.EndDate IS NOT NULL
+ORDER BY h.EndDate DESC
+"""
+                _oh_params = [int(_oh_company_id)] if _oh_company_id else []
+
+        elif _oh_op == "PredecessorCommander":
+            if intent.get("target") == "Platoon":
+                _oh_sql = """
+SELECT TOP (1) p.Name AS PlatoonName, u.FullName AS CommanderName, h.StartDate, h.EndDate
+FROM PlatoonCommanderHistory h
+INNER JOIN PlatoonMaster p ON p.Id = h.PlatoonId
+LEFT JOIN UserMaster u ON u.Id = h.CommanderId
+WHERE h.PlatoonId = ? AND h.EndDate IS NOT NULL
+ORDER BY h.EndDate DESC
+"""
+                _oh_params = [int(_oh_platoon_id)] if _oh_platoon_id else []
+            else:
+                _oh_sql = """
+SELECT TOP (1) c.Name AS CompanyName, u.FullName AS CommanderName, h.StartDate, h.EndDate
+FROM CompanyCommanderHistory h
+INNER JOIN CompanyMaster c ON c.Id = h.CompanyId
+LEFT JOIN UserMaster u ON u.Id = h.CommanderId
+WHERE h.CompanyId = ? AND h.EndDate IS NOT NULL
+ORDER BY h.EndDate DESC
+"""
+                _oh_params = [int(_oh_company_id)] if _oh_company_id else []
+
+        elif _oh_op == "PlatoonsUnderCompany":
+            _oh_sql = f"""
+SELECT TOP ({_limit}) p.Name AS PlatoonName, p.PlatoonNo, p.IsActive
+FROM PlatoonMaster p
+WHERE p.CompanyId = ?
+ORDER BY p.Name ASC
+"""
+            _oh_params = [int(_oh_company_id)] if _oh_company_id else []
+
+        elif _oh_op == "HeadcountByCompany":
+            _oh_sql = """
+SELECT c.Name AS CompanyName, COUNT(a.Id) AS AgniveerCount
+FROM CompanyMaster c
+LEFT JOIN PlatoonMaster p ON p.CompanyId = c.Id
+LEFT JOIN AgniveerMaster a ON a.PlatoonId = p.Id AND ISNULL(a.IsDisqualified,0) = 0
+GROUP BY c.Name
+ORDER BY AgniveerCount DESC
+"""
+
+        elif _oh_op == "TopCompanyByHeadcount":
+            _oh_order = "DESC" if intent.get("descending", True) else "ASC"
+            _oh_sql = f"""
+SELECT TOP (1) c.Name AS CompanyName, COUNT(a.Id) AS AgniveerCount
+FROM CompanyMaster c
+LEFT JOIN PlatoonMaster p ON p.CompanyId = c.Id
+LEFT JOIN AgniveerMaster a ON a.PlatoonId = p.Id AND ISNULL(a.IsDisqualified,0) = 0
+GROUP BY c.Name
+ORDER BY AgniveerCount {_oh_order}
+"""
+
+        elif _oh_op == "WhichCompanyForAgniveer" and intent.get("agniveer_no"):
+            _oh_sql = """
+SELECT m.AgniveerNo, m.FullName, p.Name AS PlatoonName, c.Name AS CompanyName
+FROM AgniveerMaster m
+LEFT JOIN PlatoonMaster p ON p.Id = m.PlatoonId
+LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+WHERE LOWER(m.AgniveerNo) = LOWER(?)
+"""
+            _oh_params = [str(intent.get("agniveer_no"))]
+
+        if _oh_sql is not None and (_oh_params or _oh_op in ("HeadcountByCompany", "TopCompanyByHeadcount")):
+            _oh_is_valid, _oh_err = sql_validator.validate_sql(_oh_sql)
+            if not _oh_is_valid:
+                return None, f"Organizational hierarchy SQL validation failed: {_oh_err}"
+            _oh_rows, _oh_run_err = run_readonly(_oh_sql, _oh_params)
+            if _oh_run_err:
+                return None, f"Organizational hierarchy execution failed: {_oh_run_err}"
+            return _to_section(_oh_rows or [], intent, sql=_oh_sql), None
+        return None, "Could not resolve the company/platoon for this organizational question."
 
     if intent.get("category") == "Schedule":
 

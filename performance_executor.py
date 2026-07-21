@@ -130,6 +130,60 @@ def execute_performance_query(
             pass
 
     try:
+        _raw_q = str(intent.get("raw_query") or "").lower()
+        if any(
+            phrase in _raw_q
+            for phrase in ("full marks", "maximum marks", "perfect score", "full score")
+        ):
+            # "scored full marks in any subject/section" — a genuine 100%
+            # (MarksObtained == that sub-item's MaxMarks) check across every
+            # section (no `section` filter unless one was explicitly named),
+            # reusing the same DynamicMax/Percentage CTE the Grading branch
+            # below builds. This used to fall through with no dedicated
+            # handling and land on whatever operation the classifier's
+            # keyword scoring happened to guess (observed: "Drop").
+            source_sql, source_params = _filtered_attempts_source(
+                require_best_attempt=True
+            )
+            sql = f"""
+            WITH FilteredAttempts AS (
+                {source_sql}
+            ),
+            AttemptedMax AS (
+                SELECT DISTINCT AgniveerId, SectionId, SubItemId, MaxMarks
+                FROM FilteredAttempts
+            ),
+            DynamicMax AS (
+                SELECT AgniveerId, SectionId, SUM(COALESCE(MaxMarks, 0)) AS DynamicMax
+                FROM AttemptedMax
+                GROUP BY AgniveerId, SectionId
+            ),
+            BestTotals AS (
+                SELECT
+                    AgniveerId, AgniveerNo, FullName, SectionId, SectionName,
+                    SUM(MarksObtained) AS BestTotal
+                FROM FilteredAttempts
+                GROUP BY AgniveerId, AgniveerNo, FullName, SectionId, SectionName
+            )
+            SELECT
+                bt.AgniveerNo,
+                bt.FullName,
+                bt.SectionName,
+                bt.BestTotal AS MarksObtained,
+                dm.DynamicMax AS MaxMarks
+            FROM BestTotals bt
+                INNER JOIN DynamicMax dm
+                    ON dm.AgniveerId = bt.AgniveerId AND dm.SectionId = bt.SectionId
+            WHERE dm.DynamicMax > 0 AND bt.BestTotal = dm.DynamicMax
+            ORDER BY bt.SectionName ASC, bt.AgniveerNo ASC
+            """
+            rows, err = _run(sql, source_params)
+            if err:
+                return None, err
+            rows = rows[:top_n]
+            _mark_generated()
+            return _to_section(rows=rows, intent=intent, sql=sql), None
+
         if operation in ("Top", "Bottom", "OverallPerformance", "BestAttempt"):
             descending = operation != "Bottom"
             order_dir = "DESC" if descending else "ASC"

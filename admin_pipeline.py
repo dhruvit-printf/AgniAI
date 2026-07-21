@@ -1068,13 +1068,21 @@ def execute_admin_query(
 
             planning_start = time.time()
             from intent_engine.personal_details_parser import parse_personal_details
-            pd_intent_early = parse_personal_details(user_query or message)
-            
+            from intent_engine.users_roles_parser import parse_users_roles
+            from intent_engine.org_hierarchy_parser import parse_org_hierarchy
+            pd_intent_early = (
+                parse_personal_details(user_query or message)
+                or parse_users_roles(user_query or message)
+                or parse_org_hierarchy(user_query or message)
+            )
+
             if pd_intent_early:
-                # Bypass LLM completely for personal details
+                # Bypass LLM completely for personal details / users&roles /
+                # org-hierarchy questions — all three are deterministic
+                # keyword parsers, same rationale as personal details alone.
                 from intent_engine.query_planner import QueryPlan, SubOperation
                 from intent_engine.query_intelligence_engine import NormalizedQuery
-                
+
                 qie_result = NormalizedQuery(
                     original_query=message,
                     normalized_text=message,
@@ -1285,10 +1293,9 @@ def execute_admin_query(
             # question" precedent); companyId/platoonId only fill a gap so a
             # per-operation value already resolved from the query text itself
             # (e.g. "Platoon 1 vs Platoon 2") is never clobbered.
-            for op in query_plan.operations:
-                op_intent = op.intent_result
+            def _inject_org_scope(op_intent: Dict[str, Any]) -> None:
                 if not isinstance(op_intent, dict):
-                    continue
+                    return
                 if id_filters.get("batchId") is not None:
                     op_intent["batchId"] = id_filters["batchId"]
                     op_intent["batch_id"] = id_filters["batchId"]
@@ -1302,6 +1309,16 @@ def execute_admin_query(
                 ):
                     op_intent["platoonId"] = id_filters["platoonId"]
                     op_intent["platoon_id"] = id_filters["platoonId"]
+
+            for op in query_plan.operations:
+                _inject_org_scope(op.intent_result)
+            # query_plan.operations is empty for personaldetail/UsersRoles/
+            # OrgHierarchy early-exit intents (parse_personal_details() etc.
+            # cleared it above so sql_query_plan._fetch_simple falls back to
+            # primary_intent directly) — the loop above never touches those,
+            # so inject here too or their batch/company/platoon scope is
+            # silently dropped.
+            _inject_org_scope(primary_intent)
 
             # ── Step 3: Execute the SQL backend (the only backend) ───────────
             with span(SPAN_CALL_DOTNET, trace_id=trace_id):

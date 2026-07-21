@@ -318,6 +318,8 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "approved",
         "approval",
         "cleared",
+        "police station",
+        "police",
     ),
     "Equipment": (
         "equipment",
@@ -2298,6 +2300,8 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
         "denied",
         "verification status",
         "all clear",
+        "police station",
+        "police",
     ),
     "Equipment": (
         "equipment",

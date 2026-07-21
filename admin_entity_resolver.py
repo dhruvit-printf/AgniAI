@@ -127,7 +127,11 @@ _PLATOON_PATTERNS = [
 _AGNIVEER_NUM_RE = re.compile(r"\bag[-\s]?(\d{3,8})\b", re.IGNORECASE)
 _AGNIVEER_ALPHANUM_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
 _AGNIVEER_WORD_RE = re.compile(
-    r"\bagniveer\s+(?:no\.?|number|#)?\s*(\w{3,10})\b", re.IGNORECASE
+    # (?=\w*\d) requires the captured token to contain a digit — without it,
+    # the (?:no.|number|#)? prefix being OPTIONAL meant this matched "the
+    # next word after 'agniveer'" full stop, so "every Agniveer BELONGING
+    # to Batch 3" captured "belonging" as if it were an AgniveerNo.
+    r"\bagniveer\s+(?:no\.?|number|#)?\s*(?=\w*\d)(\w{3,10})\b", re.IGNORECASE
 )
 _BATCH_PATTERNS = [
     re.compile(r"\bbatch\s+no\.?\s*(\w[\w-]*)\b"),
@@ -258,7 +262,10 @@ def extract_platoon_name(text: str) -> Optional[str]:
         return None
 
     for pattern in (
-        re.compile(r"\bplatoon\s+([a-z0-9][a-z0-9\s\-_./]*)\b", re.IGNORECASE),
+        # Bounded to 2 words for the same reason as _COMPANY_NAME_WORDS above
+        # — the old unbounded `[a-z0-9\s\-_./]*` let "Platoon 2 before the
+        # current commander" capture "2 before the current commander" whole.
+        re.compile(rf"\bplatoon\s+({_COMPANY_NAME_WORDS})\b", re.IGNORECASE),
         re.compile(r"\bpl\s*[- ]?\s*([a-z0-9][a-z0-9\-./]*)\b", re.IGNORECASE),
     ):
         m = pattern.search(q)
@@ -317,6 +324,22 @@ _AGNIVEER_NAME_STOPWORDS = frozenset(_NOISE_WORDS) | {
     "show",
     "does",
     "did",
+    # Org-hierarchy nouns — "Lakhwinder Company", "Current Commander" are
+    # unit/role references, not a person's own name, even though both
+    # words are capitalised.
+    "company",
+    "companies",
+    "coy",
+    "platoon",
+    "battalion",
+    "commander",
+    "commanding",
+    "officer",
+    "current",
+    "user",
+    "users",
+    "role",
+    "admin",
 }
 
 _AGNIVEER_NAME_RE = re.compile(r"\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+\b")
@@ -519,6 +542,14 @@ def resolve_platoon_id(
                 candidates.append((int(pid), cid))
 
     if not candidates:
+        # No directory match — usually because the platoon-fetch call
+        # itself failed/timed out (seen in practice: "Entity fetch failed
+        # for platoons: ... Read timed out"), not because the platoon
+        # doesn't exist. A bare numeric mention ("Platoon 2") is
+        # unambiguous enough to use directly, mirroring resolve_batch_id's
+        # existing same-shaped fallback below.
+        if re.match(r"^\d+$", platoon_name.strip()):
+            return int(platoon_name.strip())
         return None
 
     if company_id is not None:
