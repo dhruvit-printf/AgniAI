@@ -119,6 +119,14 @@ _DATE_ENTITY_PATTERN = re.compile(
 )
 _AGNIVEER_NO_PATTERN = re.compile(r"\b[A-Z]?\d{5,8}[A-Z]?\b")
 
+# A message that is JUST an AgniveerNo and nothing else ("A0701954K") is
+# virtually always the user answering a "please provide agniveer number"
+# clarification, not stating a brand-new standalone query — a real fresh
+# query naming an ID normally has a verb/noun around it ("show me
+# A0701954K's details"). Anchored (^...$) so it never matches an ID that's
+# merely part of a longer sentence.
+_BARE_AGNIVEER_NO_RE = re.compile(r"^[A-Za-z]\d{5,8}[A-Za-z]?$")
+
 
 def _is_explicit_continuation_phrase(msg: str) -> bool:
     """
@@ -446,6 +454,12 @@ def _detect_follow_up_kind(msg: str, matched: InteractionRecord) -> str:
     norm = _normalize(msg)
     tokens = _tokenize(msg)
 
+    # Bare AgniveerNo answering a "please provide agniveer number"
+    # clarification — checked first since the message otherwise carries no
+    # other signal (no verb, no keyword) for the checks below to key off.
+    if _BARE_AGNIVEER_NO_RE.match(msg.strip()):
+        return "agniveer_no"
+
     # Visualization change
     for marker in _VISUALIZATION_MARKERS:
         if marker in norm:
@@ -493,6 +507,12 @@ def _reconstruct_query(
     base = matched.resolved_query.strip()
     msg = raw_msg.strip()
     norm = _normalize(msg)
+
+    if follow_up_kind == "agniveer_no":
+        # Fuse the AgniveerNo into the original pending query text so the
+        # intent engine's own AgniveerNo regex (which every parser already
+        # scans for) picks it up alongside the original category/operation.
+        return f"{base} {msg}".strip()
 
     if follow_up_kind == "visualization":
         # Bare layout requests like "in table" should keep the prior query
@@ -698,9 +718,15 @@ class ConversationContextEngine:
         # Entity guard: a message with freshly stated entities is a new
         # question — UNLESS the message is structurally a filter/continuation
         # phrase ("only platoon 2"), where the entity is refining the
-        # previous query rather than starting an unrelated one.
-        if _has_new_entity(raw_message) and not _is_explicit_continuation_phrase(
-            raw_message
+        # previous query rather than starting an unrelated one. A bare
+        # AgniveerNo with nothing else ("A0701954K") is the same case —
+        # it's answering a pending "please provide agniveer number"
+        # clarification, not declaring an unrelated new query.
+        _is_bare_agniveer_no = bool(_BARE_AGNIVEER_NO_RE.match(raw_message.strip()))
+        if (
+            _has_new_entity(raw_message)
+            and not _is_explicit_continuation_phrase(raw_message)
+            and not _is_bare_agniveer_no
         ):
             logger.debug(
                 "context_engine.resolve: entity guard triggered — treating as fresh "

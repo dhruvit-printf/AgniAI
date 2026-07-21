@@ -341,7 +341,7 @@ def generate_conclusion(
         category = intent.get("category") or "Agniveer"
 
         if is_empty:
-            no_match_message = "No matching records found."
+            no_match_message = "I couldn't find any matching records for that request."
             if (
                 query_type in ("cross_filter",)
                 and isinstance(combined_result, dict)

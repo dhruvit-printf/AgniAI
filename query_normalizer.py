@@ -218,6 +218,20 @@ def _max_distance_for(word_len: int) -> int:
     return 1 if word_len <= 5 else 2
 
 
+# Generic pronouns/stopwords that leaked into the domain vocabulary via
+# tokenized keyword phrases (e.g. "type of equipment", "show me that item")
+# — fine to type verbatim (vocab membership already lets them pass through
+# unchanged above), but never a legitimate fuzzy-correction TARGET. A
+# company/platoon name can sit well within edit-distance-2 of one of these
+# purely by coincidence ("Thorat" -> "that", distance 2), and correcting a
+# proper noun into a pronoun silently destroys the second side of a compare
+# query ("...Lakhwinder and Thorat company" -> "...Lakhwinder and that
+# company", losing which company was actually being compared).
+_NON_CORRECTION_TARGETS: FrozenSet[str] = frozenset(
+    {"that", "this", "these", "those", "they", "them", "there", "then", "than"}
+)
+
+
 # Ordinary English words that must NEVER be "corrected" against the domain
 # vocabulary, no matter how close the edit distance — the domain vocabulary
 # is narrow (a few hundred military/admin terms), so an everyday word can
@@ -228,6 +242,16 @@ def _max_distance_for(word_len: int) -> int:
 # false positive — expand it as new collisions turn up.
 _PROTECTED_COMMON_WORDS: FrozenSet[str] = frozenset(
     {
+        # Comparative/superlative adjectives that sit within edit-distance-1
+        # of an unrelated domain vocabulary word and were getting silently
+        # rewritten into it — "which company has FEWER leave cases" became
+        # "...has FEVER leave cases" (fewer -> fever, distance 1), which
+        # then misclassified as a Medical+Leave cross-filter and demanded an
+        # AgniveerNo for a query that never named one.
+        "fewer",
+        "faster",
+        "fastest",
+        "stronger",
         "food",
         "foods",
         "water",
@@ -386,6 +410,8 @@ def _fuzzy_correct_tokens(text: str) -> Tuple[str, List[str]]:
         best_dist = max_dist + 1
         tie = False
         for candidate in _candidates_near_length(len(lower), max_dist, lower[0]):
+            if candidate in _NON_CORRECTION_TARGETS:
+                continue
             dist = _damerau_levenshtein(lower, candidate)
             if dist < best_dist:
                 best_dist = dist

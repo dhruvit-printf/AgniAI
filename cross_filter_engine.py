@@ -224,27 +224,35 @@ def _build_no_overlap_message(
     "every condition matched records on its own, they just don't overlap".
     """
     if not counts:
-        return "No matching records found."
-        
+        return "I couldn't find any records matching that request."
+
     if any(c == 0 for c in counts):
         if labels and len(labels) == len(counts):
             empty_labels = [label for label, count in zip(labels, counts) if count == 0]
             parts = " and ".join(empty_labels)
-            return f"The condition for '{parts}' produced no records, resulting in an empty intersection."
-        return "One or more conditions produced no records, resulting in an empty intersection."
+            return (
+                f"I couldn't find any records for '{parts}', so there's nothing "
+                f"to combine with the rest of your request. You might try "
+                f"adjusting that part of the search."
+            )
+        return (
+            "One or more of the conditions in your request didn't match any "
+            "records, so there's nothing to combine. You might try adjusting "
+            "the filters and searching again."
+        )
 
     if labels and len(labels) == len(counts):
         parts = ", ".join(
             f"{count} {label}" for label, count in zip(labels, counts)
         )
         return (
-            f"What you're asking for isn't present — {parts} were each found "
-            f"individually, but no records satisfy all of those conditions "
-            f"together. Try broadening one of the filters."
+            f"I found {parts} individually, but none of them meet all of "
+            f"those conditions at the same time. You might try relaxing one "
+            f"of the filters to see more results."
         )
 
     return (
-        "What you're asking for isn't present — each condition matched "
-        "records on its own, but none of them satisfy every condition "
-        "together. Try broadening one of the filters."
+        "Each condition matched some records on its own, but none satisfy "
+        "every condition together. You might try relaxing one of the "
+        "filters to see more results."
     )

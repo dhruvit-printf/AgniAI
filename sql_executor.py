@@ -913,8 +913,6 @@ def execute_sql_query(
     logger.debug(f"[DEBUG SQL EXECUTOR] question: {question!r}")
     if not intent:
         return None, "No intent provided to query planner."
-        
-    print(f"[DEBUG INTERCEPT] intent: {intent}", flush=True)
 
     if intent.get("query_type") == "text2sql":
         try:
@@ -1294,6 +1292,16 @@ ORDER BY TotalLeaveDays DESC
         _m_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         _m_diagnosis = intent.get("diagnose") or intent.get("diagnosis")
         _m_hospital = intent.get("hospital_name") or intent.get("hospitalName")
+        # "pending medical cases" / "critical diagnosis" — MedicalRecordMaster
+        # .Status. The extractor stamps this onto whichever generic status
+        # field it recognises first (medical_status / verification_status),
+        # not a Medical-specific one, so check both.
+        _m_status = (
+            intent.get("medical_status")
+            or intent.get("medicalStatus")
+            or intent.get("verification_status")
+            or intent.get("verificationStatus")
+        )
         _m_blood_group = (
             intent.get("blood_group")
             or intent.get("bloodGroup")
@@ -1304,11 +1312,37 @@ ORDER BY TotalLeaveDays DESC
 
 
         if _med_op in ("BMI", "BMIAnalysis") or "bmi" in _raw_q:
-            bmi_clause = "BmiValue IS NOT NULL"
-            if "above 25" in _raw_q or "overweight" in _raw_q or "greater than 25" in _raw_q or "> 25" in _raw_q or ">25" in _raw_q:
-                bmi_clause = "BmiValue > 25.0"
-            elif "below 18.5" in _raw_q or "underweight" in _raw_q or "< 18.5" in _raw_q or "<18.5" in _raw_q:
-                bmi_clause = "BmiValue < 18.5"
+            # The structured bmiCategory field (set by the classifier/entity
+            # extractor from phrasing like "who is unfit") was never actually
+            # read here — only a handful of literal raw-text phrases were,
+            # and only for Overweight/Underweight, with the wrong boundary
+            # for Overweight (open-ended ">25" instead of the 25-30 band)
+            # and no support for Obese/Normal/Unfit at all. bmiCategory is
+            # checked first; the raw-text phrases remain as a fallback for
+            # when nothing structured was extracted.
+            _bmi_category = str(
+                intent.get("bmiCategory") or intent.get("bmi_category") or ""
+            ).strip().lower()
+            _BMI_CATEGORY_CLAUSES = {
+                "underweight": "BmiValue < 18.5",
+                "normal": "BmiValue >= 18.5 AND BmiValue < 25.0",
+                "overweight": "BmiValue >= 25.0 AND BmiValue < 30.0",
+                "obese": "BmiValue >= 30.0",
+                # Unfit = Overweight OR Obese combined — a contiguous BMI >= 25
+                # range, never the Overweight-only upper-bounded range.
+                "unfit": "BmiValue >= 25.0",
+            }
+            bmi_clause = _BMI_CATEGORY_CLAUSES.get(_bmi_category)
+            if bmi_clause is None:
+                bmi_clause = "BmiValue IS NOT NULL"
+                if "above 25" in _raw_q or "overweight" in _raw_q or "greater than 25" in _raw_q or "> 25" in _raw_q or ">25" in _raw_q:
+                    bmi_clause = "BmiValue >= 25.0 AND BmiValue < 30.0"
+                elif "below 18.5" in _raw_q or "underweight" in _raw_q or "< 18.5" in _raw_q or "<18.5" in _raw_q:
+                    bmi_clause = "BmiValue < 18.5"
+                elif "unfit" in _raw_q:
+                    bmi_clause = "BmiValue >= 25.0"
+                elif "obese" in _raw_q:
+                    bmi_clause = "BmiValue >= 30.0"
 
             bg_clause = ""
             bg_param: List[Any] = []
@@ -1335,6 +1369,31 @@ ORDER BY TotalLeaveDays DESC
             # comes before the final SELECT's bg_clause.
             params = [*_bmi_agniveer_params, *_bmi_org_params, *bg_param]
 
+            # "Show BMI report" (no specific category named) means "how many
+            # in each category", not a dump of every individual record —
+            # bmi_clause is still the unfiltered default ("BmiValue IS NOT
+            # NULL") exactly when the user never named a specific bucket,
+            # which is also exactly when a bare "report" ask is ambiguous
+            # about which category they'd want listed.
+            _wants_bmi_report = bmi_clause == "BmiValue IS NOT NULL" and any(
+                w in _raw_q for w in ("report", "summary", "breakdown", "distribution")
+            )
+            _bmi_select = (
+                """
+SELECT BmiCategory, COUNT(*) AS AgniveerCount
+FROM Categorized
+WHERE {bmi_clause}{bg_clause}
+GROUP BY BmiCategory
+ORDER BY AgniveerCount DESC
+"""
+                if _wants_bmi_report
+                else """
+SELECT TOP ({_limit}) AgniveerNo, FullName, BloodGroup, Height, Weight, BmiValue, BmiCategory
+FROM Categorized
+WHERE {bmi_clause}{bg_clause}
+ORDER BY BmiValue DESC
+"""
+            )
             _sql = f"""
 WITH LatestMedical AS (
     SELECT mr.AgniveerId, mr.Height, mr.Weight,
@@ -1358,16 +1417,17 @@ Scored AS (
                 ELSE CAST(EffWeight / POWER(EffHeight / 100.0, 2) AS DECIMAL(10, 2))
            END AS BmiValue
     FROM Vitals
+),
+Categorized AS (
+    SELECT *,
+           CASE WHEN BmiValue IS NULL THEN NULL
+                WHEN BmiValue < 18.5 THEN 'Underweight'
+                WHEN BmiValue < 25.0 THEN 'Normal'
+                WHEN BmiValue < 30.0 THEN 'Overweight'
+                ELSE 'Obese' END AS BmiCategory
+    FROM Scored
 )
-SELECT TOP ({_limit}) AgniveerNo, FullName, BloodGroup, Height, Weight, BmiValue,
-       CASE WHEN BmiValue IS NULL THEN NULL
-            WHEN BmiValue < 18.5 THEN 'Underweight'
-            WHEN BmiValue < 25.0 THEN 'Normal'
-            WHEN BmiValue < 30.0 THEN 'Overweight'
-            ELSE 'Obese' END AS BmiCategory
-FROM Scored
-WHERE {bmi_clause}{bg_clause}
-ORDER BY BmiValue DESC
+{_bmi_select.format(bmi_clause=bmi_clause, bg_clause=bg_clause, _limit=_limit)}
 """
             _rows, _run_err = run_readonly(_sql, params)
             if not _run_err:
@@ -1399,7 +1459,38 @@ ORDER BY mr.FollowUpDate ASC, m.AgniveerNo ASC
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
-        elif _med_op in ("Disease", "DiseaseStatistics", "Diagnosed", "Individual", "IndividualMedical") or _m_diagnosis or _m_agniveer_no:
+        elif _med_op == "HospitalStats":
+            # "Which hospital has treated the most Agniveers?" — a GROUP BY
+            # aggregate, not a single-Agniveer lookup, so it must not fall
+            # into the "Individual" operation's mandatory-AgniveerNo gate.
+            _hs_org_filter, _hs_org_params = _org_scope_sql("m", intent)
+            _hs_sql = f"""
+SELECT TOP ({_limit}) mr.HospitalNameLocation, COUNT(DISTINCT m.Id) AS AgniveerCount
+FROM MedicalRecordMaster mr
+INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
+WHERE ISNULL(m.IsDisqualified,0) = 0
+  AND mr.HospitalNameLocation IS NOT NULL AND TRIM(mr.HospitalNameLocation) <> ''
+  {_hs_org_filter}
+GROUP BY mr.HospitalNameLocation
+ORDER BY AgniveerCount DESC
+"""
+            _hs_rows, _hs_run_err = run_readonly(_hs_sql, _hs_org_params)
+            if not _hs_run_err:
+                return _to_section(_hs_rows or [], intent, sql=_hs_sql), None
+
+        elif _med_op != "BloodGroup" and (
+            _med_op in ("Disease", "DiseaseStatistics", "Diagnosed", "Individual", "IndividualMedical")
+            or _m_diagnosis
+            or _m_agniveer_no
+        ):
+            # The `or _m_agniveer_no` fallback below exists so "tell me
+            # about Agniveer X's medical record" (no operation-specific
+            # keyword matched) still returns something — but it was also
+            # catching operation="BloodGroup" purely because an agniveer_no
+            # happened to be present, even though BloodGroup has its own
+            # dedicated handler in the generic AST pipeline further down
+            # (which this "BloodGroup" exclusion now lets it fall through
+            # to instead of a generic medical-record dump).
             clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
             params = []
             if _m_agniveer_no:
@@ -1411,6 +1502,9 @@ ORDER BY mr.FollowUpDate ASC, m.AgniveerNo ASC
             if _m_hospital:
                 clauses.append("LOWER(mr.HospitalNameLocation) LIKE '%' + LOWER(?) + '%'")
                 params.append(str(_m_hospital))
+            if _m_status:
+                clauses.append("LOWER(mr.Status) = LOWER(?)")
+                params.append(str(_m_status))
 
             _org_filter, _org_params = _org_scope_sql("m", intent)
             where_str = "WHERE " + " AND ".join(clauses) + _org_filter
@@ -1434,6 +1528,87 @@ ORDER BY mr.VisitDate DESC, m.AgniveerNo ASC
         _eq_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         _limit = _get_top_n(intent)
 
+        from intent_engine.intent_schema import (
+            ISSUED_EQUIPMENT_ITEMS,
+            PROCURED_EQUIPMENT_ITEMS,
+        )
+
+        # "Show equipment by category" — the two possible equipment TYPES
+        # are "Issued" and "Procured"; the user wants only the item NAMES
+        # that fall under each, not per-agniveer assignment rows. This is a
+        # static master-list lookup (AgniveerEquipment.Type stores the item
+        # NAME per row, e.g. "Kit Bag" — there's no separate item-catalog
+        # table), so it's answered straight from the same catalog the
+        # classifier itself uses to recognise item names, not a DB query.
+        # Checked via raw query text because the classifier currently buckets
+        # the phrase "by category" under the "ByName" (single-item lookup)
+        # operation, which is the wrong shape for this request.
+        if "by category" in _raw_q or "equipment categories" in _raw_q:
+            _cat_rows = [
+                {"EquipmentType": "Issued", "EquipmentName": n}
+                for n in ISSUED_EQUIPMENT_ITEMS
+            ] + [
+                {"EquipmentType": "Procured", "EquipmentName": n}
+                for n in PROCURED_EQUIPMENT_ITEMS
+            ]
+            return _to_section(_cat_rows, intent, sql=None), None
+
+        # "Show equipment summary" — a single totals card: grand total plus
+        # an Issued/Procured breakdown, each split into currently-held vs
+        # returned. Classifier subcategory "EquipmentSummary" maps to
+        # operation "Stats" (see intent_schema.py), but nothing previously
+        # handled that operation value here, so it silently fell through to
+        # the generic per-record Holding/Returned listing below and returned
+        # a raw row dump instead of a summary.
+        if _eq_op == "Stats" or "summary" in _raw_q:
+            _issued_ph = ", ".join("?" for _ in ISSUED_EQUIPMENT_ITEMS)
+            _procured_ph = ", ".join("?" for _ in PROCURED_EQUIPMENT_ITEMS)
+            _stats_org_filter, _stats_org_params = _org_scope_sql("m", intent)
+            _stats_sql = f"""
+WITH Categorized AS (
+    SELECT
+        eq.ReturnDateTime,
+        CASE
+            WHEN eq.Type IN ({_issued_ph}) THEN 'Issued'
+            WHEN eq.Type IN ({_procured_ph}) THEN 'Procured'
+            ELSE NULL
+        END AS ItemCategory
+    FROM AgniveerEquipment eq
+    INNER JOIN AgniveerMaster m ON m.Id = eq.AgniveerId
+    WHERE ISNULL(m.IsDisqualified,0) = 0 {_stats_org_filter}
+)
+SELECT
+    COUNT(*) AS TotalAssignedEquipments,
+    SUM(CASE WHEN ItemCategory = 'Issued' THEN 1 ELSE 0 END) AS IssuedTotal,
+    SUM(CASE WHEN ItemCategory = 'Issued' AND ReturnDateTime IS NULL THEN 1 ELSE 0 END) AS IssuedCurrentlyWithAgniveer,
+    SUM(CASE WHEN ItemCategory = 'Issued' AND ReturnDateTime IS NOT NULL THEN 1 ELSE 0 END) AS IssuedReturned,
+    SUM(CASE WHEN ItemCategory = 'Procured' THEN 1 ELSE 0 END) AS ProcuredTotal,
+    SUM(CASE WHEN ItemCategory = 'Procured' AND ReturnDateTime IS NULL THEN 1 ELSE 0 END) AS ProcuredCurrentlyWithAgniveer,
+    SUM(CASE WHEN ItemCategory = 'Procured' AND ReturnDateTime IS NOT NULL THEN 1 ELSE 0 END) AS ProcuredReturned
+FROM Categorized
+"""
+            _stats_params = (
+                list(ISSUED_EQUIPMENT_ITEMS)
+                + list(PROCURED_EQUIPMENT_ITEMS)
+                + _stats_org_params
+            )
+            _stats_rows, _stats_run_err = run_readonly(_stats_sql, _stats_params)
+            if not _stats_run_err:
+                _r = (_stats_rows or [{}])[0]
+                _summary_row = {
+                    "totalAssignedEquipments": _r.get("TotalAssignedEquipments") or 0,
+                    "issuedEquipments": {
+                        "totalEquipments": _r.get("IssuedTotal") or 0,
+                        "currentlyWithAgniveer": _r.get("IssuedCurrentlyWithAgniveer") or 0,
+                        "returned": _r.get("IssuedReturned") or 0,
+                    },
+                    "procuredEquipments": {
+                        "total": _r.get("ProcuredTotal") or 0,
+                        "currentlyWithAgniveer": _r.get("ProcuredCurrentlyWithAgniveer") or 0,
+                        "returned": _r.get("ProcuredReturned") or 0,
+                    },
+                }
+                return _to_section([_summary_row], intent, sql=_stats_sql), None
 
         clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
         params = []

@@ -100,6 +100,28 @@ def _phrase_score(text: str, phrase: str) -> int:
     return base * occurrences + boundary_bonus
 
 
+
+# Word roots that share a long enough prefix with each other (so the
+# common_prefix >= 5 rule below would call them the same word family) to
+# false-positive-match, despite being unrelated in this domain — "district"
+# (an AgniveerMaster.District column) was fuzzy-matching "distribute"/
+# "distributed"/"distributing"/"distribution" (the unrelated DistributionMaster
+# /team-assignment concept) via their shared "distri-" prefix, routing
+# "compare Agniveers across all districts" to the wrong table entirely.
+# Keyed by root word -> the *other* roots it must never be treated as a
+# family match against, regardless of which one is text_word vs phrase.
+_WORD_FAMILY_ROOT_EXCLUSIONS = {
+    "district": {"distribute", "distributed", "distributing", "distribution", "distributions"},
+}
+
+
+def _excluded_word_family(a: str, b: str) -> bool:
+    for word, blocked in _WORD_FAMILY_ROOT_EXCLUSIONS.items():
+        if (a.startswith(word) and b in blocked) or (b.startswith(word) and a in blocked):
+            return True
+    return False
+
+
 def _word_family_score(text_word: str, phrase: str) -> int:
     """Typo/word-family fallback for a single-word keyword against one query token.
 
@@ -109,6 +131,8 @@ def _word_family_score(text_word: str, phrase: str) -> int:
         "performance" all share "perform") via a long common prefix.
     """
     if len(phrase) < 4 or len(text_word) < 4 or text_word == phrase:
+        return 0
+    if _excluded_word_family(text_word, phrase):
         return 0
 
     common_prefix = 0

@@ -17,7 +17,10 @@ from performance_executor import execute_performance_query
         ("AttemptWise", {"section": "BPET"}, "AttemptTotal"),
         ("Trend", {"section": "BPET"}, "COUNT(DISTINCT AgniveerId) AS AgniveerCount"),
         ("Improvement", {"from_attempt": 1, "to_attempt": 2}, "AS Improvement"),
-        ("Drop", {"from_attempt": 1, "to_attempt": 2}, "AS Drop"),
+        # "Drop" is a reserved T-SQL keyword, so the generated column alias
+        # is correctly bracket-quoted ("AS [Drop]") — bare "AS Drop" would
+        # risk a SQL syntax error against the reserved word.
+        ("Drop", {"from_attempt": 1, "to_attempt": 2}, "AS [Drop]"),
         ("Grading", {"section": "BPET"}, "CASE"),
         ("GradingSummary", {"section": "BPET"}, "GROUP BY SectionName, Grade"),
     ],
@@ -27,7 +30,7 @@ def test_supported_performance_operations_execute_locally(
 ):
     payload = {"category": "Performance", "operation": operation, **intent}
 
-    with patch("performance_executor.run_readonly") as mock_run:
+    with patch("sql_executor.run_readonly") as mock_run:
         mock_run.return_value = ([], None)
         section, err = execute_performance_query(payload)
 

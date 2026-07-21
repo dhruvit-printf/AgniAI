@@ -27,6 +27,23 @@ COL_MAP["house no"] = "HouseNo"
 
 _AGNIVEER_NO_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
 
+# Signals that this query is asking about something beyond a plain personal-
+# detail lookup (roster listing, "who plays X") — a Performance ranking, a
+# Leave/Medical/Equipment/Verification status, etc. — in which case an
+# early-exit heuristic here would answer only a fragment of a more complex
+# question. "Show top performer in PPT who plays cricket and is currently on
+# leave" contains "plays cricket" (matches the sport pattern below) but is
+# really a 3-way cross-filter; matching sport alone silently drops the
+# ranking and leave-status halves of the question.
+_OTHER_DOMAIN_WORDS_RE = re.compile(
+    r"\b(leave|verification|verified|pending|rejected|medical|bmi|"
+    r"overweight|underweight|obese|equipment|issued|returned|"
+    r"attendance|present|absent|score|scored|top|performer|performers|"
+    r"grade|graded|excellent|performance|bpet|ppt|firing|drill|hospital|"
+    r"hospitalized|disqualified|status|diagnos\w*|blood|eyesight|"
+    r"follow-?up)\b"
+)
+
 
 def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
     """
@@ -120,33 +137,32 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                 "filters": {},
             }
 
-        if re.search(r"\bbatch\s+[a-z0-9]+\b", q_lower) and re.search(
-            r"\b(belong|belonging|list|show|give|all|every)\b", q_lower
-        ):
-            return {
-                "category": "personaldetail",
-                "operation": "lookup",
-                "query_type": "simple",
-                "confidence": "high",
-                "confidence_score": 0.9,
-                "filters": {},
-            }
-
         # A plain roster ask — "give me a list of agniveers in <Company/
-        # Platoon>" — with no aggregate/ranking language. Company/platoon
-        # NAME -> ID resolution happens separately upstream in
-        # admin_entity_resolver.py; this only needs to recognise the
-        # question shape. Without it, "agniveer" so close to "company"/
-        # "platoon" was winning a stray Equipment/AgniveerWise fuzzy-match
-        # instead (observed at ~0.28 confidence).
+        # Platoon/Batch N>" — with no aggregate/ranking language AND no
+        # other domain content. Company/platoon NAME -> ID resolution
+        # happens separately upstream in admin_entity_resolver.py; this only
+        # needs to recognise the question shape. Without the domain-word
+        # exclusion, this swallowed queries that only incidentally contain
+        # "show"/"give" + "in"/"of"/"from" ANYWHERE in the sentence —
+        # "Show Agniveers who are overweight despite scoring Excellent in
+        # BPET", "give me all Agniveers who have taken leave from Company
+        # X", and "Show verification status of Agniveer X" were all being
+        # forced into a plain personal-detail profile listing instead of
+        # their real category (cross_filter / Leave / Verification).
         if (
-            re.search(r"\b(list|show|give)\b", q_lower)
-            and re.search(r"\b(in|of|from|belonging to|under)\b", q_lower)
-            and not re.search(
-                r"\bwhich\b|\bhow many\b|\bmost\b|\bfewest\b|\bleast\b|\beach\b|\btop\b|\bbest\b|\bworst\b",
-                q_lower,
+            (
+                re.search(r"\bbatch\s+[a-z0-9]+\b", q_lower)
+                and re.search(r"\b(belong|belonging|list|show|give|all|every)\b", q_lower)
             )
-        ):
+            or (
+                re.search(r"\b(list|show|give)\b", q_lower)
+                and re.search(r"\b(in|of|from|belonging to|under)\b", q_lower)
+                and not re.search(
+                    r"\bwhich\b|\bhow many\b|\bmost\b|\bfewest\b|\bleast\b|\beach\b|\btop\b|\bbest\b|\bworst\b",
+                    q_lower,
+                )
+            )
+        ) and not _OTHER_DOMAIN_WORDS_RE.search(q_lower):
             return {
                 "category": "personaldetail",
                 "operation": "lookup",
@@ -195,8 +211,16 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                 }
                 
     # 2. Categorical Match (e.g. "who plays cricket", "eye sight 6/6")
-    # Generic catch-all for "plays <sport>"
-    sport_match = re.search(r'\bplays?\s+([a-z0-9]+)\b', q_lower)
+    # Generic catch-all for "plays <sport>" — but not when other domain
+    # content is also present ("top performer in PPT who plays cricket and
+    # is currently on leave" is a 3-way cross-filter, not a plain sport
+    # lookup; matching sport alone here silently dropped the ranking and
+    # leave-status halves of the question).
+    sport_match = (
+        None
+        if _OTHER_DOMAIN_WORDS_RE.search(q_lower)
+        else re.search(r'\bplays?\s+([a-z0-9]+)\b', q_lower)
+    )
     if sport_match:
         sport = sport_match.group(1)
         return {

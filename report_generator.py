@@ -372,7 +372,7 @@ def get_fallback_report(
                 combined_result.get("message")
                 if isinstance(combined_result, dict)
                 else None
-            ) or "No matching records found."
+            ) or "I couldn't find any matching records for that search."
             message = no_overlap_message
             summary = "The selected conditions may be too narrow for the current set of records."
             obs = ["The search did not return any overlapping records."]
@@ -406,7 +406,7 @@ def get_fallback_report(
                 f"The comparison of {labels_str} is complete and ready for review."
             )
         else:
-            message = "I could not complete the comparison because no matching records were found for either side."
+            message = "I couldn't complete that comparison because neither side returned any matching records. You might try adjusting the filters and searching again."
             summary = "The comparison could not be completed because the selected groups returned no records."
             obs = ["Both comparison groups returned no records."]
             insights = [
@@ -450,13 +450,16 @@ def get_fallback_report(
             insights = ["The returned records match the selected criteria."]
             conclusion = f"The search is complete and the {cnt} matching {category_label} records are ready for review."
         else:
-            message = f"I could not find any matching {category_label} records."
+            message = (
+                f"I couldn't find any {category_label} records matching that "
+                f"request. You might try adjusting the filters and searching again."
+            )
             summary = f"No matching records were found for the selected {category_label} criteria."
             obs = [f"The search returned 0 records for the {category_label} category."]
             insights = [
                 "The selected criteria may be too narrow for the available records."
             ]
-            conclusion = f"No matching {category_label} records were found. Try broadening the criteria and search again."
+            conclusion = f"I didn't find any matching {category_label} records this time — broadening the criteria may help."
 
     return {
         "message": message,

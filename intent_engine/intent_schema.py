@@ -76,6 +76,7 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Disease",
             "Individual",
             "FollowUp",
+            "HospitalStats",
         ]
     ),
     "Attendance": frozenset(
@@ -1126,6 +1127,14 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "disease breakdown",
             "breakdown of diseases",
             "breakdown by disease",
+            "medical cases",
+            "medical case",
+            "pending medical cases",
+            "pending cases",
+            "medical records",
+            "medical records for today",
+            "hospital admissions",
+            "hospital admission",
         ),
         "Individual": (
             "his medical report",
@@ -1160,6 +1169,13 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "follow-up date",
             "upcoming follow-up",
             "has a follow-up",
+        ),
+        "HospitalStats": (
+            "which hospital",
+            "which hospital has treated",
+            "hospital has treated the most",
+            "hospital treated the most",
+            "most agniveers treated",
         ),
     },
     "Attendance": {

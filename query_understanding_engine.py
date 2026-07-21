@@ -1858,12 +1858,30 @@ def understand_query(query: str) -> Dict[str, Any]:
         from intent_engine.query_planner import _detect_categories as _dc
 
         _cf_cats = _dc(text)
+        _distinct_sections = _distinct_performance_sections(text)
         if (
             len(set(_cf_cats[:3])) >= 2
-            or _distinct_performance_sections(text) >= 2
+            or _distinct_sections >= 2
             or len(sub_req_cats) >= 2
         ):
             cross_filter_intent = True
+
+            # _dc(text) is a coarse, whole-text category scan and can find 2
+            # categories that the PRECISE per-fragment splitter (sub_requests,
+            # computed above) resolves to the same one — "Which sport has the
+            # best performers?" scans as {Skills, Performance} from "sport"
+            # and "performers" in isolation, but both actual fragments
+            # ("which sport" / "has the best performers") classify as
+            # Performance once split. That's not 2 filters to intersect, it's
+            # one ranking query, so don't commit to cross_filter on the
+            # coarse signal alone once the precise one contradicts it.
+            if (
+                len(set(_cf_cats[:3])) >= 2
+                and _distinct_sections < 2
+                and len(sub_req_cats) <= 1
+                and len(sub_requests) >= 2
+            ):
+                cross_filter_intent = False
 
 
 

@@ -757,13 +757,26 @@ def _normalize_n_parts(parts: List[str]) -> List[Tuple[str, str]]:
             p = re.sub(
                 r"\b" + re.escape(kw) + r"\b", "", p, flags=re.IGNORECASE
             ).strip()
+        # Strip a trailing "for <name>" qualifier BEFORE the results/stats
+        # cleanup below, so "BPET results for Alpha" reduces to "BPET
+        # results" here and then to "BPET" below — doing it in the other
+        # order leaves "for Alpha" stuck after "results", which then blocks
+        # the (now trailing-anchored) results/stats strip from firing at all.
+        p = re.sub(r"\bfor\s+\w+(?:\s+\d+)?$", "", p, flags=re.IGNORECASE).strip()
+        # Strip a trailing "results/stats/.../marks" qualifier — e.g.
+        # "Lakhwinder company performance results" -> "Lakhwinder company".
+        # Anchored so the keyword must actually trail the fragment (only
+        # punctuation may follow it), not merely appear anywhere in it —
+        # `.*$` previously nuked everything after the FIRST occurrence, so
+        # "equipment stats of Jaswant company" (keyword mid-fragment, real
+        # content — the company name — still to come) collapsed to just
+        # "equipment", silently discarding which company was being compared.
         p = re.sub(
-            r"\b(results|stats|data|records|performance|score|marks)\b.*$",
+            r"\b(results|stats|data|records|performance|score|marks)\b[\s.?!]*$",
             "",
             p,
             flags=re.IGNORECASE,
         ).strip()
-        p = re.sub(r"\bfor\s+\w+(?:\s+\d+)?$", "", p, flags=re.IGNORECASE).strip()
         cleaned_parts.append(p)
 
     # Check if there is a shared trailing category/keyword in the last part
@@ -936,6 +949,58 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
     coy_matches = find_matches(list(_COMPARISON_UNITS), text_lower)
     if len({m[2] for m in coy_matches}) >= 2:
         return split_on_matches(query_text, coy_matches)
+
+    # 2b. Generic "<Name> and <Name> company/companies" — company names are
+    # DB-driven (CompanyMaster: Lakhwinder, Jaswant, Arora, Thorat, ...), not
+    # a fixed vocabulary like _COMPARISON_UNITS, so a real company name can
+    # never be recognised by the Sections/Units matchers above. This keys
+    # off the literal word "company"/"companies" immediately following
+    # "<X> and <Y>" — narrow enough to avoid false positives on unrelated
+    # "and" usage, general enough to catch any two arbitrary company names.
+    _generic_coy_match = re.search(
+        r"\b([A-Za-z][A-Za-z\-]*)\s+and\s+([A-Za-z][A-Za-z\-]*)\s+compan(?:y|ies)\b",
+        query_text,
+        re.IGNORECASE,
+    )
+    if _generic_coy_match:
+        name_a, name_b = _generic_coy_match.group(1), _generic_coy_match.group(2)
+        prefix = query_text[: _generic_coy_match.start()].strip()
+        prefix = re.sub(
+            r"^(?:compare|comparison\s+of|comparison\s+between|comparison)\b\s*",
+            "",
+            prefix,
+            flags=re.IGNORECASE,
+        ).strip()
+        suffix = query_text[_generic_coy_match.end():].strip()
+        frag_a = " ".join(p for p in (prefix, f"{name_a} company", suffix) if p)
+        frag_b = " ".join(p for p in (prefix, f"{name_b} company", suffix) if p)
+        return _normalize_n_parts([frag_a, frag_b])
+
+    # 2c. AgniveerNo pairs: "compare ... agniveer X and agniveer Y ...".
+    agn_matches = [
+        (m.start(), m.end(), m.group(0))
+        for m in re.finditer(r"\bagniveer\s+[a-z]\d{5,8}[a-z]?\b", text_lower)
+    ]
+    if len({m[2] for m in agn_matches}) >= 2:
+        return split_on_matches(query_text, agn_matches)
+
+    # 2d. Attempt-number pairs: "attempt 1 and attempt 2 ..." or
+    # "first attempt and second attempt ...".
+    attempt_matches = [
+        (m.start(), m.end(), m.group(0))
+        for m in re.finditer(r"\battempt\s*\d+\b", text_lower)
+    ]
+    if len({m[2] for m in attempt_matches}) >= 2:
+        return split_on_matches(query_text, attempt_matches)
+
+    ordinal_attempt_matches = [
+        (m.start(), m.end(), m.group(0))
+        for m in re.finditer(
+            r"\b(?:first|second|third|fourth|fifth)\s+attempt\b", text_lower
+        )
+    ]
+    if len({m[2] for m in ordinal_attempt_matches}) >= 2:
+        return split_on_matches(query_text, ordinal_attempt_matches)
 
     # 3. Platoons
     platoon_matches = [

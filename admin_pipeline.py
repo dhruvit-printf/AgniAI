@@ -263,8 +263,41 @@ _REQUEST_UNPROCESSABLE_MESSAGE = (
 )
 
 
-def _agniveer_no_missing_response(session_id: str) -> Dict[str, Any]:
-    """Clarification response for categories/operations that require agniveerNo."""
+def _agniveer_no_missing_response(
+    session_id: str,
+    *,
+    user_message: str = "",
+    resolved_query: str = "",
+    intent: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Clarification response for categories/operations that require agniveerNo.
+
+    Records the pending intent (category/operation/section) as an interaction
+    so that when the user's next message is a bare AgniveerNo answering this
+    clarification, context_engine.resolve() has something to fuse it back
+    into — without this, the clarification turn was never persisted and the
+    follow-up AgniveerNo had no prior interaction to attach to at all.
+    """
+    intent = intent or {}
+    if resolved_query:
+        try:
+            context_engine.add_interaction(
+                session_id,
+                user_message=user_message or resolved_query,
+                resolved_query=resolved_query,
+                intent=intent,
+                entities={},
+                filters={},
+                category=intent.get("category"),
+                section=intent.get("section"),
+                operation=intent.get("operation") or "lookup",
+                payload_summary=_AGNIVEER_NO_MISSING_MESSAGE,
+            )
+        except Exception:
+            logger.debug(
+                "context_engine.add_interaction failed for agniveer-no clarification",
+                exc_info=True,
+            )
     payload = build_conversation_payload(
         _AGNIVEER_NO_MISSING_MESSAGE,
         session_id=session_id,
@@ -1194,7 +1227,12 @@ def execute_admin_query(
                     )
                     and not op_agniveer_no
                 ):
-                    return _agniveer_no_missing_response(session_id)
+                    return _agniveer_no_missing_response(
+                        session_id,
+                        user_message=_original_user_query or message,
+                        resolved_query=message,
+                        intent=op_intent,
+                    )
                 elif op_agniveer_no and op_intent:
                     op_intent["agniveerNo"] = op_agniveer_no
                     op_intent["agniveer_no"] = op_agniveer_no

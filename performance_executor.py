@@ -1,7 +1,8 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from sql_executor import SQL_MAX_ROWS, _to_section, run_readonly
+import sql_executor
+from sql_executor import SQL_MAX_ROWS, _to_section
 
 logger = logging.getLogger("performance_executor")
 
@@ -116,7 +117,13 @@ def execute_performance_query(
         return sql, params
 
     def _run(sql: str, params: List[Any]) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
-        rows, err = run_readonly(sql, tuple(params))
+        # Call through the sql_executor module attribute (not a bound name
+        # captured at import time) so that patching sql_executor.run_readonly
+        # in tests always takes effect regardless of module import order —
+        # a `from sql_executor import run_readonly` binding here would freeze
+        # on whichever function object existed the first time this module
+        # was imported, silently ignoring any later monkeypatch.
+        rows, err = sql_executor.run_readonly(sql, tuple(params))
         if err:
             return None, err
         return rows or [], None
