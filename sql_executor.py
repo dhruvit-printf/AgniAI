@@ -158,7 +158,11 @@ _GENERATION_SYSTEM = (
     "SQL: SELECT a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS BestTotal FROM AgniveerMaster a INNER JOIN AgniveerScoreAttempt sa ON a.Id = sa.AgniveerId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND sa.IsBestAttempt = 1 AND a.Sports = 'Volleyball' GROUP BY a.AgniveerNo, a.FullName ORDER BY BestTotal DESC\n\n"
     "Example 6:\n"
     "QUESTION: Show obese agniveers\n"
-    "SQL: WITH LatestMedical AS (SELECT AgniveerId, Height, Weight, ROW_NUMBER() OVER (PARTITION BY AgniveerId ORDER BY VisitDate DESC) AS rn FROM MedicalRecordMaster WHERE Height IS NOT NULL AND Weight IS NOT NULL), Vitals AS (SELECT a.Id AS AgniveerId, a.AgniveerNo, a.FullName, COALESCE(lm.Height, a.Height) AS EffHeight, COALESCE(lm.Weight, a.Weight) AS EffWeight FROM AgniveerMaster a LEFT JOIN LatestMedical lm ON lm.AgniveerId = a.Id AND lm.rn = 1 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)), Bmi AS (SELECT AgniveerNo, FullName, EffWeight / POWER(EffHeight / 100.0, 2) AS BmiValue FROM Vitals WHERE EffHeight IS NOT NULL AND EffWeight IS NOT NULL AND EffHeight > 0) SELECT AgniveerNo, FullName FROM Bmi WHERE BmiValue >= 30.0"
+    "SQL: WITH LatestMedical AS (SELECT AgniveerId, Height, Weight, ROW_NUMBER() OVER (PARTITION BY AgniveerId ORDER BY VisitDate DESC) AS rn FROM MedicalRecordMaster WHERE Height IS NOT NULL AND Weight IS NOT NULL), Vitals AS (SELECT a.Id AS AgniveerId, a.AgniveerNo, a.FullName, COALESCE(lm.Height, a.Height) AS EffHeight, COALESCE(lm.Weight, a.Weight) AS EffWeight FROM AgniveerMaster a LEFT JOIN LatestMedical lm ON lm.AgniveerId = a.Id AND lm.rn = 1 WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)), Bmi AS (SELECT AgniveerNo, FullName, EffWeight / POWER(EffHeight / 100.0, 2) AS BmiValue FROM Vitals WHERE EffHeight IS NOT NULL AND EffWeight IS NOT NULL AND EffHeight > 0) SELECT AgniveerNo, FullName FROM Bmi WHERE BmiValue >= 30.0\n\n"
+    "Example 7:\n"
+    "CLASSIFIER HINT (may be partial): {'category': 'Performance', 'batch_id': 12}\n"
+    "QUESTION: Top 5 performers in Firing\n"
+    "SQL: SELECT TOP 5 a.AgniveerNo, a.FullName, SUM(sa.MarksObtained) AS BestTotal FROM AgniveerMaster a INNER JOIN AgniveerScoreAttempt sa ON a.Id = sa.AgniveerId INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId INNER JOIN ScoreSectionMaster sec ON sec.Id = si.SectionId WHERE (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL) AND a.BatchId = 12 AND sa.IsBestAttempt = 1 AND sec.SectionName = 'Firing' GROUP BY a.AgniveerNo, a.FullName ORDER BY BestTotal DESC"
 )
 
 
@@ -3391,6 +3395,8 @@ def _execute_distribution_top_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dic
         if latest_id is None:
             return _to_section([], intent), "No distribution events found."
 
+        scope_where, scope_params = _build_distribution_base_scope(intent)
+
         sql = f"""
         SELECT TOP 1
             h.TeamId,
@@ -3403,17 +3409,16 @@ def _execute_distribution_top_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dic
         LEFT JOIN DistributionMaster dm ON dm.Id = h.TeamId
         WHERE h.DistributionId = ?
             AND h.TeamId IS NOT NULL
-            AND (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
-            AND a.IsActive = 1
+            AND {scope_where}
         GROUP BY h.TeamId, dm.Name
         ORDER BY AgniveerCount DESC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Top Unit SQL validation failed: {err}"
-        
-        params = [latest_id, latest_id, latest_id]
+
+        params = [latest_id, latest_id, latest_id] + scope_params
         rows, run_err = run_readonly(sql, params)
         if run_err:
             return None, f"Top Unit execution failed: {run_err}"
@@ -4162,6 +4167,7 @@ FROM AgniveerEquipment eq
 INNER JOIN AgniveerMaster a ON a.Id = eq.AgniveerId
 INNER JOIN EquipmentMaster em ON em.Id = eq.EquipmentId
 WHERE LOWER(a.AgniveerNo) = LOWER(?)
+    AND (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
 ORDER BY eq.GivenDateTime DESC
 """
             _rows, _run_err = run_readonly(_sql, [str(_eq_agniveer_no)], max_rows=_row_cap(_limit))
@@ -4532,6 +4538,7 @@ ORDER BY u.Username ASC
         _oh_op = intent.get("operation")
         _oh_company_id = intent.get("company_id") or intent.get("companyId")
         _oh_platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+        _oh_batch_id = intent.get("batch_id") or intent.get("batchId")
         _limit = _get_top_n(intent)
         _oh_sql: Optional[str] = None
         _oh_params: List[Any] = []
@@ -4619,25 +4626,29 @@ ORDER BY p.Name ASC
             _oh_params = [int(_oh_company_id)] if _oh_company_id else []
 
         elif _oh_op == "HeadcountByCompany":
-            _oh_sql = """
+            _oh_batch_clause = " AND a.BatchId = ?" if _oh_batch_id is not None else ""
+            _oh_sql = f"""
 SELECT c.Name AS CompanyName, COUNT(a.Id) AS AgniveerCount
 FROM CompanyMaster c
 LEFT JOIN PlatoonMaster p ON p.CompanyId = c.Id
-LEFT JOIN AgniveerMaster a ON a.PlatoonId = p.Id AND ISNULL(a.IsDisqualified,0) = 0
+LEFT JOIN AgniveerMaster a ON a.PlatoonId = p.Id AND ISNULL(a.IsDisqualified,0) = 0{_oh_batch_clause}
 GROUP BY c.Name
 ORDER BY AgniveerCount DESC
 """
+            _oh_params = [int(_oh_batch_id)] if _oh_batch_id is not None else []
 
         elif _oh_op == "TopCompanyByHeadcount":
             _oh_order = "DESC" if intent.get("descending", True) else "ASC"
+            _oh_batch_clause = " AND a.BatchId = ?" if _oh_batch_id is not None else ""
             _oh_sql = f"""
 SELECT TOP (1) c.Name AS CompanyName, COUNT(a.Id) AS AgniveerCount
 FROM CompanyMaster c
 LEFT JOIN PlatoonMaster p ON p.CompanyId = c.Id
-LEFT JOIN AgniveerMaster a ON a.PlatoonId = p.Id AND ISNULL(a.IsDisqualified,0) = 0
+LEFT JOIN AgniveerMaster a ON a.PlatoonId = p.Id AND ISNULL(a.IsDisqualified,0) = 0{_oh_batch_clause}
 GROUP BY c.Name
 ORDER BY AgniveerCount {_oh_order}
 """
+            _oh_params = [int(_oh_batch_id)] if _oh_batch_id is not None else []
 
         elif _oh_op == "WhichCompanyForAgniveer" and intent.get("agniveer_no"):
             _oh_sql = """
@@ -4646,6 +4657,7 @@ FROM AgniveerMaster m
 LEFT JOIN PlatoonMaster p ON p.Id = m.PlatoonId
 LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
 WHERE LOWER(m.AgniveerNo) = LOWER(?)
+    AND (m.IsDisqualified <> 1 OR m.IsDisqualified IS NULL)
 """
             _oh_params = [str(intent.get("agniveer_no"))]
 
@@ -4708,7 +4720,7 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
                 return _to_section([], intent), None
 
 
-        sql, params = _build_company_schedule_sql(
+        sql, params = build_schedule_sql(
             company_id=_resolved_company_id,
             date=_s_date,
             from_date=_s_from_date,
