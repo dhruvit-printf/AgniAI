@@ -566,7 +566,7 @@ def build_schedule_sql(
     date: Optional[str] = None,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
-    top_n: int = 500
+    top_n: Optional[int] = None
 ) -> Tuple[str, List[Any]]:
     """Build schedule SQL with proper filters."""
     
@@ -593,7 +593,7 @@ def build_schedule_sql(
     where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
 
     sql = f"""
-    SELECT TOP ({top_n})
+    SELECT {_top_clause(top_n)}
         s.Id AS ScheduleId,
         s.CompanyId,
         c.Name AS CompanyName,
@@ -645,7 +645,7 @@ def _execute_schedule_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]
             date = datetime.date.today().isoformat()
     
     # ── Build and Execute SQL ──────────────────────────────────────────
-    top_n = intent.get("number") or 500
+    top_n = _get_top_n(intent)
     sql, params = build_schedule_sql(
         company_id=company_id,
         date=date,
@@ -654,10 +654,10 @@ def _execute_schedule_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]
         top_n=top_n,
     )
     
-    rows, err = run_readonly(sql, params)
+    rows, err = run_readonly(sql, params, max_rows=_row_cap(top_n))
     if err:
         return None, err
-    
+
     return _to_section(rows or [], intent, sql=sql), None
 
 
@@ -762,7 +762,7 @@ def execute_disqualified_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
             or any(kw in raw_q for kw in ("how many", "count", "number of", "total disqualified", "total number"))
         )
         detailed = not wants_count if response_type != "detailed" else True
-        top_n = intent.get("number") or intent.get("top_n") or 500
+        top_n = _get_top_n(intent)
         
         # ── Build WHERE clause ──────────────────────────────────────────────────
         where_clause, params = _build_disqualified_base_query(intent)
@@ -780,7 +780,7 @@ def execute_disqualified_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
         # ── Build final SQL ─────────────────────────────────────────────────────
         if detailed:
             sql = f"""
-            SELECT TOP ({top_n})
+            SELECT {_top_clause(top_n)}
                 {select_clause}
             FROM AgniveerMaster a
             {joins}
@@ -800,7 +800,7 @@ def execute_disqualified_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
             return None, f"Disqualified SQL validation failed: {err}"
         
         # ── Execute ─────────────────────────────────────────────────────────────
-        rows, run_err = run_readonly(sql, params)
+        rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Disqualified execution failed: {run_err}"
         
@@ -828,7 +828,7 @@ def build_verification_sql(
     platoon_id: Optional[int] = None,
     company_id: Optional[int] = None,
     detailed: bool = False,
-    top_n: int = 500
+    top_n: Optional[int] = None
 ) -> Tuple[str, List[Any]]:
     """
     Build Verification SQL based on status.
@@ -859,7 +859,7 @@ def build_verification_sql(
     if status_lower in ("pending", "pendingverification", "unverified", "awaitingverification", "notverified", "notverifiedyet", "waitingforverification"):
         # Pending = No record OR Rejected
         sql = f"""
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             a.Id,
             a.AgniveerNo,
             a.FullName,
@@ -896,7 +896,7 @@ def build_verification_sql(
                 ROW_NUMBER() OVER (PARTITION BY v.AgniveerId ORDER BY v.SentDate DESC, v.Id DESC) AS rn
             FROM PoliceVerificationMaster v
         )
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             a.AgniveerNo,
             a.FullName,
             a.PhotoPath,
@@ -931,7 +931,7 @@ def build_verification_sql(
                 ROW_NUMBER() OVER (PARTITION BY v.AgniveerId ORDER BY v.SentDate DESC, v.Id DESC) AS rn
             FROM PoliceVerificationMaster v
         )
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             a.AgniveerNo,
             a.FullName,
             a.PhotoPath,
@@ -967,7 +967,7 @@ def build_verification_sql(
                 ROW_NUMBER() OVER (PARTITION BY v.AgniveerId ORDER BY v.SentDate DESC, v.Id DESC) AS rn
             FROM PoliceVerificationMaster v
         )
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             a.AgniveerNo,
             a.FullName,
             a.PhotoPath,
@@ -1002,7 +1002,7 @@ def build_verification_sql(
                 ROW_NUMBER() OVER (PARTITION BY v.AgniveerId ORDER BY v.SentDate DESC, v.Id DESC) AS rn
             FROM PoliceVerificationMaster v
         )
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             a.AgniveerNo,
             a.FullName,
             a.PhotoPath,
@@ -1056,7 +1056,7 @@ def execute_verification_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
         platoon_id = intent.get("platoon_id") or intent.get("platoonId")
         company_id = intent.get("company_id") or intent.get("companyId")
         response_type = intent.get("responseType") or intent.get("response_type") or "Summary"
-        top_n = intent.get("number") or intent.get("top_n") or 500
+        top_n = _get_top_n(intent)
         
         detailed = str(response_type).lower() == "detailed"
         
@@ -1074,7 +1074,7 @@ def execute_verification_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
         if not is_valid:
             return None, f"Verification SQL validation failed: {err}"
         
-        rows, run_err = run_readonly(sql, params)
+        rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Verification execution failed: {run_err}"
         
@@ -1174,7 +1174,7 @@ def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
     Excludes absconded by default.
     """
     try:
-        top_n = intent.get("number") or intent.get("top_n") or 500
+        top_n = _get_top_n(intent)
         response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
         detailed = response_type.lower() == "detailed"
 
@@ -1229,7 +1229,7 @@ def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
                 return None, f"Current Leave SQL validation failed: {err}"
             
             all_params = base_params + leave_params
-            rows, run_err = run_readonly(sql, all_params)
+            rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Current Leave execution failed: {run_err}"
             
@@ -1247,7 +1247,7 @@ def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
 
         # ── Detailed ────────────────────────────────────────────────────────
         sql = f"""
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             a.AgniveerNo,
             a.FullName,
             a.PhotoPath,
@@ -1289,7 +1289,7 @@ def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
             return None, f"Current Leave SQL validation failed: {err}"
         
         all_params = base_params + leave_params
-        rows, run_err = run_readonly(sql, all_params)
+        rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Current Leave execution failed: {run_err}"
         
@@ -1306,7 +1306,7 @@ def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optiona
     Returns Agniveers with highest leave counts.
     """
     try:
-        top_n = intent.get("number") or intent.get("top_n") or 10
+        top_n = _get_top_n(intent)
         response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
         detailed = response_type.lower() == "detailed"
 
@@ -1347,7 +1347,7 @@ def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optiona
                 return None, f"Most Leave SQL validation failed: {err}"
             
             all_params = base_params + leave_params
-            rows, run_err = run_readonly(sql, all_params)
+            rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Most Leave execution failed: {run_err}"
             
@@ -1360,7 +1360,7 @@ def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optiona
 
         # ── Detailed ────────────────────────────────────────────────────────
         sql = f"""
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             a.AgniveerNo,
             a.FullName,
             a.PhotoPath,
@@ -1392,7 +1392,7 @@ def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optiona
             return None, f"Most Leave SQL validation failed: {err}"
         
         all_params = base_params + leave_params
-        rows, run_err = run_readonly(sql, all_params)
+        rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Most Leave execution failed: {run_err}"
         
@@ -1409,7 +1409,7 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
     Returns Agniveers with lowest leave counts (excluding zero).
     """
     try:
-        top_n = intent.get("number") or intent.get("top_n") or 10
+        top_n = _get_top_n(intent)
         response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
         detailed = response_type.lower() == "detailed"
 
@@ -1424,7 +1424,7 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
         if leave_type and str(leave_type).lower() == "noleave":
             # No Leave mode: return Agniveers with zero leave
             sql = f"""
-            SELECT TOP ({top_n})
+            SELECT {_top_clause(top_n)}
                 a.AgniveerNo,
                 a.FullName,
                 a.PhotoPath,
@@ -1450,7 +1450,7 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
             if not is_valid:
                 return None, f"Least Leave SQL validation failed: {err}"
             
-            rows, run_err = run_readonly(sql, base_params)
+            rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Least Leave execution failed: {run_err}"
             
@@ -1486,7 +1486,7 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
                 return None, f"Least Leave SQL validation failed: {err}"
             
             all_params = base_params + leave_params
-            rows, run_err = run_readonly(sql, all_params)
+            rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Least Leave execution failed: {run_err}"
             
@@ -1499,7 +1499,7 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
 
         # ── Detailed ────────────────────────────────────────────────────────
         sql = f"""
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             a.AgniveerNo,
             a.FullName,
             a.PhotoPath,
@@ -1537,7 +1537,7 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
             return None, f"Least Leave SQL validation failed: {err}"
         
         all_params = base_params + leave_params
-        rows, run_err = run_readonly(sql, all_params)
+        rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Least Leave execution failed: {run_err}"
         
@@ -1554,7 +1554,7 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
     Returns Agniveers marked as absconded.
     """
     try:
-        top_n = intent.get("number") or intent.get("top_n") or 500
+        top_n = _get_top_n(intent)
         response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
         detailed = response_type.lower() == "detailed"
 
@@ -1577,7 +1577,7 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
             if not is_valid:
                 return None, f"Absconded Leave SQL validation failed: {err}"
             
-            rows, run_err = run_readonly(sql, base_params)
+            rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Absconded Leave execution failed: {run_err}"
             
@@ -1588,7 +1588,7 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
 
         # ── Detailed ────────────────────────────────────────────────────────
         sql = f"""
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             a.AgniveerNo,
             a.FullName,
             a.PhotoPath,
@@ -1616,7 +1616,7 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         if not is_valid:
             return None, f"Absconded Leave SQL validation failed: {err}"
         
-        rows, run_err = run_readonly(sql, base_params)
+        rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Absconded Leave execution failed: {run_err}"
         
@@ -1633,7 +1633,7 @@ def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
     Returns Agniveers with continuous 40-44 days OR total 55-59 days.
     """
     try:
-        top_n = intent.get("number") or intent.get("top_n") or 500
+        top_n = _get_top_n(intent)
         response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
         detailed = response_type.lower() == "detailed"
 
@@ -1697,7 +1697,7 @@ def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         if not is_valid:
             return None, f"Threshold Leave SQL validation failed: {err}"
         
-        rows, run_err = run_readonly(sql, base_params)
+        rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Threshold Leave execution failed: {run_err}"
         
@@ -1848,7 +1848,7 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
     Returns BMI distribution or individual BMI values.
     """
     try:
-        top_n = intent.get("number") or intent.get("top_n") or 500
+        top_n = _get_top_n(intent)
         bmi_category = intent.get("bmi_category") or intent.get("bmiCategory")
         response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
         detailed = response_type.lower() == "detailed"
@@ -1936,7 +1936,7 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
                     return None, f"BMI SQL validation failed: {err}"
                 
                 params = base_params + blood_params + [str(bmi_category)]
-                rows, run_err = run_readonly(sql, params)
+                rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
                 if run_err:
                     return None, f"BMI execution failed: {run_err}"
                 
@@ -1960,7 +1960,7 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
                     return None, f"BMI SQL validation failed: {err}"
                 
                 params = base_params + blood_params
-                rows, run_err = run_readonly(sql, params)
+                rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
                 if run_err:
                     return None, f"BMI execution failed: {run_err}"
                 
@@ -1975,7 +1975,7 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
 
         sql = f"""
         {bmi_cte}
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             AgniveerNo,
             FullName,
             Class,
@@ -1997,7 +1997,7 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
             return None, f"BMI SQL validation failed: {err}"
         
         params = base_params + blood_params + category_params
-        rows, run_err = run_readonly(sql, params)
+        rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"BMI execution failed: {run_err}"
         
@@ -2014,7 +2014,7 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
     Returns distribution or details for specific group.
     """
     try:
-        top_n = intent.get("number") or intent.get("top_n") or 500
+        top_n = _get_top_n(intent)
         blood_group = intent.get("blood_group") or intent.get("bloodGroup")
         response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
         detailed = response_type.lower() == "detailed"
@@ -2040,7 +2040,7 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
             if not is_valid:
                 return None, f"Blood Group SQL validation failed: {err}"
             
-            rows, run_err = run_readonly(sql, base_params)
+            rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Blood Group execution failed: {run_err}"
             
@@ -2055,7 +2055,7 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
                 params.append(str(blood_group))
 
             sql = f"""
-            SELECT TOP ({top_n})
+            SELECT {_top_clause(top_n)}
                 a.AgniveerNo,
                 a.FullName,
                 a.PhotoPath,
@@ -2077,7 +2077,7 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
             if not is_valid:
                 return None, f"Blood Group SQL validation failed: {err}"
             
-            rows, run_err = run_readonly(sql, params)
+            rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Blood Group execution failed: {run_err}"
             
@@ -2096,7 +2096,7 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
     Returns disease statistics or details.
     """
     try:
-        top_n = intent.get("number") or intent.get("top_n") or 10
+        top_n = _get_top_n(intent)
         diagnose = intent.get("diagnose") or intent.get("diagnosis")
         days = intent.get("days")
         response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
@@ -2120,7 +2120,7 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         # ── Specific disease ──────────────────────────────────────────────────
         if diagnose:
             sql = f"""
-            SELECT TOP ({top_n})
+            SELECT {_top_clause(top_n)}
                 a.AgniveerNo,
                 a.FullName,
                 a.PhotoPath,
@@ -2149,7 +2149,7 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
                 return None, f"Disease SQL validation failed: {err}"
             
             params = base_params + [str(diagnose)] + date_params
-            rows, run_err = run_readonly(sql, params)
+            rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Disease execution failed: {run_err}"
             
@@ -2158,7 +2158,7 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         # ── Short: Disease statistics ──────────────────────────────────────
         if not detailed:
             sql = f"""
-            SELECT TOP ({top_n})
+            SELECT {_top_clause(top_n)}
                 mr.Diagnosis,
                 COUNT(*) AS TotalCount,
                 COUNT(DISTINCT mr.AgniveerId) AS AgniveerCount
@@ -2180,7 +2180,7 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
                 return None, f"Disease SQL validation failed: {err}"
             
             params = base_params + date_params
-            rows, run_err = run_readonly(sql, params)
+            rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Disease execution failed: {run_err}"
             
@@ -2188,7 +2188,7 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
 
         # ── Detailed: Disease with per-agniveer breakdown ──────────────────
         sql = f"""
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             mr.Diagnosis,
             mr.AgniveerId,
             a.AgniveerNo,
@@ -2219,7 +2219,7 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
             return None, f"Disease SQL validation failed: {err}"
         
         params = base_params + date_params
-        rows, run_err = run_readonly(sql, params)
+        rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Disease execution failed: {run_err}"
         
@@ -2309,7 +2309,7 @@ def _execute_medical_followup(intent: Dict[str, Any]) -> Tuple[Optional[Dict], O
     Returns Agniveers with follow-up appointments.
     """
     try:
-        top_n = intent.get("number") or intent.get("top_n") or 500
+        top_n = _get_top_n(intent)
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
 
         # ── Base scope ──────────────────────────────────────────────────────
@@ -2328,7 +2328,7 @@ def _execute_medical_followup(intent: Dict[str, Any]) -> Tuple[Optional[Dict], O
 
         # ── Build SQL ──────────────────────────────────────────────────────
         sql = f"""
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             a.AgniveerNo,
             a.FullName,
             a.PhotoPath,
@@ -2357,7 +2357,7 @@ def _execute_medical_followup(intent: Dict[str, Any]) -> Tuple[Optional[Dict], O
             return None, f"Follow-Up SQL validation failed: {err}"
         
         params = base_params + date_params
-        rows, run_err = run_readonly(sql, params)
+        rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Follow-Up execution failed: {run_err}"
         
@@ -2374,11 +2374,11 @@ def _execute_medical_hospital_stats(intent: Dict[str, Any]) -> Tuple[Optional[Di
     Returns hospitals with most Agniveer visits.
     """
     try:
-        top_n = intent.get("number") or intent.get("top_n") or 10
+        top_n = _get_top_n(intent)
         base_where, base_params = _build_medical_base_scope(intent)
 
         sql = f"""
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             mr.HospitalNameLocation,
             COUNT(DISTINCT mr.AgniveerId) AS AgniveerCount
         FROM MedicalRecordMaster mr
@@ -2397,7 +2397,7 @@ def _execute_medical_hospital_stats(intent: Dict[str, Any]) -> Tuple[Optional[Di
         if not is_valid:
             return None, f"Hospital Stats SQL validation failed: {err}"
         
-        rows, run_err = run_readonly(sql, base_params)
+        rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Hospital Stats execution failed: {run_err}"
         
