@@ -361,6 +361,9 @@ def _extract_leave_type(query: str) -> Optional[str]:
         )
     ):
         return None
+    if "90 percent" in query_lower or _has_threshold_day_range_signal(query_lower):
+        return "Threshold"
+
     for key, value in LEAVE_TYPES.items():
         if _normalise(key) in query_lower:
             if key == "medical" and "medical leave" not in query_lower:
@@ -406,6 +409,60 @@ _THRESHOLD_FILTER_SIGNALS = (
 
 def _has_threshold_filter_signal(query_lower: str) -> bool:
     return any(signal in query_lower for signal in _THRESHOLD_FILTER_SIGNALS)
+
+
+# Threshold leave is defined (see sql_executor._execute_leave_threshold) as
+# continuous 40-44 days OR total 55-59 days — ~90% of the leave allowance.
+# Users usually name the day count/percentage instead of saying "threshold"
+# outright ("40 days leave in a row", "used up 90 percent of their leave"),
+# so those phrasings must independently resolve to the Threshold leave type.
+_CONTINUOUS_DAY_CONTEXT_WORDS = (
+    "consecutive",
+    "consecutively",
+    "continuous",
+    "continuously",
+    "in a row",
+    "straight",
+    "back to back",
+    "back-to-back",
+    "at a stretch",
+)
+_TOTAL_DAY_CONTEXT_WORDS = (
+    "overall",
+    "total",
+    "totalling",
+    "totaling",
+    "altogether",
+    "cumulative",
+    "cumulatively",
+    "in total",
+    "combined",
+    "aggregate",
+)
+_DAY_RANGE_RE = re.compile(r"\b(\d{1,3})\s*(?:-|to|–|—)?\s*(\d{1,3})?\s*days?\b")
+# A few days' tolerance around the exact SQL boundaries (40-44 / 55-59) to
+# cover "or around 40 days" style phrasing without drifting into unrelated
+# leave-day mentions.
+_CONTINUOUS_DAY_BAND = range(37, 48)  # ~40-44 +/- 3
+_TOTAL_DAY_BAND = range(52, 63)  # ~55-59 +/- 3
+
+
+def _has_threshold_day_range_signal(query_lower: str) -> bool:
+    for match in _DAY_RANGE_RE.finditer(query_lower):
+        lo = int(match.group(1))
+        hi = int(match.group(2)) if match.group(2) else lo
+        window_start = max(0, match.start() - 30)
+        window_end = min(len(query_lower), match.end() + 30)
+        window = query_lower[window_start:window_end]
+        if any(w in window for w in _CONTINUOUS_DAY_CONTEXT_WORDS) and (
+            lo in _CONTINUOUS_DAY_BAND or hi in _CONTINUOUS_DAY_BAND
+        ):
+            return True
+        if any(w in window for w in _TOTAL_DAY_CONTEXT_WORDS) and (
+            lo in _TOTAL_DAY_BAND or hi in _TOTAL_DAY_BAND
+        ):
+            return True
+    return False
 
 
 _BMI_AMBIGUOUS_TERMS = frozenset({"fit", "unfit", "normal"})

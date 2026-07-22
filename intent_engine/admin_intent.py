@@ -309,9 +309,6 @@ def classify_admin_intent(
             category = "Equipment"
             intent_result["category"] = category
 
-    if category == "Leave" and entities.get("leaveType") == "Threshold":
-        operation = "Current"
-
     if category and not operation:
         operation = _comparison_fallback_operation(category)
 

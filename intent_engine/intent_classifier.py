@@ -825,6 +825,19 @@ def _should_entity_override_operation(
     ):
         return True, "Current", "leaveType Current present"
 
+    if (
+        category == "Leave"
+        and entities.get("leaveType") == "Threshold"
+        and classified_operation != "Threshold"
+    ):
+        # Threshold is a precise, curated-vocabulary signal (see
+        # entity_extractor's _has_threshold_day_range_signal /
+        # _has_threshold_filter_signal) — it must win even when the
+        # keyword-score heuristic picked a different Leave operation
+        # (e.g. "most"/"least"/generic day counts overlapping other
+        # operations' synonym lists), not just when it picked none at all.
+        return True, "Threshold", "leaveType Threshold present"
+
     if category == "Attendance" and classified_operation not in (
         "Weekly",
         "Daily",
