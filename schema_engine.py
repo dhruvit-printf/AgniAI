@@ -58,7 +58,10 @@ class SchemaEngine:
         if explicit_type:
             return explicit_type.lower()
 
-        if column_name in ["AgniveerNo", "PlatoonNo"]:
+        if column_name in ["AgniveerNo", "PlatoonNo", "AttemptNo"]:
+            # Would otherwise fall through to the generic '"No" in name ->
+            # integer' heuristic below, same as AgniveerNo/PlatoonNo above —
+            # AttemptNo is nvarchar in the DB, not int.
             return "string"
         if column_name in [
             "IsPresent",
