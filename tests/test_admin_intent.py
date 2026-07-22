@@ -63,10 +63,14 @@ def test_pass_percentage():
 
 
 def test_fail_percentage():
+    # Names an explicit grade ("Fail") — per the same rule documented on
+    # test_grade_distribution below (a query naming no specific grade means
+    # GradingSummary; one that does name a grade means Grading), this must
+    # resolve to Grading/GradeDistribution, not a Bottom-performers ranking.
     r = classify_admin_intent("Show the fail percentage")
     assert r["category"] == "Performance"
-    assert r["subcategory"] == "LowestPerformers"
-    assert r["operation"] == "Bottom"
+    assert r["subcategory"] == "GradeDistribution"
+    assert r["operation"] == "Grading"
     assert r["grading"] == "Fail"
 
 

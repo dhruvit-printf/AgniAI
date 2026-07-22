@@ -825,7 +825,16 @@ def execute_performance_query(
                     """
 
                 if requested_grade:
-                    sql += " WHERE LOWER(Grade) = LOWER(?)"
+                    # Grade is computed in SQL as the spaced display string
+                    # ('Exceptionally Well', 'Excellent', 'Good', 'SAT',
+                    # 'Fail'), but requested_grade comes from the entity
+                    # extractor's GRADING_CATEGORIES values, which are
+                    # PascalCase with no spaces ("ExceptionallyWell") — a
+                    # bare LOWER(Grade) = LOWER(?) comparison silently
+                    # matches zero rows for any multi-word grade. Strip
+                    # spaces from both sides so the comparison is robust to
+                    # either form.
+                    sql += " WHERE REPLACE(LOWER(Grade), ' ', '') = REPLACE(LOWER(?), ' ', '')"
                     params = params + [str(requested_grade)]
                 if section:
                     sql += (
