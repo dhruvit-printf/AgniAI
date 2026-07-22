@@ -109,3 +109,32 @@ def test_contact_and_email_aliases():
     assert "m.MobileNo" in sql_executed
     assert "m.Email" in sql_executed
     assert "m.Address" not in sql_executed
+
+
+def test_volleyball_playing_query_with_company_scope():
+    for query in (
+        "List agniveers who plays volleyball in Jas - Jaswant company",
+        "List agniveers playing volleyball in Jas - Jaswant company",
+    ):
+        intent = parse_personal_details(query)
+        assert intent is not None
+        assert intent.get("sport") == "Volleyball"
+        assert intent.get("company_name") == "jaswant"
+
+        intent["raw_query"] = query
+        with patch("sql_executor.run_readonly") as mock_run:
+            mock_run.return_value = (
+                [{"AgniveerNo": "A0701882L", "FullName": "HARMAN SINGH", "Sports": "Volleyball"}],
+                None,
+            )
+            res, err = execute_sql_query(intent=intent)
+
+        assert err is None
+        assert res["success"] is True
+        sql_executed = mock_run.call_args[0][0]
+        params = mock_run.call_args[0][1]
+        assert "LOWER(m.Sports) LIKE '%' + LOWER(?) + '%'" in sql_executed
+        assert "LOWER(c.Name) LIKE '%' + LOWER(?) + '%'" in sql_executed
+        assert "jaswant" in params
+        assert "Volleyball" in params
+

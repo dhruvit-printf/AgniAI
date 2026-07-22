@@ -227,41 +227,6 @@ def execute_performance_query(
             AND {scope_sql}
         """
         params = attempt_params + section_params + scope_params
-
-        if not sub_section:
-            section_exc_sql, section_exc_params = _section_clause(is_exceptional_target=True, subitem_alias=None)
-            sr_attempt_sql = ""
-            sr_attempt_params: List[Any] = []
-            if attempt_no is not None:
-                sr_attempt_sql = "AND sr.AttemptNo = ?"
-                sr_attempt_params = [str(attempt_no)]
-
-            exc_sql = f"""
-            UNION ALL
-            SELECT
-                a.Id AS AgniveerId,
-                a.AgniveerNo,
-                a.FullName,
-                sr.AttemptNo,
-                sr.InsertedDate AS AttemptedDate,
-                COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal) AS MarksObtained,
-                1 AS IsBestAttempt,
-                sec.Id AS SectionId,
-                sec.SectionName,
-                CAST(0 AS BIGINT) AS SubItemId,
-                sec.SectionName AS SubItemName,
-                COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal, 100) AS MaxMarks
-            FROM AgniveerSectionResult sr
-                INNER JOIN AgniveerMaster a ON a.Id = sr.AgniveerId
-                INNER JOIN ScoreSectionMaster sec ON sec.Id = sr.SectionId
-            WHERE COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal) IS NOT NULL
-                {sr_attempt_sql}
-                AND {section_exc_sql}
-                AND {scope_sql}
-            """
-            sql += exc_sql
-            params += sr_attempt_params + section_exc_params + scope_params
-
         return sql, params
 
     def _attemptwise_source(require_best_attempt: bool = False) -> Tuple[str, List[Any]]:
@@ -289,34 +254,6 @@ def execute_performance_query(
             AND {scope_sql}
         """
         params = attempt_params + section_params + scope_params
-
-        if not sub_section:
-            section_exc_sql, section_exc_params = _section_clause(is_exceptional_target=True, subitem_alias=None)
-            sr_attempt_sql = ""
-            sr_attempt_params: List[Any] = []
-            if attempt_no is not None:
-                sr_attempt_sql = "AND sr.AttemptNo = ?"
-                sr_attempt_params = [str(attempt_no)]
-
-            exc_sql = f"""
-            UNION ALL
-            SELECT
-                a.AgniveerNo,
-                a.FullName,
-                sr.AttemptNo,
-                sec.SectionName,
-                COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal) AS MarksObtained
-            FROM AgniveerSectionResult sr
-                INNER JOIN AgniveerMaster a ON a.Id = sr.AgniveerId
-                INNER JOIN ScoreSectionMaster sec ON sec.Id = sr.SectionId
-            WHERE COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal) IS NOT NULL
-                {sr_attempt_sql}
-                AND {section_exc_sql}
-                AND {scope_sql}
-            """
-            sql += exc_sql
-            params += sr_attempt_params + section_exc_params + scope_params
-
         return sql, params
 
     def _run(

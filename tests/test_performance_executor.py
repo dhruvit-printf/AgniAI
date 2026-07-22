@@ -100,11 +100,11 @@ def test_attemptwise_multi_agniveer_returns_pivoted_data():
     assert section["data"] == expected_pivoted
 
 
-def test_exceptional_sections_union_query():
+def test_no_exceptional_section_union_query():
     payload = {
         "category": "Performance",
         "operation": "Top",
-        "section": "Map Reading",
+        "section": "BPET",
     }
 
     with patch("sql_executor.run_readonly") as mock_run:
@@ -114,8 +114,9 @@ def test_exceptional_sections_union_query():
     assert err is None
     assert section["success"] is True
     sql = mock_run.call_args[0][0]
-    assert "AgniveerSectionResult" in sql
-    assert "COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal)" in sql
+    assert "AgniveerSectionResult" not in sql
+    assert "ISNULL(sec.IsExceptional, 0) = 0" in sql
+
 
 
 

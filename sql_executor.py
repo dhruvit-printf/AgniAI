@@ -661,6 +661,2848 @@ def _execute_schedule_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]
     return _to_section(rows or [], intent, sql=sql), None
 
 
+# ── Disqualified Agniveers ──────────────────────────────────────────────────
+
+def _build_disqualified_base_query(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
+    """
+    Build the base WHERE clause for disqualified queries.
+    Returns (where_clause, params).
+    """
+    clauses = ["a.IsDisqualified = 1"]
+    params: List[Any] = []
+
+    # ── Scope filters ────────────────────────────────────────────────────────
+    agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+    batch_id = intent.get("batch_id") or intent.get("batchId")
+    platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+    company_id = intent.get("company_id") or intent.get("companyId")
+    from_date = intent.get("from_date") or intent.get("fromDate")
+    to_date = intent.get("to_date") or intent.get("toDate")
+    
+    if agniveer_no:
+        clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
+        params.append(str(agniveer_no))
+    
+    if batch_id is not None:
+        clauses.append("a.BatchId = ?")
+        params.append(int(batch_id))
+    
+    if platoon_id is not None:
+        clauses.append("a.PlatoonId = ?")
+        params.append(int(platoon_id))
+    
+    if company_id is not None:
+        clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        params.append(int(company_id))
+    
+    if from_date:
+        clauses.append("CAST(a.DisqualifiedDate AS DATE) >= CAST(? AS DATE)")
+        params.append(str(from_date)[:10])
+    
+    if to_date:
+        clauses.append("CAST(a.DisqualifiedDate AS DATE) <= CAST(? AS DATE)")
+        params.append(str(to_date)[:10])
+    
+    # ── Leave filter ──────────────────────────────────────────────────────────
+    leave_type = intent.get("leave_type") or intent.get("leaveType")
+    if leave_type and str(leave_type).lower() in ("leave", "on leave", "any"):
+        clauses.append("""
+            EXISTS (
+                SELECT 1 FROM AgniveerLeaveMaster l
+                WHERE l.AgniveerId = a.Id
+                    AND l.FromDate IS NOT NULL
+            )
+        """)
+    
+    where_clause = " AND ".join(clauses)
+    return where_clause, params
+
+
+def _build_disqualified_select_clause(detailed: bool = False) -> str:
+    """
+    Build the SELECT clause for disqualified queries.
+    """
+    if detailed:
+        return """
+            a.Id,
+            a.AgniveerNo,
+            a.FullName,
+            a.DateOfBirth,
+            a.DateOfJoining,
+            a.PhotoPath,
+            a.Address,
+            a.EroName,
+            a.NextOfKin,
+            a.MobileNo,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            a.DisqualifiedDate,
+            a.Remarks
+        """
+    return "COUNT(*) AS TotalDisqualified"
+
+
+def execute_disqualified_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+    """
+    Execute Disqualified Agniveers query.
+    
+    Returns:
+        - Summary: {"totalDisqualified": count}
+        - Detailed: List of disqualified Agniveers with full details
+    """
+    try:
+        raw_q = str(intent.get("raw_query") or "").lower()
+        response_type = str(intent.get("responseType") or intent.get("response_type") or intent.get("operation") or "").lower()
+        
+        # Check if user asks for count/summary vs detailed list
+        wants_count = (
+            response_type in ("summary", "count", "disqualifiedcount")
+            or any(kw in raw_q for kw in ("how many", "count", "number of", "total disqualified", "total number"))
+        )
+        detailed = not wants_count if response_type != "detailed" else True
+        top_n = intent.get("number") or intent.get("top_n") or 500
+        
+        # ── Build WHERE clause ──────────────────────────────────────────────────
+        where_clause, params = _build_disqualified_base_query(intent)
+        
+        # ── Build SELECT clause ─────────────────────────────────────────────────
+        select_clause = _build_disqualified_select_clause(detailed)
+        
+        # ── Build JOINs ─────────────────────────────────────────────────────────
+        joins = """
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        """
+        
+        # ── Build final SQL ─────────────────────────────────────────────────────
+        if detailed:
+            sql = f"""
+            SELECT TOP ({top_n})
+                {select_clause}
+            FROM AgniveerMaster a
+            {joins}
+            WHERE {where_clause}
+            ORDER BY a.AgniveerNo ASC
+            """
+        else:
+            sql = f"""
+            SELECT {select_clause}
+            FROM AgniveerMaster a
+            WHERE {where_clause}
+            """
+        
+        # ── Validate ────────────────────────────────────────────────────────────
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Disqualified SQL validation failed: {err}"
+        
+        # ── Execute ─────────────────────────────────────────────────────────────
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Disqualified execution failed: {run_err}"
+        
+        # ── Build response ──────────────────────────────────────────────────────
+        if not detailed:
+            # Summary: return count
+            count = rows[0].get("TotalDisqualified", 0) if rows else 0
+            result = {"totalDisqualified": count}
+            return _to_section([result], intent, sql=sql), None
+        
+        # Detailed: return list
+        return _to_section(rows or [], intent, sql=sql), None
+        
+    except Exception as exc:
+        logger.error("Disqualified query failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+# ── Verification (Police Verification) ──────────────────────────────────────
+
+def build_verification_sql(
+    status: str,
+    agniveer_no: Optional[str] = None,
+    batch_id: Optional[int] = None,
+    platoon_id: Optional[int] = None,
+    company_id: Optional[int] = None,
+    detailed: bool = False,
+    top_n: int = 500
+) -> Tuple[str, List[Any]]:
+    """
+    Build Verification SQL based on status.
+    status: Pending, Sent, NotResponded, Verified, Rejected, Summary
+    """
+    
+    # ── Base Agniveer scope ──────────────────────────────────────────────────
+    scope_clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)", "a.IsActive = 1"]
+    scope_params: List[Any] = []
+    
+    if agniveer_no:
+        scope_clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
+        scope_params.append(str(agniveer_no))
+    if batch_id is not None:
+        scope_clauses.append("a.BatchId = ?")
+        scope_params.append(int(batch_id))
+    if platoon_id is not None:
+        scope_clauses.append("a.PlatoonId = ?")
+        scope_params.append(int(platoon_id))
+    if company_id is not None:
+        scope_clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        scope_params.append(int(company_id))
+    
+    scope_where = " AND ".join(scope_clauses)
+    status_lower = str(status or "").lower().replace(" ", "").replace("_", "")
+    
+    # ── Build SQL based on status ─────────────────────────────────────────────
+    if status_lower in ("pending", "pendingverification", "unverified", "awaitingverification", "notverified", "notverifiedyet", "waitingforverification"):
+        # Pending = No record OR Rejected
+        sql = f"""
+        SELECT TOP ({top_n})
+            a.Id,
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            pv.PoliceStation,
+            pv.SentDate,
+            pv.ReceivedDate,
+            pv.Status
+        FROM AgniveerMaster a
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        LEFT JOIN PoliceVerificationMaster pv ON pv.AgniveerId = a.Id
+        WHERE {scope_where}
+            AND (pv.Status = 'Rejected' OR pv.AgniveerId IS NULL)
+        ORDER BY a.AgniveerNo ASC
+        """
+        return sql, scope_params
+    
+    elif status_lower in ("sent", "sentverification", "dispatched", "dispatchedforverification", "requestsent", "verificationrequested"):
+        # Sent = Has a record (not Pending)
+        sql = f"""
+        WITH LatestVerification AS (
+            SELECT
+                v.AgniveerId,
+                v.PoliceStation,
+                v.SentDate,
+                v.ReceivedDate,
+                v.Status,
+                ROW_NUMBER() OVER (PARTITION BY v.AgniveerId ORDER BY v.SentDate DESC, v.Id DESC) AS rn
+            FROM PoliceVerificationMaster v
+        )
+        SELECT TOP ({top_n})
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            lv.PoliceStation,
+            lv.SentDate,
+            lv.ReceivedDate,
+            lv.Status
+        FROM AgniveerMaster a
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        INNER JOIN LatestVerification lv ON lv.AgniveerId = a.Id AND lv.rn = 1
+        WHERE {scope_where}
+            AND lv.Status != 'Pending'
+        ORDER BY lv.SentDate DESC
+        """
+        return sql, scope_params
+    
+    elif status_lower in ("notresponded", "noresponse", "unresponded", "awaitingresponse", "pendingresponse", "responsepending", "noreply", "noreplyyet", "notrespondedverification", "unresponsive"):
+        sql = f"""
+        WITH LatestVerification AS (
+            SELECT
+                v.AgniveerId,
+                v.PoliceStation,
+                v.SentDate,
+                v.ReceivedDate,
+                v.Status,
+                ROW_NUMBER() OVER (PARTITION BY v.AgniveerId ORDER BY v.SentDate DESC, v.Id DESC) AS rn
+            FROM PoliceVerificationMaster v
+        )
+        SELECT TOP ({top_n})
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            lv.PoliceStation,
+            lv.SentDate,
+            lv.ReceivedDate,
+            DATEDIFF(DAY, lv.SentDate, GETDATE()) AS DaysSinceSent
+        FROM AgniveerMaster a
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        INNER JOIN LatestVerification lv ON lv.AgniveerId = a.Id AND lv.rn = 1
+        WHERE {scope_where}
+            AND lv.Status = 'Sent'
+            AND lv.ReceivedDate IS NULL
+        ORDER BY lv.SentDate ASC
+        """
+        return sql, scope_params
+    
+    elif status_lower in ("verified", "completed", "completedverification", "verifiedverification", "allverified", "fullyverified", "verificationdone", "cleared"):
+        sql = f"""
+        WITH LatestVerification AS (
+            SELECT
+                v.AgniveerId,
+                v.PoliceStation,
+                v.SentDate,
+                v.ReceivedDate,
+                v.Status,
+                ROW_NUMBER() OVER (PARTITION BY v.AgniveerId ORDER BY v.SentDate DESC, v.Id DESC) AS rn
+            FROM PoliceVerificationMaster v
+        )
+        SELECT TOP ({top_n})
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            lv.PoliceStation,
+            lv.SentDate,
+            lv.ReceivedDate,
+            DATEDIFF(DAY, lv.SentDate, lv.ReceivedDate) AS DaysToRespond
+        FROM AgniveerMaster a
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        INNER JOIN LatestVerification lv ON lv.AgniveerId = a.Id AND lv.rn = 1
+        WHERE {scope_where}
+            AND lv.Status = 'Verified'
+        ORDER BY lv.ReceivedDate DESC
+        """
+        return sql, scope_params
+    
+    elif status_lower in ("rejected", "rejectedverification", "failedverification", "verificationfailed", "denied", "verificationdenied"):
+        sql = f"""
+        WITH LatestVerification AS (
+            SELECT
+                v.AgniveerId,
+                v.PoliceStation,
+                v.SentDate,
+                v.ReceivedDate,
+                v.Status,
+                ROW_NUMBER() OVER (PARTITION BY v.AgniveerId ORDER BY v.SentDate DESC, v.Id DESC) AS rn
+            FROM PoliceVerificationMaster v
+        )
+        SELECT TOP ({top_n})
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            lv.PoliceStation,
+            lv.SentDate,
+            lv.ReceivedDate
+        FROM AgniveerMaster a
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        INNER JOIN LatestVerification lv ON lv.AgniveerId = a.Id AND lv.rn = 1
+        WHERE {scope_where}
+            AND lv.Status = 'Rejected'
+        ORDER BY lv.ReceivedDate DESC
+        """
+        return sql, scope_params
+    
+    else:
+        # Default: Summary
+        sql = f"""
+        SELECT
+            COUNT(*) AS TotalAgniveers,
+            SUM(CASE 
+                WHEN NOT EXISTS (SELECT 1 FROM PoliceVerificationMaster pv2 WHERE pv2.AgniveerId = a.Id)
+                    OR EXISTS (SELECT 1 FROM PoliceVerificationMaster pv2 WHERE pv2.AgniveerId = a.Id AND pv2.Status = 'Rejected')
+                THEN 1 ELSE 0 
+            END) AS PendingCount,
+            COUNT(pv.Id) AS SentCount,
+            SUM(CASE WHEN pv.Status = 'Sent' AND pv.ReceivedDate IS NULL THEN 1 ELSE 0 END) AS NotRespondedCount,
+            SUM(CASE WHEN pv.Status = 'Verified' THEN 1 ELSE 0 END) AS VerifiedCount,
+            SUM(CASE WHEN pv.Status = 'Rejected' THEN 1 ELSE 0 END) AS RejectedCount
+        FROM AgniveerMaster a
+        LEFT JOIN PoliceVerificationMaster pv ON pv.AgniveerId = a.Id
+        WHERE {scope_where}
+        """
+        return sql, scope_params
+
+
+def execute_verification_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+    """
+    Execute Verification query based on status.
+    """
+    try:
+        status = intent.get("operation") or intent.get("verification_status") or intent.get("verificationStatus") or "Summary"
+        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        batch_id = intent.get("batch_id") or intent.get("batchId")
+        platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+        company_id = intent.get("company_id") or intent.get("companyId")
+        response_type = intent.get("responseType") or intent.get("response_type") or "Summary"
+        top_n = intent.get("number") or intent.get("top_n") or 500
+        
+        detailed = str(response_type).lower() == "detailed"
+        
+        sql, params = build_verification_sql(
+            status=status,
+            agniveer_no=agniveer_no,
+            batch_id=batch_id,
+            platoon_id=platoon_id,
+            company_id=company_id,
+            detailed=detailed,
+            top_n=top_n
+        )
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Verification SQL validation failed: {err}"
+        
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Verification execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+        
+    except Exception as exc:
+        logger.error("Verification query failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+# ── Leave Category ──────────────────────────────────────────────────────────
+
+LEAVE_COLUMN_MAP = {
+    "annual": "OnAnnualLeave",
+    "medical": "OnMedicalLeave",
+    "sick": "OnSickLeave",
+    "hospitalized": "IsHospitalized",
+    "absconded": "IsAbscondedLeave",
+    "attnc": "OnATTN'C'",
+    "exppg": "OnEX PPG",
+}
+
+
+def _get_leave_column(leave_type: str) -> str:
+    """Get the column name for a leave type."""
+    if leave_type:
+        column = LEAVE_COLUMN_MAP.get(str(leave_type).lower())
+        if column:
+            return column
+    return ""
+
+
+def _calculate_leave_count(is_exppg: bool, from_date: Any, to_date: Any) -> int:
+    """Calculate leave count based on leave type."""
+    if from_date is None or to_date is None:
+        return 0
+    days = (to_date - from_date).days + 1
+    return days // 4 if is_exppg else days
+
+
+def _build_leave_base_query(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
+    """
+    Build the base WHERE clause for leave queries.
+    Returns (where_clause, params).
+    """
+    clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)", "a.IsActive = 1"]
+    params: List[Any] = []
+
+    # ── Scope filters ──────────────────────────────────────────────────────
+    agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+    batch_id = intent.get("batch_id") or intent.get("batchId")
+    platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+    company_id = intent.get("company_id") or intent.get("companyId")
+    from_date = intent.get("from_date") or intent.get("fromDate")
+    to_date = intent.get("to_date") or intent.get("toDate")
+
+    if agniveer_no:
+        clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
+        params.append(str(agniveer_no))
+
+    if batch_id is not None:
+        clauses.append("a.BatchId = ?")
+        params.append(int(batch_id))
+
+    if platoon_id is not None:
+        clauses.append("a.PlatoonId = ?")
+        params.append(int(platoon_id))
+
+    if company_id is not None:
+        clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        params.append(int(company_id))
+
+    # ── Date range filters ────────────────────────────────────────────────
+    if from_date:
+        clauses.append("CAST(l.FromDate AS DATE) >= CAST(? AS DATE)")
+        params.append(str(from_date)[:10])
+    if to_date:
+        clauses.append("CAST(l.ToDate AS DATE) <= CAST(? AS DATE)")
+        params.append(str(to_date)[:10])
+
+    # ── Leave type filter ──────────────────────────────────────────────────
+    leave_type = intent.get("leave_type") or intent.get("leaveType")
+    if leave_type and str(leave_type).lower() not in ("threshold", "noleave"):
+        column = _get_leave_column(leave_type)
+        if column:
+            col_ref = f"l.[{column}]" if (" " in column or "'" in column) else f"l.{column}"
+            clauses.append(f"{col_ref} = 1")
+
+    where_clause = " AND ".join(clauses)
+    return where_clause, params
+
+
+def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Current Leave query.
+    Returns Agniveers currently on leave (FromDate <= today <= ToDate).
+    Excludes absconded by default.
+    """
+    try:
+        top_n = intent.get("number") or intent.get("top_n") or 500
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        detailed = response_type.lower() == "detailed"
+
+        # ── Base scope ──────────────────────────────────────────────────────
+        base_where, base_params = _build_leave_base_query(intent)
+
+        # ── Leave type filter ──────────────────────────────────────────────
+        leave_type = intent.get("leave_type") or intent.get("leaveType")
+        leave_clause = ""
+        leave_params: List[Any] = []
+        
+        if leave_type and str(leave_type).lower() not in ("threshold", "noleave"):
+            column = _get_leave_column(leave_type)
+            if column:
+                col_ref = f"l.[{column}]" if (" " in column or "'" in column) else f"l.{column}"
+                leave_clause = f" AND {col_ref} = 1"
+
+        # ── Current date filter ─────────────────────────────────────────────
+        date_filter = "AND CAST(GETDATE() AS DATE) BETWEEN CAST(l.FromDate AS DATE) AND CAST(l.ToDate AS DATE)"
+        
+        from_date = intent.get("from_date") or intent.get("fromDate")
+        to_date = intent.get("to_date") or intent.get("toDate")
+        if from_date and to_date:
+            date_filter = "AND CAST(l.FromDate AS DATE) <= CAST(? AS DATE) AND CAST(l.ToDate AS DATE) >= CAST(? AS DATE)"
+            leave_params = [str(to_date)[:10], str(from_date)[:10]] + leave_params
+
+        # ── Short/Summary ──────────────────────────────────────────────────
+        if not detailed:
+            sql = f"""
+            SELECT
+                COUNT(*) AS OnLeaveCount,
+                SUM(CASE WHEN l.OnAnnualLeave = 1 THEN 1 ELSE 0 END) AS AnnualLeave,
+                SUM(CASE WHEN l.OnMedicalLeave = 1 THEN 1 ELSE 0 END) AS MedicalLeave,
+                SUM(CASE WHEN l.OnSickLeave = 1 THEN 1 ELSE 0 END) AS SickLeave,
+                SUM(CASE WHEN l.IsHospitalized = 1 THEN 1 ELSE 0 END) AS Hospitalized,
+                SUM(CASE WHEN l.[OnATTN'C'] = 1 THEN 1 ELSE 0 END) AS ATTNC,
+                SUM(CASE WHEN l.[OnEX PPG] = 1 THEN 1 ELSE 0 END) AS EXPPG
+            FROM AgniveerLeaveMaster l
+            INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+            WHERE {base_where}
+                AND l.FromDate IS NOT NULL
+                AND l.ToDate IS NOT NULL
+                AND ISNULL(l.IsAbscondedLeave, 0) != 1
+                {date_filter}
+                AND (l.OnAnnualLeave = 1 OR l.OnMedicalLeave = 1 OR l.OnSickLeave = 1
+                     OR l.IsHospitalized = 1 OR l.[OnATTN'C'] = 1 OR l.[OnEX PPG] = 1)
+                {leave_clause}
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Current Leave SQL validation failed: {err}"
+            
+            all_params = base_params + leave_params
+            rows, run_err = run_readonly(sql, all_params)
+            if run_err:
+                return None, f"Current Leave execution failed: {run_err}"
+            
+            row = rows[0] if rows else {}
+            result = {
+                "onLeaveCount": row.get("OnLeaveCount") or 0,
+                "annualLeave": row.get("AnnualLeave") or 0,
+                "medicalLeave": row.get("MedicalLeave") or 0,
+                "sickLeave": row.get("SickLeave") or 0,
+                "hospitalized": row.get("Hospitalized") or 0,
+                "attnc": row.get("ATTNC") or 0,
+                "exppg": row.get("EXPPG") or 0,
+            }
+            return _to_section([result], intent, sql=sql), None
+
+        # ── Detailed ────────────────────────────────────────────────────────
+        sql = f"""
+        SELECT TOP ({top_n})
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            l.FromDate,
+            l.ToDate,
+            DATEDIFF(DAY, l.FromDate, l.ToDate) + 1 AS LeaveDays,
+            CASE
+                WHEN l.OnAnnualLeave = 1 THEN 'Annual'
+                WHEN l.OnMedicalLeave = 1 THEN 'Medical'
+                WHEN l.OnSickLeave = 1 THEN 'Sick'
+                WHEN l.IsHospitalized = 1 THEN 'Hospitalized'
+                WHEN l.[OnATTN'C'] = 1 THEN 'ATTNC'
+                WHEN l.[OnEX PPG] = 1 THEN 'EX PPG'
+                ELSE 'Unknown'
+            END AS LeaveType,
+            l.Remarks
+        FROM AgniveerLeaveMaster l
+        INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        WHERE {base_where}
+            AND l.FromDate IS NOT NULL
+            AND l.ToDate IS NOT NULL
+            AND ISNULL(l.IsAbscondedLeave, 0) != 1
+            {date_filter}
+            AND (l.OnAnnualLeave = 1 OR l.OnMedicalLeave = 1 OR l.OnSickLeave = 1
+                 OR l.IsHospitalized = 1 OR l.[OnATTN'C'] = 1 OR l.[OnEX PPG] = 1)
+            {leave_clause}
+        ORDER BY a.AgniveerNo ASC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Current Leave SQL validation failed: {err}"
+        
+        all_params = base_params + leave_params
+        rows, run_err = run_readonly(sql, all_params)
+        if run_err:
+            return None, f"Current Leave execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Current Leave failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Most Leave Taken query.
+    Returns Agniveers with highest leave counts.
+    """
+    try:
+        top_n = intent.get("number") or intent.get("top_n") or 10
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        detailed = response_type.lower() == "detailed"
+
+        # ── Base scope ──────────────────────────────────────────────────────
+        base_where, base_params = _build_leave_base_query(intent)
+
+        # ── Leave type filter ──────────────────────────────────────────────
+        leave_type = intent.get("leave_type") or intent.get("leaveType")
+        leave_clause = ""
+        leave_params: List[Any] = []
+        if leave_type and str(leave_type).lower() not in ("threshold", "noleave"):
+            column = _get_leave_column(leave_type)
+            if column:
+                col_ref = f"l.[{column}]" if (" " in column or "'" in column) else f"l.{column}"
+                leave_clause = f" AND {col_ref} = 1"
+
+        # ── Short/Summary ──────────────────────────────────────────────────
+        if not detailed:
+            sql = f"""
+            SELECT
+                COUNT(DISTINCT l.AgniveerId) AS TotalAgniveers,
+                SUM(
+                    CASE
+                        WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4
+                        ELSE DATEDIFF(DAY, l.FromDate, l.ToDate) + 1
+                    END
+                ) AS TotalLeaveDays
+            FROM AgniveerLeaveMaster l
+            INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+            WHERE {base_where}
+                AND l.FromDate IS NOT NULL
+                AND l.ToDate IS NOT NULL
+                {leave_clause}
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Most Leave SQL validation failed: {err}"
+            
+            all_params = base_params + leave_params
+            rows, run_err = run_readonly(sql, all_params)
+            if run_err:
+                return None, f"Most Leave execution failed: {run_err}"
+            
+            row = rows[0] if rows else {}
+            result = {
+                "totalAgniveers": row.get("TotalAgniveers") or 0,
+                "totalLeaveDays": row.get("TotalLeaveDays") or 0,
+            }
+            return _to_section([result], intent, sql=sql), None
+
+        # ── Detailed ────────────────────────────────────────────────────────
+        sql = f"""
+        SELECT TOP ({top_n})
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            SUM(
+                CASE
+                    WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4
+                    ELSE DATEDIFF(DAY, l.FromDate, l.ToDate) + 1
+                END
+            ) AS TotalLeaveDays
+        FROM AgniveerLeaveMaster l
+        INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        WHERE {base_where}
+            AND l.FromDate IS NOT NULL
+            AND l.ToDate IS NOT NULL
+            {leave_clause}
+        GROUP BY a.AgniveerNo, a.FullName, a.PhotoPath, a.Class, p.Name, c.Name, b.BatchName
+        ORDER BY TotalLeaveDays DESC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Most Leave SQL validation failed: {err}"
+        
+        all_params = base_params + leave_params
+        rows, run_err = run_readonly(sql, all_params)
+        if run_err:
+            return None, f"Most Leave execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Most Leave failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Least Leave Taken query.
+    Returns Agniveers with lowest leave counts (excluding zero).
+    """
+    try:
+        top_n = intent.get("number") or intent.get("top_n") or 10
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        detailed = response_type.lower() == "detailed"
+
+        # ── Base scope ──────────────────────────────────────────────────────
+        base_where, base_params = _build_leave_base_query(intent)
+
+        # ── Leave type filter ──────────────────────────────────────────────
+        leave_type = intent.get("leave_type") or intent.get("leaveType")
+        leave_clause = ""
+        leave_params: List[Any] = []
+        
+        if leave_type and str(leave_type).lower() == "noleave":
+            # No Leave mode: return Agniveers with zero leave
+            sql = f"""
+            SELECT TOP ({top_n})
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.Class,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName,
+                b.BatchName
+            FROM AgniveerMaster a
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+                AND NOT EXISTS (
+                    SELECT 1 FROM AgniveerLeaveMaster l
+                    WHERE l.AgniveerId = a.Id
+                        AND l.FromDate IS NOT NULL
+                        AND l.ToDate IS NOT NULL
+                )
+            ORDER BY a.AgniveerNo ASC
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Least Leave SQL validation failed: {err}"
+            
+            rows, run_err = run_readonly(sql, base_params)
+            if run_err:
+                return None, f"Least Leave execution failed: {run_err}"
+            
+            return _to_section(rows or [], intent, sql=sql), None
+        
+        if leave_type and str(leave_type).lower() not in ("threshold", "noleave"):
+            column = _get_leave_column(leave_type)
+            if column:
+                col_ref = f"l.[{column}]" if (" " in column or "'" in column) else f"l.{column}"
+                leave_clause = f" AND {col_ref} = 1"
+
+        # ── Short/Summary ──────────────────────────────────────────────────
+        if not detailed:
+            sql = f"""
+            SELECT
+                COUNT(DISTINCT l.AgniveerId) AS TotalAgniveers,
+                SUM(
+                    CASE
+                        WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4
+                        ELSE DATEDIFF(DAY, l.FromDate, l.ToDate) + 1
+                    END
+                ) AS TotalLeaveDays
+            FROM AgniveerLeaveMaster l
+            INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+            WHERE {base_where}
+                AND l.FromDate IS NOT NULL
+                AND l.ToDate IS NOT NULL
+                {leave_clause}
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Least Leave SQL validation failed: {err}"
+            
+            all_params = base_params + leave_params
+            rows, run_err = run_readonly(sql, all_params)
+            if run_err:
+                return None, f"Least Leave execution failed: {run_err}"
+            
+            row = rows[0] if rows else {}
+            result = {
+                "totalAgniveers": row.get("TotalAgniveers") or 0,
+                "totalLeaveDays": row.get("TotalLeaveDays") or 0,
+            }
+            return _to_section([result], intent, sql=sql), None
+
+        # ── Detailed ────────────────────────────────────────────────────────
+        sql = f"""
+        SELECT TOP ({top_n})
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            SUM(
+                CASE
+                    WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4
+                    ELSE DATEDIFF(DAY, l.FromDate, l.ToDate) + 1
+                END
+            ) AS TotalLeaveDays
+        FROM AgniveerLeaveMaster l
+        INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        WHERE {base_where}
+            AND l.FromDate IS NOT NULL
+            AND l.ToDate IS NOT NULL
+            {leave_clause}
+        GROUP BY a.AgniveerNo, a.FullName, a.PhotoPath, a.Class, p.Name, c.Name, b.BatchName
+        HAVING SUM(
+            CASE
+                WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4
+                ELSE DATEDIFF(DAY, l.FromDate, l.ToDate) + 1
+            END
+        ) > 0
+        ORDER BY TotalLeaveDays ASC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Least Leave SQL validation failed: {err}"
+        
+        all_params = base_params + leave_params
+        rows, run_err = run_readonly(sql, all_params)
+        if run_err:
+            return None, f"Least Leave execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Least Leave failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Absconded Leave query.
+    Returns Agniveers marked as absconded.
+    """
+    try:
+        top_n = intent.get("number") or intent.get("top_n") or 500
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        detailed = response_type.lower() == "detailed"
+
+        # ── Base scope ──────────────────────────────────────────────────────
+        base_where, base_params = _build_leave_base_query(intent)
+
+        # ── Short/Summary ──────────────────────────────────────────────────
+        if not detailed:
+            sql = f"""
+            SELECT COUNT(*) AS TotalAbsconded
+            FROM AgniveerLeaveMaster l
+            INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+            WHERE {base_where}
+                AND l.IsAbscondedLeave = 1
+                AND l.FromDate IS NOT NULL
+                AND l.ToDate IS NOT NULL
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Absconded Leave SQL validation failed: {err}"
+            
+            rows, run_err = run_readonly(sql, base_params)
+            if run_err:
+                return None, f"Absconded Leave execution failed: {run_err}"
+            
+            row = rows[0] if rows else {}
+            total_abs = row.get("TotalAbsconded") if row.get("TotalAbsconded") is not None else row.get("totalAbsconded")
+            result = {"totalAbsconded": total_abs or 0}
+            return _to_section([result], intent, sql=sql), None
+
+        # ── Detailed ────────────────────────────────────────────────────────
+        sql = f"""
+        SELECT TOP ({top_n})
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            l.FromDate,
+            l.ToDate,
+            DATEDIFF(DAY, l.FromDate, l.ToDate) + 1 AS LeaveDays,
+            l.Remarks
+        FROM AgniveerLeaveMaster l
+        INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        WHERE {base_where}
+            AND l.IsAbscondedLeave = 1
+            AND l.FromDate IS NOT NULL
+            AND l.ToDate IS NOT NULL
+        ORDER BY a.AgniveerNo ASC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Absconded Leave SQL validation failed: {err}"
+        
+        rows, run_err = run_readonly(sql, base_params)
+        if run_err:
+            return None, f"Absconded Leave execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Absconded Leave failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Threshold Leave query.
+    Returns Agniveers with continuous 40-44 days OR total 55-59 days.
+    """
+    try:
+        top_n = intent.get("number") or intent.get("top_n") or 500
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        detailed = response_type.lower() == "detailed"
+
+        # ── Base scope ──────────────────────────────────────────────────────
+        base_where, base_params = _build_leave_base_query(intent)
+
+        # ── Threshold SQL (Union of Continuous and Total) ──────────────────
+        sql = f"""
+        WITH ContinuousThreshold AS (
+            SELECT
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.Class,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName,
+                b.BatchName,
+                DATEDIFF(DAY, l.FromDate, l.ToDate) + 1 AS LeaveDays,
+                'Continuous 40-44 days' AS Reason
+            FROM AgniveerLeaveMaster l
+            INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+                AND l.FromDate IS NOT NULL
+                AND l.ToDate IS NOT NULL
+                AND ISNULL(l.IsAbscondedLeave, 0) != 1
+                AND DATEDIFF(DAY, l.FromDate, l.ToDate) + 1 BETWEEN 40 AND 44
+        ),
+        TotalThreshold AS (
+            SELECT
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.Class,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName,
+                b.BatchName,
+                SUM(DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) AS TotalLeaveDays,
+                'Total 55-59 days' AS Reason
+            FROM AgniveerLeaveMaster l
+            INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+                AND l.FromDate IS NOT NULL
+                AND l.ToDate IS NOT NULL
+                AND ISNULL(l.IsAbscondedLeave, 0) != 1
+            GROUP BY a.AgniveerNo, a.FullName, a.PhotoPath, a.Class, p.Name, c.Name, b.BatchName
+            HAVING SUM(DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) BETWEEN 55 AND 59
+        )
+        SELECT * FROM ContinuousThreshold
+        UNION
+        SELECT * FROM TotalThreshold
+        ORDER BY AgniveerNo ASC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Threshold Leave SQL validation failed: {err}"
+        
+        rows, run_err = run_readonly(sql, base_params)
+        if run_err:
+            return None, f"Threshold Leave execution failed: {run_err}"
+        
+        if not detailed:
+            # Summary: return counts
+            continuous_ids = {r.get("AgniveerNo") for r in rows if r.get("Reason") == "Continuous 40-44 days"}
+            total_ids = {r.get("AgniveerNo") for r in rows if r.get("Reason") == "Total 55-59 days"}
+            
+            result = {
+                "thresholdCount": len(continuous_ids | total_ids),
+                "continuous40to44Count": len(continuous_ids),
+                "total55to59Count": len(total_ids),
+            }
+            return _to_section([result], intent, sql=sql), None
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Threshold Leave failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_leave_history(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Leave History query for a specific Agniveer.
+    """
+    try:
+        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        
+        if not agniveer_no:
+            return None, "AgniveerNo required for leave history"
+
+        # ── Base scope ──────────────────────────────────────────────────────
+        base_where, base_params = _build_leave_base_query(intent)
+
+        # ── Build SQL ──────────────────────────────────────────────────────
+        sql = f"""
+        SELECT
+            l.Id,
+            l.FromDate,
+            l.ToDate,
+            DATEDIFF(DAY, l.FromDate, l.ToDate) + 1 AS LeaveDays,
+            CASE
+                WHEN l.[OnEX PPG] = 1 THEN (DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) / 4
+                ELSE DATEDIFF(DAY, l.FromDate, l.ToDate) + 1
+            END AS LeaveCount,
+            CASE
+                WHEN l.OnAnnualLeave = 1 THEN 'Annual'
+                WHEN l.OnMedicalLeave = 1 THEN 'Medical'
+                WHEN l.OnSickLeave = 1 THEN 'Sick'
+                WHEN l.IsHospitalized = 1 THEN 'Hospitalized'
+                WHEN l.IsAbscondedLeave = 1 THEN 'Absconded'
+                WHEN l.[OnATTN'C'] = 1 THEN 'ATTNC'
+                WHEN l.[OnEX PPG] = 1 THEN 'EX PPG'
+                ELSE 'Unknown'
+            END AS LeaveType,
+            l.Remarks
+        FROM AgniveerLeaveMaster l
+        INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
+        WHERE {base_where}
+            AND l.FromDate IS NOT NULL
+            AND l.ToDate IS NOT NULL
+        ORDER BY l.FromDate DESC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Leave History SQL validation failed: {err}"
+        
+        rows, run_err = run_readonly(sql, base_params)
+        if run_err:
+            return None, f"Leave History execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Leave History failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def execute_leave_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+    """
+    Dispatch Leave queries based on operation.
+    """
+    operation = str(intent.get("operation") or "Current").lower()
+    
+    if operation == "current":
+        return _execute_leave_current(intent)
+    elif operation in ("most", "highest"):
+        return _execute_leave_most(intent)
+    elif operation in ("least", "lowest"):
+        return _execute_leave_least(intent)
+    elif operation == "absconded":
+        return _execute_leave_absconded(intent)
+    elif operation == "threshold":
+        return _execute_leave_threshold(intent)
+    elif operation in ("history", "records"):
+        return _execute_leave_history(intent)
+    else:
+        # Default to Current
+        return _execute_leave_current(intent)
+
+
+# ── Medical Category ────────────────────────────────────────────────────────
+
+BMI_THRESHOLDS = {
+    "underweight": {"max": 18.5, "label": "Underweight"},
+    "normal": {"min": 18.5, "max": 25.0, "label": "Normal"},
+    "overweight": {"min": 25.0, "max": 30.0, "label": "Overweight"},
+    "obese": {"min": 30.0, "label": "Obese"},
+    "unfit": {"min": 25.0, "label": "Unfit"},  # Overweight + Obese combined
+}
+
+
+def _build_medical_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
+    """Build the base WHERE clause for medical queries."""
+    clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)", "a.IsActive = 1"]
+    params: List[Any] = []
+
+    agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+    batch_id = intent.get("batch_id") or intent.get("batchId")
+    platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+    company_id = intent.get("company_id") or intent.get("companyId")
+    class_name = intent.get("class") or intent.get("class_")
+
+    if agniveer_no:
+        clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
+        params.append(str(agniveer_no))
+    if batch_id is not None:
+        clauses.append("a.BatchId = ?")
+        params.append(int(batch_id))
+    if platoon_id is not None:
+        clauses.append("a.PlatoonId = ?")
+        params.append(int(platoon_id))
+    if company_id is not None:
+        clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        params.append(int(company_id))
+    if class_name:
+        clauses.append("LOWER(a.Class) = LOWER(?)")
+        params.append(str(class_name))
+
+    return " AND ".join(clauses), params
+
+
+def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute BMI query.
+    Returns BMI distribution or individual BMI values.
+    """
+    try:
+        top_n = intent.get("number") or intent.get("top_n") or 500
+        bmi_category = intent.get("bmi_category") or intent.get("bmiCategory")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        detailed = response_type.lower() == "detailed"
+        blood_group = intent.get("blood_group") or intent.get("bloodGroup")
+
+        base_where, base_params = _build_medical_base_scope(intent)
+
+        # ── Blood group filter ──────────────────────────────────────────────
+        blood_filter = ""
+        blood_params: List[Any] = []
+        if blood_group:
+            blood_filter = "AND UPPER(REPLACE(a.BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))"
+            blood_params = [str(blood_group)]
+
+        # ── Build BMI CTE ─────────────────────────────────────────────────────
+        bmi_cte = f"""
+        WITH LatestMedical AS (
+            SELECT
+                mr.AgniveerId,
+                mr.Height,
+                mr.Weight,
+                ROW_NUMBER() OVER (PARTITION BY mr.AgniveerId ORDER BY mr.VisitDate DESC, mr.Id DESC) AS rn
+            FROM MedicalRecordMaster mr
+            WHERE mr.Height IS NOT NULL
+                AND mr.Weight IS NOT NULL
+        ),
+        Vitals AS (
+            SELECT
+                a.Id AS AgniveerId,
+                a.AgniveerNo,
+                a.FullName,
+                a.Class,
+                a.BloodGroup,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName,
+                b.BatchName,
+                COALESCE(lm.Height, a.Height) AS EffHeight,
+                COALESCE(lm.Weight, a.Weight) AS EffWeight
+            FROM AgniveerMaster a
+            LEFT JOIN LatestMedical lm ON lm.AgniveerId = a.Id AND lm.rn = 1
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+                {blood_filter}
+        ),
+        Scored AS (
+            SELECT
+                AgniveerNo,
+                FullName,
+                Class,
+                BloodGroup,
+                PlatoonName,
+                CompanyName,
+                BatchName,
+                EffHeight,
+                EffWeight,
+                CASE
+                    WHEN EffHeight IS NULL OR EffWeight IS NULL OR EffHeight <= 0 THEN NULL
+                    ELSE CAST(EffWeight / POWER(EffHeight / 100.0, 2) AS DECIMAL(10, 2))
+                END AS BmiValue,
+                CASE
+                    WHEN EffHeight IS NULL OR EffWeight IS NULL OR EffHeight <= 0 THEN NULL
+                    WHEN EffWeight / POWER(EffHeight / 100.0, 2) < 18.5 THEN 'Underweight'
+                    WHEN EffWeight / POWER(EffHeight / 100.0, 2) < 25.0 THEN 'Normal'
+                    WHEN EffWeight / POWER(EffHeight / 100.0, 2) < 30.0 THEN 'Overweight'
+                    ELSE 'Obese'
+                END AS BmiCategory
+            FROM Vitals
+        )
+        """
+
+        # ── Short/Summary ────────────────────────────────────────────────────
+        if not detailed:
+            if bmi_category:
+                # Specific category count
+                sql = f"""
+                {bmi_cte}
+                SELECT COUNT(*) AS Count
+                FROM Scored
+                WHERE BmiCategory = ?
+                """
+                is_valid, err = sql_validator.validate_sql(sql)
+                if not is_valid:
+                    return None, f"BMI SQL validation failed: {err}"
+                
+                params = base_params + blood_params + [str(bmi_category)]
+                rows, run_err = run_readonly(sql, params)
+                if run_err:
+                    return None, f"BMI execution failed: {run_err}"
+                
+                row = rows[0] if rows else {}
+                result = {"bmiCategory": bmi_category, "count": row.get("Count") if row.get("Count") is not None else (row.get("count") or 0)}
+                return _to_section([result], intent, sql=sql), None
+            else:
+                # Distribution by category
+                sql = f"""
+                {bmi_cte}
+                SELECT
+                    BmiCategory,
+                    COUNT(*) AS AgniveerCount
+                FROM Scored
+                WHERE BmiCategory IS NOT NULL
+                GROUP BY BmiCategory
+                ORDER BY BmiCategory ASC
+                """
+                is_valid, err = sql_validator.validate_sql(sql)
+                if not is_valid:
+                    return None, f"BMI SQL validation failed: {err}"
+                
+                params = base_params + blood_params
+                rows, run_err = run_readonly(sql, params)
+                if run_err:
+                    return None, f"BMI execution failed: {run_err}"
+                
+                return _to_section(rows or [], intent, sql=sql), None
+
+        # ── Detailed ──────────────────────────────────────────────────────────
+        category_filter = ""
+        category_params: List[Any] = []
+        if bmi_category:
+            category_filter = "WHERE BmiCategory = ?"
+            category_params = [str(bmi_category)]
+
+        sql = f"""
+        {bmi_cte}
+        SELECT TOP ({top_n})
+            AgniveerNo,
+            FullName,
+            Class,
+            BloodGroup,
+            PlatoonName,
+            CompanyName,
+            BatchName,
+            EffHeight AS Height,
+            EffWeight AS Weight,
+            BmiValue,
+            BmiCategory
+        FROM Scored
+        {category_filter}
+        ORDER BY BmiValue DESC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"BMI SQL validation failed: {err}"
+        
+        params = base_params + blood_params + category_params
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"BMI execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("BMI query failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Blood Group query.
+    Returns distribution or details for specific group.
+    """
+    try:
+        top_n = intent.get("number") or intent.get("top_n") or 500
+        blood_group = intent.get("blood_group") or intent.get("bloodGroup")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        detailed = response_type.lower() == "detailed"
+
+        base_where, base_params = _build_medical_base_scope(intent)
+
+        # ── Report/Distribution ─────────────────────────────────────────────
+        if not blood_group and not detailed:
+            sql = f"""
+            SELECT
+                COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown') AS BloodGroup,
+                COUNT(*) AS AgniveerCount
+            FROM AgniveerMaster a
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+            GROUP BY COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown')
+            ORDER BY AgniveerCount DESC, BloodGroup ASC
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Blood Group SQL validation failed: {err}"
+            
+            rows, run_err = run_readonly(sql, base_params)
+            if run_err:
+                return None, f"Blood Group execution failed: {run_err}"
+            
+            return _to_section(rows or [], intent, sql=sql), None
+
+        # ── Detailed with specific blood group ─────────────────────────────
+        if blood_group or detailed:
+            blood_clause = ""
+            params = list(base_params)
+            if blood_group:
+                blood_clause = "AND UPPER(REPLACE(a.BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))"
+                params.append(str(blood_group))
+
+            sql = f"""
+            SELECT TOP ({top_n})
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.Class,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName,
+                b.BatchName,
+                a.BloodGroup
+            FROM AgniveerMaster a
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+                {blood_clause}
+            ORDER BY a.AgniveerNo ASC
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Blood Group SQL validation failed: {err}"
+            
+            rows, run_err = run_readonly(sql, params)
+            if run_err:
+                return None, f"Blood Group execution failed: {run_err}"
+            
+            return _to_section(rows or [], intent, sql=sql), None
+
+        return None, "Blood Group query not configured"
+
+    except Exception as exc:
+        logger.error("Blood Group query failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Disease query.
+    Returns disease statistics or details.
+    """
+    try:
+        top_n = intent.get("number") or intent.get("top_n") or 10
+        diagnose = intent.get("diagnose") or intent.get("diagnosis")
+        days = intent.get("days")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        detailed = response_type.lower() == "detailed"
+
+        base_where, base_params = _build_medical_base_scope(intent)
+
+        # ── Date range filter ──────────────────────────────────────────────
+        date_filter = ""
+        date_params: List[Any] = []
+        if days and int(days) > 0:
+            date_filter = "AND CAST(mr.VisitDate AS DATE) >= DATEADD(DAY, -?, CAST(GETDATE() AS DATE))"
+            date_params = [int(days)]
+        elif intent.get("from_date") and intent.get("to_date"):
+            date_filter = "AND CAST(mr.VisitDate AS DATE) >= CAST(? AS DATE) AND CAST(mr.VisitDate AS DATE) <= CAST(? AS DATE)"
+            date_params = [
+                str(intent.get("from_date") or "")[:10],
+                str(intent.get("to_date") or "")[:10]
+            ]
+
+        # ── Specific disease ──────────────────────────────────────────────────
+        if diagnose:
+            sql = f"""
+            SELECT TOP ({top_n})
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.Class,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName,
+                b.BatchName,
+                mr.VisitDate,
+                mr.Diagnosis,
+                mr.Status,
+                mr.HospitalNameLocation,
+                mr.FollowUpDate
+            FROM MedicalRecordMaster mr
+            INNER JOIN AgniveerMaster a ON a.Id = mr.AgniveerId
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+                AND LOWER(mr.Diagnosis) LIKE '%' + LOWER(?) + '%'
+                {date_filter}
+            ORDER BY mr.VisitDate DESC
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Disease SQL validation failed: {err}"
+            
+            params = base_params + [str(diagnose)] + date_params
+            rows, run_err = run_readonly(sql, params)
+            if run_err:
+                return None, f"Disease execution failed: {run_err}"
+            
+            return _to_section(rows or [], intent, sql=sql), None
+
+        # ── Short: Disease statistics ──────────────────────────────────────
+        if not detailed:
+            sql = f"""
+            SELECT TOP ({top_n})
+                mr.Diagnosis,
+                COUNT(*) AS TotalCount,
+                COUNT(DISTINCT mr.AgniveerId) AS AgniveerCount
+            FROM MedicalRecordMaster mr
+            INNER JOIN AgniveerMaster a ON a.Id = mr.AgniveerId
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+                AND mr.Diagnosis IS NOT NULL
+                AND mr.Diagnosis != ''
+                {date_filter}
+            GROUP BY mr.Diagnosis
+            ORDER BY TotalCount DESC
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Disease SQL validation failed: {err}"
+            
+            params = base_params + date_params
+            rows, run_err = run_readonly(sql, params)
+            if run_err:
+                return None, f"Disease execution failed: {run_err}"
+            
+            return _to_section(rows or [], intent, sql=sql), None
+
+        # ── Detailed: Disease with per-agniveer breakdown ──────────────────
+        sql = f"""
+        SELECT TOP ({top_n})
+            mr.Diagnosis,
+            mr.AgniveerId,
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            mr.VisitDate,
+            mr.Status,
+            mr.HospitalNameLocation,
+            mr.FollowUpDate
+        FROM MedicalRecordMaster mr
+        INNER JOIN AgniveerMaster a ON a.Id = mr.AgniveerId
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        WHERE {base_where}
+            AND mr.Diagnosis IS NOT NULL
+            AND mr.Diagnosis != ''
+            {date_filter}
+        ORDER BY mr.Diagnosis ASC, mr.VisitDate DESC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Disease SQL validation failed: {err}"
+        
+        params = base_params + date_params
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Disease execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Disease query failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_medical_individual(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Individual Medical Report query.
+    Returns complete medical history for a single Agniveer.
+    """
+    try:
+        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        
+        if not agniveer_no:
+            return None, "AgniveerNo required for individual medical report"
+
+        # ── Base scope ──────────────────────────────────────────────────────
+        base_where, base_params = _build_medical_base_scope(intent)
+
+        # ── Build SQL ──────────────────────────────────────────────────────
+        sql = f"""
+        SELECT
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            a.BloodGroup,
+            a.Height,
+            a.Weight,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            mr.Id AS MedicalId,
+            u.FullName AS DoctorName,
+            mr.Type,
+            mr.VisitDate,
+            mr.FollowUpDate,
+            mr.HospitalNameLocation,
+            mr.AdmitDate,
+            mr.DischargeDate,
+            mr.Diagnosis,
+            mr.TreatmentGiven,
+            mr.Prescriptions,
+            mr.Status,
+            mr.Remarks,
+            mr.BloodPressure,
+            mr.HeartRate,
+            mr.Weight AS MedicalWeight,
+            mr.Height AS MedicalHeight,
+            mr.EyeSight,
+            mr.LeaveType,
+            mr.FromDate,
+            mr.ToDate
+        FROM AgniveerMaster a
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        INNER JOIN MedicalRecordMaster mr ON mr.AgniveerId = a.Id
+        LEFT JOIN UserMaster u ON u.Id = mr.DoctorId
+        WHERE {base_where}
+        ORDER BY mr.VisitDate DESC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Individual Medical SQL validation failed: {err}"
+        
+        rows, run_err = run_readonly(sql, base_params)
+        if run_err:
+            return None, f"Individual Medical execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Individual Medical failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_medical_followup(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Follow-Up query.
+    Returns Agniveers with follow-up appointments.
+    """
+    try:
+        top_n = intent.get("number") or intent.get("top_n") or 500
+        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+
+        # ── Base scope ──────────────────────────────────────────────────────
+        base_where, base_params = _build_medical_base_scope(intent)
+
+        # ── Date filter ──────────────────────────────────────────────────────
+        date_filter = "mr.FollowUpDate >= CAST(GETDATE() AS DATE)"
+        date_params: List[Any] = []
+        
+        if intent.get("from_date") and intent.get("to_date"):
+            date_filter = "CAST(mr.FollowUpDate AS DATE) >= CAST(? AS DATE) AND CAST(mr.FollowUpDate AS DATE) <= CAST(? AS DATE)"
+            date_params = [
+                str(intent.get("from_date") or "")[:10],
+                str(intent.get("to_date") or "")[:10]
+            ]
+
+        # ── Build SQL ──────────────────────────────────────────────────────
+        sql = f"""
+        SELECT TOP ({top_n})
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            mr.FollowUpDate,
+            mr.VisitDate,
+            mr.Diagnosis,
+            mr.HospitalNameLocation,
+            mr.Status
+        FROM MedicalRecordMaster mr
+        INNER JOIN AgniveerMaster a ON a.Id = mr.AgniveerId
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        WHERE {base_where}
+            AND mr.FollowUpDate IS NOT NULL
+            AND {date_filter}
+        ORDER BY mr.FollowUpDate ASC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Follow-Up SQL validation failed: {err}"
+        
+        params = base_params + date_params
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Follow-Up execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Follow-Up failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_medical_hospital_stats(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Hospital Statistics query.
+    Returns hospitals with most Agniveer visits.
+    """
+    try:
+        top_n = intent.get("number") or intent.get("top_n") or 10
+        base_where, base_params = _build_medical_base_scope(intent)
+
+        sql = f"""
+        SELECT TOP ({top_n})
+            mr.HospitalNameLocation,
+            COUNT(DISTINCT mr.AgniveerId) AS AgniveerCount
+        FROM MedicalRecordMaster mr
+        INNER JOIN AgniveerMaster a ON a.Id = mr.AgniveerId
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        WHERE {base_where}
+            AND mr.HospitalNameLocation IS NOT NULL
+            AND TRIM(mr.HospitalNameLocation) != ''
+        GROUP BY mr.HospitalNameLocation
+        ORDER BY AgniveerCount DESC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Hospital Stats SQL validation failed: {err}"
+        
+        rows, run_err = run_readonly(sql, base_params)
+        if run_err:
+            return None, f"Hospital Stats execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Hospital Stats failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def execute_medical_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+    """
+    Dispatch Medical queries based on operation.
+    """
+    operation = str(intent.get("operation") or intent.get("subcategory") or "BMI").lower()
+    
+    if operation in ("bmi", "bmianalysis"):
+        return _execute_medical_bmi(intent)
+    elif operation in ("bloodgroup", "blood_group"):
+        return _execute_medical_blood_group(intent)
+    elif operation in ("disease", "diseasestatistics", "diagnosed"):
+        return _execute_medical_disease(intent)
+    elif operation in ("individual", "individualmedical"):
+        return _execute_medical_individual(intent)
+    elif operation in ("followup", "follow_up"):
+        return _execute_medical_followup(intent)
+    elif operation in ("hospitalstats", "hospital_stats"):
+        return _execute_medical_hospital_stats(intent)
+    else:
+        # Default to BMI
+        return _execute_medical_bmi(intent)
+
+
+# ── Attendance Category ───────────────────────────────────────────────────
+
+ATTENDANCE_DATE_RANGE = {
+    "daily": {"default_months": 1},
+    "weekly": {"default_weeks": 4},
+    "monthly": {"default_months": 3},
+}
+
+
+def _build_attendance_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
+    """Build the base WHERE clause for attendance queries."""
+    clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)", "a.IsActive = 1"]
+    params: List[Any] = []
+
+    agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+    batch_id = intent.get("batch_id") or intent.get("batchId")
+    platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+    company_id = intent.get("company_id") or intent.get("companyId")
+
+    if agniveer_no:
+        clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
+        params.append(str(agniveer_no))
+    if batch_id is not None:
+        clauses.append("a.BatchId = ?")
+        params.append(int(batch_id))
+    if platoon_id is not None:
+        clauses.append("a.PlatoonId = ?")
+        params.append(int(platoon_id))
+    if company_id is not None:
+        clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        params.append(int(company_id))
+
+    return " AND ".join(clauses), params
+
+
+def _resolve_attendance_dates(operation: str, intent: Dict[str, Any]) -> Tuple[str, str]:
+    """
+    Resolve date range for attendance queries.
+    Returns (from_date, to_date) as ISO date strings.
+    """
+    import datetime
+    
+    # If explicit dates provided, use them
+    date = intent.get("date")
+    from_date = intent.get("from_date") or intent.get("fromDate")
+    to_date = intent.get("to_date") or intent.get("toDate")
+    
+    if from_date and to_date:
+        return str(from_date)[:10], str(to_date)[:10]
+    if date:
+        return str(date)[:10], str(date)[:10]
+    
+    # Default ranges based on operation
+    today = datetime.date.today()
+    
+    if operation == "daily":
+        # Current month
+        start = datetime.date(today.year, today.month, 1)
+        end = datetime.date(today.year, today.month, 1).replace(
+            day=28
+        ) + datetime.timedelta(days=4)
+        end = end - datetime.timedelta(days=end.day)
+        return start.isoformat(), end.isoformat()
+    
+    elif operation == "weekly":
+        # Last 4 weeks from Monday
+        monday = today - datetime.timedelta(days=today.weekday())
+        start = monday - datetime.timedelta(weeks=3)
+        end = monday + datetime.timedelta(days=6)
+        return start.isoformat(), end.isoformat()
+    
+    else:  # monthly
+        # Last 3 months
+        start = datetime.date(today.year, today.month, 1) - datetime.timedelta(days=90)
+        end = datetime.date(today.year, today.month, 1).replace(
+            day=28
+        ) + datetime.timedelta(days=4)
+        end = end - datetime.timedelta(days=end.day)
+        return start.isoformat(), end.isoformat()
+
+
+def _execute_attendance_summary(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Attendance Summary query.
+    Returns present/absent counts for today.
+    """
+    try:
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        detailed = response_type.lower() == "detailed"
+        
+        base_where, base_params = _build_attendance_base_scope(intent)
+        
+        # ── Get date ──────────────────────────────────────────────────────────
+        import datetime
+        today = datetime.date.today().isoformat()
+        date = intent.get("date") or today
+
+        # ── Build SQL ──────────────────────────────────────────────────────────
+        if not detailed:
+            # Summary: counts only
+            sql = f"""
+            WITH AgniveerScope AS (
+                SELECT
+                    a.Id,
+                    a.AgniveerNo,
+                    a.FullName,
+                    a.DateOfJoining
+                FROM AgniveerMaster a
+                LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+                LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+                LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+                WHERE {base_where}
+            ),
+            TodayLeaves AS (
+                SELECT
+                    l.AgniveerId,
+                    l.FromDate,
+                    l.ToDate,
+                    l.IsAbscondedLeave
+                FROM AgniveerLeaveMaster l
+                WHERE l.AgniveerId IN (SELECT Id FROM AgniveerScope)
+                    AND l.FromDate IS NOT NULL
+                    AND l.FromDate <= CAST(? AS DATE)
+                    AND (l.ToDate IS NULL OR l.ToDate >= CAST(? AS DATE))
+            )
+            SELECT
+                COUNT(*) AS TotalActive,
+                SUM(
+                    CASE
+                        WHEN EXISTS (
+                            SELECT 1 FROM TodayLeaves tl
+                            WHERE tl.AgniveerId = a.Id
+                                AND tl.ToDate IS NOT NULL
+                                AND CAST(? AS DATE) BETWEEN tl.FromDate AND tl.ToDate
+                        ) THEN 0
+                        WHEN EXISTS (
+                            SELECT 1 FROM TodayLeaves tl
+                            WHERE tl.AgniveerId = a.Id
+                                AND tl.ToDate IS NULL
+                                AND tl.IsAbscondedLeave = 1
+                                AND CAST(? AS DATE) >= tl.FromDate
+                        ) THEN 0
+                        ELSE 1
+                    END
+                ) AS PresentCount
+            FROM AgniveerScope a
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Attendance Summary SQL validation failed: {err}"
+            
+            params = base_params + [date, date, date, date]
+            rows, run_err = run_readonly(sql, params)
+            if run_err:
+                return None, f"Attendance Summary execution failed: {run_err}"
+            
+            row = rows[0] if rows else {}
+            total = row.get("TotalActive") if row.get("TotalActive") is not None else (row.get("totalActive") or 0)
+            present = row.get("PresentCount") if row.get("PresentCount") is not None else (row.get("presentCount") or 0)
+            absent = total - present
+            pct = round((present / total * 100), 2) if total > 0 else 0
+            
+            result = {
+                "date": date,
+                "totalActive": total,
+                "presentCount": present,
+                "absentCount": absent,
+                "presentPct": pct,
+            }
+            return _to_section([result], intent, sql=sql), None
+        
+        # ── Detailed: list of Agniveers with status ──────────────────────────
+        sql = f"""
+        WITH AgniveerScope AS (
+            SELECT
+                a.Id,
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.Class,
+                a.DateOfJoining,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName,
+                b.BatchName
+            FROM AgniveerMaster a
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+        ),
+        TodayLeaves AS (
+            SELECT
+                l.AgniveerId,
+                l.FromDate,
+                l.ToDate,
+                l.IsAbscondedLeave
+            FROM AgniveerLeaveMaster l
+            WHERE l.AgniveerId IN (SELECT Id FROM AgniveerScope)
+                AND l.FromDate IS NOT NULL
+                AND l.FromDate <= CAST(? AS DATE)
+                AND (l.ToDate IS NULL OR l.ToDate >= CAST(? AS DATE))
+        )
+        SELECT
+            a.Id,
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            a.PlatoonName,
+            a.CompanyName,
+            a.BatchName,
+            a.DateOfJoining,
+            CASE
+                WHEN a.DateOfJoining IS NOT NULL AND CAST(? AS DATE) < a.DateOfJoining THEN NULL
+                WHEN EXISTS (
+                    SELECT 1 FROM TodayLeaves tl
+                    WHERE tl.AgniveerId = a.Id
+                        AND tl.ToDate IS NOT NULL
+                        AND CAST(? AS DATE) BETWEEN tl.FromDate AND tl.ToDate
+                ) THEN 0
+                WHEN EXISTS (
+                    SELECT 1 FROM TodayLeaves tl
+                    WHERE tl.AgniveerId = a.Id
+                        AND tl.ToDate IS NULL
+                        AND tl.IsAbscondedLeave = 1
+                        AND CAST(? AS DATE) >= tl.FromDate
+                ) THEN 0
+                ELSE 1
+            END AS IsPresent
+        FROM AgniveerScope a
+        ORDER BY a.AgniveerNo ASC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Attendance Summary SQL validation failed: {err}"
+        
+        params = base_params + [date, date, date, date, date]
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Attendance Summary execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Attendance Summary failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_attendance_daily(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Daily Attendance query.
+    Returns day-by-day calendar for Agniveers.
+    """
+    try:
+        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        
+        if not agniveer_no:
+            return None, "AgniveerNo required for daily attendance calendar"
+
+        base_where, base_params = _build_attendance_base_scope(intent)
+        
+        # ── Resolve date range ──────────────────────────────────────────────
+        from_date, to_date = _resolve_attendance_dates("daily", intent)
+
+        # ── Build SQL ──────────────────────────────────────────────────────────
+        sql = f"""
+        WITH AgniveerInfo AS (
+            SELECT
+                a.Id,
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.DateOfJoining,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName
+            FROM AgniveerMaster a
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            WHERE {base_where}
+        ),
+        LeaveRecords AS (
+            SELECT
+                l.FromDate,
+                l.ToDate,
+                l.IsAbscondedLeave
+            FROM AgniveerLeaveMaster l
+            WHERE l.AgniveerId = (SELECT Id FROM AgniveerInfo)
+                AND l.FromDate IS NOT NULL
+                AND l.FromDate <= CAST(? AS DATE)
+                AND (l.ToDate IS NULL OR l.ToDate >= CAST(? AS DATE))
+        ),
+        DateRange AS (
+            SELECT CAST(? AS DATE) AS AttendanceDate
+            UNION ALL
+            SELECT DATEADD(DAY, 1, AttendanceDate)
+            FROM DateRange
+            WHERE AttendanceDate < CAST(? AS DATE)
+        )
+        SELECT
+            d.AttendanceDate,
+            CASE
+                WHEN d.AttendanceDate < a.DateOfJoining THEN NULL
+                WHEN EXISTS (
+                    SELECT 1 FROM LeaveRecords l
+                    WHERE l.ToDate IS NOT NULL
+                        AND d.AttendanceDate BETWEEN l.FromDate AND l.ToDate
+                ) THEN 0
+                WHEN EXISTS (
+                    SELECT 1 FROM LeaveRecords l
+                    WHERE l.ToDate IS NULL
+                        AND l.IsAbscondedLeave = 1
+                        AND d.AttendanceDate >= l.FromDate
+                ) THEN 0
+                ELSE 1
+            END AS IsPresent,
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath
+        FROM DateRange d
+        CROSS JOIN AgniveerInfo a
+        OPTION (MAXRECURSION 366)
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Daily Attendance SQL validation failed: {err}"
+        
+        params = base_params + [to_date, from_date, from_date, to_date]
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Daily Attendance execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Daily Attendance failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_attendance_weekly(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Weekly Attendance query.
+    Returns weekly attendance summary for Agniveers.
+    """
+    try:
+        base_where, base_params = _build_attendance_base_scope(intent)
+        
+        # ── Resolve date range ──────────────────────────────────────────────
+        from_date, to_date = _resolve_attendance_dates("weekly", intent)
+
+        # ── Build SQL ──────────────────────────────────────────────────────────
+        sql = f"""
+        WITH AgniveerScope AS (
+            SELECT
+                a.Id,
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.DateOfJoining,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName,
+                b.BatchName
+            FROM AgniveerMaster a
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+        ),
+        DateRange AS (
+            SELECT CAST(? AS DATE) AS AttendanceDate
+            UNION ALL
+            SELECT DATEADD(DAY, 1, AttendanceDate)
+            FROM DateRange
+            WHERE AttendanceDate < CAST(? AS DATE)
+        ),
+        LeaveRecords AS (
+            SELECT
+                l.AgniveerId,
+                l.FromDate,
+                l.ToDate,
+                l.IsAbscondedLeave
+            FROM AgniveerLeaveMaster l
+            WHERE l.AgniveerId IN (SELECT Id FROM AgniveerScope)
+                AND l.FromDate IS NOT NULL
+                AND l.FromDate <= CAST(? AS DATE)
+                AND (l.ToDate IS NULL OR l.ToDate >= CAST(? AS DATE))
+        ),
+        WeeklyStatus AS (
+            SELECT
+                a.Id AS AgniveerId,
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.PlatoonName,
+                a.CompanyName,
+                a.BatchName,
+                d.AttendanceDate,
+                DATEADD(WEEK, DATEDIFF(WEEK, 0, d.AttendanceDate), 0) AS WeekStart,
+                CASE
+                    WHEN d.AttendanceDate < a.DateOfJoining THEN NULL
+                    WHEN EXISTS (
+                        SELECT 1 FROM LeaveRecords l
+                        WHERE l.AgniveerId = a.Id
+                            AND l.ToDate IS NOT NULL
+                            AND d.AttendanceDate BETWEEN l.FromDate AND l.ToDate
+                    ) THEN 0
+                    WHEN EXISTS (
+                        SELECT 1 FROM LeaveRecords l
+                        WHERE l.AgniveerId = a.Id
+                            AND l.ToDate IS NULL
+                            AND l.IsAbscondedLeave = 1
+                            AND d.AttendanceDate >= l.FromDate
+                    ) THEN 0
+                    ELSE 1
+                END AS IsPresent
+            FROM AgniveerScope a
+            CROSS JOIN DateRange d
+        )
+        SELECT
+            AgniveerNo,
+            FullName,
+            PhotoPath,
+            PlatoonName,
+            CompanyName,
+            BatchName,
+            WeekStart,
+            SUM(CASE WHEN IsPresent = 1 THEN 1 ELSE 0 END) AS Present,
+            SUM(CASE WHEN IsPresent = 0 THEN 1 ELSE 0 END) AS Absent
+        FROM WeeklyStatus
+        WHERE IsPresent IS NOT NULL
+        GROUP BY AgniveerNo, FullName, PhotoPath, PlatoonName, CompanyName, BatchName, WeekStart
+        ORDER BY AgniveerNo ASC, WeekStart ASC
+        OPTION (MAXRECURSION 366)
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Weekly Attendance SQL validation failed: {err}"
+        
+        params = base_params + [from_date, to_date, to_date, from_date]
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Weekly Attendance execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Weekly Attendance failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_attendance_monthly(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Monthly Attendance query.
+    Returns monthly attendance summary for Agniveers.
+    """
+    try:
+        base_where, base_params = _build_attendance_base_scope(intent)
+        
+        # ── Resolve date range ──────────────────────────────────────────────
+        from_date, to_date = _resolve_attendance_dates("monthly", intent)
+
+        # ── Build SQL ──────────────────────────────────────────────────────────
+        sql = f"""
+        WITH AgniveerScope AS (
+            SELECT
+                a.Id,
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.DateOfJoining,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName,
+                b.BatchName
+            FROM AgniveerMaster a
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+            WHERE {base_where}
+        ),
+        DateRange AS (
+            SELECT CAST(? AS DATE) AS AttendanceDate
+            UNION ALL
+            SELECT DATEADD(DAY, 1, AttendanceDate)
+            FROM DateRange
+            WHERE AttendanceDate < CAST(? AS DATE)
+        ),
+        LeaveRecords AS (
+            SELECT
+                l.AgniveerId,
+                l.FromDate,
+                l.ToDate,
+                l.IsAbscondedLeave
+            FROM AgniveerLeaveMaster l
+            WHERE l.AgniveerId IN (SELECT Id FROM AgniveerScope)
+                AND l.FromDate IS NOT NULL
+                AND l.FromDate <= CAST(? AS DATE)
+                AND (l.ToDate IS NULL OR l.ToDate >= CAST(? AS DATE))
+        ),
+        MonthlyStatus AS (
+            SELECT
+                a.Id AS AgniveerId,
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.PlatoonName,
+                a.CompanyName,
+                a.BatchName,
+                d.AttendanceDate,
+                FORMAT(d.AttendanceDate, 'MM-yyyy') AS Month,
+                CASE
+                    WHEN d.AttendanceDate < a.DateOfJoining THEN NULL
+                    WHEN EXISTS (
+                        SELECT 1 FROM LeaveRecords l
+                        WHERE l.AgniveerId = a.Id
+                            AND l.ToDate IS NOT NULL
+                            AND d.AttendanceDate BETWEEN l.FromDate AND l.ToDate
+                    ) THEN 0
+                    WHEN EXISTS (
+                        SELECT 1 FROM LeaveRecords l
+                        WHERE l.AgniveerId = a.Id
+                            AND l.ToDate IS NULL
+                            AND l.IsAbscondedLeave = 1
+                            AND d.AttendanceDate >= l.FromDate
+                    ) THEN 0
+                    ELSE 1
+                END AS IsPresent
+            FROM AgniveerScope a
+            CROSS JOIN DateRange d
+        )
+        SELECT
+            AgniveerNo,
+            FullName,
+            PhotoPath,
+            PlatoonName,
+            CompanyName,
+            BatchName,
+            Month,
+            SUM(CASE WHEN IsPresent = 1 THEN 1 ELSE 0 END) AS Present,
+            SUM(CASE WHEN IsPresent = 0 THEN 1 ELSE 0 END) AS Absent
+        FROM MonthlyStatus
+        WHERE IsPresent IS NOT NULL
+        GROUP BY AgniveerNo, FullName, PhotoPath, PlatoonName, CompanyName, BatchName, Month
+        ORDER BY AgniveerNo ASC, Month ASC
+        OPTION (MAXRECURSION 366)
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Monthly Attendance SQL validation failed: {err}"
+        
+        params = base_params + [from_date, to_date, to_date, from_date]
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Monthly Attendance execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Monthly Attendance failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_attendance_individual(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Individual Attendance History query.
+    Returns full attendance history for a single Agniveer.
+    """
+    try:
+        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        
+        if not agniveer_no:
+            return None, "AgniveerNo required for individual attendance history"
+
+        base_where, base_params = _build_attendance_base_scope(intent)
+        
+        # ── Resolve date range ──────────────────────────────────────────────
+        from_date, to_date = _resolve_attendance_dates("monthly", intent)
+
+        # ── Build SQL ──────────────────────────────────────────────────────────
+        sql = f"""
+        WITH AgniveerInfo AS (
+            SELECT
+                a.Id,
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.DateOfJoining,
+                p.Name AS PlatoonName,
+                c.Name AS CompanyName
+            FROM AgniveerMaster a
+            LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+            LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+            WHERE {base_where}
+        ),
+        DateRange AS (
+            SELECT CAST(? AS DATE) AS AttendanceDate
+            UNION ALL
+            SELECT DATEADD(DAY, 1, AttendanceDate)
+            FROM DateRange
+            WHERE AttendanceDate < CAST(? AS DATE)
+        ),
+        LeaveRecords AS (
+            SELECT
+                l.FromDate,
+                l.ToDate,
+                l.IsAbscondedLeave
+            FROM AgniveerLeaveMaster l
+            WHERE l.AgniveerId = (SELECT Id FROM AgniveerInfo)
+                AND l.FromDate IS NOT NULL
+        ),
+        DailyStatus AS (
+            SELECT
+                d.AttendanceDate,
+                CASE
+                    WHEN d.AttendanceDate < a.DateOfJoining THEN NULL
+                    WHEN EXISTS (
+                        SELECT 1 FROM LeaveRecords l
+                        WHERE l.ToDate IS NOT NULL
+                            AND d.AttendanceDate BETWEEN l.FromDate AND l.ToDate
+                    ) THEN 0
+                    WHEN EXISTS (
+                        SELECT 1 FROM LeaveRecords l
+                        WHERE l.ToDate IS NULL
+                            AND l.IsAbscondedLeave = 1
+                            AND d.AttendanceDate >= l.FromDate
+                    ) THEN 0
+                    ELSE 1
+                END AS IsPresent
+            FROM DateRange d
+            CROSS JOIN AgniveerInfo a
+        )
+        SELECT
+            AttendanceDate AS Date,
+            IsPresent,
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.PlatoonName,
+            a.CompanyName
+        FROM DailyStatus d
+        CROSS JOIN AgniveerInfo a
+        ORDER BY AttendanceDate ASC
+        OPTION (MAXRECURSION 366)
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Individual Attendance SQL validation failed: {err}"
+        
+        params = base_params + [from_date, to_date]
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Individual Attendance execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Individual Attendance failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def execute_attendance_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+    """
+    Dispatch Attendance queries based on operation.
+    """
+    operation = str(intent.get("operation") or intent.get("subcategory") or "Summary").lower()
+    
+    if operation == "summary":
+        return _execute_attendance_summary(intent)
+    elif operation == "daily":
+        return _execute_attendance_daily(intent)
+    elif operation == "weekly":
+        return _execute_attendance_weekly(intent)
+    elif operation == "monthly":
+        return _execute_attendance_monthly(intent)
+    elif operation in ("present", "absent"):
+        return _execute_attendance_summary(intent)  # Same as summary
+    elif operation == "individual":
+        return _execute_attendance_individual(intent)
+    else:
+        # Default to Summary
+        return _execute_attendance_summary(intent)
+
+
+# ── Distribution Category ───────────────────────────────────────────────────
+
+DISTRIBUTION_GROUP_FIELDS = {
+    "unit": ["TeamId", "TeamName"],
+    "company": ["CompanyName"],
+    "batch": ["BatchName"],
+}
+
+
+def _build_distribution_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
+    """Build the base WHERE clause for distribution queries."""
+    clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)", "a.IsActive = 1"]
+    params: List[Any] = []
+
+    agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+    batch_id = intent.get("batch_id") or intent.get("batchId")
+    platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+    company_id = intent.get("company_id") or intent.get("companyId")
+
+    if agniveer_no:
+        clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
+        params.append(str(agniveer_no))
+    if batch_id is not None:
+        clauses.append("a.BatchId = ?")
+        params.append(int(batch_id))
+    if platoon_id is not None:
+        clauses.append("a.PlatoonId = ?")
+        params.append(int(platoon_id))
+    if company_id is not None:
+        clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        params.append(int(company_id))
+
+    return " AND ".join(clauses), params
+
+
+def _get_latest_distribution_id() -> Optional[int]:
+    """Get the latest distribution ID from DistributionHistoryMaster."""
+    sql = "SELECT MAX(DistributionId) AS DistributionId FROM DistributionHistoryMaster"
+    rows, err = run_readonly(sql, [])
+    if err or not rows:
+        return None
+    row = rows[0] if rows else {}
+    return row.get("DistributionId") if row.get("DistributionId") is not None else row.get("distributionId")
+
+
+def _execute_distribution_latest(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Latest Distribution query.
+    Returns the most recent distribution with team breakdown.
+    
+    C# Equivalent: Cmd17_LatestUnitDistribution
+    """
+    try:
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        detailed = response_type.lower() == "detailed"
+        
+        base_where, base_params = _build_distribution_base_scope(intent)
+        
+        # ── Get latest distribution ID ──────────────────────────────────────
+        latest_id = _get_latest_distribution_id()
+        if latest_id is None:
+            return _to_section([], intent), "No distribution events found."
+
+        # ── Short: Team summary ─────────────────────────────────────────────
+        if not detailed:
+            sql = f"""
+            SELECT
+                dm.Id AS TeamId,
+                dm.Name AS TeamName,
+                COUNT(h.AgniveerId) AS MemberCount
+            FROM DistributionHistoryMaster h
+            INNER JOIN DistributionMaster dm ON dm.Id = h.TeamId
+            INNER JOIN AgniveerMaster a ON a.Id = h.AgniveerId
+            WHERE h.DistributionId = ?
+                AND {base_where}
+                AND h.TeamId IS NOT NULL
+            GROUP BY dm.Id, dm.Name
+            ORDER BY MIN(h.Rank) ASC
+            """
+            
+            is_valid, err = sql_validator.validate_sql(sql)
+            if not is_valid:
+                return None, f"Latest Distribution SQL validation failed: {err}"
+            
+            params = [latest_id] + base_params
+            rows, run_err = run_readonly(sql, params)
+            if run_err:
+                return None, f"Latest Distribution execution failed: {run_err}"
+            
+            # Get distribution date
+            date_sql = "SELECT TOP 1 InsertedDate AS DistributionDate FROM DistributionHistoryMaster WHERE DistributionId = ?"
+            date_rows, _ = run_readonly(date_sql, [latest_id])
+            dist_date = date_rows[0].get("DistributionDate") if date_rows else None
+            
+            result = {
+                "distributionId": latest_id,
+                "distributionDate": dist_date,
+                "teams": rows or [],
+            }
+            return _to_section([result], intent, sql=sql), None
+
+        # ── Detailed: Full member list ──────────────────────────────────────
+        sql = f"""
+        SELECT
+            h.DistributionId,
+            h.InsertedDate AS DistributionDate,
+            h.TeamId,
+            dm.Name AS TeamName,
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            h.Rank
+        FROM DistributionHistoryMaster h
+        INNER JOIN AgniveerMaster a ON a.Id = h.AgniveerId
+        LEFT JOIN DistributionMaster dm ON dm.Id = h.TeamId
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        WHERE h.DistributionId = ?
+            AND {base_where}
+            AND h.TeamId IS NOT NULL
+        ORDER BY h.TeamId ASC, h.Rank ASC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Latest Distribution SQL validation failed: {err}"
+        
+        params = [latest_id] + base_params
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Latest Distribution execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Latest Distribution failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_distribution_by_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute By Unit query.
+    Returns Agniveers assigned to a specific unit.
+    
+    C# Equivalent: Cmd19_AgniveersInUnit
+    """
+    try:
+        unit_name = intent.get("unit_name") or intent.get("unitName") or intent.get("team_name") or intent.get("teamName")
+        
+        if not unit_name:
+            return None, "UnitName required for by unit query"
+
+        # ── Resolve unit ID ──────────────────────────────────────────────────
+        lookup_sql = """
+        SELECT TOP 1 Id AS UnitId
+        FROM DistributionMaster
+        WHERE LOWER(Name) LIKE '%' + LOWER(?) + '%'
+        """
+        is_valid, err = sql_validator.validate_sql(lookup_sql)
+        if not is_valid:
+            return None, f"Unit lookup SQL validation failed: {err}"
+            
+        rows, run_err = run_readonly(lookup_sql, [str(unit_name)])
+        if run_err:
+            return None, f"Unit lookup failed: {run_err}"
+        if not rows:
+            return _to_section([], intent), f"Unit '{unit_name}' not found"
+
+        unit_id = rows[0].get("UnitId") if rows[0].get("UnitId") is not None else rows[0].get("unitId")
+        base_where, base_params = _build_distribution_base_scope(intent)
+
+        # ── Build SQL ──────────────────────────────────────────────────────────
+        sql = f"""
+        SELECT
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName,
+            h.Rank,
+            h.DistributionId,
+            h.InsertedDate AS DistributionDate
+        FROM DistributionHistoryMaster h
+        INNER JOIN AgniveerMaster a ON a.Id = h.AgniveerId
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        WHERE h.TeamId = ?
+            AND {base_where}
+        ORDER BY h.Rank ASC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"By Unit SQL validation failed: {err}"
+        
+        params = [unit_id] + base_params
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"By Unit execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("By Unit failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_distribution_unassigned(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Unassigned query.
+    Returns Agniveers not assigned to any unit.
+    
+    C# Equivalent: Cmd20_UnassignedAgniveers
+    """
+    try:
+        base_where, base_params = _build_distribution_base_scope(intent)
+
+        sql = f"""
+        SELECT
+            a.AgniveerNo,
+            a.FullName,
+            a.PhotoPath,
+            a.Class,
+            p.Name AS PlatoonName,
+            c.Name AS CompanyName,
+            b.BatchName
+        FROM AgniveerMaster a
+        LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+        LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
+        LEFT JOIN BatchMaster b ON b.Id = a.BatchId
+        WHERE {base_where}
+            AND NOT EXISTS (
+                SELECT 1 FROM DistributionHistoryMaster h
+                WHERE h.AgniveerId = a.Id
+            )
+        ORDER BY a.AgniveerNo ASC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Unassigned SQL validation failed: {err}"
+        
+        rows, run_err = run_readonly(sql, base_params)
+        if run_err:
+            return None, f"Unassigned execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Unassigned failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_distribution_top_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Top Unit query.
+    Returns the unit with most Agniveers in latest distribution.
+    
+    C# Equivalent: Cmd21_TopUnitLatestDistribution
+    """
+    try:
+        latest_id = _get_latest_distribution_id()
+        if latest_id is None:
+            return _to_section([], intent), "No distribution events found."
+
+        sql = f"""
+        SELECT TOP 1
+            h.TeamId,
+            dm.Name AS TeamName,
+            COUNT(h.AgniveerId) AS AgniveerCount,
+            ? AS DistributionEventId,
+            (SELECT TOP 1 InsertedDate FROM DistributionHistoryMaster WHERE DistributionId = ?) AS DistributionDate
+        FROM DistributionHistoryMaster h
+        INNER JOIN AgniveerMaster a ON a.Id = h.AgniveerId
+        LEFT JOIN DistributionMaster dm ON dm.Id = h.TeamId
+        WHERE h.DistributionId = ?
+            AND h.TeamId IS NOT NULL
+            AND (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
+            AND a.IsActive = 1
+        GROUP BY h.TeamId, dm.Name
+        ORDER BY AgniveerCount DESC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Top Unit SQL validation failed: {err}"
+        
+        params = [latest_id, latest_id, latest_id]
+        rows, run_err = run_readonly(sql, params)
+        if run_err:
+            return None, f"Top Unit execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Top Unit failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def _execute_distribution_history(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    """
+    Execute Distribution History for a specific Agniveer.
+    """
+    try:
+        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        
+        if not agniveer_no:
+            return None, "AgniveerNo required for distribution history"
+
+        # ── Get Agniveer ID ──────────────────────────────────────────────────
+        lookup_sql = """
+        SELECT TOP 1 Id 
+        FROM AgniveerMaster 
+        WHERE LOWER(AgniveerNo) = LOWER(?)
+            AND (IsDisqualified <> 1 OR IsDisqualified IS NULL)
+            AND IsActive = 1
+        """
+        rows, err = run_readonly(lookup_sql, [str(agniveer_no)])
+        if err or not rows:
+            return _to_section([], intent), f"Agniveer '{agniveer_no}' not found"
+        
+        agniveer_id = rows[0].get("Id") if rows[0].get("Id") is not None else rows[0].get("id")
+
+        sql = f"""
+        SELECT
+            h.DistributionId,
+            h.InsertedDate AS DistributionDate,
+            dm.Name AS UnitName,
+            h.Rank,
+            h.Location,
+            h.UpdateCount
+        FROM DistributionHistoryMaster h
+        LEFT JOIN DistributionMaster dm ON dm.Id = h.TeamId
+        WHERE h.AgniveerId = ?
+        ORDER BY h.InsertedDate DESC
+        """
+        
+        is_valid, err = sql_validator.validate_sql(sql)
+        if not is_valid:
+            return None, f"Distribution History SQL validation failed: {err}"
+        
+        rows, run_err = run_readonly(sql, [agniveer_id])
+        if run_err:
+            return None, f"Distribution History execution failed: {run_err}"
+        
+        return _to_section(rows or [], intent, sql=sql), None
+
+    except Exception as exc:
+        logger.error("Distribution History failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
+def execute_distribution_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+    """
+    Dispatch Distribution queries based on operation.
+    """
+    operation = str(intent.get("operation") or intent.get("subcategory") or "Latest").lower()
+    
+    if operation in ("latest", "latestdistribution", "latest_distribution"):
+        return _execute_distribution_latest(intent)
+    elif operation in ("byunit", "by_unit", "inunit", "in_unit"):
+        return _execute_distribution_by_unit(intent)
+    elif operation == "unassigned":
+        return _execute_distribution_unassigned(intent)
+    elif operation in ("topunit", "top_unit"):
+        return _execute_distribution_top_unit(intent)
+    elif operation in ("history", "records"):
+        return _execute_distribution_history(intent)
+    else:
+        # Default to Latest
+        return _execute_distribution_latest(intent)
+
+
+
+
+
+
 
 def _resolve_attendance_range(intent: Dict) -> Tuple[Optional[str], Optional[str]]:
     """Returns (range_start, range_end) as YYYY-MM-DD date strings.
@@ -1009,6 +3851,8 @@ def execute_sql_query(
     if not intent:
         return None, "No intent provided to query planner."
 
+    _raw_q = (question or intent.get("raw_query") or "").lower()
+
     if intent.get("query_type") == "text2sql":
         try:
             sql, gen_err = generate_sql(question, intent)
@@ -1196,596 +4040,20 @@ ORDER BY m.AgniveerNo ASC
         return _to_section(_rows or [], intent, sql=_sql), None
 
 
-    if intent.get("category") == "Leave":
-        _op = intent.get("operation", "")
-        _limit = _get_top_n(intent)
-
-        _leave_type = (
-            intent.get("filters", {}).get("leaveType")
-            or intent.get("leave_type")
-            or ""
-        )
-
-        # Map leave type name to actual DB column name
-        _leave_col_map = {
-            "Sick": "OnSickLeave",
-            "Hospitalized": "IsHospitalized",
-            "Medical": "OnMedicalLeave",
-            "Absconded": "IsAbscondedLeave",
-            "Annual": "OnAnnualLeave",
-            "ExPPG": "OnEX PPG",
-            "ATTNC": "OnATTN'C'",
-        }
-        _leave_col_filter = ""
-        if _leave_type in _leave_col_map:
-            _leave_col_filter = f"AND lm.[{_leave_col_map[_leave_type]}] = 1"
-
-        # Agniveer / batch / platoon / company scope — none of the three
-        # Leave branches below applied any of these before.
-        _l_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
-        _l_agniveer_filter = ""
-        _l_args: List[Any] = []
-        if _l_agniveer_no:
-            _l_agniveer_filter = "AND m.AgniveerNo = ?"
-            _l_args.append(_l_agniveer_no)
-        _l_org_filter, _l_org_params = _org_scope_sql("m", intent)
-        _leave_scope_filter = f"{_l_agniveer_filter} {_l_org_filter}".strip()
-        _l_args.extend(_l_org_params)
-
-        # Resolve any date/period phrase ("today", "last week", "last 7
-        # days", "first week of July", ...) named in the query into actual
-        # bounds — Leave had no period filtering at all before (only the
-        # "Current" branch's hardcoded today-only check further down), so
-        # "who was on leave last week" silently ignored "last week" entirely
-        # and fell back to whatever the default operation happened to be.
-        from intent_engine.date_resolver import resolve_date_range as _resolve_dates
-
-        _l_resolved_date, _l_resolved_from, _l_resolved_to = _resolve_dates(
-            operation=None,
-            date=intent.get("date"),
-            from_date=intent.get("from_date") or intent.get("fromDate"),
-            to_date=intent.get("to_date") or intent.get("toDate"),
-        )
-        _l_range_start = (_l_resolved_from or _l_resolved_date)
-        _l_range_end = (_l_resolved_to or _l_resolved_date)
-
-        # All 7 real leave-type flags on AgniveerLeaveMaster — ATTNC and
-        # ExPPG were missing here even though the WHERE-clause filter above
-        # already scopes correctly to them: a leave record matched by
-        # `leave_type=ATTNC` came back with every OTHER flag shown as 0 and
-        # no ATTNC/ExPPG column at all, so the result looked unclassified.
-        _base_select = (
-            "lm.FromDate, lm.ToDate, lm.Remarks, lm.MarkedBy, "
-            "lm.OnSickLeave, lm.IsHospitalized, lm.OnMedicalLeave, "
-            "lm.IsAbscondedLeave, lm.OnAnnualLeave, "
-            "lm.[OnATTN'C'] AS OnATTNC, lm.[OnEX PPG] AS OnEXPPG, "
-            "m.AgniveerNo, m.FullName"
-        )
-
-        # When intent engine sends leaveType=Threshold (misfired from intent),
-        # treat it as the Threshold operation explicitly
-        _effective_op = _op
-        if _leave_type and _leave_type.lower() == "threshold":
-            _effective_op = "Threshold"
-            _leave_col_filter = ""  # No per-type filter for threshold
-
-        # "X's leave history" — Leave's operation vocabulary has no dedicated
-        # History op (only Current/Most/Least/Absconded — see
-        # OPERATIONS_BY_CATEGORY["Leave"]), so this always fell through to
-        # "Current" by default, which restricts to FromDate<=today<=ToDate —
-        # a specific agniveer asking for their leave HISTORY got back
-        # nothing at all unless they happened to be on leave that exact day.
-        # Keyed off raw question text (not the classified operation) so it
-        # fires regardless of which operation the keyword scorer guessed.
-        _leave_raw_q = (question or intent.get("raw_query") or "").lower()
-        if _l_agniveer_no and re.search(
-            r"\bhistory\b|\ball\s+(?:his\s+|her\s+|their\s+)?leave\b|\bleave\s+records?\b",
-            _leave_raw_q,
-        ):
-            # An explicit period ("history in June", "leave records last
-            # month") scopes the history to that window (range-overlap: any
-            # leave spell that touches the requested period); with no period
-            # named, return the full history unfiltered.
-            _lh_period_filter = ""
-            _lh_args = list(_l_args)
-            if _l_range_start and _l_range_end:
-                _lh_period_filter = "AND lm.FromDate <= ? AND lm.ToDate >= ?"
-                _lh_args = [_l_range_end, _l_range_start] + _lh_args
-            _sql = f"""
-SELECT {_top_clause(_limit)} {_base_select}
-FROM AgniveerLeaveMaster lm
-INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
-WHERE ISNULL(m.IsDisqualified,0) = 0
-  {_leave_col_filter}
-  {_lh_period_filter}
-  {_leave_scope_filter}
-ORDER BY lm.FromDate DESC
-"""
-            _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
-            if not _is_sql_valid:
-                return None, f"Leave history SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, _lh_args, max_rows=_row_cap(_limit))
-            if _run_err:
-                return None, f"Leave history execution failed: {_run_err}"
-            return _to_section(_rows or [], intent, sql=_sql), None
-
-        if _effective_op == "Current":
-            import datetime as _dt
-            # A named period ("last week", "last 7 days", ...) overrides the
-            # today-only default — "who was on leave last week" must check
-            # that period, not literally today.
-            if _l_range_start and _l_range_end:
-                _cur_start, _cur_end = _l_range_start, _l_range_end
-            else:
-                _cur_start = _cur_end = _dt.date.today().isoformat()
-            _cur_args = [_cur_end, _cur_start] + _l_args
-            _sql = f"""
-SELECT {_top_clause(_limit)} {_base_select}
-FROM AgniveerLeaveMaster lm
-INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
-WHERE ISNULL(m.IsDisqualified,0) = 0
-  AND lm.FromDate <= ?
-  AND lm.ToDate >= ?
-  {_leave_col_filter}
-  {_leave_scope_filter}
-ORDER BY lm.FromDate ASC
-"""
-
-            _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
-            if not _is_sql_valid:
-                return None, f"Leave Current SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, _cur_args, max_rows=_row_cap(_limit))
-            if _run_err:
-                return None, f"Leave Current execution failed: {_run_err}"
-            return _to_section(_rows or [], intent, sql=_sql), None
-
-        elif _effective_op in ("Most", "Least"):
-            _order = "DESC" if _effective_op == "Most" else "ASC"
-            _sql = f"""
-SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName,
-    SUM(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) AS TotalLeaveDays
-FROM AgniveerLeaveMaster lm
-INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
-WHERE ISNULL(m.IsDisqualified,0) = 0
-  {_leave_col_filter}
-  {_leave_scope_filter}
-GROUP BY m.AgniveerNo, m.FullName
-ORDER BY TotalLeaveDays {_order}, m.AgniveerNo ASC
-"""
-            _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
-            if not _is_sql_valid:
-                return None, f"Leave {_effective_op} SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, _l_args, max_rows=_row_cap(_limit))
-            if _run_err:
-                return None, f"Leave {_effective_op} execution failed: {_run_err}"
-            return _to_section(_rows or [], intent, sql=_sql), None
-
-        elif _effective_op == "Threshold":
-            _sql = f"""
-SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName,
-    SUM(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) AS TotalLeaveDays,
-    MAX(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) AS MaxContinuousLeave
-FROM AgniveerLeaveMaster lm
-INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
-WHERE ISNULL(m.IsDisqualified,0) = 0
-  {_leave_scope_filter}
-GROUP BY m.AgniveerNo, m.FullName
-HAVING SUM(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) >= 55
-    OR MAX(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) >= 40
-ORDER BY TotalLeaveDays DESC
-"""
-            _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
-            if not _is_sql_valid:
-                return None, f"Leave Threshold SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, _l_args, max_rows=_row_cap(_limit))
-            if _run_err:
-                return None, f"Leave Threshold execution failed: {_run_err}"
-            return _to_section(_rows or [], intent, sql=_sql), None
-        # For other leave operations, fall through to AST pipeline
+    if str(intent.get("category") or "").lower() in ("leave", "agniveerleave"):
+        return execute_leave_query(intent)
 
 
-    if intent.get("category") == "Attendance" and intent.get("operation") in (
-        "Monthly",
-        "Weekly",
-        "Summary",
-        "Daily",
-        "Present",
-    ):
-        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
-        # A platoon/company/batch scope with no agniveer_no is a unit-level
-        # aggregate (e.g. "attendance of Platoon 1" for a compare query), not
-        # an individual lookup — this fast path only builds a single person's
-        # day-by-day calendar, so let those fall through to the AST/LLM
-        # capability-gap pipeline below instead of hard-erroring here.
-        _has_unit_scope = any(
-            intent.get(k)
-            for k in (
-                "platoon_id",
-                "platoonId",
-                "company_id",
-                "companyId",
-                "batch_id",
-                "batchId",
-            )
-        )
-        if (
-            not agniveer_no
-            and not _has_unit_scope
-            and intent.get("operation") in ("Monthly", "Weekly", "Summary", "Daily")
-        ):
-            return None, "Please provide an Agniveer number for the attendance query."
-
-        if agniveer_no:
-            is_lookup_valid, lookup_err = sql_validator.validate_sql(_AGNIVEER_LOOKUP_SQL)
-            if not is_lookup_valid:
-                return None, f"Attendance lookup SQL validation failed: {lookup_err}"
-            agniveer_rows, lookup_run_err = run_readonly(_AGNIVEER_LOOKUP_SQL, [agniveer_no])
-            if lookup_run_err:
-                return None, f"Attendance lookup failed: {lookup_run_err}"
-            if not agniveer_rows:
-                return _to_section([], intent), None
-
-            agniveer_row = agniveer_rows[0]
-            range_start, range_end = _resolve_attendance_range(intent)
-            if not range_start or not range_end:
-                return None, "Could not resolve a date range for the attendance query."
-
-
-            sql = _build_attendance_calendar_sql()
-            is_sql_valid, sql_err = sql_validator.validate_sql(sql)
-            if not is_sql_valid:
-                return None, f"Attendance calendar SQL validation failed: {sql_err}"
-            rows, run_err = run_readonly(
-                sql, [range_start, range_end, agniveer_row["Id"]]
-            )
-            if run_err:
-                return None, f"Attendance calendar execution failed: {run_err}"
-            for row in rows or []:
-                row["AgniveerNo"] = agniveer_row["AgniveerNo"]
-                row["FullName"] = agniveer_row["FullName"]
-            return _to_section(rows or [], intent, sql=sql), None
+    # ── Attendance Fast-Path ─────────────────────────────────────────────────
+    if str(intent.get("category") or "").lower() in ("attendance", "attendancetracking", "present"):
+        return execute_attendance_query(intent)
     # ── Medical Fast-Path ──────────────────────────────────────────────────
-    _raw_q = (question or intent.get("raw_query") or "").lower()
-    if intent.get("category") == "Medical" or "bmi" in _raw_q:
-        _med_op = intent.get("operation") or intent.get("subcategory")
-        _m_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
-        _m_diagnosis = intent.get("diagnose") or intent.get("diagnosis")
-        _m_hospital = intent.get("hospital_name") or intent.get("hospitalName")
-        # "pending medical cases" / "critical diagnosis" — MedicalRecordMaster
-        # .Status. The extractor stamps this onto whichever generic status
-        # field it recognises first (medical_status / verification_status),
-        # not a Medical-specific one, so check both.
-        _m_status = (
-            intent.get("medical_status")
-            or intent.get("medicalStatus")
-            or intent.get("verification_status")
-            or intent.get("verificationStatus")
-        )
-        _m_blood_group = (
-            intent.get("blood_group")
-            or intent.get("bloodGroup")
-            or intent.get("filters", {}).get("bloodGroup")
-            or intent.get("filters", {}).get("blood_group")
-        )
-        _limit = _get_top_n(intent)
+    if str(intent.get("category") or "").lower() in ("medical", "health", "bmi"):
+        return execute_medical_query(intent)
 
-
-        if _med_op in ("BMI", "BMIAnalysis") or "bmi" in _raw_q:
-            # The structured bmiCategory field (set by the classifier/entity
-            # extractor from phrasing like "who is unfit") was never actually
-            # read here — only a handful of literal raw-text phrases were,
-            # and only for Overweight/Underweight, with the wrong boundary
-            # for Overweight (open-ended ">25" instead of the 25-30 band)
-            # and no support for Obese/Normal/Unfit at all. bmiCategory is
-            # checked first; the raw-text phrases remain as a fallback for
-            # when nothing structured was extracted.
-            _bmi_category = str(
-                intent.get("bmiCategory") or intent.get("bmi_category") or ""
-            ).strip().lower()
-            _BMI_CATEGORY_CLAUSES = {
-                "underweight": "BmiValue < 18.5",
-                "normal": "BmiValue >= 18.5 AND BmiValue < 25.0",
-                "overweight": "BmiValue >= 25.0 AND BmiValue < 30.0",
-                "obese": "BmiValue >= 30.0",
-                # Unfit = Overweight OR Obese combined — a contiguous BMI >= 25
-                # range, never the Overweight-only upper-bounded range.
-                "unfit": "BmiValue >= 25.0",
-            }
-            bmi_clause = _BMI_CATEGORY_CLAUSES.get(_bmi_category)
-            if bmi_clause is None:
-                bmi_clause = "BmiValue IS NOT NULL"
-                if "above 25" in _raw_q or "overweight" in _raw_q or "greater than 25" in _raw_q or "> 25" in _raw_q or ">25" in _raw_q:
-                    bmi_clause = "BmiValue >= 25.0 AND BmiValue < 30.0"
-                elif "below 18.5" in _raw_q or "underweight" in _raw_q or "< 18.5" in _raw_q or "<18.5" in _raw_q:
-                    bmi_clause = "BmiValue < 18.5"
-                elif "unfit" in _raw_q:
-                    bmi_clause = "BmiValue >= 25.0"
-                elif "obese" in _raw_q:
-                    bmi_clause = "BmiValue >= 30.0"
-
-            bg_clause = ""
-            bg_param: List[Any] = []
-            if _m_blood_group or "o+" in _raw_q or "b+" in _raw_q or "a+" in _raw_q or "ab+" in _raw_q:
-                bg_val = _m_blood_group
-                if not bg_val:
-                    for bg_token in ("o+", "b+", "a+", "ab+", "o-", "b-", "a-", "ab-"):
-                        if bg_token in _raw_q:
-                            bg_val = bg_token.upper()
-                            break
-                if bg_val:
-                    bg_clause = " AND UPPER(REPLACE(BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))"
-                    bg_param.append(str(bg_val))
-
-            _bmi_agniveer_filter = ""
-            _bmi_agniveer_params: List[Any] = []
-            if _m_agniveer_no:
-                _bmi_agniveer_filter = "AND LOWER(a.AgniveerNo) = LOWER(?)"
-                _bmi_agniveer_params.append(str(_m_agniveer_no))
-            _bmi_org_filter, _bmi_org_params = _org_scope_sql("a", intent)
-
-            # Params must be positional in the SAME order their "?" appear in
-            # the compiled SQL text below: the Vitals CTE (agniveer/org scope)
-            # comes before the final SELECT's bg_clause.
-            params = [*_bmi_agniveer_params, *_bmi_org_params, *bg_param]
-
-            # "Show BMI report" (no specific category named) means "how many
-            # in each category", not a dump of every individual record —
-            # bmi_clause is still the unfiltered default ("BmiValue IS NOT
-            # NULL") exactly when the user never named a specific bucket,
-            # which is also exactly when a bare "report" ask is ambiguous
-            # about which category they'd want listed.
-            _wants_bmi_report = bmi_clause == "BmiValue IS NOT NULL" and any(
-                w in _raw_q for w in ("report", "summary", "breakdown", "distribution")
-            )
-            _bmi_select = (
-                """
-SELECT BmiCategory, COUNT(*) AS AgniveerCount
-FROM Categorized
-WHERE {bmi_clause}{bg_clause}
-GROUP BY BmiCategory
-ORDER BY AgniveerCount DESC
-"""
-                if _wants_bmi_report
-                else """
-SELECT {top_clause} AgniveerNo, FullName, BloodGroup, Height, Weight, BmiValue, BmiCategory
-FROM Categorized
-WHERE {bmi_clause}{bg_clause}
-ORDER BY BmiValue DESC
-"""
-            )
-            _sql = f"""
-WITH LatestMedical AS (
-    SELECT mr.AgniveerId, mr.Height, mr.Weight,
-           ROW_NUMBER() OVER (PARTITION BY mr.AgniveerId ORDER BY mr.VisitDate DESC, mr.Id DESC) AS rn
-    FROM MedicalRecordMaster mr
-    WHERE mr.Height IS NOT NULL AND mr.Weight IS NOT NULL
-),
-Vitals AS (
-    SELECT a.Id AS AgniveerId, a.AgniveerNo, a.FullName, a.BatchId, a.Class, a.BloodGroup,
-           COALESCE(lm.Height, a.Height) AS EffHeight,
-           COALESCE(lm.Weight, a.Weight) AS EffWeight
-    FROM AgniveerMaster a
-    LEFT JOIN LatestMedical lm ON lm.AgniveerId = a.Id AND lm.rn = 1
-    WHERE ISNULL(a.IsDisqualified,0) = 0
-      {_bmi_agniveer_filter}
-      {_bmi_org_filter}
-),
-Scored AS (
-    SELECT AgniveerNo, FullName, BloodGroup, EffHeight AS Height, EffWeight AS Weight,
-           CASE WHEN EffHeight IS NULL OR EffWeight IS NULL OR EffHeight <= 0 THEN NULL
-                ELSE CAST(EffWeight / POWER(EffHeight / 100.0, 2) AS DECIMAL(10, 2))
-           END AS BmiValue
-    FROM Vitals
-),
-Categorized AS (
-    SELECT *,
-           CASE WHEN BmiValue IS NULL THEN NULL
-                WHEN BmiValue < 18.5 THEN 'Underweight'
-                WHEN BmiValue < 25.0 THEN 'Normal'
-                WHEN BmiValue < 30.0 THEN 'Overweight'
-                ELSE 'Obese' END AS BmiCategory
-    FROM Scored
-)
-{_bmi_select.format(bmi_clause=bmi_clause, bg_clause=bg_clause, top_clause=_top_clause(_limit))}
-"""
-            _rows, _run_err = run_readonly(_sql, params, max_rows=_row_cap(_limit))
-            if not _run_err:
-                return _to_section(_rows or [], intent, sql=_sql), None
-
-        elif _med_op == "FollowUp":
-            # "which boys have follow-up appointments" / "...upcoming
-            # follow-up date" — MedicalRecordMaster.FollowUpDate, scoped to
-            # today-or-later for "upcoming" phrasing, to a named period
-            # ("follow-ups next week", "in July") when one is given, and
-            # otherwise just "has a follow-up scheduled at all" (any
-            # non-null date).
-            _fu_clauses = ["ISNULL(m.IsDisqualified,0) = 0", "mr.FollowUpDate IS NOT NULL"]
-            _fu_params: List[Any] = []
-            from intent_engine.date_resolver import resolve_date_range as _fu_resolve_dates
-
-            _fu_resolved_date, _fu_resolved_from, _fu_resolved_to = _fu_resolve_dates(
-                operation=None,
-                date=intent.get("date"),
-                from_date=intent.get("from_date") or intent.get("fromDate"),
-                to_date=intent.get("to_date") or intent.get("toDate"),
-            )
-            _fu_range_start = _fu_resolved_from or _fu_resolved_date
-            _fu_range_end = _fu_resolved_to or _fu_resolved_date
-            if _fu_range_start and _fu_range_end:
-                _fu_clauses.append(
-                    "CAST(mr.FollowUpDate AS DATE) >= ? AND CAST(mr.FollowUpDate AS DATE) <= ?"
-                )
-                _fu_params.append(_fu_range_start[:10])
-                _fu_params.append(_fu_range_end[:10])
-            elif "upcoming" in _raw_q or "scheduled" in _raw_q:
-                _fu_clauses.append("mr.FollowUpDate >= CAST(GETDATE() AS DATE)")
-            if _m_agniveer_no:
-                _fu_clauses.append("LOWER(m.AgniveerNo) = LOWER(?)")
-                _fu_params.append(str(_m_agniveer_no))
-            _fu_org_filter, _fu_org_params = _org_scope_sql("m", intent)
-            _fu_where = "WHERE " + " AND ".join(_fu_clauses) + _fu_org_filter
-            _fu_params.extend(_fu_org_params)
-            _sql = f"""
-SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName, mr.FollowUpDate, mr.VisitDate, mr.Diagnosis, mr.HospitalNameLocation
-FROM MedicalRecordMaster mr
-INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
-{_fu_where}
-ORDER BY mr.FollowUpDate ASC, m.AgniveerNo ASC
-"""
-            _rows, _run_err = run_readonly(_sql, _fu_params, max_rows=_row_cap(_limit))
-            if not _run_err:
-                return _to_section(_rows or [], intent, sql=_sql), None
-
-        elif _med_op == "HospitalStats":
-            # "Which hospital has treated the most Agniveers?" — a GROUP BY
-            # aggregate, not a single-Agniveer lookup, so it must not fall
-            # into the "Individual" operation's mandatory-AgniveerNo gate.
-            _hs_org_filter, _hs_org_params = _org_scope_sql("m", intent)
-            _hs_sql = f"""
-SELECT {_top_clause(_limit)} mr.HospitalNameLocation, COUNT(DISTINCT m.Id) AS AgniveerCount
-FROM MedicalRecordMaster mr
-INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
-WHERE ISNULL(m.IsDisqualified,0) = 0
-  AND mr.HospitalNameLocation IS NOT NULL AND TRIM(mr.HospitalNameLocation) <> ''
-  {_hs_org_filter}
-GROUP BY mr.HospitalNameLocation
-ORDER BY AgniveerCount DESC
-"""
-            _hs_rows, _hs_run_err = run_readonly(_hs_sql, _hs_org_params, max_rows=_row_cap(_limit))
-            if not _hs_run_err:
-                return _to_section(_hs_rows or [], intent, sql=_hs_sql), None
-
-        elif _med_op != "BloodGroup" and (
-            _med_op in ("Disease", "DiseaseStatistics", "Diagnosed", "Individual", "IndividualMedical")
-            or _m_diagnosis
-            or _m_agniveer_no
-        ):
-            # "disease report"/"disease summary"/"how many have malaria"
-            # asks for a breakdown — diagnosis name + how many Agniveers
-            # have it — not a per-Agniveer record dump. The classifier
-            # collapses every disease-shaped question (both "who's
-            # diagnosed" and "give me a disease report") onto the same
-            # Disease operation, so the report-vs-list distinction has to
-            # come from the raw phrasing here, same as _wants_bmi_report
-            # above. Never triggers for "Individual"/one named Agniveer —
-            # a report doesn't make sense for a single person's record.
-            _wants_disease_report = (
-                _med_op not in ("Individual", "IndividualMedical")
-                and not _m_agniveer_no
-                and any(
-                    w in _raw_q
-                    for w in (
-                        "report",
-                        "summary",
-                        "breakdown",
-                        "distribution",
-                        "statistics",
-                        "how many",
-                        "most common",
-                        "count of",
-                    )
-                )
-            )
-            if _wants_disease_report:
-                _dr_clauses = [
-                    "ISNULL(m.IsDisqualified,0) = 0",
-                    "mr.Diagnosis IS NOT NULL",
-                    "TRIM(mr.Diagnosis) <> ''",
-                ]
-                _dr_params: List[Any] = []
-                if _m_diagnosis:
-                    _dr_clauses.append("LOWER(mr.Diagnosis) LIKE '%' + LOWER(?) + '%'")
-                    _dr_params.append(str(_m_diagnosis))
-                if _m_hospital:
-                    _dr_clauses.append(
-                        "LOWER(mr.HospitalNameLocation) LIKE '%' + LOWER(?) + '%'"
-                    )
-                    _dr_params.append(str(_m_hospital))
-                _dr_org_filter, _dr_org_params = _org_scope_sql("m", intent)
-                _dr_where = "WHERE " + " AND ".join(_dr_clauses) + _dr_org_filter
-                _dr_params.extend(_dr_org_params)
-                _dr_sql = f"""
-SELECT {_top_clause(_limit)} mr.Diagnosis, COUNT(DISTINCT m.Id) AS AgniveerCount
-FROM MedicalRecordMaster mr
-INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
-{_dr_where}
-GROUP BY mr.Diagnosis
-ORDER BY AgniveerCount DESC
-"""
-                _dr_rows, _dr_run_err = run_readonly(
-                    _dr_sql, _dr_params, max_rows=_row_cap(_limit)
-                )
-                if not _dr_run_err:
-                    return _to_section(_dr_rows or [], intent, sql=_dr_sql), None
-
-            # The `or _m_agniveer_no` fallback below exists so "tell me
-            # about Agniveer X's medical record" (no operation-specific
-            # keyword matched) still returns something — but it was also
-            # catching operation="BloodGroup" purely because an agniveer_no
-            # happened to be present, even though BloodGroup has its own
-            # dedicated handler in the generic AST pipeline further down
-            # (which this "BloodGroup" exclusion now lets it fall through
-            # to instead of a generic medical-record dump).
-            clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
-            params = []
-            if _m_agniveer_no:
-                clauses.append("LOWER(m.AgniveerNo) = LOWER(?)")
-                params.append(str(_m_agniveer_no))
-            if _m_diagnosis:
-                clauses.append("LOWER(mr.Diagnosis) LIKE '%' + LOWER(?) + '%'")
-                params.append(str(_m_diagnosis))
-            if _m_hospital:
-                clauses.append("LOWER(mr.HospitalNameLocation) LIKE '%' + LOWER(?) + '%'")
-                params.append(str(_m_hospital))
-            if _m_status:
-                clauses.append("LOWER(mr.Status) = LOWER(?)")
-                params.append(str(_m_status))
-
-            # Which date column the question is actually about — MedicalRecordMaster
-            # has four (VisitDate/AdmitDate/DischargeDate/FollowUpDate), and
-            # "admitted"/"discharged" phrasing must scope+sort by the matching
-            # column, not always VisitDate (a query about who was admitted
-            # last week previously checked VisitDate, which silently returned
-            # the wrong — or no — records for anyone admitted on a different
-            # visit date than their admission).
-            if re.search(r"\badmit(?:ted|ting|s)?\b|\badmission", _raw_q):
-                _med_date_col = "AdmitDate"
-            elif re.search(r"\bdischarg(?:ed|ing|e|es)?\b", _raw_q):
-                _med_date_col = "DischargeDate"
-            else:
-                _med_date_col = "VisitDate"
-
-            from intent_engine.date_resolver import resolve_date_range as _resolve_dates
-
-            _med_resolved_date, _med_resolved_from, _med_resolved_to = _resolve_dates(
-                operation=None,
-                date=intent.get("date"),
-                from_date=intent.get("from_date") or intent.get("fromDate"),
-                to_date=intent.get("to_date") or intent.get("toDate"),
-            )
-            _med_range_start = _med_resolved_from or _med_resolved_date
-            _med_range_end = _med_resolved_to or _med_resolved_date
-            if _med_range_start and _med_range_end:
-                clauses.append(
-                    f"CAST(mr.{_med_date_col} AS DATE) >= ? AND CAST(mr.{_med_date_col} AS DATE) <= ?"
-                )
-                params.append(_med_range_start[:10])
-                params.append(_med_range_end[:10])
-
-            _org_filter, _org_params = _org_scope_sql("m", intent)
-            where_str = "WHERE " + " AND ".join(clauses) + _org_filter
-            params.extend(_org_params)
-            _sql = f"""
-SELECT {_top_clause(_limit)} mr.Id AS RecordId, m.AgniveerNo, m.FullName, mr.VisitDate, mr.AdmitDate, mr.DischargeDate, mr.Diagnosis, mr.HospitalNameLocation,
-       mr.Height, mr.Weight, mr.EyeSight, mr.BloodPressure, mr.HeartRate, mr.Status, mr.Prescriptions, mr.Remarks
-FROM MedicalRecordMaster mr
-INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
-{where_str}
-ORDER BY mr.{_med_date_col} DESC, m.AgniveerNo ASC
-"""
-            _rows, _run_err = run_readonly(_sql, params, max_rows=_row_cap(_limit))
-            if not _run_err:
-                return _to_section(_rows or [], intent, sql=_sql), None
+    # ── Distribution Fast-Path ───────────────────────────────────────────────
+    if str(intent.get("category") or "").lower() in ("distribution", "unitdistribution", "unit_distribution"):
+        return execute_distribution_query(intent)
 
     # ── Equipment Fast-Path ────────────────────────────────────────────────
     if intent.get("category") == "Equipment":
@@ -1987,6 +4255,18 @@ ORDER BY eq.GivenDateTime DESC
     if intent.get("category") == "Schedule":
         return _execute_schedule_query(intent)
 
+    # ── Disqualified Fast-Path ───────────────────────────────────────────────
+    if str(intent.get("category") or "").lower() in ("disqualified", "disqualification"):
+        return execute_disqualified_query(intent)
+
+    # ── Verification Fast-Path ───────────────────────────────────────────────
+    if str(intent.get("category") or "").lower() in ("verification", "policeverification"):
+        return execute_verification_query(intent)
+
+    # ── Medical Fast-Path ────────────────────────────────────────────────────
+    if str(intent.get("category") or "").lower() in ("medical", "health", "bmi"):
+        return execute_medical_query(intent)
+
     # ── PersonalDetails & Skills Fast-Path ─────────────────────────────────
     _cat_lower = str(intent.get("category") or "").lower()
     if _cat_lower in ("personaldetails", "personaldetail", "personal_details", "skills", "skill") or (not intent.get("category") and (intent.get("agniveer_no") or intent.get("agniveerNo"))):
@@ -1994,7 +4274,17 @@ ORDER BY eq.GivenDateTime DESC
         _p_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         _p_class = intent.get("class") or intent.get("class_")
         _p_state = intent.get("state") or intent.get("district")
-        _p_sport = intent.get("sport")
+        _p_sport = (
+            intent.get("sport")
+            or intent.get("value")
+            or intent.get("filters", {}).get("sport")
+            or intent.get("filters", {}).get("value")
+        )
+        if not _p_sport:
+            for s_token in ("volleyball", "cricket", "football", "soccer", "hockey", "basketball", "kabaddi", "badminton", "tennis", "swimming", "athletics", "boxing", "wrestling", "handball", "squash"):
+                if s_token in _raw_q:
+                    _p_sport = s_token.capitalize()
+                    break
         _p_blood_group = (
             intent.get("blood_group")
             or intent.get("bloodGroup")
@@ -2068,6 +4358,36 @@ ORDER BY AgniveerCount DESC
 
         clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
         params = []
+        joins = []
+
+        _p_company_name = intent.get("company_name") or intent.get("companyName")
+        _p_company_id = intent.get("company_id") or intent.get("companyId")
+        _p_platoon_name = intent.get("platoon_name") or intent.get("platoonName")
+        _p_platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+        _p_batch_id = intent.get("batch_id") or intent.get("batchId")
+
+        if _p_company_name or _p_company_id or _p_platoon_name or _p_platoon_id:
+            joins.append("INNER JOIN PlatoonMaster p ON p.Id = m.PlatoonId")
+        if _p_company_name or _p_company_id:
+            joins.append("INNER JOIN CompanyMaster c ON c.Id = p.CompanyId")
+
+        if _p_company_name:
+            clauses.append("LOWER(c.Name) LIKE '%' + LOWER(?) + '%'")
+            params.append(str(_p_company_name))
+        elif _p_company_id:
+            clauses.append("c.Id = ?")
+            params.append(int(_p_company_id))
+
+        if _p_platoon_name:
+            clauses.append("LOWER(p.Name) LIKE '%' + LOWER(?) + '%'")
+            params.append(str(_p_platoon_name))
+        elif _p_platoon_id:
+            clauses.append("p.Id = ?")
+            params.append(int(_p_platoon_id))
+
+        if _p_batch_id:
+            clauses.append("m.BatchId = ?")
+            params.append(int(_p_batch_id))
 
         if _p_agniveer_no:
             clauses.append("LOWER(m.AgniveerNo) = LOWER(?)")
@@ -2093,7 +4413,8 @@ ORDER BY AgniveerCount DESC
             clauses.append("YEAR(m.DateOfJoining) = ?")
             params.append(int(_p_join_year))
 
-        where_str = "WHERE " + " AND ".join(clauses) + _p_org_filter
+        join_str = (" " + " ".join(joins)) if joins else ""
+        where_str = f"FROM AgniveerMaster m{join_str}\nWHERE " + " AND ".join(clauses) + _p_org_filter
         params.extend(_p_org_params)
 
         # One or more specific fields were asked about (e.g. "height and
@@ -2151,7 +4472,6 @@ ORDER BY AgniveerCount DESC
 
         _sql = f"""
 SELECT {_top_clause(_limit)} {_select_cols}
-FROM AgniveerMaster m
 {where_str}
 ORDER BY m.AgniveerNo ASC
 """

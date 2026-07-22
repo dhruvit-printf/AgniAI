@@ -1,60 +1,74 @@
 import re
 from typing import Optional, Dict, Any, List
 
-# All numeric/comparable or text columns in AgniveerMaster that the user might query
+# All 39 columns in AgniveerMaster
 AGNIVEER_PERSONAL_COLUMNS = [
-    'Address', 'Awards', 'BloodGroup', 'Certificate', 'Class', 'DateOfBirth', 
-    'DateOfJoining', 'DisqualifiedDate', 'District', 'Email', 'EroName', 
-    'EyeSight', 'FullName', 'Height', 'Hobby', 'HouseNo', 
-    'IdMarkI', 'IdMarkI1', 'MainCategory', 'MobileNo', 'NextOfKin', 
-    'PhotoPath', 'PinCode', 'PoliceStation', 'PostOffice', 'Qualification', 
-    'Remarks', 'Skill', 'Sports', 'State', 'Tehsil', 'Village', 'Weight'
+    'FullName', 'AgniveerNo', 'DateOfBirth', 'DateOfJoining', 'Address',
+    'MobileNo', 'EroName', 'NextOfKin', 'Class', 'BloodGroup',
+    'Height', 'Weight', 'EyeSight', 'PlatoonId', 'IsActive',
+    'PhotoPath', 'District', 'Email', 'EnrolledId', 'HouseNo',
+    'IdMarkI', 'IdMarkI1', 'MainCategory', 'PinCode', 'PoliceStation',
+    'PostOffice', 'Qualification', 'State', 'Tehsil', 'Village',
+    'Awards', 'Certificate', 'Hobby', 'Skill', 'Sports',
+    'IsDisqualified', 'Remarks', 'SponserUnitId', 'DisqualifiedDate'
 ]
 
 # Lowercase mapping for fast lookup
 COL_MAP = {col.lower(): col for col in AGNIVEER_PERSONAL_COLUMNS}
-# Aliases
-COL_MAP["eye sight"] = "EyeSight"
-COL_MAP["eyesight"] = "EyeSight"
-COL_MAP["vision"] = "EyeSight"
-COL_MAP["blood group"] = "BloodGroup"
-COL_MAP["bloodgroup"] = "BloodGroup"
-COL_MAP["blood type"] = "BloodGroup"
-COL_MAP["contact number"] = "MobileNo"
-COL_MAP["contact no"] = "MobileNo"
-COL_MAP["phone number"] = "MobileNo"
-COL_MAP["mobile number"] = "MobileNo"
-COL_MAP["phone"] = "MobileNo"
-COL_MAP["phone no"] = "MobileNo"
-COL_MAP["mobile"] = "MobileNo"
-COL_MAP["mobile no"] = "MobileNo"
-COL_MAP["contact"] = "MobileNo"
-COL_MAP["date of birth"] = "DateOfBirth"
-COL_MAP["dob"] = "DateOfBirth"
-COL_MAP["birth date"] = "DateOfBirth"
-COL_MAP["birthday"] = "DateOfBirth"
-COL_MAP["age"] = "DateOfBirth"
-COL_MAP["date of joining"] = "DateOfJoining"
-COL_MAP["doj"] = "DateOfJoining"
-COL_MAP["joining date"] = "DateOfJoining"
-COL_MAP["joined date"] = "DateOfJoining"
-COL_MAP["next of kin"] = "NextOfKin"
-COL_MAP["nok"] = "NextOfKin"
-COL_MAP["house no"] = "HouseNo"
-COL_MAP["education"] = "Qualification"
-COL_MAP["educational qualification"] = "Qualification"
-COL_MAP["pin code"] = "PinCode"
-COL_MAP["pincode"] = "PinCode"
-COL_MAP["zip code"] = "PinCode"
-COL_MAP["zipcode"] = "PinCode"
-COL_MAP["police station"] = "PoliceStation"
-COL_MAP["post office"] = "PostOffice"
-COL_MAP["id mark"] = "IdMarkI"
-COL_MAP["identification mark"] = "IdMarkI"
-COL_MAP["sport"] = "Sports"
-COL_MAP["skills"] = "Skill"
-COL_MAP["hobbies"] = "Hobby"
-COL_MAP["remark"] = "Remarks"
+
+# Comprehensive Column Aliases
+COLUMN_ALIASES = {
+    # Identity
+    "fullname": "FullName", "name": "FullName", "agniveer name": "FullName", "agniveername": "FullName",
+    
+    # Number
+    "agniveer no": "AgniveerNo", "agniveerno": "AgniveerNo", "agniveer number": "AgniveerNo",
+    "enrollment no": "AgniveerNo", "enrollment number": "AgniveerNo", "enrolled id": "EnrolledId", "enrolledid": "EnrolledId",
+    
+    # Dates
+    "date of birth": "DateOfBirth", "dob": "DateOfBirth", "birth date": "DateOfBirth", "birthday": "DateOfBirth", "age": "DateOfBirth",
+    "date of joining": "DateOfJoining", "doj": "DateOfJoining", "joining date": "DateOfJoining", "joined date": "DateOfJoining",
+    "disqualified date": "DisqualifiedDate", "disqualification date": "DisqualifiedDate",
+    
+    # Address
+    "address": "Address", "full address": "Address", "home address": "Address", "permanent address": "Address", "correspondence address": "Address",
+    "state": "State", "district": "District", "tehsil": "Tehsil", "village": "Village", "city": "District", "town": "Tehsil",
+    "pin code": "PinCode", "pincode": "PinCode", "zip code": "PinCode", "postal code": "PinCode", "zipcode": "PinCode",
+    "post office": "PostOffice", "police station": "PoliceStation", "house no": "HouseNo", "houseno": "HouseNo",
+    
+    # Contact
+    "mobile no": "MobileNo", "mobileno": "MobileNo", "phone": "MobileNo", "phone number": "MobileNo", "phone no": "MobileNo",
+    "contact": "MobileNo", "contact number": "MobileNo", "contact no": "MobileNo", "mobile": "MobileNo", "mobile number": "MobileNo",
+    "email": "Email", "email id": "Email", "mail": "Email",
+    
+    # Physical
+    "height": "Height", "weight": "Weight", "eye sight": "EyeSight", "eyesight": "EyeSight", "vision": "EyeSight",
+    
+    # Personal
+    "class": "Class", "community": "Class", "blood group": "BloodGroup", "bloodgroup": "BloodGroup", "blood type": "BloodGroup",
+    "qualification": "Qualification", "education": "Qualification", "academic": "Qualification", "educational qualification": "Qualification",
+    "ero name": "EroName", "ero": "EroName", "next of kin": "NextOfKin", "nok": "NextOfKin", "kin": "NextOfKin", "family": "NextOfKin",
+    "main category": "MainCategory", "category": "MainCategory",
+    
+    # Marks/ID
+    "id mark": "IdMarkI", "id mark 1": "IdMarkI", "id mark i": "IdMarkI", "identification mark": "IdMarkI",
+    "id mark 2": "IdMarkI1", "id mark ii": "IdMarkI1", "identification mark 2": "IdMarkI1",
+    
+    # Activities
+    "hobby": "Hobby", "hobbies": "Hobby", "skill": "Skill", "skills": "Skill", "talent": "Skill",
+    "sport": "Sports", "sports": "Sports", "game": "Sports", "games": "Sports",
+    "award": "Awards", "awards": "Awards", "achievement": "Awards",
+    "certificate": "Certificate", "certificates": "Certificate", "certification": "Certificate",
+    
+    # Status
+    "active": "IsActive", "status": "IsActive", "disqualified": "IsDisqualified", "disqualification": "IsDisqualified",
+    "remarks": "Remarks", "remark": "Remarks", "comment": "Remarks", "note": "Remarks",
+    "photo": "PhotoPath", "picture": "PhotoPath", "image": "PhotoPath",
+    "platoon": "PlatoonId", "unit": "PlatoonId", "batch": "BatchId", "sponsor unit": "SponserUnitId", "sponser unit": "SponserUnitId",
+}
+
+# Merge all aliases into COL_MAP
+COL_MAP.update(COLUMN_ALIASES)
 
 _AGNIVEER_NO_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
 
@@ -153,12 +167,19 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                     agg_res["agniveer_no"] = agn_match.group(1).upper()
                 return agg_res
 
-    # 2. Categorical Match (e.g. "who plays cricket", "eye sight 6/6")
-    sport_match = (
-        None
-        if _OTHER_DOMAIN_WORDS_RE.search(q_lower)
-        else re.search(r'\bplays?\s+([a-z0-9]+)\b', q_lower)
-    )
+    # 2. Categorical Match (e.g. "who plays cricket", "playing volleyball", "eye sight 6/6")
+    sport_match = None
+    if not _OTHER_DOMAIN_WORDS_RE.search(q_lower):
+        sport_match = (
+            re.search(r'\b(?:play|plays|playing)\s+([a-z0-9]+)\b', q_lower)
+            or re.search(r'\b([a-z]+)\s+players?\b', q_lower)
+        )
+        if not sport_match:
+            for known_s in ("volleyball", "cricket", "football", "soccer", "hockey", "basketball", "kabaddi", "badminton", "tennis", "swimming", "athletics", "boxing", "wrestling", "handball", "squash"):
+                if known_s in q_lower:
+                    sport_match = re.search(rf'\b({known_s})\b', q_lower)
+                    break
+
     if sport_match:
         sport = sport_match.group(1)
         sport_res = {
@@ -166,7 +187,8 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
             "operation": "match",
             "metric": "Sports",
             "metrics": ["Sports"],
-            "value": sport,
+            "value": sport.capitalize(),
+            "sport": sport.capitalize(),
             "query_type": "simple",
             "confidence": "high",
             "confidence_score": 1.0,
@@ -174,6 +196,24 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
         }
         if agn_match:
             sport_res["agniveer_no"] = agn_match.group(1).upper()
+
+        from intent_engine.entity_extractor import extract_entities
+        ents = extract_entities(query)
+        if ents.get("companyName"):
+            sport_res["company_name"] = ents["companyName"]
+            sport_res["companyName"] = ents["companyName"]
+        if ents.get("companyId"):
+            sport_res["company_id"] = ents["companyId"]
+            sport_res["companyId"] = ents["companyId"]
+        if ents.get("platoonName"):
+            sport_res["platoon_name"] = ents["platoonName"]
+            sport_res["platoonName"] = ents["platoonName"]
+        if ents.get("platoonId"):
+            sport_res["platoon_id"] = ents["platoonId"]
+            sport_res["platoonId"] = ents["platoonId"]
+        if ents.get("batchId"):
+            sport_res["batch_id"] = ents["batchId"]
+            sport_res["batchId"] = ents["batchId"]
         return sport_res
 
     # Generic "eye sight <value>"
