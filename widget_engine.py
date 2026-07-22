@@ -491,6 +491,11 @@ _EXCLUDED_COLUMN_SUFFIXES = ("_DisplayOrder",)
 _EXCLUDED_COLUMN_KEYS_EXACT = {
     "ID",
     "id",
+    # A per-row dedup key stamped onto records that are genuinely
+    # one-row-per-database-record (see universal_normalizer._ID_FIELD_PRIORITY) —
+    # plumbing for the normalizer, never meant to be a visible column.
+    "recordId",
+    "RecordId",
     "DisplayOrder",
     "displayOrder",
     "success",

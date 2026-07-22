@@ -835,15 +835,19 @@ def _extract_return_condition(
 ) -> Optional[str]:
     query_lower = _normalise(query)
     op = ""
+    is_equipment = False
     if semantic and semantic.get("module", "").lower() == "equipment":
+        is_equipment = True
         op = str(semantic.get("operation") or "").lower()
+    if any(w in query_lower for w in ("equipment", "issued", "returned", "return", "item", "condition")):
+        is_equipment = True
 
     for cond in ("good", "fair", "poor", "damaged"):
         if re.search(rf"\b(given|issued)\s+(in\s+)?{cond}\b", query_lower):
             continue
         if re.search(rf"\breturn(ed)?\s+(in\s+)?{cond}\b", query_lower):
             return cond
-        if re.search(rf"\b{cond}\b", query_lower):
+        if is_equipment and re.search(rf"\b{cond}\b", query_lower):
             if op == "sent":
                 continue
             return cond
@@ -855,17 +859,20 @@ def _extract_given_condition(
 ) -> Optional[str]:
     query_lower = _normalise(query)
     op = ""
+    is_equipment = False
     if semantic and semantic.get("module", "").lower() == "equipment":
+        is_equipment = True
         op = str(semantic.get("operation") or "").lower()
+    if any(w in query_lower for w in ("equipment", "issued", "returned", "return", "item", "condition")):
+        is_equipment = True
 
     for cond in ("good", "fair", "poor", "damaged"):
         if re.search(rf"\b(given|issued)\s+(in\s+)?{cond}\b", query_lower):
             return cond
-        if re.search(rf"\b{cond}\b", query_lower):
-            if op == "sent" and not re.search(
-                rf"\breturn(ed)?\s+(in\s+)?{cond}\b", query_lower
-            ):
-                return cond
+        if is_equipment and re.search(rf"\b{cond}\b", query_lower):
+            if op == "received":
+                continue
+            return cond
     return None
 
 

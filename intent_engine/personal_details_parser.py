@@ -15,15 +15,46 @@ AGNIVEER_PERSONAL_COLUMNS = [
 COL_MAP = {col.lower(): col for col in AGNIVEER_PERSONAL_COLUMNS}
 # Aliases
 COL_MAP["eye sight"] = "EyeSight"
+COL_MAP["eyesight"] = "EyeSight"
+COL_MAP["vision"] = "EyeSight"
 COL_MAP["blood group"] = "BloodGroup"
+COL_MAP["bloodgroup"] = "BloodGroup"
+COL_MAP["blood type"] = "BloodGroup"
 COL_MAP["contact number"] = "MobileNo"
 COL_MAP["contact no"] = "MobileNo"
 COL_MAP["phone number"] = "MobileNo"
 COL_MAP["mobile number"] = "MobileNo"
+COL_MAP["phone"] = "MobileNo"
+COL_MAP["phone no"] = "MobileNo"
+COL_MAP["mobile"] = "MobileNo"
+COL_MAP["mobile no"] = "MobileNo"
+COL_MAP["contact"] = "MobileNo"
 COL_MAP["date of birth"] = "DateOfBirth"
+COL_MAP["dob"] = "DateOfBirth"
+COL_MAP["birth date"] = "DateOfBirth"
+COL_MAP["birthday"] = "DateOfBirth"
+COL_MAP["age"] = "DateOfBirth"
 COL_MAP["date of joining"] = "DateOfJoining"
+COL_MAP["doj"] = "DateOfJoining"
+COL_MAP["joining date"] = "DateOfJoining"
+COL_MAP["joined date"] = "DateOfJoining"
 COL_MAP["next of kin"] = "NextOfKin"
+COL_MAP["nok"] = "NextOfKin"
 COL_MAP["house no"] = "HouseNo"
+COL_MAP["education"] = "Qualification"
+COL_MAP["educational qualification"] = "Qualification"
+COL_MAP["pin code"] = "PinCode"
+COL_MAP["pincode"] = "PinCode"
+COL_MAP["zip code"] = "PinCode"
+COL_MAP["zipcode"] = "PinCode"
+COL_MAP["police station"] = "PoliceStation"
+COL_MAP["post office"] = "PostOffice"
+COL_MAP["id mark"] = "IdMarkI"
+COL_MAP["identification mark"] = "IdMarkI"
+COL_MAP["sport"] = "Sports"
+COL_MAP["skills"] = "Skill"
+COL_MAP["hobbies"] = "Hobby"
+COL_MAP["remark"] = "Remarks"
 
 _AGNIVEER_NO_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
 
@@ -63,6 +94,7 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
             "category": "personaldetail",
             "operation": "lookup",
             "metric": "DateOfJoining",
+            "metrics": ["DateOfJoining"],
             "agniveer_no": agn_match.group(1).upper(),
             "query_type": "simple",
             "confidence": "high",
@@ -97,12 +129,105 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
             result["agniveer_no"] = agn_match.group(1).upper()
         return result
 
-    # 0b. Attribute filters with no single "show me field X" ask (e.g. "list
-    # every Agniveer belonging to Batch 3", "Agniveers taller than 175 cm",
-    # "who joined in 2024") — these have no category keyword the main
-    # classifier's vocabulary recognises at all, so nothing scores except a
-    # stray fuzzy-match point on an unrelated category (observed: Equipment/
-    # AgniveerWise winning by default at ~0.2 confidence).
+    # 1. Check for aggregators: average, above average, below average, max, min
+    agg_match = re.search(r'\b(above average|below average|average|max|maximum|min|minimum)\s+([a-z\s]+)\b', q_lower)
+    if agg_match:
+        raw_agg = agg_match.group(1).replace("maximum", "max").replace("minimum", "min")
+        raw_col = agg_match.group(2).strip()
+
+        # Check if the extracted suffix matches a known column
+        for col_alias, true_col in COL_MAP.items():
+            if raw_col.startswith(col_alias) or col_alias in raw_col:
+                op = raw_agg.replace(" ", "_")
+                agg_res = {
+                    "category": "personaldetail",
+                    "operation": op,
+                    "metric": true_col,
+                    "metrics": [true_col],
+                    "query_type": "simple",
+                    "confidence": "high",
+                    "confidence_score": 1.0,
+                    "filters": {}
+                }
+                if agn_match:
+                    agg_res["agniveer_no"] = agn_match.group(1).upper()
+                return agg_res
+
+    # 2. Categorical Match (e.g. "who plays cricket", "eye sight 6/6")
+    sport_match = (
+        None
+        if _OTHER_DOMAIN_WORDS_RE.search(q_lower)
+        else re.search(r'\bplays?\s+([a-z0-9]+)\b', q_lower)
+    )
+    if sport_match:
+        sport = sport_match.group(1)
+        sport_res = {
+            "category": "personaldetail",
+            "operation": "match",
+            "metric": "Sports",
+            "metrics": ["Sports"],
+            "value": sport,
+            "query_type": "simple",
+            "confidence": "high",
+            "confidence_score": 1.0,
+            "filters": {}
+        }
+        if agn_match:
+            sport_res["agniveer_no"] = agn_match.group(1).upper()
+        return sport_res
+
+    # Generic "eye sight <value>"
+    eye_match = re.search(r'\beye\s*sight\s*(?:is\s*)?([0-9/]+)\b', q_lower)
+    if eye_match:
+        eye_res = {
+            "category": "personaldetail",
+            "operation": "match",
+            "metric": "EyeSight",
+            "metrics": ["EyeSight"],
+            "value": eye_match.group(1),
+            "query_type": "simple",
+            "confidence": "high",
+            "confidence_score": 1.0,
+            "filters": {}
+        }
+        if agn_match:
+            eye_res["agniveer_no"] = agn_match.group(1).upper()
+        return eye_res
+
+    # 3. Specific column field lookup ("what is the height", "height and weight",
+    # "DOB and qualification of Agniveer A0701882L"). Checked BEFORE generic roster
+    # matching so specific field queries are never swallowed into returning all 14 profile columns.
+    # ONLY applies when no other domain words (e.g. equipment, issued, verification, leave, bpet, etc.)
+    # are present in the query (which indicate a multi-domain / cross-filter / multi-independent query).
+    if not _OTHER_DOMAIN_WORDS_RE.search(q_lower):
+        found: List[Any] = []
+        seen: set = set()
+        for col_alias in sorted(COL_MAP.keys(), key=len, reverse=True):
+            m = re.search(rf'\b{re.escape(col_alias)}\b', q_lower)
+            if m:
+                canonical = COL_MAP[col_alias]
+                if canonical not in seen:
+                    seen.add(canonical)
+                    found.append((m.start(), canonical))
+
+        if found:
+            found.sort(key=lambda pair: pair[0])
+            columns = [c for _, c in found]
+            spec_res = {
+                "category": "personaldetail",
+                "operation": "lookup",
+                "metric": columns[0],
+                "metrics": columns,
+                "query_type": "simple",
+                "confidence": "high",
+                "confidence_score": 1.0,
+                "filters": {}
+            }
+            if agn_match:
+                spec_res["agniveer_no"] = agn_match.group(1).upper()
+            return spec_res
+
+    # 4. Attribute filters with no single "show me field X" ask (e.g. "Agniveers taller than 175 cm", "who joined in 2024")
     if "agniveer" in q_lower:
         height_match = re.search(
             r"\b(taller|shorter|height)\b.*?\b(than|above|below|over|under)\s*(\d+(?:\.\d+)?)",
@@ -137,18 +262,7 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                 "filters": {},
             }
 
-        # A plain roster ask — "give me a list of agniveers in <Company/
-        # Platoon/Batch N>" — with no aggregate/ranking language AND no
-        # other domain content. Company/platoon NAME -> ID resolution
-        # happens separately upstream in admin_entity_resolver.py; this only
-        # needs to recognise the question shape. Without the domain-word
-        # exclusion, this swallowed queries that only incidentally contain
-        # "show"/"give" + "in"/"of"/"from" ANYWHERE in the sentence —
-        # "Show Agniveers who are overweight despite scoring Excellent in
-        # BPET", "give me all Agniveers who have taken leave from Company
-        # X", and "Show verification status of Agniveer X" were all being
-        # forced into a plain personal-detail profile listing instead of
-        # their real category (cross_filter / Leave / Verification).
+        # Plain roster ask — "give me a list of agniveers in Batch 1", "show personal details of Agniveer A0701882L"
         if (
             (
                 re.search(r"\bbatch\s+[a-z0-9]+\b", q_lower)
@@ -163,7 +277,7 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                 )
             )
         ) and not _OTHER_DOMAIN_WORDS_RE.search(q_lower):
-            return {
+            roster_res = {
                 "category": "personaldetail",
                 "operation": "lookup",
                 "query_type": "simple",
@@ -171,12 +285,11 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                 "confidence_score": 0.85,
                 "filters": {},
             }
+            if agn_match:
+                roster_res["agniveer_no"] = agn_match.group(1).upper()
+            return roster_res
 
-    # 0c. Plain total headcount ("how many Agniveers are there in total?").
-    # Deliberately narrow — "are/is there" is distinctive phrasing that
-    # won't false-fire on "how many Agniveers WERE PRESENT..." or "...ARE
-    # HOSPITALIZED..." (those belong to Attendance/Leave, not a total count),
-    # and is skipped entirely if "active"/"inactive" already matched above.
+    # 5. Plain total headcount ("how many Agniveers are there in total?").
     if re.search(r"\bhow many agniveers?\s+(?:are|is)\s+there\b", q_lower) or re.search(
         r"\btotal number of agniveers\b", q_lower
     ):
@@ -190,92 +303,5 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
             "filters": {},
         }
 
-    # 1. Check for aggregators: average, above average, below average, max, min
-    agg_match = re.search(r'\b(above average|below average|average|max|maximum|min|minimum)\s+([a-z\s]+)\b', q_lower)
-    if agg_match:
-        raw_agg = agg_match.group(1).replace("maximum", "max").replace("minimum", "min")
-        raw_col = agg_match.group(2).strip()
-        
-        # Check if the extracted suffix matches a known column
-        for col_alias, true_col in COL_MAP.items():
-            if raw_col.startswith(col_alias) or col_alias in raw_col:
-                op = raw_agg.replace(" ", "_")
-                return {
-                    "category": "personaldetail",
-                    "operation": op,
-                    "metric": true_col,
-                    "query_type": "simple",
-                    "confidence": "high",
-                    "confidence_score": 1.0,
-                    "filters": {}
-                }
-                
-    # 2. Categorical Match (e.g. "who plays cricket", "eye sight 6/6")
-    # Generic catch-all for "plays <sport>" — but not when other domain
-    # content is also present ("top performer in PPT who plays cricket and
-    # is currently on leave" is a 3-way cross-filter, not a plain sport
-    # lookup; matching sport alone here silently dropped the ranking and
-    # leave-status halves of the question).
-    sport_match = (
-        None
-        if _OTHER_DOMAIN_WORDS_RE.search(q_lower)
-        else re.search(r'\bplays?\s+([a-z0-9]+)\b', q_lower)
-    )
-    if sport_match:
-        sport = sport_match.group(1)
-        return {
-            "category": "personaldetail",
-            "operation": "match",
-            "metric": "Sports",
-            "value": sport,
-            "query_type": "simple",
-            "confidence": "high",
-            "confidence_score": 1.0,
-            "filters": {}
-        }
-        
-    # Generic "eye sight <value>"
-    eye_match = re.search(r'\beye\s*sight\s*(?:is\s*)?([0-9/]+)\b', q_lower)
-    if eye_match:
-        return {
-            "category": "personaldetail",
-            "operation": "match",
-            "metric": "EyeSight",
-            "value": eye_match.group(1),
-            "query_type": "simple",
-            "confidence": "high",
-            "confidence_score": 1.0,
-            "filters": {}
-        }
-        
-    # 3. Generic column lookup ("what is the height", or "height and weight"
-    # for more than one field at once — every matched column is kept, not
-    # just the first, so a multi-field ask doesn't silently lose the rest).
-    # Sort columns by length descending so longer aliases match first and
-    # a shorter alias can't steal part of one already matched (e.g. "date of
-    # birth" before "date of joining" both containing "date").
-    found: List[Any] = []
-    seen: set = set()
-    for col_alias in sorted(COL_MAP.keys(), key=len, reverse=True):
-        m = re.search(rf'\b{re.escape(col_alias)}\b', q_lower)
-        if m:
-            canonical = COL_MAP[col_alias]
-            if canonical not in seen:
-                seen.add(canonical)
-                found.append((m.start(), canonical))
-
-    if found:
-        found.sort(key=lambda pair: pair[0])
-        columns = [c for _, c in found]
-        return {
-            "category": "personaldetail",
-            "operation": "lookup",
-            "metric": columns[0],
-            "metrics": columns,
-            "query_type": "simple",
-            "confidence": "high",
-            "confidence_score": 1.0,
-            "filters": {}
-        }
-
     return None
+

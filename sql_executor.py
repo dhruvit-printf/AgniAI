@@ -529,27 +529,56 @@ _COMPANY_ID_BY_AGNIVEER_NO_SQL = (
 )
 
 
-def _build_company_schedule_sql(
-    *,
+def resolve_company_id_from_agniveer(agniveer_no: str) -> Optional[int]:
+    """Resolve company ID from Agniveer number."""
+    sql = """
+    SELECT TOP (1) p.CompanyId AS CompanyId
+    FROM AgniveerMaster a
+    LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+    WHERE LOWER(a.AgniveerNo) = LOWER(?)
+    """
+    rows, err = run_readonly(sql, [agniveer_no])
+    if err or not rows:
+        return None
+    return rows[0].get("CompanyId")
+
+
+def resolve_company_id_from_platoon(platoon_id: int) -> Optional[int]:
+    """Resolve company ID from platoon ID."""
+    sql = "SELECT TOP (1) CompanyId FROM PlatoonMaster WHERE Id = ?"
+    rows, err = run_readonly(sql, [platoon_id])
+    if err or not rows:
+        return None
+    return rows[0].get("CompanyId")
+
+
+def resolve_company_id_from_name(company_name: str) -> Optional[int]:
+    """Resolve company ID from company name."""
+    sql = "SELECT TOP (1) Id AS CompanyId FROM CompanyMaster WHERE LOWER(Name) = LOWER(?)"
+    rows, err = run_readonly(sql, [company_name])
+    if err or not rows:
+        return None
+    return rows[0].get("CompanyId")
+
+
+def build_schedule_sql(
     company_id: Optional[int] = None,
     date: Optional[str] = None,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
-    top_n: Optional[int] = None,
+    top_n: int = 500
 ) -> Tuple[str, List[Any]]:
-    """Build the deterministic CompanySchedule query for a resolved company or all companies.
-
-    No date scope (bycompany with nothing else specified) returns the whole
-    schedule; a single `date` scopes to that day; a `from_date`/`to_date` pair
-    scopes to that range.
-    """
+    """Build schedule SQL with proper filters."""
+    
     clauses = []
-    params: List[Any] = []
+    params = []
 
+    # ── Company Filter ──────────────────────────────────────────────────
     if company_id is not None:
         clauses.append("s.CompanyId = ?")
         params.append(int(company_id))
 
+    # ── Date Filters ──────────────────────────────────────────────────
     if from_date or to_date:
         if from_date:
             clauses.append("CAST(s.ScheduleDate AS DATE) >= CAST(? AS DATE)")
@@ -561,10 +590,12 @@ def _build_company_schedule_sql(
         clauses.append("CAST(s.ScheduleDate AS DATE) = CAST(? AS DATE)")
         params.append(str(date)[:10])
 
-    where_str = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
 
     sql = f"""
-    SELECT {_top_clause(top_n)}
+    SELECT TOP ({top_n})
+        s.Id AS ScheduleId,
+        s.CompanyId,
         c.Name AS CompanyName,
         s.ScheduleDate,
         s.Pd,
@@ -575,11 +606,59 @@ def _build_company_schedule_sql(
         s.Location,
         s.Resp
     FROM CompanySchedule s
-        LEFT JOIN CompanyMaster c ON c.Id = s.CompanyId
-    {where_str}
-    ORDER BY s.ScheduleDate ASC, s.Pd ASC
+    LEFT JOIN CompanyMaster c ON c.Id = s.CompanyId
+    {where_clause}
+    ORDER BY c.Name ASC, s.ScheduleDate ASC, s.Pd ASC
     """
     return sql, params
+
+
+def _execute_schedule_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+    """Dispatch schedule query based on intent."""
+    
+    operation = str(intent.get("operation") or "bytoday").lower()
+    
+    # ── Resolve Company ID ─────────────────────────────────────────────
+    company_id = None
+    
+    # Priority: Direct ID > AgniveerNo > PlatoonId > CompanyName
+    if intent.get("company_id") or intent.get("companyId"):
+        company_id = int(intent.get("company_id") or intent.get("companyId"))
+    elif intent.get("agniveer_no") or intent.get("agniveerNo"):
+        ag_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+        company_id = resolve_company_id_from_agniveer(ag_no)
+    elif intent.get("platoon_id") or intent.get("platoonId"):
+        pl_id = int(intent.get("platoon_id") or intent.get("platoonId"))
+        company_id = resolve_company_id_from_platoon(pl_id)
+    elif intent.get("company_name") or intent.get("companyName"):
+        name = intent.get("company_name") or intent.get("companyName")
+        company_id = resolve_company_id_from_name(name)
+    
+    # ── Resolve Date ──────────────────────────────────────────────────
+    from_date = intent.get("from_date") or intent.get("fromDate")
+    to_date = intent.get("to_date") or intent.get("toDate")
+    date = intent.get("date")
+    
+    # Default to today for "bytoday" operation
+    if operation in ("bytoday", "today", "now", "current"):
+        if not date and not from_date and not to_date:
+            date = datetime.date.today().isoformat()
+    
+    # ── Build and Execute SQL ──────────────────────────────────────────
+    top_n = intent.get("number") or 500
+    sql, params = build_schedule_sql(
+        company_id=company_id,
+        date=date,
+        from_date=from_date,
+        to_date=to_date,
+        top_n=top_n,
+    )
+    
+    rows, err = run_readonly(sql, params)
+    if err:
+        return None, err
+    
+    return _to_section(rows or [], intent, sql=sql), None
 
 
 
@@ -1581,6 +1660,64 @@ ORDER BY AgniveerCount DESC
             or _m_diagnosis
             or _m_agniveer_no
         ):
+            # "disease report"/"disease summary"/"how many have malaria"
+            # asks for a breakdown — diagnosis name + how many Agniveers
+            # have it — not a per-Agniveer record dump. The classifier
+            # collapses every disease-shaped question (both "who's
+            # diagnosed" and "give me a disease report") onto the same
+            # Disease operation, so the report-vs-list distinction has to
+            # come from the raw phrasing here, same as _wants_bmi_report
+            # above. Never triggers for "Individual"/one named Agniveer —
+            # a report doesn't make sense for a single person's record.
+            _wants_disease_report = (
+                _med_op not in ("Individual", "IndividualMedical")
+                and not _m_agniveer_no
+                and any(
+                    w in _raw_q
+                    for w in (
+                        "report",
+                        "summary",
+                        "breakdown",
+                        "distribution",
+                        "statistics",
+                        "how many",
+                        "most common",
+                        "count of",
+                    )
+                )
+            )
+            if _wants_disease_report:
+                _dr_clauses = [
+                    "ISNULL(m.IsDisqualified,0) = 0",
+                    "mr.Diagnosis IS NOT NULL",
+                    "TRIM(mr.Diagnosis) <> ''",
+                ]
+                _dr_params: List[Any] = []
+                if _m_diagnosis:
+                    _dr_clauses.append("LOWER(mr.Diagnosis) LIKE '%' + LOWER(?) + '%'")
+                    _dr_params.append(str(_m_diagnosis))
+                if _m_hospital:
+                    _dr_clauses.append(
+                        "LOWER(mr.HospitalNameLocation) LIKE '%' + LOWER(?) + '%'"
+                    )
+                    _dr_params.append(str(_m_hospital))
+                _dr_org_filter, _dr_org_params = _org_scope_sql("m", intent)
+                _dr_where = "WHERE " + " AND ".join(_dr_clauses) + _dr_org_filter
+                _dr_params.extend(_dr_org_params)
+                _dr_sql = f"""
+SELECT {_top_clause(_limit)} mr.Diagnosis, COUNT(DISTINCT m.Id) AS AgniveerCount
+FROM MedicalRecordMaster mr
+INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
+{_dr_where}
+GROUP BY mr.Diagnosis
+ORDER BY AgniveerCount DESC
+"""
+                _dr_rows, _dr_run_err = run_readonly(
+                    _dr_sql, _dr_params, max_rows=_row_cap(_limit)
+                )
+                if not _dr_run_err:
+                    return _to_section(_dr_rows or [], intent, sql=_dr_sql), None
+
             # The `or _m_agniveer_no` fallback below exists so "tell me
             # about Agniveer X's medical record" (no operation-specific
             # keyword matched) still returns something — but it was also
@@ -1639,7 +1776,7 @@ ORDER BY AgniveerCount DESC
             where_str = "WHERE " + " AND ".join(clauses) + _org_filter
             params.extend(_org_params)
             _sql = f"""
-SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName, mr.VisitDate, mr.AdmitDate, mr.DischargeDate, mr.Diagnosis, mr.HospitalNameLocation,
+SELECT {_top_clause(_limit)} mr.Id AS RecordId, m.AgniveerNo, m.FullName, mr.VisitDate, mr.AdmitDate, mr.DischargeDate, mr.Diagnosis, mr.HospitalNameLocation,
        mr.Height, mr.Weight, mr.EyeSight, mr.BloodPressure, mr.HeartRate, mr.Status, mr.Prescriptions, mr.Remarks
 FROM MedicalRecordMaster mr
 INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
@@ -1682,29 +1819,18 @@ ORDER BY mr.{_med_date_col} DESC, m.AgniveerNo ASC
             ]
             return _to_section(_cat_rows, intent, sql=None), None
 
-        # "Show equipment summary" — a single totals card: grand total plus
-        # an Issued/Procured breakdown, each split into currently-held vs
-        # returned. Classifier subcategory "EquipmentSummary" maps to
-        # operation "Stats" (see intent_schema.py), but nothing previously
-        # handled that operation value here, so it silently fell through to
-        # the generic per-record Holding/Returned listing below and returned
-        # a raw row dump instead of a summary.
-        if _eq_op == "Stats" or "summary" in _raw_q:
-            _issued_ph = ", ".join("?" for _ in ISSUED_EQUIPMENT_ITEMS)
-            _procured_ph = ", ".join("?" for _ in PROCURED_EQUIPMENT_ITEMS)
+        # 1. Stats / Summary
+        if _eq_op in ("Stats", "EquipmentSummary") or "summary" in _raw_q:
             _stats_org_filter, _stats_org_params = _org_scope_sql("m", intent)
             _stats_sql = f"""
 WITH Categorized AS (
-    SELECT
-        eq.ReturnDateTime,
-        CASE
-            WHEN eq.Type IN ({_issued_ph}) THEN 'Issued'
-            WHEN eq.Type IN ({_procured_ph}) THEN 'Procured'
-            ELSE NULL
-        END AS ItemCategory
+    SELECT eq.ReturnDateTime, eq.Type AS ItemCategory
     FROM AgniveerEquipment eq
     INNER JOIN AgniveerMaster m ON m.Id = eq.AgniveerId
-    WHERE ISNULL(m.IsDisqualified,0) = 0 {_stats_org_filter}
+    WHERE ISNULL(m.IsDisqualified,0) = 0
+        AND eq.Type IS NOT NULL
+        AND eq.Type IN ('Issued', 'Procured')
+        {_stats_org_filter}
 )
 SELECT
     COUNT(*) AS TotalAssignedEquipments,
@@ -1716,66 +1842,150 @@ SELECT
     SUM(CASE WHEN ItemCategory = 'Procured' AND ReturnDateTime IS NOT NULL THEN 1 ELSE 0 END) AS ProcuredReturned
 FROM Categorized
 """
-            _stats_params = (
-                list(ISSUED_EQUIPMENT_ITEMS)
-                + list(PROCURED_EQUIPMENT_ITEMS)
-                + _stats_org_params
-            )
+            _stats_params = list(_stats_org_params)
             _stats_rows, _stats_run_err = run_readonly(_stats_sql, _stats_params)
             if not _stats_run_err:
                 _r = (_stats_rows or [{}])[0]
+                _tot_assigned = _r.get("TotalAssignedEquipments") or _r.get("TotalAssigned") or 0
+                _issued_tot = _r.get("IssuedTotal") or 0
+                _issued_curr = _r.get("IssuedCurrentlyWithAgniveer") or 0
+                _issued_ret = _r.get("IssuedReturned") or 0
+                _procured_tot = _r.get("ProcuredTotal") or 0
+                _procured_curr = _r.get("ProcuredCurrentlyWithAgniveer") or 0
+                _procured_ret = _r.get("ProcuredReturned") or 0
+
                 _summary_row = {
-                    "totalAssignedEquipments": _r.get("TotalAssignedEquipments") or 0,
+                    "totalAssignedEquipments": _tot_assigned,
                     "issuedEquipments": {
-                        "totalEquipments": _r.get("IssuedTotal") or 0,
-                        "currentlyWithAgniveer": _r.get("IssuedCurrentlyWithAgniveer") or 0,
-                        "returned": _r.get("IssuedReturned") or 0,
+                        "totalEquipments": _issued_tot,
+                        "currentlyWithAgniveer": _issued_curr,
+                        "returned": _issued_ret,
                     },
                     "procuredEquipments": {
-                        "total": _r.get("ProcuredTotal") or 0,
-                        "currentlyWithAgniveer": _r.get("ProcuredCurrentlyWithAgniveer") or 0,
-                        "returned": _r.get("ProcuredReturned") or 0,
+                        "total": _procured_tot,
+                        "currentlyWithAgniveer": _procured_curr,
+                        "returned": _procured_ret,
                     },
+                    "TotalAssignedEquipments": _tot_assigned,
+                    "IssuedTotal": _issued_tot,
+                    "IssuedCurrentlyWithAgniveer": _issued_curr,
+                    "IssuedReturned": _issued_ret,
+                    "ProcuredTotal": _procured_tot,
+                    "ProcuredCurrentlyWithAgniveer": _procured_curr,
+                    "ProcuredReturned": _procured_ret,
                 }
                 return _to_section([_summary_row], intent, sql=_stats_sql), None
 
-        clauses = ["ISNULL(m.IsDisqualified,0) = 0"]
+        # 2. AgniveerWise (Specific Agniveer Equipment Lookup)
+        if _eq_op == "AgniveerWise" or (_eq_agniveer_no and _eq_op not in ("Holding", "Returned", "HoldingEquipment", "ReturnedEquipment")):
+            _sql = f"""
+SELECT {_top_clause(_limit)}
+    eq.Id AS AssignmentId,
+    em.Name AS EquipmentName,
+    em.Category AS EquipmentCategory,
+    eq.Type,
+    eq.GivenDateTime,
+    eq.ReturnDateTime,
+    eq.GivenCondition,
+    eq.ReturnCondition,
+    eq.Remarks,
+    CASE WHEN eq.ReturnDateTime IS NOT NULL THEN 1 ELSE 0 END AS IsReturned
+FROM AgniveerEquipment eq
+INNER JOIN AgniveerMaster a ON a.Id = eq.AgniveerId
+INNER JOIN EquipmentMaster em ON em.Id = eq.EquipmentId
+WHERE LOWER(a.AgniveerNo) = LOWER(?)
+ORDER BY eq.GivenDateTime DESC
+"""
+            _rows, _run_err = run_readonly(_sql, [str(_eq_agniveer_no)], max_rows=_row_cap(_limit))
+            if not _run_err:
+                return _to_section(_rows or [], intent, sql=_sql), None
+
+        # 3. Returned Equipment
+        if _eq_op in ("Returned", "ReturnedEquipment") or _eq_type == "Returned":
+            clauses = [
+                "eq.ReturnDateTime IS NOT NULL",
+                "(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)",
+                "a.IsActive = 1",
+            ]
+            params = []
+            if _eq_agniveer_no:
+                clauses.append("LOWER(a.AgniveerNo) = LOWER(?)")
+                params.append(str(_eq_agniveer_no))
+            if _eq_type and _eq_type not in ("Issued", "Returned", "Holding"):
+                clauses.append("(LOWER(eq.Type) LIKE '%' + LOWER(?) + '%' OR LOWER(em.Name) LIKE '%' + LOWER(?) + '%')")
+                params.extend([str(_eq_type), str(_eq_type)])
+
+            _org_filter, _org_params = _org_scope_sql("a", intent)
+            where_str = "WHERE " + " AND ".join(clauses) + _org_filter
+            params.extend(_org_params)
+            _sql = f"""
+SELECT {_top_clause(_limit)}
+    eq.Id AS AssignmentId,
+    a.AgniveerNo,
+    a.FullName,
+    a.PhotoPath,
+    p.Name AS PlatoonName,
+    em.Name AS EquipmentName,
+    em.Category AS EquipmentCategory,
+    eq.Type,
+    eq.GivenDateTime,
+    eq.ReturnDateTime,
+    eq.GivenCondition,
+    eq.ReturnCondition
+FROM AgniveerEquipment eq
+INNER JOIN AgniveerMaster a ON a.Id = eq.AgniveerId
+LEFT JOIN EquipmentMaster em ON em.Id = eq.EquipmentId
+LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
+{where_str}
+ORDER BY eq.ReturnDateTime DESC
+"""
+            _rows, _run_err = run_readonly(_sql, params, max_rows=_row_cap(_limit))
+            if not _run_err:
+                return _to_section(_rows or [], intent, sql=_sql), None
+
+        # 4. Holding Equipment (Default for Equipment listing / overdue / holding)
+        clauses = [
+            "eq.ReturnDateTime IS NULL",
+            "(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)",
+            "a.IsActive = 1",
+        ]
         params = []
-
-        if _eq_op == "Holding" or _eq_type in ("Issued", "Holding"):
-            # "Holding" is the classifier's actual operation value for both
-            # "who's currently holding X" and "overdue equipment" queries
-            # (there's no due-date column in AgniveerEquipment, so "overdue"
-            # is intentionally treated as "still issued, not yet returned" —
-            # see intent_classifier.py / tests/test_equipment_items.py).
-            # "Issued" is not a real classifier operation value (Equipment's
-            # only operations are ByName/AgniveerWise/Holding/Stats/Returned)
-            # so this clause never fired and every Holding/overdue query
-            # silently returned ALL equipment records, issued or returned.
-            clauses.append("eq.ReturnDateTime IS NULL")
-        elif _eq_op == "Returned" or _eq_type == "Returned":
-            clauses.append("eq.ReturnDateTime IS NOT NULL")
-
         if _eq_agniveer_no:
-            clauses.append("LOWER(m.AgniveerNo) = LOWER(?)")
+            clauses.append("LOWER(a.AgniveerNo) = LOWER(?)")
             params.append(str(_eq_agniveer_no))
         if _eq_type and _eq_type not in ("Issued", "Returned", "Holding"):
-            clauses.append("LOWER(eq.Type) LIKE '%' + LOWER(?) + '%'")
-            params.append(str(_eq_type))
+            clauses.append("(LOWER(eq.Type) LIKE '%' + LOWER(?) + '%' OR LOWER(em.Name) LIKE '%' + LOWER(?) + '%')")
+            params.extend([str(_eq_type), str(_eq_type)])
 
-        _org_filter, _org_params = _org_scope_sql("m", intent)
+        _org_filter, _org_params = _org_scope_sql("a", intent)
         where_str = "WHERE " + " AND ".join(clauses) + _org_filter
         params.extend(_org_params)
         _sql = f"""
-SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName, eq.Type, eq.GivenCondition, eq.GivenDateTime, eq.ReturnCondition, eq.ReturnDateTime, eq.Remarks
+SELECT {_top_clause(_limit)}
+    eq.Id AS AssignmentId,
+    a.AgniveerNo,
+    a.FullName,
+    a.PhotoPath,
+    p.Name AS PlatoonName,
+    em.Name AS EquipmentName,
+    em.Category AS EquipmentCategory,
+    eq.Type,
+    eq.GivenDateTime,
+    eq.GivenCondition
 FROM AgniveerEquipment eq
-INNER JOIN AgniveerMaster m ON m.Id = eq.AgniveerId
+INNER JOIN AgniveerMaster a ON a.Id = eq.AgniveerId
+LEFT JOIN EquipmentMaster em ON em.Id = eq.EquipmentId
+LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
 {where_str}
-ORDER BY eq.GivenDateTime DESC, m.AgniveerNo ASC
+ORDER BY eq.GivenDateTime DESC
 """
         _rows, _run_err = run_readonly(_sql, params, max_rows=_row_cap(_limit))
         if not _run_err:
             return _to_section(_rows or [], intent, sql=_sql), None
+
+    # ── Schedule Fast-Path ───────────────────────────────────────────────────
+    if intent.get("category") == "Schedule":
+        return _execute_schedule_query(intent)
 
     # ── PersonalDetails & Skills Fast-Path ─────────────────────────────────
     _cat_lower = str(intent.get("category") or "").lower()
@@ -1896,15 +2106,38 @@ ORDER BY AgniveerCount DESC
         # Validated against the same column whitelist personal_details_parser.py
         # extracts metrics from, so this can never become a column-name
         # injection point.
-        from intent_engine.personal_details_parser import AGNIVEER_PERSONAL_COLUMNS
+        from intent_engine.personal_details_parser import AGNIVEER_PERSONAL_COLUMNS, COL_MAP
 
-        _p_metrics = intent.get("metrics")
-        if not _p_metrics and intent.get("metric"):
-            _p_metrics = [intent.get("metric")]
-        _p_metrics = [
-            m for m in (_p_metrics or [])
-            if m in AGNIVEER_PERSONAL_COLUMNS and m not in ("AgniveerNo", "FullName")
-        ]
+        raw_metrics = intent.get("metrics")
+        if not raw_metrics and intent.get("metric"):
+            raw_metrics = [intent.get("metric")]
+        if isinstance(raw_metrics, str):
+            raw_metrics = [raw_metrics]
+
+        _p_metrics: List[str] = []
+        for m in (raw_metrics or []):
+            m_str = str(m).strip()
+            canonical = COL_MAP.get(m_str.lower())
+            if not canonical:
+                for col in AGNIVEER_PERSONAL_COLUMNS:
+                    if col.lower() == m_str.lower():
+                        canonical = col
+                        break
+            if canonical and canonical not in ("AgniveerNo", "FullName") and canonical not in _p_metrics:
+                _p_metrics.append(canonical)
+            elif m_str in AGNIVEER_PERSONAL_COLUMNS and m_str not in ("AgniveerNo", "FullName") and m_str not in _p_metrics:
+                _p_metrics.append(m_str)
+
+        # Fallback: If _p_metrics is still empty, scan raw_query for specific column mentions in COL_MAP
+        if not _p_metrics:
+            _raw_q = str(intent.get("raw_query") or "").lower()
+            if _raw_q:
+                for col_alias in sorted(COL_MAP.keys(), key=len, reverse=True):
+                    if re.search(rf'\b{re.escape(col_alias)}\b', _raw_q):
+                        canonical = COL_MAP[col_alias]
+                        if canonical not in ("AgniveerNo", "FullName") and canonical not in _p_metrics:
+                            _p_metrics.append(canonical)
+
         if _p_metrics:
             _select_cols = "m.AgniveerNo, m.FullName, " + ", ".join(
                 f"m.{m}" for m in dict.fromkeys(_p_metrics)

@@ -155,8 +155,15 @@ def execute_performance_query(
 
         return " AND ".join(clauses), params
 
-    def _section_clause(section_alias: str = "sec", subitem_alias: str = "si") -> Tuple[str, List[Any]]:
-        clauses: List[str] = [f"ISNULL({section_alias}.IsExceptional, 0) = 0"]
+    def _section_clause(
+        section_alias: str = "sec",
+        subitem_alias: Optional[str] = "si",
+        is_exceptional_target: Optional[bool] = False,
+    ) -> Tuple[str, List[Any]]:
+        clauses: List[str] = []
+        if is_exceptional_target is not None:
+            val = 1 if is_exceptional_target else 0
+            clauses.append(f"ISNULL({section_alias}.IsExceptional, 0) = {val}")
         params: List[Any] = []
 
         if section:
@@ -164,7 +171,7 @@ def execute_performance_query(
                 f"LOWER({section_alias}.SectionName) LIKE '%' + LOWER(?) + '%'"
             )
             params.append(section)
-        if sub_section:
+        if sub_section and subitem_alias:
             clauses.append(
                 f"LOWER({subitem_alias}.Name) LIKE '%' + LOWER(?) + '%'"
             )
@@ -188,7 +195,7 @@ def execute_performance_query(
         Builds the FilteredAttempts CTE for attempt-wise queries.
         Returns SQL and parameters.
         """
-        section_sql, section_params = _section_clause()
+        section_sql, section_params = _section_clause(is_exceptional_target=False)
         scope_sql, scope_params = _scope_clause("a")
 
         attempt_sql, attempt_params = _attempt_clause(require_best_attempt)
@@ -220,20 +227,48 @@ def execute_performance_query(
             AND {scope_sql}
         """
         params = attempt_params + section_params + scope_params
+
+        if not sub_section:
+            section_exc_sql, section_exc_params = _section_clause(is_exceptional_target=True, subitem_alias=None)
+            sr_attempt_sql = ""
+            sr_attempt_params: List[Any] = []
+            if attempt_no is not None:
+                sr_attempt_sql = "AND sr.AttemptNo = ?"
+                sr_attempt_params = [str(attempt_no)]
+
+            exc_sql = f"""
+            UNION ALL
+            SELECT
+                a.Id AS AgniveerId,
+                a.AgniveerNo,
+                a.FullName,
+                sr.AttemptNo,
+                sr.InsertedDate AS AttemptedDate,
+                COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal) AS MarksObtained,
+                1 AS IsBestAttempt,
+                sec.Id AS SectionId,
+                sec.SectionName,
+                CAST(0 AS BIGINT) AS SubItemId,
+                sec.SectionName AS SubItemName,
+                COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal, 100) AS MaxMarks
+            FROM AgniveerSectionResult sr
+                INNER JOIN AgniveerMaster a ON a.Id = sr.AgniveerId
+                INNER JOIN ScoreSectionMaster sec ON sec.Id = sr.SectionId
+            WHERE COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal) IS NOT NULL
+                {sr_attempt_sql}
+                AND {section_exc_sql}
+                AND {scope_sql}
+            """
+            sql += exc_sql
+            params += sr_attempt_params + section_exc_params + scope_params
+
         return sql, params
 
     def _attemptwise_source(require_best_attempt: bool = False) -> Tuple[str, List[Any]]:
         """
         Dedicated FilteredAttempts CTE for AttemptWise/BestAttempt.
-
-        Trimmed to just the columns their SUM/GROUP BY actually need. Kept
-        separate from _filtered_attempts_source() because that one is
-        shared by Grading/GradingSummary (needs SectionId, SubItemId,
-        MaxMarks for its DynamicMax calc) and Improvement/Drop (needs
-        AttemptedDate as a tiebreaker) — trimming it there would break those
-        operations.
         """
-        section_sql, section_params = _section_clause()
+        section_sql, section_params = _section_clause(is_exceptional_target=False)
         scope_sql, scope_params = _scope_clause("a")
         attempt_sql, attempt_params = _attempt_clause(require_best_attempt=require_best_attempt)
 
@@ -254,6 +289,34 @@ def execute_performance_query(
             AND {scope_sql}
         """
         params = attempt_params + section_params + scope_params
+
+        if not sub_section:
+            section_exc_sql, section_exc_params = _section_clause(is_exceptional_target=True, subitem_alias=None)
+            sr_attempt_sql = ""
+            sr_attempt_params: List[Any] = []
+            if attempt_no is not None:
+                sr_attempt_sql = "AND sr.AttemptNo = ?"
+                sr_attempt_params = [str(attempt_no)]
+
+            exc_sql = f"""
+            UNION ALL
+            SELECT
+                a.AgniveerNo,
+                a.FullName,
+                sr.AttemptNo,
+                sec.SectionName,
+                COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal) AS MarksObtained
+            FROM AgniveerSectionResult sr
+                INNER JOIN AgniveerMaster a ON a.Id = sr.AgniveerId
+                INNER JOIN ScoreSectionMaster sec ON sec.Id = sr.SectionId
+            WHERE COALESCE(sr.ExceptionalMarks, sr.OmrInputTotal) IS NOT NULL
+                {sr_attempt_sql}
+                AND {section_exc_sql}
+                AND {scope_sql}
+            """
+            sql += exc_sql
+            params += sr_attempt_params + section_exc_params + scope_params
+
         return sql, params
 
     def _run(

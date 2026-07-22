@@ -11,9 +11,18 @@ no matter how deeply nested the Agniveer is.
 
 from typing import Any, Dict, List, Optional, Set
 
-# Priority for determining if a node is an Agniveer record
+# Priority for determining if a node is an Agniveer record.
+# "recordId" comes first: it's a per-row DB primary key stamped onto rows
+# that are genuinely one-row-per-database-record (e.g. each MedicalRecordMaster
+# visit) rather than fragments of a single Agniveer profile. Without it,
+# multiple real rows sharing the same agniveerNo (a person with several
+# medical visits) would resolve to the same canonical ID and get folded
+# together by _resolve_duplicates below, silently discarding every visit
+# but the one whose fields happened to be picked first.
 _ID_FIELD_PRIORITY = (
+    "recordId",
     "agniveerNo",
+    "AgniveerNo",
     "agniveerId",
     "AgniveerId",
     "AgniVeerId",
