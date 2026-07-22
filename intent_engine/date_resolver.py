@@ -52,6 +52,13 @@ _MONTH_YEAR_RE = re.compile(
     r"aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
     r"(?:\s+(\d{4}))?$"
 )
+_LAST_N_DAYS_RE = re.compile(r"^(?:last|past)\s+(\d{1,3})\s+days?$")
+_WEEK_OF_MONTH_RE = re.compile(
+    r"^(first|second|third|fourth|last|mid|middle)\s*(?:-|\s)?week\s+of\s+"
+    r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
+    r"aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+    r"(?:\s+(\d{4}))?$"
+)
 _COMMON_DATE_FORMATS = (
     "%d/%m/%Y",
     "%d-%m-%Y",
@@ -129,6 +136,45 @@ def _phrase_to_dates(
 
     if text in ("this year", "current year"):
         return None, datetime(now.year, 1, 1), datetime(now.year, 12, 31)
+
+    # "last 7 days" / "past 30 days" — a rolling N-day window ending today
+    # (inclusive), not a fixed calendar week/month.
+    m = _LAST_N_DAYS_RE.match(text)
+    if m:
+        n = int(m.group(1))
+        start = now - timedelta(days=n - 1) if n > 0 else now
+        return None, datetime(start.year, start.month, start.day), datetime(
+            now.year, now.month, now.day
+        )
+
+    # "first/second/third/fourth/last/mid week of <month>" — a named
+    # quarter-month window. Weeks 1-3 are fixed 7-day blocks (days 1-7,
+    # 8-14, 15-21); the 4th/"last" week absorbs whatever remains to the end
+    # of the month (28-31 days, so 7-10 days depending on the month); "mid"/
+    # "middle" is the middle ten days (11-20), the most common colloquial
+    # sense of "mid-month" — deliberately documented here since none of
+    # these boundaries are a standardized definition, just a reasonable one.
+    m = _WEEK_OF_MONTH_RE.match(text)
+    if m:
+        position = m.group(1)
+        month = _MONTH_NAMES.get(m.group(2))
+        if month is None:
+            return None, None, None
+        year = int(m.group(3)) if m.group(3) else now.year
+        _, last_day = calendar.monthrange(year, month)
+        if position == "first":
+            start_day, end_day = 1, min(7, last_day)
+        elif position == "second":
+            start_day, end_day = 8, min(14, last_day)
+        elif position == "third":
+            start_day, end_day = 15, min(21, last_day)
+        elif position in ("fourth", "last"):
+            start_day, end_day = 22, last_day
+        else:  # "mid" / "middle"
+            start_day, end_day = 11, min(20, last_day)
+        start_day = min(start_day, last_day)
+        end_day = min(end_day, last_day)
+        return None, datetime(year, month, start_day), datetime(year, month, end_day)
 
     if _ISO_DATE_RE.match(text):
         return datetime.strptime(text, "%Y-%m-%d"), None, None

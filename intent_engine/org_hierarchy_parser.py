@@ -24,16 +24,30 @@ def parse_org_hierarchy(query: str) -> Optional[Dict[str, Any]]:
 
     if not any(
         kw in q_lower
-        for kw in ("command", "platoon", "company", "companies", "posted")
+        for kw in (
+            "command",
+            "commands",
+            "lead",
+            "leads",
+            "heads",
+            "in charge",
+            "platoon",
+            "company",
+            "companies",
+            "posted",
+            "belong",
+        )
     ):
         return None
 
-    # "Where is X posted?" / "Which platoon is X in?" — same answer shape as
-    # WhichCompanyForAgniveer below (it already selects both PlatoonName and
-    # CompanyName), just reached by different phrasing that doesn't
-    # necessarily say "belong" or "company".
-    if re.search(r"\bposted\b", q_lower) or re.search(
-        r"\bwhich\s+platoon\b.*\bin\b", q_lower
+    # "Where is X posted?" / "Which platoon is X in?" / "Which platoon does
+    # X belong to?" — same answer shape as WhichCompanyForAgniveer below (it
+    # already selects both PlatoonName and CompanyName), just reached by
+    # different phrasing that doesn't necessarily say "belong" or "company".
+    if (
+        re.search(r"\bposted\b", q_lower)
+        or re.search(r"\bwhich\s+platoon\b.*\bin\b", q_lower)
+        or re.search(r"\bwhich\s+platoon\b.*\bbelongs?\b", q_lower)
     ):
         m = _AGNIVEER_NO_RE.search(query)
         if m:
@@ -76,8 +90,14 @@ def parse_org_hierarchy(query: str) -> Optional[Dict[str, Any]]:
             "filters": {},
         }
 
-    # 3. Current commander / commanding officer
-    if re.search(r"\bcommand(?:er|ing officer)\b", q_lower):
+    # 3. Current commander / commanding officer — also accepts the verb
+    # forms ("who commands X", "who leads X", "who heads X", "who's in
+    # charge of X") that colloquial phrasing uses instead of the noun
+    # "commander"/"commanding officer".
+    if re.search(
+        r"\bcommand(?:er|ing officer|s)?\b|\bleads?\b|\bheads?\b|\bin charge\b",
+        q_lower,
+    ):
         return {
             "category": "OrgHierarchy",
             "operation": "CurrentCommander",
@@ -127,7 +147,7 @@ def parse_org_hierarchy(query: str) -> Optional[Dict[str, Any]]:
         }
 
     # 7. Which company does a specific Agniveer belong to
-    if "company" in q_lower and re.search(r"\bbelong\b", q_lower):
+    if "company" in q_lower and re.search(r"\bbelongs?\b", q_lower):
         m = _AGNIVEER_NO_RE.search(query)
         if m:
             return {

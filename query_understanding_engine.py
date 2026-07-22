@@ -113,6 +113,20 @@ _MULTI_INDEPENDENT_MARKERS = (
     "together",
 )
 _CROSS_FILTER_MARKERS = (
+    # NOTE: status/eligibility adjectives (pending, issued, holding, present,
+    # absent, hospitalized, verified, completed, rejected, returned,
+    # assigned, waiting, awaiting, currently, still, already, yet,
+    # "classified as", "falling under", ...) must NOT be added here — they
+    # belong exclusively in _CROSS_FILTER_STATUS_MARKERS below, which exists
+    # specifically because they're weak, common-word evidence (see that
+    # tuple's docstring). They previously got duplicated into this
+    # supposedly-"strong"/unambiguous list too, which meant
+    # _has_strong_cross_filter_marker() returned True for almost any
+    # multi-category question containing an everyday status word — e.g.
+    # "Show me all pending police verification cases and, separately, all
+    # hospitalized Agniveers" (two independent report requests) matched
+    # "pending" + "hospitalized" here and was forced into cross_filter,
+    # silently discarding one of the two requested lists.
     "who has",
     "who played",
     "who plays",
@@ -187,7 +201,6 @@ _CROSS_FILTER_MARKERS = (
     "out of them",
     "within them",
     "inside them",
-    "falling under",
     "coming under",
     "filter",
     "filtered",
@@ -211,21 +224,10 @@ _CROSS_FILTER_MARKERS = (
     "who currently",
     "while having",
     "while being",
-    "then",
-    "after that",
-    "subsequently",
     "following that",
     "only",
     "strictly",
     "specifically",
-    "also",
-    "still",
-    "yet",
-    "already",
-    "currently",
-    "alongside",
-    "together",
-    "plus",
     "whom",
     "which",
     "wherein",
@@ -233,13 +235,10 @@ _CROSS_FILTER_MARKERS = (
     "whereupon",
     "whereof",
     "had",
-    "holding",
     "possessing",
     "carrying",
     "keeping",
     "owning",
-    "assigned",
-    "issued",
     "issued with",
     "allocated",
     "given",
@@ -300,16 +299,9 @@ _CROSS_FILTER_MARKERS = (
     "even",
     "even now",
     "further",
-    "furthermore",
-    "moreover",
-    "in addition",
-    "additionally",
-    "besides",
     "likewise",
     "similarly",
     "concurrently",
-    "simultaneously",
-    "at the same time",
     "only those",
     "only them",
     "just",
@@ -362,9 +354,7 @@ _CROSS_FILTER_MARKERS = (
     "then from them",
     "afterwards",
     "following",
-    "next",
     "thereafter",
-    "later",
     "finally",
     "more than",
     "less than",
@@ -376,17 +366,7 @@ _CROSS_FILTER_MARKERS = (
     "between",
     "outside",
     "inside",
-    "pending",
-    "completed",
-    "verified",
-    "rejected",
     "approved",
-    "issued",
-    "holding",
-    "returned",
-    "present",
-    "absent",
-    "hospitalized",
     "admitted",
     "overweight",
     "underweight",
@@ -411,8 +391,6 @@ _CROSS_FILTER_MARKERS = (
     "associated with",
     "connected to",
     "linked to",
-    "waiting",
-    "awaiting",
     "waiting for",
     "awaiting for",
     # State and membership phrases
@@ -420,7 +398,6 @@ _CROSS_FILTER_MARKERS = (
     "present in",
     "listed in",
     "identified as",
-    "classified as",
     "recognized as",
     "marked as",
     "registered as",
@@ -1483,7 +1460,22 @@ def _extract_sub_requests(
             }
         ]
 
-    if _has_cross_filter_marker(text):
+    # Also gated on _MULTI_INDEPENDENT_MARKERS, not just cross-filter markers:
+    # this splitter is the shared fragment-extraction path both cross_filter
+    # AND multi_independent classification build on, but its entry gate used
+    # to rely solely on cross_filter_marker words that ALSO happened to be
+    # multi-independent connectors (also/plus/together/then/...). Once those
+    # duplicates were removed from _CROSS_FILTER_MARKERS (they were false
+    # "strong cross-filter evidence" — see that tuple's docstring), a plain
+    # multi-independent phrasing with no OTHER cross-filter word ("...status
+    # and police verification together?") stopped entering this block at
+    # all and fell back to a much weaker split, losing one side of the
+    # request. Checking both marker sets here keeps the split working for
+    # both intents while the (separate) cross_filter *strength* gate
+    # elsewhere still requires a real cross-filter marker.
+    if _has_cross_filter_marker(text) or any(
+        marker in text for marker in _MULTI_INDEPENDENT_MARKERS
+    ):
         parts = []
         current = text
         for sep in (

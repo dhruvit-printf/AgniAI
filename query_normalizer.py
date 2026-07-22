@@ -379,6 +379,13 @@ _PROTECTED_COMMON_WORDS: FrozenSet[str] = frozenset(
         "problem",
         "problems",
         "unfit",
+        # "posted" (org-hierarchy posting/deployment terminology, "where is
+        # X posted?") sits within edit-distance-2 of "passed" (a real BPET/
+        # PPT domain vocabulary word) and was being silently rewritten to
+        # it — "Where is A0701940K posted?" became "...passed?", changing
+        # the question's meaning entirely and routing it to the wrong
+        # category.
+        "posted",
     }
 )
 

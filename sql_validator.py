@@ -263,6 +263,16 @@ class SqlValidator:
         if re.search(forbidden, s):
             return False, "Generated SQL contains forbidden keywords."
 
+        # R0 (business_rules.LLM_HARD_RULES): this database has no views —
+        # every table this system queries is a real base table (see
+        # sql_schema_guard.CURATED_TABLES). Nothing currently generates a
+        # vw_* reference, but the LLM SQL-generation fallback (generate_sql
+        # in sql_executor.py) is free-text and could hallucinate one; reject
+        # it here as defense-in-depth rather than let it reach the DB and
+        # fail with an opaque "invalid object name" error.
+        if re.search(r"\bvw_[a-z0-9_]+\b", s):
+            return False, "Views do not exist in this database. Use raw tables with CTEs."
+
         if re.search(r";\s*\S", sql.strip().rstrip(";")):
             return False, "Multiple statements are not allowed."
 

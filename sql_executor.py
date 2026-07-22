@@ -585,40 +585,44 @@ def _build_company_schedule_sql(
 
 def _resolve_attendance_range(intent: Dict) -> Tuple[Optional[str], Optional[str]]:
     """Returns (range_start, range_end) as YYYY-MM-DD date strings.
-    Handles Daily, Weekly, Monthly, Summary operations cleanly."""
+    Handles Daily, Weekly, Monthly, Summary operations cleanly.
+
+    Delegates the actual phrase parsing to date_resolver.resolve_date_range
+    so relative phrases in intent["date"]/"from_date"/"to_date" ("today",
+    "last 7 days", "last week", "first week of July", ...) are understood
+    here too — this used to just slice the raw string to 10 characters
+    (str(single_date)[:10]), which only worked for values that were already
+    plain ISO dates; a phrase like "last 7 days" silently truncated to the
+    nonsense string "last 7 d" instead of being resolved to an actual range.
+    """
+    from intent_engine.date_resolver import resolve_date_range as _resolve_dates
+
     operation = intent.get("operation")
+    # resolve_date_range() only has built-in operation defaults for
+    # Daily/Weekly/Monthly — Summary means the same as Monthly here.
+    _resolve_op = "Monthly" if operation == "Summary" else operation
     single_date = intent.get("date")
     from_date = intent.get("from_date")
     to_date = intent.get("to_date")
+
+    resolved_date, resolved_from, resolved_to = _resolve_dates(
+        operation=_resolve_op,
+        date=single_date,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    if resolved_date:
+        return resolved_date[:10], resolved_date[:10]
+    if resolved_from or resolved_to:
+        start = resolved_from[:10] if resolved_from else None
+        end = resolved_to[:10] if resolved_to else start
+        start = start or end
+        return start, end
+
     if operation == "Daily":
-        day = single_date or from_date or to_date
-        if not day:
-            day = datetime.date.today().isoformat()
-        return str(day)[:10], str(day)[:10]
-    if operation in ("Weekly", "Monthly", "Summary"):
-        if from_date and to_date:
-            return str(from_date)[:10], str(to_date)[:10]
-        if operation == "Weekly":
-            today = datetime.date.today()
-            monday = today - datetime.timedelta(days=today.weekday())
-            sunday = monday + datetime.timedelta(days=6)
-            return monday.isoformat()[:10], sunday.isoformat()[:10]
-        if operation in ("Monthly", "Summary"):
-            today = datetime.date.today()
-            first = today.replace(day=1)
-            if first.month == 12:
-                next_month = first.replace(year=first.year + 1, month=1)
-            else:
-                next_month = first.replace(month=first.month + 1)
-            last = next_month - datetime.timedelta(days=1)
-            return first.isoformat()[:10], last.isoformat()[:10]
-    range_start = from_date or single_date
-    range_end = to_date or single_date
-    if range_start:
-        range_start = str(range_start)[:10]
-    if range_end:
-        range_end = str(range_end)[:10]
-    return range_start, range_end
+        day = datetime.date.today().isoformat()
+        return day, day
+    return None, None
 
 
 
@@ -1137,6 +1141,23 @@ ORDER BY m.AgniveerNo ASC
         _leave_scope_filter = f"{_l_agniveer_filter} {_l_org_filter}".strip()
         _l_args.extend(_l_org_params)
 
+        # Resolve any date/period phrase ("today", "last week", "last 7
+        # days", "first week of July", ...) named in the query into actual
+        # bounds — Leave had no period filtering at all before (only the
+        # "Current" branch's hardcoded today-only check further down), so
+        # "who was on leave last week" silently ignored "last week" entirely
+        # and fell back to whatever the default operation happened to be.
+        from intent_engine.date_resolver import resolve_date_range as _resolve_dates
+
+        _l_resolved_date, _l_resolved_from, _l_resolved_to = _resolve_dates(
+            operation=None,
+            date=intent.get("date"),
+            from_date=intent.get("from_date") or intent.get("fromDate"),
+            to_date=intent.get("to_date") or intent.get("toDate"),
+        )
+        _l_range_start = (_l_resolved_from or _l_resolved_date)
+        _l_range_end = (_l_resolved_to or _l_resolved_date)
+
         # All 7 real leave-type flags on AgniveerLeaveMaster — ATTNC and
         # ExPPG were missing here even though the WHERE-clause filter above
         # already scopes correctly to them: a leave record matched by
@@ -1157,16 +1178,63 @@ ORDER BY m.AgniveerNo ASC
             _effective_op = "Threshold"
             _leave_col_filter = ""  # No per-type filter for threshold
 
-        if _effective_op == "Current":
-            import datetime as _dt
-            _today = _dt.date.today().isoformat()
+        # "X's leave history" — Leave's operation vocabulary has no dedicated
+        # History op (only Current/Most/Least/Absconded — see
+        # OPERATIONS_BY_CATEGORY["Leave"]), so this always fell through to
+        # "Current" by default, which restricts to FromDate<=today<=ToDate —
+        # a specific agniveer asking for their leave HISTORY got back
+        # nothing at all unless they happened to be on leave that exact day.
+        # Keyed off raw question text (not the classified operation) so it
+        # fires regardless of which operation the keyword scorer guessed.
+        _leave_raw_q = (question or intent.get("raw_query") or "").lower()
+        if _l_agniveer_no and re.search(
+            r"\bhistory\b|\ball\s+(?:his\s+|her\s+|their\s+)?leave\b|\bleave\s+records?\b",
+            _leave_raw_q,
+        ):
+            # An explicit period ("history in June", "leave records last
+            # month") scopes the history to that window (range-overlap: any
+            # leave spell that touches the requested period); with no period
+            # named, return the full history unfiltered.
+            _lh_period_filter = ""
+            _lh_args = list(_l_args)
+            if _l_range_start and _l_range_end:
+                _lh_period_filter = "AND lm.FromDate <= ? AND lm.ToDate >= ?"
+                _lh_args = [_l_range_end, _l_range_start] + _lh_args
             _sql = f"""
 SELECT TOP ({_limit}) {_base_select}
 FROM AgniveerLeaveMaster lm
 INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
 WHERE ISNULL(m.IsDisqualified,0) = 0
-  AND lm.FromDate <= '{_today}'
-  AND lm.ToDate >= '{_today}'
+  {_leave_col_filter}
+  {_lh_period_filter}
+  {_leave_scope_filter}
+ORDER BY lm.FromDate DESC
+"""
+            _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
+            if not _is_sql_valid:
+                return None, f"Leave history SQL validation failed: {_sql_err}"
+            _rows, _run_err = run_readonly(_sql, _lh_args)
+            if _run_err:
+                return None, f"Leave history execution failed: {_run_err}"
+            return _to_section(_rows or [], intent, sql=_sql), None
+
+        if _effective_op == "Current":
+            import datetime as _dt
+            # A named period ("last week", "last 7 days", ...) overrides the
+            # today-only default — "who was on leave last week" must check
+            # that period, not literally today.
+            if _l_range_start and _l_range_end:
+                _cur_start, _cur_end = _l_range_start, _l_range_end
+            else:
+                _cur_start = _cur_end = _dt.date.today().isoformat()
+            _cur_args = [_cur_end, _cur_start] + _l_args
+            _sql = f"""
+SELECT TOP ({_limit}) {_base_select}
+FROM AgniveerLeaveMaster lm
+INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
+WHERE ISNULL(m.IsDisqualified,0) = 0
+  AND lm.FromDate <= ?
+  AND lm.ToDate >= ?
   {_leave_col_filter}
   {_leave_scope_filter}
 ORDER BY lm.FromDate ASC
@@ -1175,7 +1243,7 @@ ORDER BY lm.FromDate ASC
             _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
             if not _is_sql_valid:
                 return None, f"Leave Current SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, _l_args)
+            _rows, _run_err = run_readonly(_sql, _cur_args)
             if _run_err:
                 return None, f"Leave Current execution failed: {_run_err}"
             return _to_section(_rows or [], intent, sql=_sql), None
@@ -1436,11 +1504,29 @@ Categorized AS (
         elif _med_op == "FollowUp":
             # "which boys have follow-up appointments" / "...upcoming
             # follow-up date" — MedicalRecordMaster.FollowUpDate, scoped to
-            # today-or-later for "upcoming" phrasing and otherwise just
-            # "has a follow-up scheduled at all" (any non-null date).
+            # today-or-later for "upcoming" phrasing, to a named period
+            # ("follow-ups next week", "in July") when one is given, and
+            # otherwise just "has a follow-up scheduled at all" (any
+            # non-null date).
             _fu_clauses = ["ISNULL(m.IsDisqualified,0) = 0", "mr.FollowUpDate IS NOT NULL"]
             _fu_params: List[Any] = []
-            if "upcoming" in _raw_q or "scheduled" in _raw_q:
+            from intent_engine.date_resolver import resolve_date_range as _fu_resolve_dates
+
+            _fu_resolved_date, _fu_resolved_from, _fu_resolved_to = _fu_resolve_dates(
+                operation=None,
+                date=intent.get("date"),
+                from_date=intent.get("from_date") or intent.get("fromDate"),
+                to_date=intent.get("to_date") or intent.get("toDate"),
+            )
+            _fu_range_start = _fu_resolved_from or _fu_resolved_date
+            _fu_range_end = _fu_resolved_to or _fu_resolved_date
+            if _fu_range_start and _fu_range_end:
+                _fu_clauses.append(
+                    "CAST(mr.FollowUpDate AS DATE) >= ? AND CAST(mr.FollowUpDate AS DATE) <= ?"
+                )
+                _fu_params.append(_fu_range_start[:10])
+                _fu_params.append(_fu_range_end[:10])
+            elif "upcoming" in _raw_q or "scheduled" in _raw_q:
                 _fu_clauses.append("mr.FollowUpDate >= CAST(GETDATE() AS DATE)")
             if _m_agniveer_no:
                 _fu_clauses.append("LOWER(m.AgniveerNo) = LOWER(?)")
@@ -1506,16 +1592,47 @@ ORDER BY AgniveerCount DESC
                 clauses.append("LOWER(mr.Status) = LOWER(?)")
                 params.append(str(_m_status))
 
+            # Which date column the question is actually about — MedicalRecordMaster
+            # has four (VisitDate/AdmitDate/DischargeDate/FollowUpDate), and
+            # "admitted"/"discharged" phrasing must scope+sort by the matching
+            # column, not always VisitDate (a query about who was admitted
+            # last week previously checked VisitDate, which silently returned
+            # the wrong — or no — records for anyone admitted on a different
+            # visit date than their admission).
+            if re.search(r"\badmit(?:ted|ting|s)?\b|\badmission", _raw_q):
+                _med_date_col = "AdmitDate"
+            elif re.search(r"\bdischarg(?:ed|ing|e|es)?\b", _raw_q):
+                _med_date_col = "DischargeDate"
+            else:
+                _med_date_col = "VisitDate"
+
+            from intent_engine.date_resolver import resolve_date_range as _resolve_dates
+
+            _med_resolved_date, _med_resolved_from, _med_resolved_to = _resolve_dates(
+                operation=None,
+                date=intent.get("date"),
+                from_date=intent.get("from_date") or intent.get("fromDate"),
+                to_date=intent.get("to_date") or intent.get("toDate"),
+            )
+            _med_range_start = _med_resolved_from or _med_resolved_date
+            _med_range_end = _med_resolved_to or _med_resolved_date
+            if _med_range_start and _med_range_end:
+                clauses.append(
+                    f"CAST(mr.{_med_date_col} AS DATE) >= ? AND CAST(mr.{_med_date_col} AS DATE) <= ?"
+                )
+                params.append(_med_range_start[:10])
+                params.append(_med_range_end[:10])
+
             _org_filter, _org_params = _org_scope_sql("m", intent)
             where_str = "WHERE " + " AND ".join(clauses) + _org_filter
             params.extend(_org_params)
             _sql = f"""
-SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, mr.VisitDate, mr.Diagnosis, mr.HospitalNameLocation,
+SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, mr.VisitDate, mr.AdmitDate, mr.DischargeDate, mr.Diagnosis, mr.HospitalNameLocation,
        mr.Height, mr.Weight, mr.EyeSight, mr.BloodPressure, mr.HeartRate, mr.Status, mr.Prescriptions, mr.Remarks
 FROM MedicalRecordMaster mr
 INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
 {where_str}
-ORDER BY mr.VisitDate DESC, m.AgniveerNo ASC
+ORDER BY mr.{_med_date_col} DESC, m.AgniveerNo ASC
 """
             _rows, _run_err = run_readonly(_sql, params)
             if not _run_err:

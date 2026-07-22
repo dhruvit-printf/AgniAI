@@ -46,6 +46,26 @@ _BARE_MONTH_PATTERN = (
 )
 _ISO_DATE_PATTERN = r"\b\d{4}-\d{2}-\d{2}\b"
 _SLASH_DATE_PATTERN = r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b"
+# "16 July 2026" / "16 Jul 2026" — a specific calendar day, distinct from
+# _MONTH_PATTERN (month+year only, no day) above.
+_DAY_MONTH_YEAR_PATTERN = (
+    r"\b\d{1,2}\s+(January|February|March|April|May|June|July|August|September|"
+    r"October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+    r"\s+\d{4}\b"
+)
+# "last 7 days" / "past 30 days" / "last 3 days" — a rolling N-day window
+# ending today, distinct from the fixed calendar periods (week/month) below.
+_LAST_N_DAYS_PATTERN = r"\b(?:last|past)\s+\d{1,3}\s+days?\b"
+# "first week of July" / "second week of July" / "last week of July" /
+# "mid week of July" (also "middle week of" / "midweek of") — a named
+# quarter-month window, resolved to actual day-of-month bounds in
+# date_resolver.py. Year is optional (defaults to current year there).
+_WEEK_OF_MONTH_PATTERN = (
+    r"\b(first|second|third|fourth|last|mid|middle)\s*(?:-|\s)?week\s+of\s+"
+    r"(January|February|March|April|May|June|July|August|September|"
+    r"October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+    r"(?:\s+\d{4})?\b"
+)
 _EQUIPMENT_CONTEXT_PHRASES = (
     "equipment",
     "gear",
@@ -519,6 +539,23 @@ def _extract_equipment_type(query: str) -> Optional[str]:
 
 def _extract_date_patterns(query: str) -> Optional[str]:
     query_lower = _normalise(query)
+
+    # Most specific patterns first — "last week of July" and "16 July 2026"
+    # both contain substrings ("last week", "July 2026") that the more
+    # generic checks below would also match, truncating away the part that
+    # actually narrows the range/day. Checking these first keeps the fuller,
+    # more precise phrase intact.
+    match = re.search(_WEEK_OF_MONTH_PATTERN, query_lower, re.IGNORECASE)
+    if match:
+        return match.group(0)
+
+    match = re.search(_LAST_N_DAYS_PATTERN, query_lower, re.IGNORECASE)
+    if match:
+        return match.group(0)
+
+    match = re.search(_DAY_MONTH_YEAR_PATTERN, query, re.IGNORECASE)
+    if match:
+        return match.group(0)
 
     for phrase, canonical in RELATIVE_DATE_PHRASES.items():
         if phrase in query_lower:
