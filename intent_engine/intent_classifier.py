@@ -779,8 +779,19 @@ def _should_entity_override_operation(
             "DropTrend",
         ):
             return True, "AttemptWise", "attempt entity present"
-        if not classified_operation and _entity_present(entities, "grading"):
-            return True, "Grading", "grading entity present without operation"
+        if _entity_present(entities, "grading") and classified_operation not in (
+            "Grading",
+            "GradingSummary",
+        ):
+            # A specific grade value (Excellent/SAT/Fail/ExceptionallyWell/...)
+            # is a precise, curated-vocabulary signal (see entity_extractor's
+            # _extract_grading) — it must win even when the keyword-score
+            # heuristic in _choose_operation picked a wrong operation with a
+            # nonzero score (e.g. "who scored exceptionally well" scoring
+            # higher for Drop/Improvement than Grading), not just when it
+            # picked no operation at all. Matches the unconditional
+            # bmiCategory/bloodGroup overrides above for the same reason.
+            return True, "Grading", "grading entity present"
         if classified_operation == "Grading" and not _entity_present(
             entities, "grading"
         ):
