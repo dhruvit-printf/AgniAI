@@ -2,7 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import sql_executor
-from sql_executor import SQL_MAX_ROWS, _to_section
+from sql_executor import _row_cap, _to_section
 
 logger = logging.getLogger("performance_executor")
 
@@ -25,7 +25,8 @@ def execute_performance_query(
     from_attempt = intent.get("from_attempt") or intent.get("fromAttempt")
     to_attempt = intent.get("to_attempt") or intent.get("toAttempt")
     requested_grade = intent.get("grading")
-    top_n = int(intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS)
+    _top_n_raw = intent.get("number") or intent.get("top_n")
+    top_n = int(_top_n_raw) if _top_n_raw is not None else None
 
     def _scope_clause(alias: str = "a") -> Tuple[str, List[Any]]:
         clauses = [
@@ -123,7 +124,7 @@ def execute_performance_query(
         # a `from sql_executor import run_readonly` binding here would freeze
         # on whichever function object existed the first time this module
         # was imported, silently ignoring any later monkeypatch.
-        rows, err = sql_executor.run_readonly(sql, tuple(params))
+        rows, err = sql_executor.run_readonly(sql, tuple(params), max_rows=_row_cap(top_n))
         if err:
             return None, err
         return rows or [], None
@@ -187,7 +188,7 @@ def execute_performance_query(
             rows, err = _run(sql, source_params)
             if err:
                 return None, err
-            rows = rows[:top_n]
+            rows = rows if top_n is None else rows[:top_n]
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
 
@@ -212,7 +213,7 @@ def execute_performance_query(
             rows, err = _run(sql, source_params)
             if err:
                 return None, err
-            rows = rows[:top_n]
+            rows = rows if top_n is None else rows[:top_n]
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
 
@@ -236,7 +237,7 @@ def execute_performance_query(
             rows, err = _run(sql, source_params)
             if err:
                 return None, err
-            rows = rows[:top_n]
+            rows = rows if top_n is None else rows[:top_n]
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
 
@@ -261,7 +262,7 @@ def execute_performance_query(
             rows, err = _run(sql, source_params)
             if err:
                 return None, err
-            rows = rows[:top_n]
+            rows = rows if top_n is None else rows[:top_n]
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
 
@@ -286,7 +287,7 @@ def execute_performance_query(
             rows, err = _run(sql, source_params)
             if err:
                 return None, err
-            rows = rows[:top_n]
+            rows = rows if top_n is None else rows[:top_n]
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
 
@@ -372,7 +373,7 @@ def execute_performance_query(
                 rows, err = _run(sql, source_params)
                 if err:
                     return None, err
-                rows = rows[:top_n]
+                rows = rows if top_n is None else rows[:top_n]
                 _mark_generated()
                 return _to_section(rows=rows, intent=intent, sql=sql), None
 
@@ -501,7 +502,7 @@ def execute_performance_query(
             rows, err = _run(sql, params)
             if err:
                 return None, err
-            rows = rows[:top_n]
+            rows = rows if top_n is None else rows[:top_n]
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
 
@@ -618,7 +619,7 @@ def execute_performance_query(
             if err:
                 return None, err
             if operation != "GradingSummary":
-                rows = rows[:top_n]
+                rows = rows if top_n is None else rows[:top_n]
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
 

@@ -301,7 +301,7 @@ def _build_attendance_summary_sql() -> str:
 
 def _build_medical_bmi_sql(
     *,
-    top_n: int,
+    top_n: Optional[int],
     bmi_category: str = "",
     batch_id: Optional[int] = None,
     platoon_id: Optional[int] = None,
@@ -349,7 +349,7 @@ def _build_medical_bmi_sql(
 
     if category:
         final_select = (
-            f"SELECT TOP ({top_n}) "
+            f"SELECT {_top_clause(top_n)} "
             "AgniveerNo, FullName, "
             "CASE "
             "WHEN BmiValue IS NULL THEN NULL "
@@ -364,7 +364,7 @@ def _build_medical_bmi_sql(
         )
     else:
         final_select = (
-            f"SELECT TOP ({top_n}) "
+            f"SELECT {_top_clause(top_n)} "
             "AgniveerNo, FullName, BmiValue, "
             "CASE "
             "WHEN BmiValue IS NULL THEN NULL "
@@ -431,7 +431,7 @@ def _build_medical_bmi_sql(
 
 def _build_medical_blood_group_sql(
     *,
-    top_n: int,
+    top_n: Optional[int],
     report_mode: bool,
     blood_group: str = "",
     batch_id: Optional[int] = None,
@@ -495,7 +495,7 @@ def _build_medical_blood_group_sql(
         """
     else:
         sql += f"""
-        SELECT TOP ({top_n})
+        SELECT {_top_clause(top_n)}
             AgniveerNo,
             FullName,
             BloodGroup
@@ -535,7 +535,7 @@ def _build_company_schedule_sql(
     date: Optional[str] = None,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
-    top_n: int = 500,
+    top_n: Optional[int] = None,
 ) -> Tuple[str, List[Any]]:
     """Build the deterministic CompanySchedule query for a resolved company or all companies.
 
@@ -564,7 +564,7 @@ def _build_company_schedule_sql(
     where_str = f"WHERE {' AND '.join(clauses)}" if clauses else ""
 
     sql = f"""
-    SELECT TOP ({top_n})
+    SELECT {_top_clause(top_n)}
         c.Name AS CompanyName,
         s.ScheduleDate,
         s.Pd,
@@ -776,9 +776,17 @@ def _to_section(
 
 # ── Read-only execution ────────────────────────────────────────────────────
 def run_readonly(
-    sql: str, params: Optional[List[Any]] = None
+    sql: str, params: Optional[List[Any]] = None, max_rows: Optional[int] = None
 ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
-    """Execute a validated SELECT against the READ-ONLY login. (rows, error)."""
+    """Execute a validated SELECT against the READ-ONLY login. (rows, error).
+
+    `max_rows` is the belt-and-suspenders ROWCOUNT cap for THIS query — pass
+    the same limit (or None) used to build its TOP clause so the two agree.
+    Omitting it (None) falls back to SQL_MAX_ROWS, the safety net for callers
+    that don't compute their own explicit limit (e.g. the LLM text2sql
+    fallback, where "cap unbounded/hallucinated SQL" is exactly the point).
+    Pass 0 explicitly to mean "no cap" (SQL Server's SET ROWCOUNT 0).
+    """
     if not SQL_READONLY_CONN:
         return None, "SQL_READONLY_CONN is not configured."
     try:
@@ -796,7 +804,8 @@ def run_readonly(
         conn.timeout = timeout_limit
         cur = conn.cursor()
         # Belt-and-suspenders row cap regardless of query shape (works on 2008).
-        cur.execute(f"SET ROWCOUNT {SQL_MAX_ROWS}")
+        effective_cap = SQL_MAX_ROWS if max_rows is None else max_rows
+        cur.execute(f"SET ROWCOUNT {effective_cap}")
         if params:
             cur.execute(sql, tuple(params))
         else:
@@ -853,7 +862,10 @@ def get_batch_ids_for_agniveers(
         chunk = unique_nos[start : start + chunk_size]
         placeholders = ", ".join("?" for _ in chunk)
         sql = f"SELECT AgniveerNo, BatchId FROM AgniveerMaster WHERE AgniveerNo IN ({placeholders})"
-        rows, err = run_readonly(sql, chunk)
+        # max_rows=0 (no cap): a chunk can carry up to 900 AgniveerNos, more
+        # than the default SQL_MAX_ROWS (500) ROWCOUNT safety net, which
+        # would otherwise silently drop the tail of every large chunk.
+        rows, err = run_readonly(sql, chunk, max_rows=0)
         if err or not rows:
             continue
         for row in rows:
@@ -1035,7 +1047,7 @@ ORDER BY sec.SectionName ASC, si.DisplayOrder ASC
         if _v_status == "pending":
             # Pending = Rejected status OR no record in PoliceVerificationMaster at all
             _sql = f"""
-SELECT TOP ({_limit}) {_base_cols}
+SELECT {_top_clause(_limit)} {_base_cols}
 FROM AgniveerMaster m
 LEFT JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
@@ -1046,7 +1058,7 @@ ORDER BY m.AgniveerNo ASC
         elif _v_status == "notresponded":
             # NotResponded = Status is 'Sent' AND ReturnDate/ReceivedDate IS NULL
             _sql = f"""
-SELECT TOP ({_limit}) {_base_cols}
+SELECT {_top_clause(_limit)} {_base_cols}
 FROM AgniveerMaster m
 INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
@@ -1057,7 +1069,7 @@ ORDER BY pv.SentDate ASC
 """
         elif _v_status in ("verified", "completed"):
             _sql = f"""
-SELECT TOP ({_limit}) {_base_cols}
+SELECT {_top_clause(_limit)} {_base_cols}
 FROM AgniveerMaster m
 INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
@@ -1067,7 +1079,7 @@ ORDER BY pv.ReceivedDate DESC
 """
         elif _v_status == "rejected":
             _sql = f"""
-SELECT TOP ({_limit}) {_base_cols}
+SELECT {_top_clause(_limit)} {_base_cols}
 FROM AgniveerMaster m
 INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
@@ -1077,7 +1089,7 @@ ORDER BY m.AgniveerNo ASC
 """
         elif _v_status == "sent":
             _sql = f"""
-SELECT TOP ({_limit}) {_base_cols}
+SELECT {_top_clause(_limit)} {_base_cols}
 FROM AgniveerMaster m
 INNER JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
@@ -1088,7 +1100,7 @@ ORDER BY pv.SentDate DESC
         else:
             # Generic — show all with their current status
             _sql = f"""
-SELECT TOP ({_limit}) {_base_cols}
+SELECT {_top_clause(_limit)} {_base_cols}
 FROM AgniveerMaster m
 LEFT JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
@@ -1099,7 +1111,7 @@ ORDER BY m.AgniveerNo ASC
         _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
         if not _is_sql_valid:
             return None, f"Verification SQL validation failed: {_sql_err}"
-        _rows, _run_err = run_readonly(_sql, _args)
+        _rows, _run_err = run_readonly(_sql, _args, max_rows=_row_cap(_limit))
         if _run_err:
             return None, f"Verification execution failed: {_run_err}"
         return _to_section(_rows or [], intent, sql=_sql), None
@@ -1201,7 +1213,7 @@ ORDER BY m.AgniveerNo ASC
                 _lh_period_filter = "AND lm.FromDate <= ? AND lm.ToDate >= ?"
                 _lh_args = [_l_range_end, _l_range_start] + _lh_args
             _sql = f"""
-SELECT TOP ({_limit}) {_base_select}
+SELECT {_top_clause(_limit)} {_base_select}
 FROM AgniveerLeaveMaster lm
 INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
 WHERE ISNULL(m.IsDisqualified,0) = 0
@@ -1213,7 +1225,7 @@ ORDER BY lm.FromDate DESC
             _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
             if not _is_sql_valid:
                 return None, f"Leave history SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, _lh_args)
+            _rows, _run_err = run_readonly(_sql, _lh_args, max_rows=_row_cap(_limit))
             if _run_err:
                 return None, f"Leave history execution failed: {_run_err}"
             return _to_section(_rows or [], intent, sql=_sql), None
@@ -1229,7 +1241,7 @@ ORDER BY lm.FromDate DESC
                 _cur_start = _cur_end = _dt.date.today().isoformat()
             _cur_args = [_cur_end, _cur_start] + _l_args
             _sql = f"""
-SELECT TOP ({_limit}) {_base_select}
+SELECT {_top_clause(_limit)} {_base_select}
 FROM AgniveerLeaveMaster lm
 INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
 WHERE ISNULL(m.IsDisqualified,0) = 0
@@ -1243,7 +1255,7 @@ ORDER BY lm.FromDate ASC
             _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
             if not _is_sql_valid:
                 return None, f"Leave Current SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, _cur_args)
+            _rows, _run_err = run_readonly(_sql, _cur_args, max_rows=_row_cap(_limit))
             if _run_err:
                 return None, f"Leave Current execution failed: {_run_err}"
             return _to_section(_rows or [], intent, sql=_sql), None
@@ -1251,7 +1263,7 @@ ORDER BY lm.FromDate ASC
         elif _effective_op in ("Most", "Least"):
             _order = "DESC" if _effective_op == "Most" else "ASC"
             _sql = f"""
-SELECT TOP ({_limit}) m.AgniveerNo, m.FullName,
+SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName,
     SUM(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) AS TotalLeaveDays
 FROM AgniveerLeaveMaster lm
 INNER JOIN AgniveerMaster m ON m.Id = lm.AgniveerId
@@ -1264,14 +1276,14 @@ ORDER BY TotalLeaveDays {_order}, m.AgniveerNo ASC
             _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
             if not _is_sql_valid:
                 return None, f"Leave {_effective_op} SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, _l_args)
+            _rows, _run_err = run_readonly(_sql, _l_args, max_rows=_row_cap(_limit))
             if _run_err:
                 return None, f"Leave {_effective_op} execution failed: {_run_err}"
             return _to_section(_rows or [], intent, sql=_sql), None
 
         elif _effective_op == "Threshold":
             _sql = f"""
-SELECT TOP ({_limit}) m.AgniveerNo, m.FullName,
+SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName,
     SUM(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) AS TotalLeaveDays,
     MAX(DATEDIFF(day, lm.FromDate, lm.ToDate) + 1) AS MaxContinuousLeave
 FROM AgniveerLeaveMaster lm
@@ -1286,7 +1298,7 @@ ORDER BY TotalLeaveDays DESC
             _is_sql_valid, _sql_err = sql_validator.validate_sql(_sql)
             if not _is_sql_valid:
                 return None, f"Leave Threshold SQL validation failed: {_sql_err}"
-            _rows, _run_err = run_readonly(_sql, _l_args)
+            _rows, _run_err = run_readonly(_sql, _l_args, max_rows=_row_cap(_limit))
             if _run_err:
                 return None, f"Leave Threshold execution failed: {_run_err}"
             return _to_section(_rows or [], intent, sql=_sql), None
@@ -1456,7 +1468,7 @@ ORDER BY AgniveerCount DESC
 """
                 if _wants_bmi_report
                 else """
-SELECT TOP ({_limit}) AgniveerNo, FullName, BloodGroup, Height, Weight, BmiValue, BmiCategory
+SELECT {top_clause} AgniveerNo, FullName, BloodGroup, Height, Weight, BmiValue, BmiCategory
 FROM Categorized
 WHERE {bmi_clause}{bg_clause}
 ORDER BY BmiValue DESC
@@ -1495,9 +1507,9 @@ Categorized AS (
                 ELSE 'Obese' END AS BmiCategory
     FROM Scored
 )
-{_bmi_select.format(bmi_clause=bmi_clause, bg_clause=bg_clause, _limit=_limit)}
+{_bmi_select.format(bmi_clause=bmi_clause, bg_clause=bg_clause, top_clause=_top_clause(_limit))}
 """
-            _rows, _run_err = run_readonly(_sql, params)
+            _rows, _run_err = run_readonly(_sql, params, max_rows=_row_cap(_limit))
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
@@ -1535,13 +1547,13 @@ Categorized AS (
             _fu_where = "WHERE " + " AND ".join(_fu_clauses) + _fu_org_filter
             _fu_params.extend(_fu_org_params)
             _sql = f"""
-SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, mr.FollowUpDate, mr.VisitDate, mr.Diagnosis, mr.HospitalNameLocation
+SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName, mr.FollowUpDate, mr.VisitDate, mr.Diagnosis, mr.HospitalNameLocation
 FROM MedicalRecordMaster mr
 INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
 {_fu_where}
 ORDER BY mr.FollowUpDate ASC, m.AgniveerNo ASC
 """
-            _rows, _run_err = run_readonly(_sql, _fu_params)
+            _rows, _run_err = run_readonly(_sql, _fu_params, max_rows=_row_cap(_limit))
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
@@ -1551,7 +1563,7 @@ ORDER BY mr.FollowUpDate ASC, m.AgniveerNo ASC
             # into the "Individual" operation's mandatory-AgniveerNo gate.
             _hs_org_filter, _hs_org_params = _org_scope_sql("m", intent)
             _hs_sql = f"""
-SELECT TOP ({_limit}) mr.HospitalNameLocation, COUNT(DISTINCT m.Id) AS AgniveerCount
+SELECT {_top_clause(_limit)} mr.HospitalNameLocation, COUNT(DISTINCT m.Id) AS AgniveerCount
 FROM MedicalRecordMaster mr
 INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
 WHERE ISNULL(m.IsDisqualified,0) = 0
@@ -1560,7 +1572,7 @@ WHERE ISNULL(m.IsDisqualified,0) = 0
 GROUP BY mr.HospitalNameLocation
 ORDER BY AgniveerCount DESC
 """
-            _hs_rows, _hs_run_err = run_readonly(_hs_sql, _hs_org_params)
+            _hs_rows, _hs_run_err = run_readonly(_hs_sql, _hs_org_params, max_rows=_row_cap(_limit))
             if not _hs_run_err:
                 return _to_section(_hs_rows or [], intent, sql=_hs_sql), None
 
@@ -1627,14 +1639,14 @@ ORDER BY AgniveerCount DESC
             where_str = "WHERE " + " AND ".join(clauses) + _org_filter
             params.extend(_org_params)
             _sql = f"""
-SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, mr.VisitDate, mr.AdmitDate, mr.DischargeDate, mr.Diagnosis, mr.HospitalNameLocation,
+SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName, mr.VisitDate, mr.AdmitDate, mr.DischargeDate, mr.Diagnosis, mr.HospitalNameLocation,
        mr.Height, mr.Weight, mr.EyeSight, mr.BloodPressure, mr.HeartRate, mr.Status, mr.Prescriptions, mr.Remarks
 FROM MedicalRecordMaster mr
 INNER JOIN AgniveerMaster m ON m.Id = mr.AgniveerId
 {where_str}
 ORDER BY mr.{_med_date_col} DESC, m.AgniveerNo ASC
 """
-            _rows, _run_err = run_readonly(_sql, params)
+            _rows, _run_err = run_readonly(_sql, params, max_rows=_row_cap(_limit))
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
@@ -1755,13 +1767,13 @@ FROM Categorized
         where_str = "WHERE " + " AND ".join(clauses) + _org_filter
         params.extend(_org_params)
         _sql = f"""
-SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, eq.Type, eq.GivenCondition, eq.GivenDateTime, eq.ReturnCondition, eq.ReturnDateTime, eq.Remarks
+SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName, eq.Type, eq.GivenCondition, eq.GivenDateTime, eq.ReturnCondition, eq.ReturnDateTime, eq.Remarks
 FROM AgniveerEquipment eq
 INNER JOIN AgniveerMaster m ON m.Id = eq.AgniveerId
 {where_str}
 ORDER BY eq.GivenDateTime DESC, m.AgniveerNo ASC
 """
-        _rows, _run_err = run_readonly(_sql, params)
+        _rows, _run_err = run_readonly(_sql, params, max_rows=_row_cap(_limit))
         if not _run_err:
             return _to_section(_rows or [], intent, sql=_sql), None
 
@@ -1819,28 +1831,28 @@ WHERE {_p_active_where}
 """
             else:
                 _sql = f"""
-SELECT TOP ({_limit}) m.AgniveerNo, m.FullName, m.IsActive
+SELECT {_top_clause(_limit)} m.AgniveerNo, m.FullName, m.IsActive
 FROM AgniveerMaster m
 WHERE {_p_active_where}
   {_p_active_agn_filter}
   {_p_org_filter}
 ORDER BY m.AgniveerNo ASC
 """
-            _rows, _run_err = run_readonly(_sql, _p_active_params)
+            _rows, _run_err = run_readonly(_sql, _p_active_params, max_rows=_row_cap(_limit))
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
         # BloodGroup summary breakdown query (e.g. "Show blood group details")
         if ("blood group" in _raw_q or _p_metric == "BloodGroup" or _p_op in ("BloodGroup", "BloodGroupDetails")) and not _p_blood_group and not _p_agniveer_no:
             _sql = f"""
-SELECT TOP ({_limit}) m.BloodGroup, COUNT(*) AS AgniveerCount
+SELECT {_top_clause(_limit)} m.BloodGroup, COUNT(*) AS AgniveerCount
 FROM AgniveerMaster m
 WHERE ISNULL(m.IsDisqualified,0) = 0 AND m.BloodGroup IS NOT NULL AND TRIM(m.BloodGroup) <> ''
   {_p_org_filter}
 GROUP BY m.BloodGroup
 ORDER BY AgniveerCount DESC
 """
-            _rows, _run_err = run_readonly(_sql, _p_org_params)
+            _rows, _run_err = run_readonly(_sql, _p_org_params, max_rows=_row_cap(_limit))
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
@@ -1905,12 +1917,12 @@ ORDER BY AgniveerCount DESC
             )
 
         _sql = f"""
-SELECT TOP ({_limit}) {_select_cols}
+SELECT {_top_clause(_limit)} {_select_cols}
 FROM AgniveerMaster m
 {where_str}
 ORDER BY m.AgniveerNo ASC
 """
-        _rows, _run_err = run_readonly(_sql, params)
+        _rows, _run_err = run_readonly(_sql, params, max_rows=_row_cap(_limit))
         if not _run_err:
             return _to_section(_rows or [], intent, sql=_sql), None
 
@@ -1926,7 +1938,7 @@ ORDER BY m.AgniveerNo ASC
 
         if _u_op == "ByAgniveer" and intent.get("agniveer_no"):
             _u_sql = f"""
-SELECT TOP ({_limit}) {_u_cols}
+SELECT {_top_clause(_limit)} {_u_cols}
 FROM UserMaster u
 INNER JOIN AgniveerMaster a ON a.Id = u.AgniVeerId
 WHERE LOWER(a.AgniveerNo) = LOWER(?)
@@ -1935,7 +1947,7 @@ WHERE LOWER(a.AgniveerNo) = LOWER(?)
         elif _u_op == "ActiveList":
             _u_is_active = 1 if intent.get("is_active") else 0
             _u_sql = f"""
-SELECT TOP ({_limit}) {_u_cols}
+SELECT {_top_clause(_limit)} {_u_cols}
 FROM UserMaster u
 WHERE ISNULL(u.IsActive,0) = {_u_is_active}
 ORDER BY u.Username ASC
@@ -1943,7 +1955,7 @@ ORDER BY u.Username ASC
         elif _u_op == "ByRole":
             _u_role = str(intent.get("role") or "").strip()
             _u_sql = f"""
-SELECT TOP ({_limit}) {_u_cols}, r.Role
+SELECT {_top_clause(_limit)} {_u_cols}, r.Role
 FROM UserMaster u
 INNER JOIN UserRole ur ON ur.UserId = u.Id
 INNER JOIN RoleMaster r ON r.Id = ur.RoleId
@@ -1956,7 +1968,7 @@ ORDER BY u.Username ASC
             _u_is_valid, _u_err = sql_validator.validate_sql(_u_sql)
             if not _u_is_valid:
                 return None, f"Users/Roles SQL validation failed: {_u_err}"
-            _u_rows, _u_run_err = run_readonly(_u_sql, _u_params)
+            _u_rows, _u_run_err = run_readonly(_u_sql, _u_params, max_rows=_row_cap(_limit))
             if _u_run_err:
                 return None, f"Users/Roles execution failed: {_u_run_err}"
             return _to_section(_u_rows or [], intent, sql=_u_sql), None
@@ -2046,7 +2058,7 @@ ORDER BY h.EndDate DESC
 
         elif _oh_op == "PlatoonsUnderCompany":
             _oh_sql = f"""
-SELECT TOP ({_limit}) p.Name AS PlatoonName, p.PlatoonNo, p.IsActive
+SELECT {_top_clause(_limit)} p.Name AS PlatoonName, p.PlatoonNo, p.IsActive
 FROM PlatoonMaster p
 WHERE p.CompanyId = ?
 ORDER BY p.Name ASC
@@ -2088,7 +2100,7 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
             _oh_is_valid, _oh_err = sql_validator.validate_sql(_oh_sql)
             if not _oh_is_valid:
                 return None, f"Organizational hierarchy SQL validation failed: {_oh_err}"
-            _oh_rows, _oh_run_err = run_readonly(_oh_sql, _oh_params)
+            _oh_rows, _oh_run_err = run_readonly(_oh_sql, _oh_params, max_rows=_row_cap(_limit))
             if _oh_run_err:
                 return None, f"Organizational hierarchy execution failed: {_oh_run_err}"
             return _to_section(_oh_rows or [], intent, sql=_oh_sql), None
@@ -2153,7 +2165,7 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
         is_sql_valid, sql_err = sql_validator.validate_sql(sql)
         if not is_sql_valid:
             return None, f"Schedule SQL validation failed: {sql_err}"
-        rows, run_err = run_readonly(sql, params)
+        rows, run_err = run_readonly(sql, params, max_rows=_row_cap(_s_top_n))
         if run_err:
             return None, f"Schedule execution failed: {run_err}"
         return _to_section(rows or [], intent, sql=sql), None
@@ -2456,10 +2468,11 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
                 "Equipment.ReturnDateTime", {"operator": "IS NOT NULL", "value": None}
             )
 
+    v2_limit = intent.get("number") or intent.get("top_n")
     v2_intent = {
         "base_concept": base_concept,
         "filters": filters,
-        "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS,
+        "limit": v2_limit,
     }
     
     if category in ("Leave", "personaldetail"):
@@ -2524,8 +2537,9 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
             bmi_category = str(
                 intent.get("bmiCategory") or intent.get("bmi_category") or ""
             ).strip()
+            _bmi_top_n = int(intent["number"]) if intent.get("number") else None
             sql, params = _build_medical_bmi_sql(
-                top_n=int(intent.get("number") or SQL_MAX_ROWS),
+                top_n=_bmi_top_n,
                 bmi_category=bmi_category,
                 batch_id=batch_id,
                 platoon_id=platoon_id,
@@ -2537,7 +2551,7 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
             is_sql_valid, sql_err = sql_validator.validate_sql(sql)
             if not is_sql_valid:
                 return None, f"Medical BMI SQL validation failed: {sql_err}"
-            rows, run_err = run_readonly(sql, params)
+            rows, run_err = run_readonly(sql, params, max_rows=_row_cap(_bmi_top_n))
             if run_err:
                 return None, f"Medical BMI execution failed: {run_err}"
             metrics_hook("generated")
@@ -2554,8 +2568,9 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
                     re.IGNORECASE,
                 )
             )
+            _bg_top_n = int(intent["number"]) if intent.get("number") else None
             sql, params = _build_medical_blood_group_sql(
-                top_n=int(intent.get("number") or SQL_MAX_ROWS),
+                top_n=_bg_top_n,
                 report_mode=report_mode and not bool(
                     intent.get("agniveer_no")
                     or company_id
@@ -2575,7 +2590,7 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
             is_sql_valid, sql_err = sql_validator.validate_sql(sql)
             if not is_sql_valid:
                 return None, f"Medical blood group SQL validation failed: {sql_err}"
-            rows, run_err = run_readonly(sql, params)
+            rows, run_err = run_readonly(sql, params, max_rows=_row_cap(_bg_top_n))
             if run_err:
                 return None, f"Medical blood group execution failed: {run_err}"
             metrics_hook("generated")
@@ -2635,7 +2650,7 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
             raise ValidatorRejectionError(f"Compiled SQL validation failed: {sql_err}")
 
         t_exec_start = time.time()
-        rows, run_err = run_readonly(sql, params)
+        rows, run_err = run_readonly(sql, params, max_rows=_row_cap(v2_limit))
         if run_err:
             raise DatabaseExecutionError(f"Database query execution failed: {run_err}")
 
@@ -2718,7 +2733,7 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
             "having": [],
             "aggregations": [],
             "sorting": [],
-            "limit": intent.get("number") or intent.get("top_n") or SQL_MAX_ROWS,
+            "limit": v2_limit,
         }
     )
 
@@ -2736,15 +2751,25 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
     return res, None
 
 
-def _get_top_n(intent: Dict, default: int = 500) -> int:
+def _get_top_n(intent: Dict) -> Optional[int]:
+    """Row limit the user actually asked for, or None for "every matching row".
+
+    A number named in the question (any phrasing, not just explicit
+    top/bottom/rank) is honored exactly. No number means no cap at all —
+    callers must not substitute an arbitrary default like SQL_MAX_ROWS here.
+    """
     num = intent.get("number")
-    if num is None:
-        return default
-    op = str(intent.get("operation") or intent.get("subcategory") or "").lower()
-    raw_q = str(intent.get("raw_query") or "").lower()
-    if op in ("top", "bottom", "rank", "topperformers", "lowestperformers") or "top" in raw_q or "bottom" in raw_q or "rank" in raw_q:
-        return int(num)
-    return default
+    return int(num) if num is not None else None
+
+
+def _top_clause(limit: Optional[int]) -> str:
+    """SQL Server TOP clause for `limit`, or "" (every row) when limit is None."""
+    return f"TOP ({int(limit)})" if limit is not None else ""
+
+
+def _row_cap(limit: Optional[int]) -> int:
+    """ROWCOUNT value matching `limit` — 0 is SQL Server's "no limit" sentinel."""
+    return int(limit) if limit is not None else 0
 
 
 def metrics_hook(event: str) -> None:
