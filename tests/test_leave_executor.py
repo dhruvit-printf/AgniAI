@@ -121,6 +121,13 @@ def test_execute_leave_threshold():
         assert "TotalThreshold AS (" in sql
         assert "BETWEEN 40 AND 44" in sql
         assert "BETWEEN 55 AND 59" in sql
+        # {base_where} is embedded once per CTE (Continuous and Total), so
+        # its placeholder(s) appear twice in the compiled SQL — params must
+        # match 1:1 with those placeholders or pyodbc rejects the call with
+        # a parameter-count mismatch. batch_id below puts exactly one
+        # placeholder in base_where, so this fails loudly if a future change
+        # goes back to passing it only once.
+        assert sql.count("?") == len(params)
         return ([{
             "AgniveerNo": "A0701882L",
             "FullName": "HARMAN SINGH",
@@ -130,7 +137,8 @@ def test_execute_leave_threshold():
     intent = {
         "category": "Leave",
         "operation": "Threshold",
-        "responseType": "Summary"
+        "responseType": "Summary",
+        "batch_id": 1,
     }
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):

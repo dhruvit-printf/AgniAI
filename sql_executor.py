@@ -1710,11 +1710,18 @@ def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Threshold Leave SQL validation failed: {err}"
-        
-        rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
+
+        # {base_where} is embedded twice (once per CTE — Continuous and
+        # Total), so its parameter placeholders appear twice in the compiled
+        # SQL too; base_params must be supplied once per occurrence in the
+        # same order, or pyodbc rejects the call with a parameter-count
+        # mismatch ("SQL contains N parameter markers, but M supplied").
+        rows, run_err = run_readonly(
+            sql, base_params + base_params, max_rows=_row_cap(top_n)
+        )
         if run_err:
             return None, f"Threshold Leave execution failed: {run_err}"
-        
+
         if not detailed:
             # Summary: return counts
             continuous_ids = {r.get("AgniveerNo") for r in rows if r.get("Reason") == "Continuous 40-44 days"}

@@ -53,12 +53,17 @@ def test_cross_filter_detection():
     categories (or performance sections) — that's what distinguishes it from
     a single-category filtered lookup, which stays 'simple'."""
     cross_filter_queries = [
-        "Show Agniveers who have medical leave",
         "People currently on medical leave",
         "Agniveers belonged to Dogra class who are on medical leave",
         "Agniveers treated for fever and having pending verification",
         "Attendance along with verification status",
         "Show BPET scores together with medical records",
+        # Repeated relative pronoun ("whose ... whose ...") — regression
+        # test for the splitter retrying a later occurrence of the same
+        # separator instead of abandoning it after a generic-lead first hit
+        # (previously mis-split into one fragment classified as
+        # Verification only, losing the BMI/Medical condition entirely).
+        "Agniveers whose BMI is Normal whose Police verification is Verified",
     ]
 
     for query in cross_filter_queries:
@@ -101,6 +106,9 @@ def test_simple_queries():
         "Top 10 performers",
         "Agniveers whose verification is pending",
         "Candidates hospitalized",
+        # Single category (Leave) — the relative clause narrows *within*
+        # one category rather than intersecting a second one.
+        "Show Agniveers who have medical leave",
     ]
 
     for query in simple_queries:
