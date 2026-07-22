@@ -1602,14 +1602,23 @@ def _extract_sub_requests(
             r"\battending\b",
             r"\battended\b",
         ):
-            # Capturing group around `sep` so the separator's own matched
-            # text survives the split instead of being discarded — every
-            # word of the original query must end up in some fragment.
-            split_parts = re.split(f"({sep})", current, maxsplit=1, flags=re.IGNORECASE)
-            if len(split_parts) > 1 and split_parts[0].strip(" ,"):
-                lead = split_parts[0].strip(" ,")
-                matched_word = split_parts[1]
-                remainder = split_parts[2].strip()
+            # Try every occurrence of this separator, not just the first —
+            # a query can repeat the same relative pronoun ("...whose bmi is
+            # normal whose police verification is verified"), and splitting
+            # on the first occurrence can leave a generic lead ("give me
+            # agniveers") even though a later occurrence of this exact
+            # separator is the real cutpoint. Previously a generic-lead
+            # first occurrence abandoned this separator entirely and fell
+            # through to a different, lower-priority one (here: "verified"
+            # instead of the second "whose"), merging both clauses into a
+            # single mis-classified fragment instead of splitting them.
+            matched_this_sep = False
+            for sep_match in re.finditer(sep, current, flags=re.IGNORECASE):
+                lead = current[: sep_match.start()].strip(" ,")
+                if not lead:
+                    continue
+                matched_word = current[sep_match.start() : sep_match.end()]
+                remainder = current[sep_match.end() :].strip()
                 reattached_to_remainder = True
                 if sep == r"\bwith\b" and re.search(
                     r"\bdiagnosed\s*$", lead, flags=re.IGNORECASE
@@ -1649,16 +1658,16 @@ def _extract_sub_requests(
                                 reattached_to_remainder = False
 
                 if _is_generic_lead(lead):
-                    if reattached_to_remainder:
-                        current = f"{matched_word} {remainder}".strip()
-                    else:
-                        current = remainder.strip()
                     continue
 
                 if reattached_to_remainder:
                     remainder = f"{matched_word} {remainder}".strip()
                 parts.append(lead)
                 current = remainder
+                matched_this_sep = True
+                break
+
+            if matched_this_sep:
                 break
 
         else:

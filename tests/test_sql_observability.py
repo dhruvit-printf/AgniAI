@@ -36,6 +36,14 @@ class TestSqlMetricsCounters:
         assert m.sql_llm_fallback_total == 0
         assert m.sql_capability_gap_fallback_total == 0
 
+    # The tests below exercise the generic AST-planner/text2sql tiered
+    # pipeline via the mocked query_planner_v2/sql_builder/sql_validator/
+    # generate_sql chain, so the intent's "category" must be one with no
+    # deterministic fast-path in execute_sql_query (Attendance/Performance/
+    # Medical/... all have one now and would return before ever reaching
+    # the mocks) — "UnroutedCategory" is a synthetic value that falls
+    # through every fast-path check by construction.
+
     def test_generated_increments_counter(self):
         m = Metrics()
         from ast_models import ASTNode
@@ -49,7 +57,7 @@ class TestSqlMetricsCounters:
         ):
             from sql_executor import execute_sql_query
 
-            execute_sql_query(question="anything", intent={"category": "Attendance"})
+            execute_sql_query(question="anything", intent={"category": "UnroutedCategory"})
         assert m.sql_generated_total == 1
 
     def test_cannot_answer_increments_counter(self):
@@ -61,7 +69,7 @@ class TestSqlMetricsCounters:
         ):
             from sql_executor import execute_sql_query
 
-            execute_sql_query(question="anything", intent={"category": "Attendance"})
+            execute_sql_query(question="anything", intent={"category": "UnroutedCategory"})
         assert m.sql_cannot_answer_total == 1
 
     def test_validator_rejected_increments_counter(self):
@@ -74,7 +82,7 @@ class TestSqlMetricsCounters:
         ):
             from sql_executor import execute_sql_query
 
-            execute_sql_query(question="delete everyone", intent={"category": "Attendance"})
+            execute_sql_query(question="delete everyone", intent={"category": "UnroutedCategory"})
         assert m.sql_validator_rejected_total == 1
 
     def test_exec_error_increments_counter(self):
@@ -96,7 +104,7 @@ class TestSqlMetricsCounters:
         ):
             from sql_executor import execute_sql_query
 
-            execute_sql_query(question="anything", intent={"category": "Attendance"})
+            execute_sql_query(question="anything", intent={"category": "UnroutedCategory"})
         assert m.sql_exec_error_total == 1
 
     def test_metrics_hook_never_raises_on_broken_collector(self):
@@ -152,7 +160,7 @@ class TestSqlMetricsCounters:
         ):
             from sql_executor import execute_sql_query
 
-            execute_sql_query(question="anything", intent={"category": "Attendance"})
+            execute_sql_query(question="anything", intent={"category": "UnroutedCategory"})
         assert m.sql_structural_reject_fallback_total == 1
         assert m.sql_validator_rejected_total == 1
         assert m.sql_llm_fallback_total == 1
@@ -172,7 +180,7 @@ class TestSqlMetricsCounters:
         ):
             from sql_executor import execute_sql_query
 
-            res, err = execute_sql_query(question="anything", intent={"category": "Attendance"})
+            res, err = execute_sql_query(question="anything", intent={"category": "UnroutedCategory"})
             assert err is not None
             assert "Database query execution failed" in err
             assert res is None
@@ -189,7 +197,7 @@ class TestAuditLogBackendField:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
             write_audit_log(
-                question="Show attendance", intent={"category": "Attendance"}
+                question="Show attendance", intent={"category": "UnroutedCategory"}
             )
 
         logged = json.loads(mock_logger.info.call_args[0][0])

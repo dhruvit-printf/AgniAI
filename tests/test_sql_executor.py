@@ -440,7 +440,11 @@ class TestExecuteSqlQuery:
             assert err is None
             assert data["success"] is True
             sql = mock_run.call_args[0][0]
-            assert "GROUP BY BloodGroup" in sql
+            # Grouped by the full COALESCE(...) expression rather than the
+            # output alias — NULL/empty blood groups bucket under 'Unknown'
+            # instead of being silently dropped, and it avoids relying on
+            # GROUP BY alias support for SQL Server 2008 compatibility.
+            assert "GROUP BY COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown')" in sql
             assert "COUNT(*) AS AgniveerCount" in sql
             assert "AgniveerNo, FullName, BloodGroup" not in sql
 

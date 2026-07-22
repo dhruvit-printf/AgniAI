@@ -624,20 +624,30 @@ def _execute_schedule_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]
     
     # ── Resolve Company ID ─────────────────────────────────────────────
     company_id = None
-    
+    scope_requested = False
+
     # Priority: Direct ID > AgniveerNo > PlatoonId > CompanyName
     if intent.get("company_id") or intent.get("companyId"):
         company_id = int(intent.get("company_id") or intent.get("companyId"))
     elif intent.get("agniveer_no") or intent.get("agniveerNo"):
+        scope_requested = True
         ag_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         company_id = resolve_company_id_from_agniveer(ag_no)
     elif intent.get("platoon_id") or intent.get("platoonId"):
+        scope_requested = True
         pl_id = int(intent.get("platoon_id") or intent.get("platoonId"))
         company_id = resolve_company_id_from_platoon(pl_id)
     elif intent.get("company_name") or intent.get("companyName"):
+        scope_requested = True
         name = intent.get("company_name") or intent.get("companyName")
         company_id = resolve_company_id_from_name(name)
-    
+
+    # A specific agniveer/platoon/company was named but didn't resolve to a
+    # real record — return empty rather than silently falling through to an
+    # unscoped "everyone's schedule" query.
+    if scope_requested and company_id is None:
+        return _to_section([], intent), None
+
     # ── Resolve Date ──────────────────────────────────────────────────
     from_date = intent.get("from_date") or intent.get("fromDate")
     to_date = intent.get("to_date") or intent.get("toDate")
@@ -1816,6 +1826,27 @@ BMI_THRESHOLDS = {
 }
 
 
+def _bmi_category_filter_clause(bmi_category: str) -> Optional[str]:
+    """SQL WHERE condition (no leading "WHERE") for a BMI_THRESHOLDS category,
+    or None if unrecognized.
+
+    Filtering on a numeric BmiValue threshold — rather than string-equality
+    against the Scored CTE's computed BmiCategory column — is required for
+    "Unfit" (Overweight + Obese combined): BmiCategory only ever computes to
+    one of Underweight/Normal/Overweight/Obese, so `WHERE BmiCategory =
+    'Unfit'` would silently match zero rows.
+    """
+    spec = BMI_THRESHOLDS.get(str(bmi_category).strip().lower())
+    if not spec:
+        return None
+    parts = []
+    if "min" in spec:
+        parts.append(f"BmiValue >= {spec['min']}")
+    if "max" in spec:
+        parts.append(f"BmiValue < {spec['max']}")
+    return " AND ".join(parts) if parts else None
+
+
 def _build_medical_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
     """Build the base WHERE clause for medical queries."""
     clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)", "a.IsActive = 1"]
@@ -1825,6 +1856,7 @@ def _build_medical_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
     batch_id = intent.get("batch_id") or intent.get("batchId")
     platoon_id = intent.get("platoon_id") or intent.get("platoonId")
     company_id = intent.get("company_id") or intent.get("companyId")
+    company_name = intent.get("company_name") or intent.get("companyName")
     class_name = intent.get("class") or intent.get("class_")
 
     if agniveer_no:
@@ -1839,6 +1871,16 @@ def _build_medical_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
     if company_id is not None:
         clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
         params.append(int(company_id))
+    if company_name:
+        # Self-contained EXISTS (independent of whatever the outer query
+        # joins/aliases) — same pattern as company_id above, since this
+        # helper's WHERE fragment is shared across queries that don't all
+        # join PlatoonMaster/CompanyMaster themselves.
+        clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p INNER JOIN CompanyMaster c "
+            "ON c.Id = p.CompanyId WHERE p.Id = a.PlatoonId AND LOWER(c.Name) = LOWER(?))"
+        )
+        params.append(str(company_name))
     if class_name:
         clauses.append("LOWER(a.Class) = LOWER(?)")
         params.append(str(class_name))
@@ -1929,17 +1971,20 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
         if not detailed:
             if bmi_category:
                 # Specific category count
+                category_clause = _bmi_category_filter_clause(bmi_category)
+                if category_clause is None:
+                    return None, f"Unknown BMI category: {bmi_category}"
                 sql = f"""
                 {bmi_cte}
                 SELECT COUNT(*) AS Count
                 FROM Scored
-                WHERE BmiCategory = ?
+                WHERE {category_clause}
                 """
                 is_valid, err = sql_validator.validate_sql(sql)
                 if not is_valid:
                     return None, f"BMI SQL validation failed: {err}"
-                
-                params = base_params + blood_params + [str(bmi_category)]
+
+                params = base_params + blood_params
                 rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
                 if run_err:
                     return None, f"BMI execution failed: {run_err}"
@@ -1972,10 +2017,11 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
 
         # ── Detailed ──────────────────────────────────────────────────────────
         category_filter = ""
-        category_params: List[Any] = []
         if bmi_category:
-            category_filter = "WHERE BmiCategory = ?"
-            category_params = [str(bmi_category)]
+            category_clause = _bmi_category_filter_clause(bmi_category)
+            if category_clause is None:
+                return None, f"Unknown BMI category: {bmi_category}"
+            category_filter = f"WHERE {category_clause}"
 
         sql = f"""
         {bmi_cte}
@@ -2000,7 +2046,7 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
         if not is_valid:
             return None, f"BMI SQL validation failed: {err}"
         
-        params = base_params + blood_params + category_params
+        params = base_params + blood_params
         rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"BMI execution failed: {run_err}"
@@ -2022,11 +2068,14 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
         blood_group = intent.get("blood_group") or intent.get("bloodGroup")
         response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
         detailed = response_type.lower() == "detailed"
+        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
 
         base_where, base_params = _build_medical_base_scope(intent)
 
         # ── Report/Distribution ─────────────────────────────────────────────
-        if not blood_group and not detailed:
+        # A named agniveer means "their blood group", not the org-wide
+        # distribution, even when the caller didn't also set detailed/blood_group.
+        if not blood_group and not detailed and not agniveer_no:
             sql = f"""
             SELECT
                 COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown') AS BloodGroup,
@@ -2051,7 +2100,7 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
             return _to_section(rows or [], intent, sql=sql), None
 
         # ── Detailed with specific blood group ─────────────────────────────
-        if blood_group or detailed:
+        if blood_group or detailed or agniveer_no:
             blood_clause = ""
             params = list(base_params)
             if blood_group:
@@ -2067,7 +2116,7 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
                 p.Name AS PlatoonName,
                 c.Name AS CompanyName,
                 b.BatchName,
-                a.BloodGroup
+                COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown') AS BloodGroup
             FROM AgniveerMaster a
             LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
             LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
