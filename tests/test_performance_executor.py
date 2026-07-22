@@ -42,3 +42,61 @@ def test_supported_performance_operations_execute_locally(
     assert "AgniveerId IN (" not in sql
     assert expected_fragment in sql
 
+
+def test_attemptwise_single_agniveer_returns_flat_rows():
+    payload = {
+        "category": "Performance",
+        "operation": "AttemptWise",
+        "agniveer_no": "A0701882L",
+    }
+    mock_db_rows = [
+        {"agniveerNo": "A0701882L", "fullName": "HARMAN SINGH", "sectionName": "BPET", "attemptNo": 1, "attemptTotal": 100},
+        {"agniveerNo": "A0701882L", "fullName": "HARMAN SINGH", "sectionName": "PPT", "attemptNo": 1, "attemptTotal": 88},
+    ]
+
+    with patch("sql_executor.run_readonly") as mock_run:
+        mock_run.return_value = (mock_db_rows, None)
+        section, err = execute_performance_query(payload)
+
+    assert err is None
+    assert section["success"] is True
+    assert section["data"] == mock_db_rows
+
+
+def test_attemptwise_multi_agniveer_returns_pivoted_data():
+    payload = {
+        "category": "Performance",
+        "operation": "AttemptWise",
+        "section": "BPET",
+    }
+    mock_db_rows = [
+        {"agniveerNo": "A1", "fullName": "User One", "sectionName": "BPET", "attemptNo": 1, "attemptTotal": 100},
+        {"agniveerNo": "A1", "fullName": "User One", "sectionName": "PPT", "attemptNo": 1, "attemptTotal": 88},
+        {"agniveerNo": "A2", "fullName": "User Two", "sectionName": "BPET", "attemptNo": 1, "attemptTotal": 90},
+    ]
+
+    with patch("sql_executor.run_readonly") as mock_run:
+        mock_run.return_value = (mock_db_rows, None)
+        section, err = execute_performance_query(payload)
+
+    assert err is None
+    assert section["success"] is True
+    expected_pivoted = [
+        {
+            "agniveerNo": "A1",
+            "fullName": "User One",
+            "attempts": {
+                "1": {"BPET": 100, "PPT": 88}
+            }
+        },
+        {
+            "agniveerNo": "A2",
+            "fullName": "User Two",
+            "attempts": {
+                "1": {"BPET": 90}
+            }
+        }
+    ]
+    assert section["data"] == expected_pivoted
+
+

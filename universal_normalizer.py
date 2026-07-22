@@ -102,25 +102,56 @@ def _walk(
             _walk(item, parent_context, records)
 
 
+def _records_conflict(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """True if `a` and `b` disagree on any field both have populated.
+
+    Two fragments of the SAME underlying entity (e.g. one leg returning
+    fullName/status, another returning bmi for the same AgniveerNo) never
+    conflict — every shared field either agrees or one side just hasn't
+    populated it yet. Distinct rows that merely share an AgniveerNo (e.g.
+    AttemptWise's per-section-per-attempt rows, or Grading's per-section
+    rows for one Agniveer) DO conflict — same AgniveerNo, different
+    sectionName/attemptNo/attemptTotal — and must not be collapsed into one.
+    """
+    for k in a.keys() & b.keys():
+        va, vb = a[k], b[k]
+        if va is None or va == "" or vb is None or vb == "":
+            continue
+        if va != vb:
+            return True
+    return False
+
+
 def _resolve_duplicates(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Merge duplicate Agniveer records intelligently, filling missing fields (Rule 12)."""
-    resolved: Dict[str, Dict[str, Any]] = {}
+    """Merge duplicate Agniveer records intelligently, filling missing fields
+    (Rule 12) — but only when they're actually fragments of the same record.
+    Records sharing an AgniveerNo that disagree on some other populated
+    field are distinct rows (e.g. one per section/attempt) and are kept
+    separate rather than having all but the first silently discarded."""
+    resolved: Dict[str, List[Dict[str, Any]]] = {}
 
     for record in records:
         canonical_id = _get_canonical_id(record)
         if not canonical_id:
             continue
 
-        if canonical_id not in resolved:
-            resolved[canonical_id] = dict(record)
+        bucket = resolved.setdefault(canonical_id, [])
+        merge_target = next(
+            (existing for existing in bucket if not _records_conflict(existing, record)),
+            None,
+        )
+        if merge_target is None:
+            bucket.append(dict(record))
         else:
             # Intelligent merge: don't overwrite populated fields, just fill missing
-            existing = resolved[canonical_id]
             for k, v in record.items():
-                if k not in existing or existing[k] is None or existing[k] == "":
-                    existing[k] = v
+                if k not in merge_target or merge_target[k] is None or merge_target[k] == "":
+                    merge_target[k] = v
 
-    return list(resolved.values())
+    out: List[Dict[str, Any]] = []
+    for bucket in resolved.values():
+        out.extend(bucket)
+    return out
 
 
 def _find_first_list_of_dicts(node: Any) -> Optional[List[Dict[str, Any]]]:

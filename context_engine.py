@@ -127,6 +127,31 @@ _AGNIVEER_NO_PATTERN = re.compile(r"\b[A-Z]?\d{5,8}[A-Z]?\b")
 # merely part of a longer sentence.
 _BARE_AGNIVEER_NO_RE = re.compile(r"^[A-Za-z]\d{5,8}[A-Za-z]?$")
 
+_VS_MARKER_PREFIX_STRIP_RE = re.compile(r"^(compare|comparison|now|also)\b")
+
+
+def _marker_signals_followup(norm: str, marker: str) -> bool:
+    """
+    Whether `marker`'s presence in `norm` actually signals a follow-up.
+
+    Most _COMPARISON_MARKERS/_EXPLICIT_FOLLOWUP_PHRASES entries only ever
+    appear in genuine follow-up phrasing ("compare with X"), so plain
+    substring containment is enough. "vs "/"versus " are ambiguous: they
+    also appear in a fully self-contained two-sided comparison ("Lakhwinder
+    vs Jaswant company"), which already states its own first operand and
+    must be treated as a fresh query, not fused with conversation history.
+    Only when nothing substantial precedes the marker (nothing, or just
+    "compare"/"now"/"also") is it a genuine bare follow-up ("vs Jaswant
+    company", meaning "vs [the subject we were just discussing]").
+    """
+    idx = norm.find(marker)
+    if idx == -1:
+        return False
+    if marker not in ("vs ", "versus "):
+        return True
+    prefix = _VS_MARKER_PREFIX_STRIP_RE.sub("", norm[:idx]).strip()
+    return len(prefix) == 0
+
 
 def _is_explicit_continuation_phrase(msg: str) -> bool:
     """
@@ -141,7 +166,7 @@ def _is_explicit_continuation_phrase(msg: str) -> bool:
     if re.match(r"^(only|just|for|from|show only|show for)\s+", norm):
         return True
     for phrase in _EXPLICIT_FOLLOWUP_PHRASES:
-        if phrase in norm:
+        if _marker_signals_followup(norm, phrase):
             return True
     if _has_pronoun(tokens):
         return True
@@ -346,7 +371,7 @@ def _compute_follow_up_score(msg: str) -> float:
 
     # Explicit follow-up phrases
     for phrase in _EXPLICIT_FOLLOWUP_PHRASES:
-        if phrase in norm:
+        if _marker_signals_followup(norm, phrase):
             score += 0.5
             break
 
@@ -366,7 +391,7 @@ def _compute_follow_up_score(msg: str) -> float:
 
     # Comparison markers (could be follow-up "compare with X" or standalone)
     for marker in _COMPARISON_MARKERS:
-        if marker in norm:
+        if _marker_signals_followup(norm, marker):
             score += 0.3
             break
 
@@ -467,7 +492,7 @@ def _detect_follow_up_kind(msg: str, matched: InteractionRecord) -> str:
 
     # Comparison addition
     for marker in _COMPARISON_MARKERS:
-        if marker in norm:
+        if _marker_signals_followup(norm, marker):
             return "comparison"
 
     # Ranking refinement
@@ -535,7 +560,7 @@ def _reconstruct_query(
         # "compare with X" → "Compare {prev_section} with X"
         norm = _normalize(msg)
         for marker in _COMPARISON_MARKERS:
-            if marker in norm:
+            if _marker_signals_followup(norm, marker):
                 tail = norm.split(marker, 1)[1].strip()
                 source = matched.section or matched.category or "previous results"
                 # Capitalise the comparison target from the original casing

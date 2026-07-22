@@ -113,16 +113,27 @@ def extract_records(data: Any) -> List[Dict]:
             return res
 
     # Check standard wrapper candidates
+    explicit_empty_wrapper = False
     for key in _WRAPPER_KEY_CANDIDATES:
         val = data.get(key)
         if isinstance(val, list):
             res = [item for item in val if isinstance(item, dict)]
             if res:
                 return res
+            explicit_empty_wrapper = True
         if isinstance(val, dict):
             nested = extract_records(val)
             if nested:
                 return nested
+
+    # A canonical wrapper key (records/data/result/...) was present and
+    # explicitly empty — that's an authoritative "zero rows found" signal
+    # from the backend, not an aggregate/summary object. Returning [] here
+    # (instead of falling through to the single-row fallbacks below) stops
+    # unrelated sibling keys like execution/query metadata from being
+    # misread as the one data record.
+    if explicit_empty_wrapper:
+        return []
 
     teams = data.get("teams") or data.get("Teams")
     if isinstance(teams, list):

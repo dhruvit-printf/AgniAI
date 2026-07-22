@@ -499,6 +499,15 @@ _EXCLUDED_COLUMN_KEYS_EXACT = {
     "CommandLabel",
     "message",
     "Message",
+    # Query execution envelope fields (sql_executor._to_section /
+    # execution_metadata) — defense-in-depth in case a response envelope
+    # ever gets misread as a data record; these are debug/plumbing fields,
+    # never real business data.
+    "sql",
+    "Sql",
+    "execution_metadata",
+    "executionMetadata",
+    "ExecutionMetadata",
 }
 
 

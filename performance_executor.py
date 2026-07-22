@@ -7,6 +7,107 @@ from sql_executor import _row_cap, _to_section
 logger = logging.getLogger("performance_executor")
 
 
+def _pivot_attemptwise_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Transform flat attempt-wise rows into nested structure per Agniveer.
+
+    Input:
+    [
+        {"agniveerNo": "A1", "fullName": "X", "attemptNo": 1, "sectionName": "BPET", "attemptTotal": 100},
+        {"agniveerNo": "A1", "fullName": "X", "attemptNo": 1, "sectionName": "PPT", "attemptTotal": 88},
+        ...
+    ]
+
+    Output:
+    [
+        {
+            "agniveerNo": "A1",
+            "fullName": "X",
+            "attempts": {
+                "1": {"BPET": 100, "PPT": 88, "FIRING": 28, "DRILL (AMT)": 59},
+                "2": {"BPET": 0, "PPT": 0, "FIRING": 0, "DRILL (AMT)": 55},
+                "3": {"BPET": 96, "PPT": 100, "FIRING": 17, "DRILL (AMT)": 66}
+            }
+        }
+    ]
+    """
+    agniveer_map: Dict[str, Dict[str, Any]] = {}
+
+    for row in rows:
+        agniveer_no = row.get("agniveerNo") or row.get("AgniveerNo")
+        if not agniveer_no:
+            continue
+
+        if agniveer_no not in agniveer_map:
+            agniveer_map[agniveer_no] = {
+                "agniveerNo": agniveer_no,
+                "fullName": row.get("fullName") or row.get("FullName") or "",
+                "attempts": {},
+            }
+
+        agniveer = agniveer_map[agniveer_no]
+        attempt_no_val = (
+            row.get("attemptNo") if "attemptNo" in row else row.get("AttemptNo")
+        )
+        attempt_no = str(attempt_no_val if attempt_no_val is not None else "")
+        section_name = row.get("sectionName") or row.get("SectionName") or ""
+        attempt_total = (
+            row.get("attemptTotal")
+            if "attemptTotal" in row
+            else row.get("AttemptTotal")
+        )
+
+        if attempt_no not in agniveer["attempts"]:
+            agniveer["attempts"][attempt_no] = {}
+
+        agniveer["attempts"][attempt_no][section_name] = attempt_total
+
+    return list(agniveer_map.values())
+
+
+def _pivot_best_attempt_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Transform flat (AgniveerNo, SectionName, BestTotal) rows into one row
+    per Agniveer with a section-wise breakdown, for the multi-Agniveer
+    BestAttempt case (no agniveer_no filter — e.g. "best attempt scores for
+    all Agniveers").
+
+    Input:
+    [
+        {"agniveerNo": "A1", "fullName": "X", "sectionName": "BPET", "bestTotal": 100},
+        {"agniveerNo": "A1", "fullName": "X", "sectionName": "PPT", "bestTotal": 88},
+        ...
+    ]
+
+    Output:
+    [
+        {"agniveerNo": "A1", "fullName": "X", "sections": {"BPET": 100, "PPT": 88}},
+        ...
+    ]
+    """
+    agniveer_map: Dict[str, Dict[str, Any]] = {}
+
+    for row in rows:
+        agniveer_no = row.get("agniveerNo") or row.get("AgniveerNo")
+        if not agniveer_no:
+            continue
+
+        if agniveer_no not in agniveer_map:
+            agniveer_map[agniveer_no] = {
+                "agniveerNo": agniveer_no,
+                "fullName": row.get("fullName") or row.get("FullName") or "",
+                "sections": {},
+            }
+
+        section_name = row.get("sectionName") or row.get("SectionName") or ""
+        best_total = (
+            row.get("bestTotal") if "bestTotal" in row else row.get("BestTotal")
+        )
+        agniveer_map[agniveer_no]["sections"][section_name] = best_total
+
+    return list(agniveer_map.values())
+
+
 def execute_performance_query(
     intent: Dict,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -83,6 +184,10 @@ def execute_performance_query(
     def _filtered_attempts_source(
         *, require_best_attempt: bool, include_attempt_window: bool = False
     ) -> Tuple[str, List[Any]]:
+        """
+        Builds the FilteredAttempts CTE for attempt-wise queries.
+        Returns SQL and parameters.
+        """
         section_sql, section_params = _section_clause()
         scope_sql, scope_params = _scope_clause("a")
 
@@ -117,14 +222,56 @@ def execute_performance_query(
         params = attempt_params + section_params + scope_params
         return sql, params
 
-    def _run(sql: str, params: List[Any]) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+    def _attemptwise_source(require_best_attempt: bool = False) -> Tuple[str, List[Any]]:
+        """
+        Dedicated FilteredAttempts CTE for AttemptWise/BestAttempt.
+
+        Trimmed to just the columns their SUM/GROUP BY actually need. Kept
+        separate from _filtered_attempts_source() because that one is
+        shared by Grading/GradingSummary (needs SectionId, SubItemId,
+        MaxMarks for its DynamicMax calc) and Improvement/Drop (needs
+        AttemptedDate as a tiebreaker) — trimming it there would break those
+        operations.
+        """
+        section_sql, section_params = _section_clause()
+        scope_sql, scope_params = _scope_clause("a")
+        attempt_sql, attempt_params = _attempt_clause(require_best_attempt=require_best_attempt)
+
+        sql = f"""
+        SELECT
+            a.AgniveerNo,
+            a.FullName,
+            sa.AttemptNo,
+            sec.SectionName,
+            sa.MarksObtained
+        FROM AgniveerScoreAttempt sa
+            INNER JOIN AgniveerMaster a ON a.Id = sa.AgniveerId
+            INNER JOIN ScoreSubItemMaster si ON si.Id = sa.SubItemId
+            INNER JOIN ScoreSectionMaster sec ON sec.Id = si.SectionId
+        WHERE sa.MarksObtained IS NOT NULL
+            AND {attempt_sql}
+            AND {section_sql}
+            AND {scope_sql}
+        """
+        params = attempt_params + section_params + scope_params
+        return sql, params
+
+    def _run(
+        sql: str, params: List[Any], max_rows: Optional[int] = None
+    ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
         # Call through the sql_executor module attribute (not a bound name
         # captured at import time) so that patching sql_executor.run_readonly
         # in tests always takes effect regardless of module import order —
         # a `from sql_executor import run_readonly` binding here would freeze
         # on whichever function object existed the first time this module
         # was imported, silently ignoring any later monkeypatch.
-        rows, err = sql_executor.run_readonly(sql, tuple(params), max_rows=_row_cap(top_n))
+        # max_rows defaults to top_n's cap; callers that pivot multiple raw
+        # rows into one output row per Agniveer (AttemptWise/BestAttempt
+        # with no agniveer_no) must pass max_rows=0 (uncapped) — capping at
+        # top_n raw rows before pivoting can cut an Agniveer off mid-way
+        # and silently return fewer than top_n Agniveers.
+        effective_cap = _row_cap(top_n) if max_rows is None else max_rows
+        rows, err = sql_executor.run_readonly(sql, tuple(params), max_rows=effective_cap)
         if err:
             return None, err
         return rows or [], None
@@ -192,7 +339,7 @@ def execute_performance_query(
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
 
-        if operation in ("Top", "Bottom", "OverallPerformance", "BestAttempt"):
+        if operation in ("Top", "Bottom", "OverallPerformance"):
             descending = operation != "Bottom"
             order_dir = "DESC" if descending else "ASC"
             source_sql, source_params = _filtered_attempts_source(
@@ -216,6 +363,56 @@ def execute_performance_query(
             rows = rows if top_n is None else rows[:top_n]
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
+
+        if operation == "BestAttempt":
+            # A grand total across every section (the old behaviour) hides
+            # exactly the section-level detail "best attempt" is supposed to
+            # answer — an Agniveer's best BPET score, best PPT score, etc.,
+            # not one number that blends BPET+PPT+FIRING+DRILL together.
+            # Mirrors AttemptWise's shape but collapsed to each section's
+            # single best attempt instead of every attempt.
+            source_sql, source_params = _attemptwise_source(
+                require_best_attempt=(attempt_no is None)
+            )
+            sql = f"""
+            WITH FilteredAttempts AS (
+                {source_sql}
+            )
+            SELECT
+                AgniveerNo,
+                FullName,
+                SectionName,
+                SUM(MarksObtained) AS BestTotal
+            FROM FilteredAttempts
+            GROUP BY AgniveerNo, FullName, SectionName
+            ORDER BY AgniveerNo ASC, SectionName ASC
+            """
+
+            # Uncapped fetch when we'll pivot below — a top_n row cap here
+            # would apply to raw (Agniveer, Section) rows, not Agniveers,
+            # and could cut an Agniveer off mid-way through their sections.
+            rows, err = _run(sql, source_params, max_rows=0 if not agniveer_no else None)
+            if err:
+                return None, err
+
+            _mark_generated()
+
+            if rows:
+                if agniveer_no:
+                    if top_n is not None and len(rows) > top_n:
+                        rows = rows[:top_n]
+                    return _to_section(rows, intent, sql=sql), None
+                else:
+                    # Limit AFTER pivoting, not before — slicing raw rows
+                    # first can cut off mid-Agniveer (its later sections
+                    # land past the row cutoff), so "top 3" would silently
+                    # return fewer than 3 Agniveers.
+                    pivoted = _pivot_best_attempt_rows(rows)
+                    if top_n is not None and len(pivoted) > top_n:
+                        pivoted = pivoted[:top_n]
+                    return _to_section(pivoted, intent, sql=sql), None
+
+            return _to_section(rows or [], intent, sql=sql), None
 
         if operation == "Average":
             source_sql, source_params = _filtered_attempts_source(
@@ -242,9 +439,10 @@ def execute_performance_query(
             return _to_section(rows=rows, intent=intent, sql=sql), None
 
         if operation == "AttemptWise":
-            source_sql, source_params = _filtered_attempts_source(
-                require_best_attempt=False
-            )
+            # Get the source CTE
+            source_sql, source_params = _attemptwise_source()
+
+            # Build the final aggregated query
             sql = f"""
             WITH FilteredAttempts AS (
                 {source_sql}
@@ -259,12 +457,37 @@ def execute_performance_query(
             GROUP BY AgniveerNo, FullName, SectionName, AttemptNo
             ORDER BY AgniveerNo ASC, SectionName ASC, AttemptNo ASC
             """
-            rows, err = _run(sql, source_params)
+
+            # Uncapped fetch when we'll pivot below — a top_n row cap here
+            # would apply to raw (Agniveer, Section, Attempt) rows, not
+            # Agniveers, and could cut an Agniveer off mid-way through
+            # their sections/attempts.
+            rows, err = _run(sql, source_params, max_rows=0 if not agniveer_no else None)
             if err:
                 return None, err
-            rows = rows if top_n is None else rows[:top_n]
+
             _mark_generated()
-            return _to_section(rows=rows, intent=intent, sql=sql), None
+
+            # If AgniveerNo is provided, return flat (single Agniveer)
+            # If no AgniveerNo, pivot to nested structure per Agniveer
+            if rows:
+                if agniveer_no:
+                    # Single Agniveer — return as-is or limit
+                    if top_n is not None and len(rows) > top_n:
+                        rows = rows[:top_n]
+                    return _to_section(rows, intent, sql=sql), None
+                else:
+                    # Multiple Agniveers — pivot for better display. Limit
+                    # AFTER pivoting: slicing raw rows first can cut off
+                    # mid-Agniveer (its later sections/attempts land past
+                    # the row cutoff), so "top 3" would silently return
+                    # fewer than 3 Agniveers.
+                    pivoted = _pivot_attemptwise_rows(rows)
+                    if top_n is not None and len(pivoted) > top_n:
+                        pivoted = pivoted[:top_n]
+                    return _to_section(pivoted, intent, sql=sql), None
+
+            return _to_section(rows or [], intent, sql=sql), None
 
         if operation == "Trend":
             source_sql, source_params = _filtered_attempts_source(
