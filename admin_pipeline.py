@@ -1337,14 +1337,36 @@ def execute_admin_query(
                 if id_filters.get("batchId") is not None:
                     op_intent["batchId"] = id_filters["batchId"]
                     op_intent["batch_id"] = id_filters["batchId"]
-                if id_filters.get("companyId") is not None and not (
-                    op_intent.get("company_id") or op_intent.get("companyId")
-                ):
+
+                # Handle company scope
+                op_c_name = op_intent.get("company_name") or op_intent.get("companyName")
+                op_c_id = op_intent.get("company_id") or op_intent.get("companyId")
+                if op_c_id is None and op_c_name:
+                    try:
+                        from sql_executor import resolve_company_id_from_name
+                        op_c_id = resolve_company_id_from_name(str(op_c_name))
+                        if op_c_id is not None:
+                            op_intent["companyId"] = int(op_c_id)
+                            op_intent["company_id"] = int(op_c_id)
+                    except Exception:
+                        pass
+                elif op_c_id is None and id_filters.get("companyId") is not None:
                     op_intent["companyId"] = id_filters["companyId"]
                     op_intent["company_id"] = id_filters["companyId"]
-                if id_filters.get("platoonId") is not None and not (
-                    op_intent.get("platoon_id") or op_intent.get("platoonId")
-                ):
+
+                # Handle platoon scope
+                op_p_name = op_intent.get("platoon_name") or op_intent.get("platoonName")
+                op_p_id = op_intent.get("platoon_id") or op_intent.get("platoonId")
+                if op_p_id is None and op_p_name:
+                    try:
+                        from sql_executor import resolve_platoon_id_from_name
+                        op_p_id = resolve_platoon_id_from_name(str(op_p_name))
+                        if op_p_id is not None:
+                            op_intent["platoonId"] = int(op_p_id)
+                            op_intent["platoon_id"] = int(op_p_id)
+                    except Exception:
+                        pass
+                elif op_p_id is None and id_filters.get("platoonId") is not None:
                     op_intent["platoonId"] = id_filters["platoonId"]
                     op_intent["platoon_id"] = id_filters["platoonId"]
 
