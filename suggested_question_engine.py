@@ -86,7 +86,6 @@ SUBCATEGORY_ALIASES: Dict[str, Dict[str, str]] = {
         "current": "Current",
         "currentleave": "Current",
         "absconded": "Absconded",
-        "awol": "Absconded",
     },
     "MEDICAL": {
         "bmi": "BMI",

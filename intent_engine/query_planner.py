@@ -254,7 +254,6 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "absent",
         "absentee",
         "absconded",
-        "awol",
         "away",
         "missing",
         "unaccounted",

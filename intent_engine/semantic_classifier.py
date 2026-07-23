@@ -94,7 +94,6 @@ _CATALOG: List[Tuple[str, str, str]] = [
     ("Leave", "Current", "show leave status for today"),
     ("Leave", "Current", "is any body absent today because of any type of leave"),
     ("Leave", "Absconded", "list absconded agniveers"),
-    ("Leave", "Absconded", "who went AWOL"),
     # Medical
     ("Medical", "BMI", "show BMI distribution of the company"),
     ("Medical", "BMI", "who is overweight or underweight"),

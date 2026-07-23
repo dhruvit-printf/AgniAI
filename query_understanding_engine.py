@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from conversation_detector import is_conversational_query, normalize_text
 
@@ -641,6 +641,30 @@ def _build_sport_filter_re() -> "re.Pattern[str]":
 _SPORT_FILTER_RE = _build_sport_filter_re()
 
 
+_KNOWN_EQUIPMENT_ITEMS_LOWER: Optional[Tuple[str, ...]] = None
+
+
+def _mentions_known_equipment_item(text: str) -> bool:
+    """Whether `text` names a curated equipment item ("Kit Bag", "DMS Boot
+    GP", ...) — see entity_extractor's ISSUED_EQUIPMENT_ITEMS /
+    PROCURED_EQUIPMENT_ITEMS, the same lists it uses to extract equipmentName.
+    A specific item name is unambiguous evidence of the Equipment category
+    even when no generic keyword ("equipment", "holding", "issued", ...) is
+    also present.
+    """
+    global _KNOWN_EQUIPMENT_ITEMS_LOWER
+    if _KNOWN_EQUIPMENT_ITEMS_LOWER is None:
+        from intent_engine.intent_schema import (
+            ISSUED_EQUIPMENT_ITEMS,
+            PROCURED_EQUIPMENT_ITEMS,
+        )
+
+        _KNOWN_EQUIPMENT_ITEMS_LOWER = tuple(
+            item.lower() for item in ISSUED_EQUIPMENT_ITEMS + PROCURED_EQUIPMENT_ITEMS
+        )
+    return any(item in text for item in _KNOWN_EQUIPMENT_ITEMS_LOWER)
+
+
 def _has_strong_cross_filter_marker(text: str) -> bool:
     """True for unambiguous relative-clause grammar (whose/having/belonging
     to/...) as opposed to the weaker standalone status words in
@@ -861,6 +885,14 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
         return "Leave"
     if "leave" in text or "absconded" in text or "absent" in text:
         return "Leave"
+    if _mentions_known_equipment_item(text):
+        # A curated, unambiguous item name ("Kit Bag", "DMS Boot GP", ...) is
+        # a strong signal on its own — checked before the "class"+"roster"
+        # Skills shortcut below so "Kit Bag holders and the Sikh class
+        # roster" resolves this clause as Equipment instead of falling
+        # through to None (and, via the sub-request splitter's fallback,
+        # inheriting the *other* clause's Skills category).
+        return "Equipment"
     if entities.get("sport") and any(
         token in text
         for token in (
@@ -925,6 +957,8 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
             "damaged",
             "broken",
             "holding",
+            "holder",
+            "holders",
         )
     ):
         return "Equipment"
@@ -1525,6 +1559,19 @@ def _extract_sub_requests(
             r"\band\s+whom\b",
             r"\band\s+that\b",
             r"\band\s+which\b",
+            # Possessive-pronoun clause ("...and their police verification is
+            # verified") is grammatically the same relative-clause shape as
+            # "and whose ..." above, but names the subject with a pronoun
+            # instead of "whose". Without this, the only remaining separator
+            # match is the trailing status word ("verified"), which leaves
+            # the whole first clause (including "and their police
+            # verification is") in one fragment that then gets
+            # mis-classified by whichever category's words happen to score
+            # higher in that leftover text.
+            r"\band\s+their\b",
+            r"\band\s+his\b",
+            r"\band\s+her\b",
+            r"\band\s+its\b",
             r"\band\s+having\b",
             r"\band\s+belonging(?:\s+to)?\b",
             r"\band\s+belongs?\s+to\b",
@@ -1753,6 +1800,32 @@ def _extract_sub_requests(
                 new_parts.extend(and_parts)
             parts = new_parts
 
+        # A fragment already committed to `parts` via the main loop's single
+        # break can itself still hide a comma/and-joined list — the block
+        # above only re-examines `current` (the remainder AFTER that first
+        # split), not fragments collected before it. E.g. "who improved in
+        # bpet, the disease statistics, and the rejected verifications"
+        # splits first on "rejected", leaving "who improved in bpet, the
+        # disease statistics, and the" as one whole fragment that still
+        # hides two distinct requests. Re-splitting is safe here since a
+        # comma/explicit "and" is already trusted as an intentional
+        # separator everywhere else in this function.
+        _re_split_parts: List[str] = []
+        for p in parts:
+            if "," in p or re.search(r"\band\b", p, flags=re.IGNORECASE):
+                sub_parts = [
+                    sp.strip(" ,")
+                    for sp in re.split(
+                        r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", p, flags=re.IGNORECASE
+                    )
+                    if sp.strip(" ,")
+                ]
+                if len(sub_parts) >= 2:
+                    _re_split_parts.extend(sub_parts)
+                    continue
+            _re_split_parts.append(p)
+        parts = _re_split_parts
+
         final_parts = []
         for p in parts:
             p_clean = p.strip(" ,")
@@ -1947,6 +2020,31 @@ def understand_query(query: str) -> Dict[str, Any]:
     # current leave records". Those should not be forced down the
     # cross-filter path unless a strong relationship marker is present.
     if cross_filter_intent and not _cross_marker_strong:
+        cross_filter_intent = False
+
+    # "and how many"/"and how much" always introduces a second, independent
+    # question — unlike "who"/"which"/"that", "how many" has no relative-
+    # clause reading, so it can't be filtering the first clause's subject.
+    # E.g. "Who topped PPT and how many are present today in Lakhwinder
+    # company?" is two unrelated questions, not an intersection — without
+    # this, "who" and "present" both match _CROSS_FILTER_GENERIC_CONNECTORS
+    # as "strong" markers and the weak-marker guard above doesn't help.
+    if cross_filter_intent and re.search(
+        r"\band\s+how\s+(?:many|much)\b", text, flags=re.IGNORECASE
+    ):
+        cross_filter_intent = False
+
+    # "A, B, and C" — 2+ commas signal list coordination (a run of
+    # independent noun phrases), not a relative-clause chain modifying one
+    # subject. A natural-language intersection almost never reads as a
+    # 3-item comma list, so once the precise per-fragment splitter also
+    # finds 2+ distinct categories (sub_req_cats), trust that over a
+    # generic-connector word ("who"/"which"/...) landing inside one of the
+    # comma segments. E.g. "Show top performers in BPET, who is on leave
+    # today, and the equipment stats." is three independent reports, not an
+    # intersection, even though "who" alone reads as a strong cross-filter
+    # marker.
+    if cross_filter_intent and text.count(",") >= 2 and len(sub_req_cats) >= 2:
         cross_filter_intent = False
 
     # "which <group> has the most/highest/lowest ..." asks to RANK groups by

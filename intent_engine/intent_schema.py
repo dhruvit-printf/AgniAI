@@ -143,7 +143,7 @@ RESPONSE_TYPES: FrozenSet[str] = frozenset(
     ]
 )
 
-RESPONSE_TYPE_DEFAULT: Optional[str] = "Summary"
+RESPONSE_TYPE_DEFAULT: Optional[str] = "Detailed"
 
 # Categories that default to Detailed responses even without an explicit
 # "detail" keyword in the query (leave, medical, and equipment data are
@@ -232,7 +232,6 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "absence",
         "absconded",
         "absconding",
-        "awol",
         "away",
         "missing",
         "untraceable",
@@ -1013,7 +1012,6 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "abscond",
             "gone missing",
             "missing person",
-            "awol",
             "whereabouts unknown",
             "unauthorized absence",
             "deserted",
@@ -1021,11 +1019,9 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "fled",
             "did not return",
             "overstayed leave",
-            "went awol",
             "not traceable",
             "untraceable",
             "absent without leave",
-            "gone awol",
             "unaccounted for",
             "cannot be located",
             "went missing",
@@ -2302,7 +2298,6 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
         "leaves",
         "absentee",
         "absconded",
-        "awol",
         "annual leave",
         "sick leave",
         "medical leave",

@@ -1069,7 +1069,7 @@ def execute_verification_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
         batch_id = intent.get("batch_id") or intent.get("batchId")
         platoon_id = intent.get("platoon_id") or intent.get("platoonId")
         company_id = intent.get("company_id") or intent.get("companyId")
-        response_type = intent.get("responseType") or intent.get("response_type") or "Summary"
+        response_type = intent.get("responseType") or intent.get("response_type") or "Detailed"
         top_n = _get_top_n(intent)
         
         detailed = str(response_type).lower() == "detailed"
@@ -1189,7 +1189,7 @@ def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
     """
     try:
         top_n = _get_top_n(intent)
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
 
         # ── Base scope ──────────────────────────────────────────────────────
@@ -1321,7 +1321,7 @@ def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optiona
     """
     try:
         top_n = _get_top_n(intent)
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
 
         # ── Base scope ──────────────────────────────────────────────────────
@@ -1424,7 +1424,7 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
     """
     try:
         top_n = _get_top_n(intent)
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
 
         # ── Base scope ──────────────────────────────────────────────────────
@@ -1569,7 +1569,7 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
     """
     try:
         top_n = _get_top_n(intent)
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
 
         # ── Base scope ──────────────────────────────────────────────────────
@@ -1648,7 +1648,7 @@ def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
     """
     try:
         top_n = _get_top_n(intent)
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
 
         # ── Base scope ──────────────────────────────────────────────────────
@@ -1747,12 +1747,15 @@ def _execute_leave_history(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
     """
     try:
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
-        
+
         if not agniveer_no:
             return None, "AgniveerNo required for leave history"
 
         # ── Base scope ──────────────────────────────────────────────────────
-        base_where, base_params = _build_leave_base_query(intent)
+        # A specific AgniveerNo already uniquely identifies the person — see
+        # _execute_medical_individual for why batch/platoon/company/class
+        # (the frontend's current browsing scope) must not be applied here.
+        base_where, base_params = _build_leave_base_query({"agniveer_no": agniveer_no})
 
         # ── Build SQL ──────────────────────────────────────────────────────
         sql = f"""
@@ -1903,7 +1906,7 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
     try:
         top_n = _get_top_n(intent)
         bmi_category = intent.get("bmi_category") or intent.get("bmiCategory")
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
         blood_group = intent.get("blood_group") or intent.get("bloodGroup")
 
@@ -2073,7 +2076,7 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
     try:
         top_n = _get_top_n(intent)
         blood_group = intent.get("blood_group") or intent.get("bloodGroup")
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
 
@@ -2159,7 +2162,7 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         top_n = _get_top_n(intent)
         diagnose = intent.get("diagnose") or intent.get("diagnosis")
         days = intent.get("days")
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
 
         base_where, base_params = _build_medical_base_scope(intent)
@@ -2297,12 +2300,19 @@ def _execute_medical_individual(intent: Dict[str, Any]) -> Tuple[Optional[Dict],
     """
     try:
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
-        
+
         if not agniveer_no:
             return None, "AgniveerNo required for individual medical report"
 
         # ── Base scope ──────────────────────────────────────────────────────
-        base_where, base_params = _build_medical_base_scope(intent)
+        # A specific AgniveerNo already uniquely identifies the person —
+        # batch/platoon/company/class are the frontend's current *browsing*
+        # scope, not a property of the request, and applying them here would
+        # wrongly hide a real agniveer's record just because they belong to
+        # a different batch than the one currently selected in the UI (the
+        # same reasoning already applied to Equipment's AgniveerWise lookup).
+        scope_intent = {"agniveer_no": agniveer_no}
+        base_where, base_params = _build_medical_base_scope(scope_intent)
 
         # ── Build SQL ──────────────────────────────────────────────────────
         sql = f"""
@@ -2578,7 +2588,7 @@ def _execute_attendance_summary(intent: Dict[str, Any]) -> Tuple[Optional[Dict],
     Returns present/absent counts for today.
     """
     try:
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
         
         base_where, base_params = _build_attendance_base_scope(intent)
@@ -2748,11 +2758,14 @@ def _execute_attendance_daily(intent: Dict[str, Any]) -> Tuple[Optional[Dict], O
     """
     try:
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
-        
+
         if not agniveer_no:
             return None, "AgniveerNo required for daily attendance calendar"
 
-        base_where, base_params = _build_attendance_base_scope(intent)
+        # A specific AgniveerNo already uniquely identifies the person — see
+        # _execute_medical_individual for why batch/platoon/company/class
+        # (the frontend's current browsing scope) must not be applied here.
+        base_where, base_params = _build_attendance_base_scope({"agniveer_no": agniveer_no})
         
         # ── Resolve date range ──────────────────────────────────────────────
         from_date, to_date = _resolve_attendance_dates("daily", intent)
@@ -3063,11 +3076,14 @@ def _execute_attendance_individual(intent: Dict[str, Any]) -> Tuple[Optional[Dic
     """
     try:
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
-        
+
         if not agniveer_no:
             return None, "AgniveerNo required for individual attendance history"
 
-        base_where, base_params = _build_attendance_base_scope(intent)
+        # A specific AgniveerNo already uniquely identifies the person — see
+        # _execute_medical_individual for why batch/platoon/company/class
+        # (the frontend's current browsing scope) must not be applied here.
+        base_where, base_params = _build_attendance_base_scope({"agniveer_no": agniveer_no})
         
         # ── Resolve date range ──────────────────────────────────────────────
         from_date, to_date = _resolve_attendance_dates("monthly", intent)
@@ -3231,7 +3247,7 @@ def _execute_distribution_latest(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
     C# Equivalent: Cmd17_LatestUnitDistribution
     """
     try:
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Summary")
+        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
         
         base_where, base_params = _build_distribution_base_scope(intent)
