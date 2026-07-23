@@ -64,7 +64,9 @@ def _legacy_type(
     """Pure lookup — no inference.  Returns the deprecated visualization hint."""
     if not category:
         return None
-    op_key = operation or (SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory) if subcategory else None)
+    op_key = operation or (
+        SUBCATEGORY_TO_OPERATION.get(subcategory, subcategory) if subcategory else None
+    )
     return INTENT_TYPE_DEFAULTS.get((category, op_key))
 
 
@@ -102,9 +104,7 @@ def _filter_entities_for_category(
         return dict(entities)
     allowed = get_allowed_entities_for_category(category)
     return {
-        key: value
-        for key, value in entities.items()
-        if key in allowed or value is None
+        key: value for key, value in entities.items() if key in allowed or value is None
     }
 
 
@@ -134,7 +134,9 @@ def _build_base_intent(
         "item_name": None,
         "item_category": None,
         "company_id": None,
+        "company_name": None,
         "platoon_id": None,
+        "platoon_name": None,
         "batch_id": None,
         "from_date": None,
         "to_date": None,
@@ -143,6 +145,7 @@ def _build_base_intent(
         "blood_group": None,
         "type": None,
         "medical_status": None,
+        "verification_status": None,
         "diagnose": None,
         "responseType": "Summary",
         "raw_query": raw_query,
@@ -167,6 +170,36 @@ def classify_admin_intent(
       - Subcategory                       → CATEGORY_OPERATION_TO_SUBCATEGORY table (pure lookup)
 
     No re-inference is performed here.  Each field is set exactly once.
+
+    """
+
+
+
+def classify_admin_intent(
+    query: str,
+    resolved_entities: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Coordinator — assembles the final intent dict.
+
+    Decision ownership:
+      - Category, Operation, ResponseType → intent_classifier.py (classify_intent)
+      - Entities                          → entity_extractor.py  (extract_entities)
+      - Semantic understanding            → query_understanding_engine.py (understand_query)
+      - Subcategory                       → CATEGORY_OPERATION_TO_SUBCATEGORY table (pure lookup)
+
+    No re-inference is performed here.  Each field is set exactly once.
+
+    Post text-to-SQL migration: this is called from
+    intent_engine/query_planner.py._build_sub_operation() for every query
+    shape, and its output (category/operation/section/entities) is used as
+    the SQL generation hint (see sql_query_plan.fetch_sql_results /
+    sql_executor.generate_sql) — it no longer feeds a .NET call anywhere.
+    format_admin_payload()'s DTO output is now unused dead weight for that
+    reason (still computed by _build_sub_operation into
+    SubOperation.dotnet_payload, but nothing reads it) — left in place since
+    removing it means touching query_planner.py's hint-building, which is
+    deliberately out of scope for this pass.
     """
     raw_query = str(query or "").strip()
     resolved_entities = resolved_entities or {}
@@ -211,16 +244,11 @@ def classify_admin_intent(
                 "item_name": entities.get("equipmentName"),
                 "item_category": _item_category(entities.get("equipmentName")),
                 "company_id": entities.get("companyId"),
+                "company_name": entities.get("companyName"),
                 "platoon_id": entities.get("platoonId"),
+                "platoon_name": entities.get("platoonName"),
                 "batch_id": entities.get("batchId"),
-                "from_date": entities.get("fromDate"),
-                "to_date": entities.get("toDate"),
-                "agniveer_no": entities.get("agniveerNo"),
-                "bmi_category": entities.get("bmiCategory"),
-                "blood_group": entities.get("bloodGroup"),
-                "medical_status": entities.get("medicalStatus"),
-                "diagnose": entities.get("diagnose"),
-                "days": entities.get("days"),
+                "state": entities.get("state"),
             }
         )
         base["filters"] = {
@@ -237,16 +265,12 @@ def classify_admin_intent(
                 ("fromAttempt", base["from_attempt"]),
                 ("toAttempt", base["to_attempt"]),
                 ("date", base["date"]),
+                ("fromDate", base["from_date"]),
+                ("toDate", base["to_date"]),
                 ("companyId", base["company_id"]),
+                ("companyName", base["company_name"]),
                 ("platoonId", base["platoon_id"]),
                 ("batchId", base["batch_id"]),
-                ("agniveerNo", base["agniveer_no"]),
-                ("bmiCategory", base["bmi_category"]),
-                ("bloodGroup", base["blood_group"]),
-                ("equipmentName", base["item_name"]),
-                ("medicalStatus", base["medical_status"]),
-                ("diagnose", base["diagnose"]),
-                ("days", base["days"]),
             )
             if value is not None
         }
@@ -254,9 +278,9 @@ def classify_admin_intent(
 
     # ── Stage 1: Extract entities ────────────────────────────────────────────
     entities = extract_entities(raw_query, resolved_entities)
-    # FIX 4: Assert canonical entity keys (camelCase)
     assert_canonical_entity_keys(entities)
 
+    
     # ── Stage 2: Semantic understanding ─────────────────────────────────────
     semantic = understand_query(raw_query)
 
@@ -273,15 +297,17 @@ def classify_admin_intent(
         elif entities.get("sport") or entities.get("class"):
             category = "Skills"
             intent_result["category"] = category
-        elif entities.get("bmiCategory") or entities.get("bloodGroup") or entities.get("diagnose") or entities.get("medicalStatus"):
+        elif (
+            entities.get("bmiCategory")
+            or entities.get("bloodGroup")
+            or entities.get("diagnose")
+            or entities.get("medicalStatus")
+        ):
             category = "Medical"
             intent_result["category"] = category
         elif entities.get("equipmentName"):
             category = "Equipment"
             intent_result["category"] = category
-
-    if category == "Leave" and entities.get("leaveType") == "Threshold":
-        operation = "Current"
 
     if category and not operation:
         operation = _comparison_fallback_operation(category)
@@ -299,7 +325,7 @@ def classify_admin_intent(
     if category == "Equipment":
         _nq = _normalise(raw_query)
         _eq_type = entities.get("equipmentType")
-        
+
         # Ensure equipmentType is strictly Issued/Procured (not IssuedItems/ProcuredItems)
         if _eq_type in ("IssuedItems", "ProcuredItems"):
             _eq_type = _eq_type.replace("Items", "")
@@ -308,13 +334,23 @@ def classify_admin_intent(
         if not entities.get("equipmentName"):
             # No specific item mentioned — check if the user is asking about a
             # type of equipment (issued / procured) generically.
-            if any(kw in _nq for kw in {"haven't returned", "not returned", "has not returned", "hasn't returned"}):
+            if any(
+                kw in _nq
+                for kw in {
+                    "haven't returned",
+                    "not returned",
+                    "has not returned",
+                    "hasn't returned",
+                }
+            ):
                 subcategory = "HoldingEquipment"
                 operation = "Holding"
             elif any(kw in _nq for kw in {"currently holding", "holding", "where"}):
                 subcategory = "HoldingEquipment"
                 operation = "Holding"
-            elif any(kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}):
+            elif any(
+                kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}
+            ):
                 subcategory = "PoorConditionEquipment"
                 operation = "Returned"
             elif _eq_type == "Issued" and operation != "Returned":
@@ -328,12 +364,19 @@ def classify_admin_intent(
                 operation = "Holding"
         else:
             # Specific item name mentioned — decide operation from query context
-            if any(kw in _nq for kw in {"haven't returned", "not returned", "has not returned", "hasn't returned"}):
+            if any(
+                kw in _nq
+                for kw in {
+                    "haven't returned",
+                    "not returned",
+                    "has not returned",
+                    "hasn't returned",
+                }
+            ):
                 subcategory = _eq_type or "HoldingEquipment"
                 operation = "Holding"
             elif any(
-                kw in _nq
-                for kw in {"poor condition", "returned", "damaged", "broken"}
+                kw in _nq for kw in {"poor condition", "returned", "damaged", "broken"}
             ):
                 subcategory = "PoorConditionEquipment"
                 operation = "Returned"
@@ -351,11 +394,22 @@ def classify_admin_intent(
                     subcategory = "EquipmentSearch"
                     operation = "ByName"
 
-
     # Schedule override: a specific calendar date → bydate schedule.
     # Relative phrases like "today"/"tomorrow"/"this week" are handled by their
     # own operation (bytoday) — do NOT override them to "bydate".
-    _RELATIVE_DATE_PHRASES = frozenset({"today", "yesterday", "tomorrow", "this week", "last week", "this month", "current month", "last month", "this year"})
+    _RELATIVE_DATE_PHRASES = frozenset(
+        {
+            "today",
+            "yesterday",
+            "tomorrow",
+            "this week",
+            "last week",
+            "this month",
+            "current month",
+            "last month",
+            "this year",
+        }
+    )
     _schedule_date_val = (entities.get("date") or "").lower()
     _is_relative = _schedule_date_val in _RELATIVE_DATE_PHRASES
     if category == "Schedule":
@@ -373,7 +427,7 @@ def classify_admin_intent(
     # phrases like "current month" or "June". Resolve whatever was extracted
     # into concrete dates, and default Monthly/Weekly/Daily to the current
     # period when the query didn't mention one at all.
-    if category in ("Attendance", "Schedule"):
+    if category in ("Attendance", "Schedule", "Leave", "disqualified", "Medical"):
         resolved_date, resolved_from_date, resolved_to_date = resolve_date_range(
             operation=operation,
             date=entities.get("date"),
@@ -387,8 +441,13 @@ def classify_admin_intent(
     # bydate/byagniveer schedules must always carry a date scope — default to
     # today (formatted as ISO 8601) when the query didn't name one at all.
     if category == "Schedule" and operation in ("bydate", "byagniveer"):
-        if not entities.get("date") and not entities.get("fromDate") and not entities.get("toDate"):
+        if (
+            not entities.get("date")
+            and not entities.get("fromDate")
+            and not entities.get("toDate")
+        ):
             import datetime
+
             entities["date"] = datetime.date.today().isoformat()
 
     # ── Stage 5: Legacy visualization hint — pure lookup ────────────────────
@@ -425,7 +484,9 @@ def classify_admin_intent(
         "item_category": _item_category(entities.get("equipmentName")),
         "equipment_type": entities.get("equipmentType"),
         "company_id": entities.get("companyId"),
+        "company_name": entities.get("companyName"),
         "platoon_id": entities.get("platoonId"),
+        "platoon_name": entities.get("platoonName"),
         "batch_id": entities.get("batchId"),
         "from_date": entities.get("fromDate"),
         "to_date": entities.get("toDate"),
@@ -434,7 +495,9 @@ def classify_admin_intent(
         "blood_group": entities.get("bloodGroup"),
         "type": legacy_type,
         "medical_status": entities.get("medicalStatus"),
+        "verification_status": entities.get("verificationStatus"),
         "diagnose": entities.get("diagnose"),
+        "hospital_name": entities.get("hospitalName"),
         "days": entities.get("days"),
         "given_condition": entities.get("givenCondition"),
         "return_condition": entities.get("returnCondition"),
@@ -461,7 +524,9 @@ def classify_admin_intent(
             ("toAttempt", result["to_attempt"]),
             ("date", result["date"]),
             ("companyId", result["company_id"]),
+            ("companyName", result["company_name"]),
             ("platoonId", result["platoon_id"]),
+            ("platoonName", result["platoon_name"]),
             ("batchId", result["batch_id"]),
             ("agniveerNo", result["agniveer_no"]),
             ("bmiCategory", result["bmi_category"]),
@@ -469,6 +534,7 @@ def classify_admin_intent(
             ("equipmentName", result["item_name"]),
             ("equipmentType", result["equipment_type"]),
             ("medicalStatus", result["medical_status"]),
+            ("verificationStatus", result["verification_status"]),
             ("diagnose", result["diagnose"]),
             ("givenCondition", result["given_condition"]),
             ("returnCondition", result["return_condition"]),
@@ -510,15 +576,11 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
     if n_val is None:
         n_val = intent_result.get("top_n")
 
-    # If no limit was provided from query or frontend, and operation implies ranking, default to 10.
-    if n_val is None and operation in {"Top", "Bottom", "Highest", "Lowest", "Best", "Worst"}:
-        n_val = 10
-
     try:
         if n_val is not None:
             n_val = int(n_val)
     except (ValueError, TypeError):
-        n_val = 10
+        n_val = None
 
     entities: Dict[str, Any] = {
         "n": n_val,
@@ -541,7 +603,9 @@ def format_admin_payload(intent_result: Dict[str, Any]) -> Dict[str, Any]:
         "fromDate": intent_result.get("from_date"),
         "toDate": intent_result.get("to_date"),
         "companyId": intent_result.get("company_id"),
+        "companyName": intent_result.get("company_name"),
         "platoonId": intent_result.get("platoon_id"),
+        "platoonName": intent_result.get("platoon_name"),
         "batchId": intent_result.get("batch_id"),
         "agniveerNo": intent_result.get("agniveer_no"),
         "medicalStatus": intent_result.get("medical_status"),

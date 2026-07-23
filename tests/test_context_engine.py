@@ -110,6 +110,7 @@ class TestContextEngineHelpers(unittest.TestCase):
         self.assertEqual(
             _detect_follow_up_kind("show PPT results", record), "section_switch"
         )
+        self.assertEqual(_detect_follow_up_kind("give me in table", record), "visualization")
         self.assertEqual(_detect_follow_up_kind("only platoon 2", record), "filter")
         self.assertEqual(_detect_follow_up_kind("again", record), "continuation")
         self.assertEqual(_detect_follow_up_kind("obese trainees", record), "unknown")
@@ -131,6 +132,10 @@ class TestContextEngineHelpers(unittest.TestCase):
         self.assertEqual(
             _reconstruct_query("show as bar chart", record, "visualization"),
             "Show BPET results as bar chart",
+        )
+        self.assertEqual(
+            _reconstruct_query("give me in table", record, "visualization"),
+            "Show BPET results",
         )
 
         # Comparison

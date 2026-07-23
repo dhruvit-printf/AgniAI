@@ -84,6 +84,7 @@ _session = requests.Session()
 atexit.register(_session.close)
 
 _MODEL: Optional[SentenceTransformer] = None
+_MODEL_LOCK = threading.Lock()
 _RERANKER = None
 _RERANKER_FAILED = False
 _INDEX: Optional[faiss.Index] = None
@@ -1643,9 +1644,12 @@ def load_embedding_model() -> SentenceTransformer:
     global _MODEL
     if _MODEL is not None:
         return _MODEL
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        _MODEL = SentenceTransformer(EMBEDDING_MODEL)
+    with _MODEL_LOCK:
+        if _MODEL is not None:
+            return _MODEL
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            _MODEL = SentenceTransformer(EMBEDDING_MODEL)
     return _MODEL
 
 

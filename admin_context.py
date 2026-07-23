@@ -110,6 +110,7 @@ class AdminSessionContext:
         query_text: str,
         intent_dict: Dict[str, Any],
         result_data: Any,
+        ast: Optional[Any] = None,
     ) -> None:
         ids = _extract_ids_from_result(result_data)
         with self._lock:
@@ -117,6 +118,7 @@ class AdminSessionContext:
                 "query": query_text,
                 "intent": intent_dict,
                 "ids": ids,
+                "ast": ast,
                 "timestamp": time.time(),
             }
             self._history.move_to_end(session_id)
@@ -147,8 +149,55 @@ class AdminSessionContext:
                 return self._history[session_id]["ids"]
             return None
 
+    def get_last_ast(self, session_id: str) -> Optional[Any]:
+        with self._lock:
+            if session_id in self._history:
+                return self._history[session_id].get("ast")
+            return None
+
     def clear(self, session_id: str) -> None:
         with self._lock:
             if session_id in self._history:
                 del self._history[session_id]
                 logger.debug("Cleared session %s history", session_id)
+
+
+class ASTPatchEngine:
+    """
+    Merges new follow-up intents into the previous execution's AST without rebuilding the entire query.
+    """
+
+    @staticmethod
+    def merge_intent(last_ast: Any, new_intent: Dict[str, Any]) -> Any:
+        import copy
+        from ast_models import WhereNode, ConditionGroupNode
+
+        patched = copy.deepcopy(last_ast)
+        filters = new_intent.get("filters", {})
+
+        # In a full implementation, we'd traverse the ConditionGroupNode tree.
+        # For this prototype, we'll append new conditions using AND.
+        new_conditions = []
+        for k, v in filters.items():
+            new_conditions.append(WhereNode(column=k, operator="=", value=v))
+
+        if new_conditions:
+            if not patched.where:
+                patched.where = new_conditions
+            else:
+                existing = patched.where
+                patched.where = [
+                    ConditionGroupNode(
+                        operator="AND", conditions=existing + new_conditions
+                    )
+                ]
+
+        # If the user asks to sort differently
+        if new_intent.get("sort_by"):
+            from ast_models import OrderByNode
+
+            patched.order_by = [
+                OrderByNode(column=new_intent["sort_by"], descending=True)
+            ]
+
+        return patched

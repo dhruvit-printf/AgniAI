@@ -280,7 +280,7 @@ def generate_analysis(
 
         if is_empty:
             base_stats: Dict[str, Any] = {"record_count": 0}
-            no_match_message = "No matching records found."
+            no_match_message = "I couldn't find any matching records for that request."
             if query_type == "cross_filter":
                 base_stats["match_count"] = 0
                 # cross_filter_datasets() already distinguishes "a condition

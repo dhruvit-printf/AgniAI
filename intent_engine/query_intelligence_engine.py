@@ -2,7 +2,7 @@
 query_intelligence_engine.py
 ============================
 The Query Intelligence Engine (QIE) acts as a preprocessing and normalization pipeline
-before the intent classifier. It standardizes language, corrects spelling/grammar, 
+before the intent classifier. It standardizes language, corrects spelling/grammar,
 resolves military abbreviations, and constructs a canonical query.
 """
 
@@ -15,6 +15,7 @@ import os
 # Ensure we can import query_normalizer which is at the root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import query_normalizer
+
 
 @dataclass
 class NormalizedQuery:
@@ -34,11 +35,15 @@ class QueryIntelligenceEngine:
         """Phase 7: Canonical Query Builder. Replaces known synonyms/aliases with canonical forms."""
         # Simple whole-word replacement using vocabulary manager
         from intent_engine.vocabulary_manager import vocab_manager
+
         aliases = vocab_manager.get_unit_aliases()
         # sort by length descending to match longest first
-        for alias, canonical in sorted(aliases.items(), key=lambda x: len(x[0]), reverse=True):
+        for alias, canonical in sorted(
+            aliases.items(), key=lambda x: len(x[0]), reverse=True
+        ):
             # regex word boundary replace
             import re
+
             text = re.sub(rf"(?i)\b{re.escape(alias)}\b", canonical, text)
         return text
 
@@ -47,18 +52,18 @@ class QueryIntelligenceEngine:
         Execute the full QIE pipeline on the raw query.
         """
         if not raw_query or not raw_query.strip():
-             return NormalizedQuery(
-                 original_query=raw_query,
-                 normalized_text="",
-                 canonical_text="",
-             )
-             
+            return NormalizedQuery(
+                original_query=raw_query,
+                normalized_text="",
+                canonical_text="",
+            )
+
         # Phase 2 & 4: Normalization (Noise, Unicode, Whitespace, Spell Correction)
         normalization_result = query_normalizer.normalize_query_detailed(raw_query)
-        
+
         # Phase 7: Canonical Query Builder
         canonical_text = self._canonicalize_terms(normalization_result.normalized)
-        
+
         # Phase 8: Confidence Engine
         confidence = normalization_result.confidence
         if canonical_text != normalization_result.normalized:
@@ -73,11 +78,13 @@ class QueryIntelligenceEngine:
             corrections=[{"type": c} for c in normalization_result.corrections],
             confidence_score=confidence,
         )
-        
+
         return result
+
 
 # Global instance for easy import
 qie = QueryIntelligenceEngine()
+
 
 def process_query(raw_query: str) -> NormalizedQuery:
     return qie.process(raw_query)

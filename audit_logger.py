@@ -8,6 +8,7 @@ Captures only what matters for query traceability:
   - query_type       : one of simple | multi_independent | cross_filter | comparison
   - dotnet_payload   : the exact payload sent to the .NET backend
   - visualization_type: the viz type resolved for this query
+  - backend          : which fetch backend served the query — "dotnet" | "sql" | "rag"
 
 Schema (one JSON line per query):
   {
@@ -83,6 +84,7 @@ def write_audit_log(
     question: str = "",
     dotnet_payload: Any = None,
     visualization_type: str = "",
+    backend: str = "dotnet",
     **kwargs: Any,
 ) -> None:
     """
@@ -102,6 +104,9 @@ def write_audit_log(
     question = question or ctx.get("question") or ""
     dotnet_payload = dotnet_payload or ctx.get("dotnet_payload")
     visualization_type = visualization_type or ctx.get("visualization_type") or ""
+    backend = backend or ctx.get("backend") or "dotnet"
+    if backend not in ("dotnet", "sql", "rag"):
+        backend = "dotnet"
 
     if query_type not in AUDITED_QUERY_TYPES:
         return
@@ -122,6 +127,7 @@ def write_audit_log(
             "question": (question or "").strip(),
             "dotnet_payload": dotnet_payload,
             "visualization_type": visualization_type or "",
+            "backend": backend,
         }
 
         # 1. Merge extra keys from arguments (high priority)

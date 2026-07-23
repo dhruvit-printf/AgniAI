@@ -86,7 +86,6 @@ SUBCATEGORY_ALIASES: Dict[str, Dict[str, str]] = {
         "current": "Current",
         "currentleave": "Current",
         "absconded": "Absconded",
-        "awol": "Absconded",
     },
     "MEDICAL": {
         "bmi": "BMI",
@@ -107,7 +106,8 @@ SUBCATEGORY_ALIASES: Dict[str, Dict[str, str]] = {
         "sent": "Sent",
         "notresponded": "NotResponded",
         "not_responded": "NotResponded",
-        "completed": "Completed",
+        "completed": "Verified",
+        "verified": "Verified",
         "rejected": "Rejected",
     },
     "EQUIPMENT": {
@@ -142,9 +142,7 @@ _AGNIVEER_RE = re.compile(r"\bA\d{5,8}[A-Z]?\b")
 _BATCH_RE = re.compile(r"\bbatch\s+\d+\b", re.IGNORECASE)
 _PLATOON_RE = re.compile(r"\bplatoon\s+\d+\b", re.IGNORECASE)
 _COMPANY_WORDS = ["Lakhwinder", "Jaswant", "Arora", "Thorat", "Lak", "Jas"]
-_COMPANY_RE = re.compile(
-    r"\b(" + "|".join(_COMPANY_WORDS) + r")\b", re.IGNORECASE
-)
+_COMPANY_RE = re.compile(r"\b(" + "|".join(_COMPANY_WORDS) + r")\b", re.IGNORECASE)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -307,7 +305,11 @@ def _bank_lookup(category: str, subcategory: str, qtype: str) -> List[str]:
     the search (subcategory -> whole category -> cross-category "mixed" bank)
     whenever the narrower scope doesn't have enough material.
     """
-    bank_qtype = qtype if qtype in ("simple", "cross_filter", "multi_independent", "compare") else "simple"
+    bank_qtype = (
+        qtype
+        if qtype in ("simple", "cross_filter", "multi_independent", "compare")
+        else "simple"
+    )
     bank_category = _resolve_bank_category(category)
 
     candidates: List[str] = []
@@ -369,9 +371,7 @@ def _select_bank_questions(
         return []
 
     raw_query = ctx.get("raw_query", "").strip().lower().rstrip("?.")
-    pool = [
-        q for q in candidates if q.strip().lower().rstrip("?.") != raw_query
-    ]
+    pool = [q for q in candidates if q.strip().lower().rstrip("?.") != raw_query]
     if not pool:
         pool = candidates
 
@@ -393,7 +393,9 @@ def _select_bank_questions(
     return chosen
 
 
-def _merge_with_fallback(bank_questions: List[str], fallback_fn, n: int = 4) -> List[str]:
+def _merge_with_fallback(
+    bank_questions: List[str], fallback_fn, n: int = 4
+) -> List[str]:
     if len(bank_questions) >= n:
         return bank_questions[:n]
 

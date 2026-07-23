@@ -46,6 +46,26 @@ _BARE_MONTH_PATTERN = (
 )
 _ISO_DATE_PATTERN = r"\b\d{4}-\d{2}-\d{2}\b"
 _SLASH_DATE_PATTERN = r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b"
+# "16 July 2026" / "16 Jul 2026" — a specific calendar day, distinct from
+# _MONTH_PATTERN (month+year only, no day) above.
+_DAY_MONTH_YEAR_PATTERN = (
+    r"\b\d{1,2}\s+(January|February|March|April|May|June|July|August|September|"
+    r"October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+    r"\s+\d{4}\b"
+)
+# "last 7 days" / "past 30 days" / "last 3 days" — a rolling N-day window
+# ending today, distinct from the fixed calendar periods (week/month) below.
+_LAST_N_DAYS_PATTERN = r"\b(?:last|past)\s+\d{1,3}\s+days?\b"
+# "first week of July" / "second week of July" / "last week of July" /
+# "mid week of July" (also "middle week of" / "midweek of") — a named
+# quarter-month window, resolved to actual day-of-month bounds in
+# date_resolver.py. Year is optional (defaults to current year there).
+_WEEK_OF_MONTH_PATTERN = (
+    r"\b(first|second|third|fourth|last|mid|middle)\s*(?:-|\s)?week\s+of\s+"
+    r"(January|February|March|April|May|June|July|August|September|"
+    r"October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+    r"(?:\s+\d{4})?\b"
+)
 _EQUIPMENT_CONTEXT_PHRASES = (
     "equipment",
     "gear",
@@ -149,6 +169,10 @@ def _extract_number(query: str) -> Optional[int]:
         "batch",
         "platoon",
         "plt",
+        "coy",
+        "co",
+        "pl",
+        "p",
         "agniveer",
         "attempt",
         "section",
@@ -157,6 +181,13 @@ def _extract_number(query: str) -> Optional[int]:
         "day",
         "month",
         "year",
+        "below",
+        "above",
+        "over",
+        "under",
+        "than",
+        "least",
+        "at",
     )
 
     for phrase in RANKING_CONTEXT_PHRASES:
@@ -164,51 +195,62 @@ def _extract_number(query: str) -> Optional[int]:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             start = max(0, match.start() - 24)
-            context = text[start : match.start()].strip()
-            if any(context.endswith(prefix) for prefix in blocked_prefixes):
+            context = text[start : match.start()].strip().lower()
+            clean_ctx = re.sub(r"[-\s]+", " ", context).strip()
+            if any(clean_ctx.endswith(prefix) for prefix in blocked_prefixes):
                 continue
             return int(match.group(1))
 
-    match = re.search(r"\brank\s+(\d+)\b", text)
+    match = re.search(r"\b(rank|top|bottom)\s+(\d+)\b", text, re.IGNORECASE)
     if match:
-        return int(match.group(1))
-        
+        return int(match.group(2))
+
     blocked_suffixes = (
         "days",
         "day",
         "marks",
         "percent",
         "percentage",
+        "%",
         "score",
         "kg",
         "cm",
         "times",
+        ".",
     )
-    
+
     # Generic fallback: find any standalone number that isn't preceded by blocked prefixes
     # and isn't a likely year/id.
     for match in re.finditer(r"\b(\d+)\b", text):
         num = int(match.group(1))
-        
+
         # Skip likely years or large numbers (e.g., Agniveer numbers) if it's > 1000
         if 2000 <= num <= 2100 or num > 1000:
             continue
-            
+
         start_before = max(0, match.start() - 24)
-        context_before = text[start_before : match.start()].strip()
-        
+        context_before = text[start_before : match.start()].strip().lower()
+        # .strip() above only trims whitespace, but a hyphenated reference
+        # like "PL-01" leaves the slice ending in "...pl-" (hyphen attached,
+        # no whitespace to strip) — normalise the hyphen to a space FIRST,
+        # then strip, or "pl-" -> "pl " never matches the blocked_prefixes
+        # entry "pl" (trailing space) and this platoon code's "01" gets
+        # returned as if the user asked for "top 1" / "number=1".
+        clean_ctx_before = re.sub(r"[-\s]+", " ", context_before).strip()
+
         end_after = min(len(text), match.end() + 24)
-        context_after = text[match.end() : end_after].strip()
-        
-        if any(context_before.endswith(prefix) for prefix in blocked_prefixes):
+        context_after = text[match.end() : end_after].strip().lower()
+
+        if any(clean_ctx_before.endswith(prefix) for prefix in blocked_prefixes):
             continue
-            
+
         if any(context_after.startswith(suffix) for suffix in blocked_suffixes):
             continue
-            
+
         return num
-        
+
     return None
+
 
 
 def detect_query_number_override(raw_query: str) -> Optional[int]:
@@ -228,7 +270,9 @@ def _extract_section(query: str) -> Optional[str]:
         for alias in candidates:
             if len(alias) <= 2:
                 # Require case-sensitive match for short acronyms like 'IT' or 'MR'
-                orig_pattern = r"\b" + re.escape(alias.upper()).replace(r"\ ", r"\s+") + r"\b"
+                orig_pattern = (
+                    r"\b" + re.escape(alias.upper()).replace(r"\ ", r"\s+") + r"\b"
+                )
                 if re.search(orig_pattern, query):
                     return section_name
             else:
@@ -252,25 +296,39 @@ def _extract_subsection(query: str, section: Optional[str]) -> Optional[str]:
 
 _GRADING_CONTEXT_WORDS = frozenset(
     {
-        "grade", "grading", "score", "marks", "performance", "result", "rated",
-        "scored", "achieved", "got", "obtained", "received", "classification",
-        "percentage", "percent",
+        "grade",
+        "grading",
+        "score",
+        "marks",
+        "performance",
+        "result",
+        "rated",
+        "scored",
+        "achieved",
+        "got",
+        "obtained",
+        "received",
+        "classification",
+        "percentage",
+        "percent",
     }
     | {v.lower() for v in SECTION.keys()}
 )
-_GRADING_AMBIGUOUS = frozenset({"good", "excellent", "satisfactory", "sat", "fail", "failed", "failing"})
+_GRADING_AMBIGUOUS = frozenset(
+    {"good", "excellent", "satisfactory", "sat", "fail", "failed", "failing"}
+)
 
 
 def _extract_grading(query: str) -> Optional[str]:
     query_lower = _normalise(query)
-    
+
     # Grading neutrality: if both pass and fail concepts are mentioned, return None
     # to avoid falsely narrowing to just one of them.
     has_pass = any(w in query_lower for w in ("pass", "passed", "passing"))
     has_fail = any(w in query_lower for w in ("fail", "failed", "failing"))
     if has_pass and has_fail:
         return None
-        
+
     has_grading_context = any(w in query_lower for w in _GRADING_CONTEXT_WORDS)
     for key, value in GRADING_CATEGORIES.items():
         phrase = _normalise(key)
@@ -303,6 +361,9 @@ def _extract_leave_type(query: str) -> Optional[str]:
         )
     ):
         return None
+    if "90 percent" in query_lower or _has_threshold_day_range_signal(query_lower):
+        return "Threshold"
+
     for key, value in LEAVE_TYPES.items():
         if _normalise(key) in query_lower:
             if key == "medical" and "medical leave" not in query_lower:
@@ -316,19 +377,98 @@ def _extract_leave_type(query: str) -> Optional[str]:
 
 
 _THRESHOLD_FILTER_SIGNALS = (
-    "near", "nearing", "close to", "almost", "above", "below", "reached",
-    "crossed", "hit ", "limit", "cap", "quota", "allowance", "warning level",
-    "critical level", "danger zone", "safe limit", "ceiling", "boundary",
-    "cutoff", "benchmark","90%", "90 %","Threshold","threshold","Threshhold","Thresholds",
-) 
+    "near",
+    "nearing",
+    "close to",
+    "almost",
+    "above",
+    "below",
+    "reached",
+    "crossed",
+    "hit ",
+    "limit",
+    "cap",
+    "quota",
+    "allowance",
+    "warning level",
+    "critical level",
+    "danger zone",
+    "safe limit",
+    "ceiling",
+    "boundary",
+    "cutoff",
+    "benchmark",
+    "90%",
+    "90 %",
+    "Threshold",
+    "threshold",
+    "Threshhold",
+    "Thresholds",
+)
 
 
 def _has_threshold_filter_signal(query_lower: str) -> bool:
     return any(signal in query_lower for signal in _THRESHOLD_FILTER_SIGNALS)
 
 
-_BMI_AMBIGUOUS_TERMS = frozenset({"fit", "normal"})
-_BMI_CONTEXT_WORDS = frozenset({"bmi", "weight", "fitness", "medical", "health", "fat", "thin"})
+# Threshold leave is defined (see sql_executor._execute_leave_threshold) as
+# continuous 40-44 days OR total 55-59 days — ~90% of the leave allowance.
+# Users usually name the day count/percentage instead of saying "threshold"
+# outright ("40 days leave in a row", "used up 90 percent of their leave"),
+# so those phrasings must independently resolve to the Threshold leave type.
+_CONTINUOUS_DAY_CONTEXT_WORDS = (
+    "consecutive",
+    "consecutively",
+    "continuous",
+    "continuously",
+    "in a row",
+    "straight",
+    "back to back",
+    "back-to-back",
+    "at a stretch",
+)
+_TOTAL_DAY_CONTEXT_WORDS = (
+    "overall",
+    "total",
+    "totalling",
+    "totaling",
+    "altogether",
+    "cumulative",
+    "cumulatively",
+    "in total",
+    "combined",
+    "aggregate",
+)
+_DAY_RANGE_RE = re.compile(r"\b(\d{1,3})\s*(?:-|to|–|—)?\s*(\d{1,3})?\s*days?\b")
+# A few days' tolerance around the exact SQL boundaries (40-44 / 55-59) to
+# cover "or around 40 days" style phrasing without drifting into unrelated
+# leave-day mentions.
+_CONTINUOUS_DAY_BAND = range(37, 48)  # ~40-44 +/- 3
+_TOTAL_DAY_BAND = range(52, 63)  # ~55-59 +/- 3
+
+
+def _has_threshold_day_range_signal(query_lower: str) -> bool:
+    for match in _DAY_RANGE_RE.finditer(query_lower):
+        lo = int(match.group(1))
+        hi = int(match.group(2)) if match.group(2) else lo
+        window_start = max(0, match.start() - 30)
+        window_end = min(len(query_lower), match.end() + 30)
+        window = query_lower[window_start:window_end]
+        if any(w in window for w in _CONTINUOUS_DAY_CONTEXT_WORDS) and (
+            lo in _CONTINUOUS_DAY_BAND or hi in _CONTINUOUS_DAY_BAND
+        ):
+            return True
+        if any(w in window for w in _TOTAL_DAY_CONTEXT_WORDS) and (
+            lo in _TOTAL_DAY_BAND or hi in _TOTAL_DAY_BAND
+        ):
+            return True
+    return False
+
+
+_BMI_AMBIGUOUS_TERMS = frozenset({"fit", "unfit", "normal"})
+_BMI_CONTEXT_WORDS = frozenset(
+    {"bmi", "weight", "fitness", "medical", "health", "fat", "thin"}
+)
 
 
 def _extract_bmi_category(query: str) -> Optional[str]:
@@ -354,8 +494,14 @@ def _extract_blood_group(query: str) -> Optional[str]:
             blood_group.replace("+", " positive").lower(),
             blood_group.replace("-", " negative").lower(),
         )
-        if any(variant in query_lower for variant in variants):
-            return blood_group
+        for variant in variants:
+            # A plain `in` substring check had no word boundary, so a code
+            # like "b-" matched inside unrelated words containing that exact
+            # letter run — e.g. "sub-item" contains "b-" — misfiring
+            # bloodGroup="B-" on queries that never mentioned blood type at
+            # all. \b anchors the match to a real word/token boundary.
+            if re.search(rf"\b{re.escape(variant)}", query_lower):
+                return blood_group
     return None
 
 
@@ -447,8 +593,26 @@ def _extract_equipment_type(query: str) -> Optional[str]:
             return "Procured"
     return None
 
+
 def _extract_date_patterns(query: str) -> Optional[str]:
     query_lower = _normalise(query)
+
+    # Most specific patterns first — "last week of July" and "16 July 2026"
+    # both contain substrings ("last week", "July 2026") that the more
+    # generic checks below would also match, truncating away the part that
+    # actually narrows the range/day. Checking these first keeps the fuller,
+    # more precise phrase intact.
+    match = re.search(_WEEK_OF_MONTH_PATTERN, query_lower, re.IGNORECASE)
+    if match:
+        return match.group(0)
+
+    match = re.search(_LAST_N_DAYS_PATTERN, query_lower, re.IGNORECASE)
+    if match:
+        return match.group(0)
+
+    match = re.search(_DAY_MONTH_YEAR_PATTERN, query, re.IGNORECASE)
+    if match:
+        return match.group(0)
 
     for phrase, canonical in RELATIVE_DATE_PHRASES.items():
         if phrase in query_lower:
@@ -582,6 +746,7 @@ def _extract_to_attempt(query: str) -> Optional[int]:
 
 
 def _extract_unit_name(query: str) -> Optional[str]:
+    from .intent_schema import UNIT_ALIASES
     query_lower = _normalise(query)
     # Pattern 1: "unit alpha", "alpha unit", "in unit alpha", "from unit alpha"
     match = re.search(
@@ -606,22 +771,83 @@ def _extract_unit_name(query: str) -> Optional[str]:
 
 def _extract_numeric_id(query: str, id_pattern: str) -> Optional[int]:
     query_lower = _normalise(query)
-    match = re.search(rf"\b(?:{id_pattern})\s+(\d+)\b", query_lower, re.IGNORECASE)
+    match = re.search(rf"\b(?:{id_pattern})\s*[-#]?\s*(\d+)\b", query_lower, re.IGNORECASE)
     if match:
         return int(match.group(1))
     return None
 
 
 def _extract_company_id(query: str) -> Optional[int]:
-    return _extract_numeric_id(query, "company")
+    return _extract_numeric_id(query, "company|coy|co")
 
 
 def _extract_platoon_id(query: str) -> Optional[int]:
-    return _extract_numeric_id(query, "platoon|plt")
+    return _extract_numeric_id(query, "platoon|plt|pl")
 
 
 def _extract_batch_id(query: str) -> Optional[int]:
     return _extract_numeric_id(query, "batch")
+
+
+def _extract_state(query: str) -> Optional[str]:
+    text = query.lower()
+    m = re.search(r"\bfrom\s+([a-z\s]+?)(?:\s+who|\s+and|\s+belong|\s+with|\s*[\.,!]|$)", text)
+    if m:
+        val = m.group(1).strip()
+        if val.endswith(" unit") or val in ("batch", "platoon", "company", "unit", "class"):
+            return None
+        return val.title()
+    return None
+
+
+_COMPANY_NAME_STOPWORDS = frozenset(
+    {"in", "for", "of", "the", "a", "an", "this", "that", "and", "or",
+     "at", "to", "from", "by", "on", "with", "about", "vs", "versus",
+     # Generic descriptors/determiners that can sit directly before
+     # "company" without being a real company name ("unknown company",
+     # "another company", ...) — without these, _find_generic_company_mentions
+     # in query_planner.py mistakes "Show data for unknown company Zulu
+     # Company" for TWO named companies ("unknown" and "Zulu") and wrongly
+     # triggers comparison mode on a query naming only one real company.
+     "unknown", "some", "any", "another", "other", "different", "new",
+     "old", "same", "such", "given", "particular", "specific", "certain",
+     "each", "every", "no", "which", "what", "our", "your", "my", "his",
+     "her", "their", "its"}
+)
+
+
+# CompanyMaster.Name isn't always just the spoken name — some companies are
+# stored as "<Abbr> - <FullName>" (e.g. "Lak - Lakhwinder", "Jas - Jaswant")
+# while others are the bare name ("Arora", "Thorat", "Mahadev"). A query
+# saying "Lakhwinder company" only ever yields the single token
+# "lakhwinder", which then fails every SQL site's exact
+# LOWER(c.Name) = LOWER(?) match against the real "Lak - Lakhwinder" row.
+# Mapping the spoken short forms to the canonical stored Name here — the one
+# place this gets extracted — fixes every downstream consumer at once
+# instead of patching each SQL clause individually.
+_COMPANY_CANONICAL_NAMES = {
+    "lak": "Lak - Lakhwinder",
+    "lakhwinder": "Lak - Lakhwinder",
+    "jas": "Jas - Jaswant",
+    "jaswant": "Jas - Jaswant",
+}
+
+
+def _extract_company_name(query: str) -> Optional[str]:
+    text = query.lower()
+    # "<Name> company" — checked first: this function only ever looked AFTER
+    # "company", so for "Lakhwinder company in BPET" it captured the next
+    # word after "company" ("in") as the company name and never saw
+    # "Lakhwinder" at all, which sits right before the keyword.
+    m = re.search(r"\b([a-z0-9][a-z0-9\-_]*)\s+company\b", text)
+    if m and m.group(1) not in _COMPANY_NAME_STOPWORDS:
+        return _COMPANY_CANONICAL_NAMES.get(m.group(1), m.group(1))
+    # "company <Name>"
+    m = re.search(r"\bcompany\s+([a-z0-9\-_]+)", text)
+    if m and m.group(1) not in _COMPANY_NAME_STOPWORDS:
+        return _COMPANY_CANONICAL_NAMES.get(m.group(1), m.group(1))
+    return None
+
 
 
 def _extract_agniveer_no(query: str) -> Optional[str]:
@@ -640,14 +866,28 @@ def _extract_agniveer_no(query: str) -> Optional[str]:
 def _extract_medical_status(query: str) -> Optional[str]:
     query_lower = _normalise(query)
     if any(
-        token in query_lower
-        for token in (
-            "under treatment",
-            "in hospital",
-            "admitted",
+        token in query_lower for token in ("under treatment", "in hospital", "admitted")
+    ):
+        return "Admitted"
+    if any(
+        phrase in query_lower
+        for phrase in (
+            "medically unfit",
+            "not fit for duty",
+            "unfit for duty",
+            "unfit",
         )
     ):
-        return None
+        return "Unfit"
+    if any(
+        phrase in query_lower
+        for phrase in (
+            "medically fit",
+            "fit for duty",
+            "fit",
+        )
+    ):
+        return "Fit"
     return None
 
 
@@ -665,36 +905,60 @@ def _extract_days(query: str) -> Optional[int]:
     return None
 
 
-def _extract_return_condition(query: str, semantic: Optional[Dict[str, Any]] = None) -> Optional[str]:
+def _extract_verification_status(query: str) -> Optional[str]:
+    query_lower = _normalise(query)
+    if any(phrase in query_lower for phrase in ("completed", "verified", "cleared", "approved", "complete")):
+        return "Completed"
+    if any(phrase in query_lower for phrase in ("pending", "not verified", "not responded", "not complete")):
+        return "Pending"
+    if any(phrase in query_lower for phrase in ("rejected", "failed")):
+        return "Rejected"
+    return None
+
+
+def _extract_return_condition(
+    query: str, semantic: Optional[Dict[str, Any]] = None
+) -> Optional[str]:
     query_lower = _normalise(query)
     op = ""
+    is_equipment = False
     if semantic and semantic.get("module", "").lower() == "equipment":
+        is_equipment = True
         op = str(semantic.get("operation") or "").lower()
+    if any(w in query_lower for w in ("equipment", "issued", "returned", "return", "item", "condition")):
+        is_equipment = True
 
     for cond in ("good", "fair", "poor", "damaged"):
         if re.search(rf"\b(given|issued)\s+(in\s+)?{cond}\b", query_lower):
             continue
         if re.search(rf"\breturn(ed)?\s+(in\s+)?{cond}\b", query_lower):
             return cond
-        if re.search(rf"\b{cond}\b", query_lower):
+        if is_equipment and re.search(rf"\b{cond}\b", query_lower):
             if op == "sent":
                 continue
             return cond
     return None
 
 
-def _extract_given_condition(query: str, semantic: Optional[Dict[str, Any]] = None) -> Optional[str]:
+def _extract_given_condition(
+    query: str, semantic: Optional[Dict[str, Any]] = None
+) -> Optional[str]:
     query_lower = _normalise(query)
     op = ""
+    is_equipment = False
     if semantic and semantic.get("module", "").lower() == "equipment":
+        is_equipment = True
         op = str(semantic.get("operation") or "").lower()
+    if any(w in query_lower for w in ("equipment", "issued", "returned", "return", "item", "condition")):
+        is_equipment = True
 
     for cond in ("good", "fair", "poor", "damaged"):
         if re.search(rf"\b(given|issued)\s+(in\s+)?{cond}\b", query_lower):
             return cond
-        if re.search(rf"\b{cond}\b", query_lower):
-            if op == "sent" and not re.search(rf"\breturn(ed)?\s+(in\s+)?{cond}\b", query_lower):
-                return cond
+        if is_equipment and re.search(rf"\b{cond}\b", query_lower):
+            if op == "received":
+                continue
+            return cond
     return None
 
 
@@ -723,14 +987,19 @@ CANONICAL_ENTITY_KEYS = frozenset(
         "fromDate",
         "toDate",
         "medicalStatus",
+        "verificationStatus",
         "diagnose",
         "days",
         "returnCondition",
         "givenCondition",
+        "hospitalName",
+        "state",
+        "companyName",
         "Operation",
-        "Category"
+        "Category",
     }
 )
+
 
 
 def assert_canonical_entity_keys(entities: Dict[str, Any]) -> None:
@@ -757,109 +1026,119 @@ _MEDICAL_CONTEXT_WORDS = frozenset(
         "medical",
         "sick",
         "suffering",
+        "suffered",
+        "suffer",
+        "suffers",
         "diagnosed",
         "hospital",
         "ill",
         "patient",
         "treatment",
+        "right now",
+        "currently",
     }
 )
+# Phrases that mark a diagnose query as "as of now" rather than "ever" — only
+# meaningful when a disease was actually extracted; scoped separately from
+# _MEDICAL_CONTEXT_WORDS above so a generic "currently" doesn't force a date
+# filter onto unrelated medical-context matches.
+_DIAGNOSE_CURRENT_HINTS = ("right now", "currently", "today", "as of today", "at the moment")
 
 
 _KNOWN_DISEASES = (
-        "viral fever",
-        "covid-19",
-        "swine flu",
-        "heat stroke",
-        "scrub typhus",
-        "kidney stone",
-        "chicken pox",
-        "chickenpox",
-        "hepatitis b",
-        "hepatitis a",
-        "hepatitis c",
-        "food poisoning",
-        "gastroenteritis",
-        "stomach flu",
-        "panic attack",
-        "bipolar disorder",
-        "bone fracture",
-        "hairline fracture",
-        "bone crack",
-        "ligament tear",
-        "muscle pull",
-        "back pain",
-        "joint pain",
-        "slipped disc",
-        "rheumatoid arthritis",
-        "osteoarthritis",
-        "fever",
-        "cough",
-        "cold",
-        "dengue",
-        "malaria",
-        "typhoid",
-        "flu",
-        "influenza",
-        "asthma",
-        "bronchitis",
-        "pneumonia",
-        "tuberculosis",
-        "headache",
-        "migraine",
-        "covid",
-        "hypertension",
-        "diabetes",
-        "cholera",
-        "diarrhea",
-        "dysentery",
-        "sunstroke",
-        "dehydration",
-        "hepatitis",
-        "jaundice",
-        "rabies",
-        "tetanus",
-        "leprosy",
-        "leptospirosis",
-        "h1n1",
-        "cancer",
-        "hiv",
-        "aids",
-        "chikungunya",
-        "meningitis",
-        "encephalitis",
-        "measles",
-        "mumps",
-        "rubella",
-        "polio",
-        "allergy",
-        "acidity",
-        "vomiting",
-        "nausea",
-        "constipation",
-        "ulcer",
-        "gastritis",
-        "appendicitis",
-        "arthritis",
-        "hernia",
-        "anemia",
-        "thyroid",
-        "insomnia",
-        "depression",
-        "anxiety",
-        "stress",
-        "ptsd",
-        "schizophrenia",
-        "fracture",
-        "dislocation",
-        "sprain",
-        "concussion",
-        "burn",
-        "injury",
-        "wound",
-        "sciatica",
-        "spasm",
-        "fatigue",
+    "viral fever",
+    "covid-19",
+    "swine flu",
+    "heat stroke",
+    "scrub typhus",
+    "kidney stone",
+    "chicken pox",
+    "chickenpox",
+    "hepatitis b",
+    "hepatitis a",
+    "hepatitis c",
+    "food poisoning",
+    "gastroenteritis",
+    "stomach flu",
+    "panic attack",
+    "bipolar disorder",
+    "bone fracture",
+    "hairline fracture",
+    "bone crack",
+    "ligament tear",
+    "muscle pull",
+    "back pain",
+    "joint pain",
+    "slipped disc",
+    "rheumatoid arthritis",
+    "osteoarthritis",
+    "fever",
+    "cough",
+    "cold",
+    "dengue",
+    "malaria",
+    "typhoid",
+    "flu",
+    "influenza",
+    "asthma",
+    "bronchitis",
+    "pneumonia",
+    "tuberculosis",
+    "headache",
+    "migraine",
+    "covid",
+    "hypertension",
+    "diabetes",
+    "cholera",
+    "diarrhea",
+    "dysentery",
+    "sunstroke",
+    "dehydration",
+    "hepatitis",
+    "jaundice",
+    "rabies",
+    "tetanus",
+    "leprosy",
+    "leptospirosis",
+    "h1n1",
+    "cancer",
+    "hiv",
+    "aids",
+    "chikungunya",
+    "meningitis",
+    "encephalitis",
+    "measles",
+    "mumps",
+    "rubella",
+    "polio",
+    "allergy",
+    "acidity",
+    "vomiting",
+    "nausea",
+    "constipation",
+    "ulcer",
+    "gastritis",
+    "appendicitis",
+    "arthritis",
+    "hernia",
+    "anemia",
+    "thyroid",
+    "insomnia",
+    "depression",
+    "anxiety",
+    "stress",
+    "ptsd",
+    "schizophrenia",
+    "fracture",
+    "dislocation",
+    "sprain",
+    "concussion",
+    "burn",
+    "injury",
+    "wound",
+    "sciatica",
+    "spasm",
+    "fatigue",
 )
 
 
@@ -873,6 +1152,61 @@ def _extract_diagnose(query: str) -> Optional[str]:
         if d in _DIAGNOSE_AMBIGUOUS and not has_medical_context:
             continue
         return d.title()
+    return None
+
+
+def _extract_diagnose_is_current(query: str) -> bool:
+    """True when the query asks about a diagnosis "as of now" (-> filter
+    Medical.VisitDate) rather than "ever" (e.g. "who has fever right now"
+    vs. "who has suffered with fever")."""
+    query_lower = _normalise(query)
+    return any(hint in query_lower for hint in _DIAGNOSE_CURRENT_HINTS)
+
+
+_HOSPITAL_STOPWORDS = frozenset({"the", "a", "an", "this", "that", "which", "what", "which"})
+
+# Question/verb words that mean the text before "hospital" is part of the
+# QUESTION ("who was admitted to hospital this month?"), not a hospital's
+# proper name ("City Hospital") — the no-preposition fallback regex below has
+# no other way to tell those apart, so any overlap rejects the match.
+_HOSPITAL_NAME_REJECT_WORDS = frozenset(
+    {
+        "who", "was", "is", "are", "were", "did", "does", "do",
+        "admitted", "hospitalized", "hospitalised", "got", "went",
+        "show", "list", "find", "give", "tell", "please", "any",
+    }
+)
+
+
+def _looks_like_hospital_name(name: str) -> bool:
+    if not name or name in _HOSPITAL_STOPWORDS:
+        return False
+    return not (set(name.split()) & _HOSPITAL_NAME_REJECT_WORDS)
+
+
+def _extract_hospital_location(query: str) -> Optional[str]:
+    """Extract a hospital name/location from free text, e.g. "hospitalized
+    at XYZ hospital" / "treated at City Hospital" -> "Xyz" / "City"."""
+    query_lower = _normalise(query)
+
+    match = re.search(
+        r"\b(?:at|in|from)\s+([a-z][a-z0-9\s]{1,40}?)\s+hospital\b", query_lower
+    )
+    if not match:
+        match = re.search(r"\b([a-z][a-z0-9\s]{1,40}?)\s+hospital\b", query_lower)
+    if match:
+        name = match.group(1).strip()
+        if _looks_like_hospital_name(name):
+            return name.title()
+
+    match = re.search(
+        r"\bhospitalized\s+(?:at|in)\s+([a-z][a-z0-9\s]{1,40}?)(?:$|[,.?]|\s+(?:hospital|on|since|from))",
+        query_lower,
+    )
+    if match:
+        name = match.group(1).strip()
+        if _looks_like_hospital_name(name):
+            return name.title()
     return None
 
 
@@ -910,10 +1244,12 @@ def extract_entities(
         "fromDate": None,
         "toDate": None,
         "medicalStatus": None,
+        "verificationStatus": None,
         "diagnose": None,
         "days": None,
         "returnCondition": None,
         "givenCondition": None,
+        "hospitalName": None,
     }
 
     result["n"] = _extract_number(raw_query)
@@ -926,7 +1262,13 @@ def extract_entities(
     result["bloodGroup"] = _extract_blood_group(raw_query)
     result["sport"] = _extract_sport(raw_query)
     result["class"] = _extract_class(raw_query)
+    result["state"] = _extract_state(raw_query)
+    result["companyName"] = _extract_company_name(raw_query)
+    result["platoonId"] = _extract_platoon_id(raw_query)
+    result["batchId"] = _extract_batch_id(raw_query)
+    result["companyId"] = _extract_company_id(raw_query)
     result["equipmentName"] = _extract_equipment_item(raw_query)
+
     eq_type = _extract_equipment_type(raw_query)
     if not eq_type and result["equipmentName"]:
         if result["equipmentName"] in ISSUED_EQUIPMENT_ITEMS:
@@ -941,10 +1283,21 @@ def extract_entities(
     result["date"] = _extract_date_patterns(raw_query)
     result["fromDate"], result["toDate"] = _extract_date_range(raw_query)
     result["medicalStatus"] = _extract_medical_status(raw_query)
+    result["verificationStatus"] = _extract_verification_status(raw_query)
     result["diagnose"] = _extract_diagnose(raw_query)
+    if (
+        result["diagnose"]
+        and result["date"] is None
+        and _extract_diagnose_is_current(raw_query)
+    ):
+        # "who has fever right now" -> scope the diagnose match to today's
+        # VisitDate. "who has suffered with fever" (no current-hint) stays
+        # unscoped, i.e. "ever diagnosed".
+        result["date"] = "today"
     result["days"] = _extract_days(raw_query)
     result["returnCondition"] = _extract_return_condition(raw_query, semantic)
     result["givenCondition"] = _extract_given_condition(raw_query, semantic)
+    result["hospitalName"] = _extract_hospital_location(raw_query)
 
     # Precedence: explicit value in current query > semantic > stale resolved_entities
     result["companyId"] = (
@@ -975,3 +1328,39 @@ def extract_entities(
     )
 
     return result
+
+
+# Canonical (camelCase) key -> every spelling the frontend payload might use.
+# admin_pipeline._extract_frontend_intent() keys its dict in snake_case
+# (company_id/platoon_id/batch_id/agniveer_no, per _INTENT_FIELD_ALIASES),
+# while extract_entities() above returns camelCase — this bridges the two so
+# a frontend-supplied value is recognised under either spelling.
+_FRONTEND_OVERRIDE_KEYS: Dict[str, Tuple[str, ...]] = {
+    "companyId": ("companyId", "company_id"),
+    "platoonId": ("platoonId", "platoon_id"),
+    "batchId": ("batchId", "batch_id"),
+    "agniveerNo": ("agniveerNo", "agniveer_no"),
+    "fromDate": ("fromDate", "from_date"),
+    "toDate": ("toDate", "to_date"),
+}
+
+
+def merge_frontend_intent(
+    frontend_intent: Dict[str, Any], extracted: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Merge a frontend-supplied intent payload with free-text extraction.
+
+    Frontend payload wins on ID fields (company/platoon/batch/agniveerNo,
+    explicit fromDate/toDate a UI date-picker set) — those are literal user
+    selections, not inference. Free-text extraction (`extracted`, the output
+    of `extract_entities()`) fills everything the frontend didn't supply
+    (section, grading, sport, leaveType, diagnose, ...).
+    """
+    merged = dict(extracted)
+    for canonical, aliases in _FRONTEND_OVERRIDE_KEYS.items():
+        for alias in aliases:
+            value = frontend_intent.get(alias)
+            if value not in (None, "", 0):
+                merged[canonical] = value
+                break
+    return merged

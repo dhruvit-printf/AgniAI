@@ -1,9 +1,8 @@
 """Flask REST API for AgniAI.
 
 PORT CONFIGURATION:
-  Python / Flask listens on port 5000  (this file — app.run port=5000)
-  .NET AiCommand API runs on port 7257 (set via DOTNET_API_BASE_URL in .env)
-  These MUST be different ports. Never point DOTNET_API_BASE_URL at 5000.
+  Python / Flask listens on port 5000 (this file — app.run port=5000)
+  Legacy .NET backend integration is decommissioned, database operations are run locally.
 """
 
 from __future__ import annotations
@@ -336,12 +335,14 @@ def _client_accepts_sse() -> bool:
 
 def _get_session_id(data: dict) -> str:
     import uuid as _uuid
+
     session_id = (
         data.get("session_id") or request.headers.get(SESSION_HEADER) or ""
     ).strip()
     if not session_id:
         session_id = _uuid.uuid4().hex
         import logging as _logging
+
         _logging.getLogger(__name__).warning(
             "request without session_id — generated ephemeral id %s", session_id
         )

@@ -481,5 +481,44 @@ class TestBackwardCompatibility(unittest.TestCase):
             self.assertIn(key, d)
 
 
+class TestPlannerV2Recursion(unittest.TestCase):
+
+    def test_has_column_filter_nested(self):
+        from query_planner_v2 import QueryPlannerV2
+        from ast_models import WhereNode, ConditionGroupNode
+
+        planner = QueryPlannerV2()
+        target_where = WhereNode(column="AgniveerMaster.IsDisqualified", operator="=", value=1)
+        or_group = ConditionGroupNode(operator="OR", conditions=[target_where])
+        and_group = ConditionGroupNode(operator="AND", conditions=[or_group])
+        conditions = [and_group]
+
+        # Check if _has_column_filter correctly finds it
+        result = planner._has_column_filter(conditions, "AgniveerMaster.IsDisqualified")
+        self.assertTrue(result)
+
+        # Check that it returns False for non-existing column filter
+        self.assertFalse(planner._has_column_filter(conditions, "AgniveerMaster.FatherName"))
+
+    def test_has_column_filter_depth_guard(self):
+        from query_planner_v2 import QueryPlannerV2
+        from ast_models import WhereNode, ConditionGroupNode
+
+        planner = QueryPlannerV2()
+        target_where = WhereNode(column="AgniveerMaster.IsDisqualified", operator="=", value=1)
+
+        # 1. Nest 5 levels deep (should return True)
+        node = target_where
+        for _ in range(5):
+            node = ConditionGroupNode(operator="AND", conditions=[node])
+        self.assertTrue(planner._has_column_filter([node], "AgniveerMaster.IsDisqualified"))
+
+        # 2. Nest 25 levels deep (should return False due to depth guard of 20)
+        node_deep = target_where
+        for _ in range(25):
+            node_deep = ConditionGroupNode(operator="AND", conditions=[node_deep])
+        self.assertFalse(planner._has_column_filter([node_deep], "AgniveerMaster.IsDisqualified"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

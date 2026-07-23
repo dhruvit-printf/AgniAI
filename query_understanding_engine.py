@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from conversation_detector import is_conversational_query, normalize_text
 
@@ -30,6 +30,7 @@ _PERFORMANCE_SECTION_TOKENS = tuple(name.lower() for name in _PERFORMANCE_SECTIO
 
 def _distinct_performance_sections(text: str) -> int:
     return len({tok for tok in _PERFORMANCE_SECTION_TOKENS if tok in text})
+
 
 # Strong, mostly-unambiguous compare verbs/phrases. Deliberately excludes bare
 # "against"/"between"/"across"/"among" (used as range/membership words
@@ -60,13 +61,27 @@ _COMPARISON_MARKERS = (
     "in contrast to",
     "rank against",
     "relative performance",
+    "relative to",
     "head to head",
     "side by side",
+    "side-by-side",
     "similar to",
     "unlike",
     "identical to",
     "equivalent to",
     "same as",
+    "vs.",
+    "v/s",
+    "as compared to",
+    "as compared with",
+    "differ from",
+    "contrasted with",
+    "superior to",
+    "inferior to",
+    "preferable to",
+    # "Improvement FROM attempt 1 TO attempt 3" names two specific attempts
+    "improvement from attempt",
+    "improvement from",
 )
 
 # Multi-independent markers. Every hit here is still gated in understand_query
@@ -110,8 +125,37 @@ _MULTI_INDEPENDENT_MARKERS = (
     "independently",
     "alongside",
     "together",
+    "respectively",
+    "individually",
+    "one by one",
+    "in the meantime",
+    "lastly",
 )
 _CROSS_FILTER_MARKERS = (
+    # NOTE: status/eligibility adjectives (pending, issued, holding, present,
+    # absent, hospitalized, verified, completed, rejected, returned,
+    # assigned, waiting, awaiting, currently, still, already, yet,
+    # "classified as", "falling under", ...) must NOT be added here — they
+    # belong exclusively in _CROSS_FILTER_STATUS_MARKERS below, which exists
+    # specifically because they're weak, common-word evidence (see that
+    # tuple's docstring). They previously got duplicated into this
+    # supposedly-"strong"/unambiguous list too, which meant
+    # _has_strong_cross_filter_marker() returned True for almost any
+    # multi-category question containing an everyday status word — e.g.
+    # "Show me all pending police verification cases and, separately, all
+    # hospitalized Agniveers" (two independent report requests) matched
+    # "pending" + "hospitalized" here and was forced into cross_filter,
+    # silently discarding one of the two requested lists.
+    #
+    # Concession connectors ("but still", "yet still", "despite", "on top
+    # of that") are the opposite case — safe to trust as strong/unambiguous
+    # even as full phrases, because they explicitly frame the second clause
+    # as an ADDITIONAL condition on the same subject rather than a separate
+    # request ("...failed Firing but still have issued equipment").
+    "but still",
+    "yet still",
+    "despite",
+    "on top of that",
     "who has",
     "who played",
     "who plays",
@@ -148,6 +192,7 @@ _CROSS_FILTER_MARKERS = (
     "satisfying ",
     "fulfilling ",
     "belonging to",
+    "belonged to",
     "including ",
     "excluding ",
     "containing ",
@@ -175,7 +220,6 @@ _CROSS_FILTER_MARKERS = (
     "whenever ",
     "depending on",
     "from ",
-
     "who have",
     "with",
     "among them",
@@ -187,7 +231,6 @@ _CROSS_FILTER_MARKERS = (
     "out of them",
     "within them",
     "inside them",
-    "falling under",
     "coming under",
     "filter",
     "filtered",
@@ -211,22 +254,10 @@ _CROSS_FILTER_MARKERS = (
     "who currently",
     "while having",
     "while being",
-    "then",
-    "after that",
-    "subsequently",
     "following that",
     "only",
     "strictly",
     "specifically",
-    "also",
-    "still",
-    "yet",
-    "already",
-    "currently",
-    "alongside",
-    "together",
-    "plus",
-
     "whom",
     "which",
     "wherein",
@@ -234,13 +265,13 @@ _CROSS_FILTER_MARKERS = (
     "whereupon",
     "whereof",
     "had",
-    "holding",
     "possessing",
+    "possesses ",
     "carrying",
+    "carries ",
     "keeping",
+    "keeps ",
     "owning",
-    "assigned",
-    "issued",
     "issued with",
     "allocated",
     "given",
@@ -284,24 +315,15 @@ _CROSS_FILTER_MARKERS = (
     "present in",
     "existing in",
     "appearing in",
-    "and",
-    "and also",
     "and among",
     "and among those",
     "and among these",
     "and that",
     "and which",
-    "but",
     "but who",
     "but whose",
     "but having",
-    "while",
     "while also",
-    "as well as",
-    "along with",
-    "together with",
-    "combined with",
-    "coupled with",
     "plus those",
     "including those",
     "including only",
@@ -310,16 +332,9 @@ _CROSS_FILTER_MARKERS = (
     "even",
     "even now",
     "further",
-    "furthermore",
-    "moreover",
-    "in addition",
-    "additionally",
-    "besides",
     "likewise",
     "similarly",
     "concurrently",
-    "simultaneously",
-    "at the same time",
     "only those",
     "only them",
     "just",
@@ -372,9 +387,7 @@ _CROSS_FILTER_MARKERS = (
     "then from them",
     "afterwards",
     "following",
-    "next",
     "thereafter",
-    "later",
     "finally",
     "more than",
     "less than",
@@ -386,17 +399,7 @@ _CROSS_FILTER_MARKERS = (
     "between",
     "outside",
     "inside",
-    "pending",
-    "completed",
-    "verified",
-    "rejected",
     "approved",
-    "issued",
-    "holding",
-    "returned",
-    "present",
-    "absent",
-    "hospitalized",
     "admitted",
     "overweight",
     "underweight",
@@ -415,62 +418,23 @@ _CROSS_FILTER_MARKERS = (
     "that also",
     "that still",
     "that already",
-    "along with",
-    "together with",
-    "combined with",
-    "as well as",
     "including only",
     "including those",
     "related to",
     "associated with",
     "connected to",
     "linked to",
-
-    "waiting",
-    "awaiting",
     "waiting for",
     "awaiting for",
-    
-    # NLP conversational patterns requested by the user
-    "which of",
-    "out of",
-    "find",
-    "show",
-    "show me",
-    "list",
-    "give me",
-    "fetch",
-    "get",
-    "retrieve",
-    "identify",
-    "tell me",
-    "can you",
-    "could you",
-    "would you",
-    "i want",
-    "i need",
-    "i'm looking for",
-    "i'd like to know",
-    "help me find",
-    "are there any",
-    "do we have",
-    "is there anyone",
-    "let me know",
-    "display",
-    "provide",
-    "return",
-    
     # State and membership phrases
     "included in",
     "present in",
     "listed in",
     "identified as",
-    "classified as",
     "recognized as",
     "marked as",
     "registered as",
     "recorded as",
-    
     # Relative pronouns with nouns
     "those who",
     "people who",
@@ -523,10 +487,30 @@ _CROSS_FILTER_STATUS_MARKERS = (
     "yet",
     "but not",
     "instead of",
-
     "waiting",
     "awaiting",
-    )
+    "treated for",
+    "under treatment",
+    "medically unfit",
+    "unfit",
+    "sick",
+    "ill",
+    "injured",
+    "wounded",
+    "on annual leave",
+    "on sick leave",
+    "absconded",
+    "off duty",
+    "cleared",
+    "not responded",
+    "on campus",
+    "overdue",
+    "damaged",
+    "poor condition",
+    "improved",
+    "improvement",
+    "declined",
+)
 
 # A later clause naming its own report/analytics noun signals an independent
 # output request, not a filter condition on the first clause's subject — used
@@ -584,7 +568,9 @@ _DEPENDENT_BACKREF_MARKERS = (
     "who yet",
 )
 
-_VALIDATION_VERB_RE = re.compile(r"\b(?:check|confirm|verify|see|find)\s+(?:whether|if)\b")
+_VALIDATION_VERB_RE = re.compile(
+    r"\b(?:check|confirm|verify|see|find)\s+(?:whether|if)\b"
+)
 
 
 def _has_dependent_backref(text: str) -> bool:
@@ -628,21 +614,33 @@ _LEAVE_STATUS_MARKERS = (
 # keeps it from firing on ordinary single-category queries that happen to
 # contain one of these very common words.
 _CROSS_FILTER_GENERIC_CONNECTORS = re.compile(
-    r"\bwho\b|\bwith\b|\bwhose\b|\bwhich\b|\bhaving\b|\bhas\b|\bhave\b"
+    r"\bwho\b|\bwith\b|\bwhose\b|\bwhich\b|\bhaving\b|\bhas\b|\bhave\b|\bhad\b|\bwhom\b|\bthat\b|\bwhere\b|\bwherein\b|\bwhereby\b|\bbelonging\b|\bbelongs?\b|\bbelong\b|\bholding\b|\bholds?\b|\bpossessing\b|\bcarrying\b|\bkeeping\b|\bowning\b|\bassigned\b|\bissued\b|\ballocated\b|\bgiven\b|\bsuffering\b|\bsuffered\b|\bdiagnosed\b|\badmitted\b|\bhospitalized\b|\bscored\b|\bscoring\b|\bpassed\b|\bpassing\b|\bfailed\b|\bfailing\b|\bqualified\b|\bqualifying\b|\bdisqualified\b|\bverified\b|\bapproved\b|\brejected\b|\bon\s+leave\b|\babsent\b|\bpresent\b",
+    re.IGNORECASE,
 )
+
+_GENERIC_INTRO_RE = re.compile(
+    r"^(?:show|give\s+me|list|display|find|get|fetch|filter|search\s+for|view|provide|tell\s+me\s+about|check|see)?\s*(?:all\s+)?(?:agniveer|agniveers|candidates|personnel|soldiers|trainees)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_generic_lead(text: str) -> bool:
+    clean = text.strip(" ,.?!")
+    if not clean:
+        return True
+    return bool(_GENERIC_INTRO_RE.match(clean))
+
 
 # "... for Dogra class agniveers" / "... among Dogra class" — a ranking/trend
 # query scoped to a community/class roster. Matched separately from the
 # generic markers above because the cutpoint for splitting is the class name
 # itself, not a fixed connector word.
 _CLASS_NAMES = ("sikh", "dogra", "oic")
-_CLASS_FILTER_RE = re.compile(
-    rf"\b({'|'.join(_CLASS_NAMES)})\s+class\b", re.IGNORECASE
-)
+_CLASS_FILTER_RE = re.compile(rf"\b({'|'.join(_CLASS_NAMES)})\s+class\b", re.IGNORECASE)
 
 
 def _build_sport_filter_re() -> "re.Pattern[str]":
-    """"... for football players" / "... among cricket players" — a
+    """ "... for football players" / "... among cricket players" — a
     performance/ranking query scoped to a sport roster. Matched the same way
     as `_CLASS_FILTER_RE`: the cutpoint for splitting is the sport name
     itself, not a fixed connector word, so "for"/"among"/"from" all work.
@@ -656,12 +654,39 @@ def _build_sport_filter_re() -> "re.Pattern[str]":
 _SPORT_FILTER_RE = _build_sport_filter_re()
 
 
+_KNOWN_EQUIPMENT_ITEMS_LOWER: Optional[Tuple[str, ...]] = None
+
+
+def _mentions_known_equipment_item(text: str) -> bool:
+    """Whether `text` names a curated equipment item ("Kit Bag", "DMS Boot
+    GP", ...) — see entity_extractor's ISSUED_EQUIPMENT_ITEMS /
+    PROCURED_EQUIPMENT_ITEMS, the same lists it uses to extract equipmentName.
+    A specific item name is unambiguous evidence of the Equipment category
+    even when no generic keyword ("equipment", "holding", "issued", ...) is
+    also present.
+    """
+    global _KNOWN_EQUIPMENT_ITEMS_LOWER
+    if _KNOWN_EQUIPMENT_ITEMS_LOWER is None:
+        from intent_engine.intent_schema import (
+            ISSUED_EQUIPMENT_ITEMS,
+            PROCURED_EQUIPMENT_ITEMS,
+        )
+
+        _KNOWN_EQUIPMENT_ITEMS_LOWER = tuple(
+            item.lower() for item in ISSUED_EQUIPMENT_ITEMS + PROCURED_EQUIPMENT_ITEMS
+        )
+    return any(item in text for item in _KNOWN_EQUIPMENT_ITEMS_LOWER)
+
+
 def _has_strong_cross_filter_marker(text: str) -> bool:
     """True for unambiguous relative-clause grammar (whose/having/belonging
     to/...) as opposed to the weaker standalone status words in
     _CROSS_FILTER_STATUS_MARKERS — see that tuple's docstring comment.
     """
-    if any(marker in text for marker in _CROSS_FILTER_MARKERS):
+    cross_marker_hits = [marker for marker in _CROSS_FILTER_MARKERS if marker in text]
+    if cross_marker_hits:
+        if all(marker in {"current", "if"} for marker in cross_marker_hits):
+            return False
         return True
     if _CLASS_FILTER_RE.search(text):
         return True
@@ -674,6 +699,8 @@ def _has_cross_filter_marker(text: str) -> bool:
     if _has_strong_cross_filter_marker(text):
         return True
     return any(marker in text for marker in _CROSS_FILTER_STATUS_MARKERS)
+
+
 _RANKING_MARKERS = (
     "rank",
     "top",
@@ -750,8 +777,7 @@ _THRESHOLD_MARKERS = (
     "percentage",
     "ratio",
     "90%",
-    "90 %"
-
+    "90 %",
 )
 _DISTRIBUTION_MARKERS = (
     "distribution",
@@ -803,6 +829,16 @@ class QueryUnderstanding:
 def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
     if any(
         token in text
+        for token in ("overweight", "underweight", "obese", "medically unfit")
+    ):
+        # Checked before the personaldetail block below — "overweight" and
+        # "underweight" contain "weight" as a substring, which would
+        # otherwise match personaldetail's bare "weight" keyword first and
+        # misclassify a BMI-category clause as PersonalDetail instead of
+        # Medical.
+        return "Medical"
+    if any(
+        token in text
         for token in (
             "disqualified",
             "disqualify",
@@ -831,10 +867,40 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
             "qualification",
             "family details",
             "next of kin",
+            "height",
+            "weight",
+            "hobby",
+            "hobbies",
+            "skill",
+            "skills",
+            "sports",
+            "cricket",
+            "basketball",
+            "football",
+            "volleyball",
+            "hockey",
         )
     ):
         return "personaldetail"
     if entities.get("grading"):
+        return "Performance"
+    if any(
+        token in text
+        for token in (
+            "topper",
+            "toppers",
+            "top performer",
+            "top performers",
+            "highest performer",
+            "best performer",
+            "top scorer",
+            "highest scorer",
+            "best scorer",
+            "top scoring",
+            "highest scoring",
+            "chart toppers",
+        )
+    ):
         return "Performance"
     if entities.get("bmi_category") or entities.get("blood_group"):
         return "Medical"
@@ -842,6 +908,14 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
         return "Leave"
     if "leave" in text or "absconded" in text or "absent" in text:
         return "Leave"
+    if _mentions_known_equipment_item(text):
+        # A curated, unambiguous item name ("Kit Bag", "DMS Boot GP", ...) is
+        # a strong signal on its own — checked before the "class"+"roster"
+        # Skills shortcut below so "Kit Bag holders and the Sikh class
+        # roster" resolves this clause as Equipment instead of falling
+        # through to None (and, via the sub-request splitter's fallback,
+        # inheriting the *other* clause's Skills category).
+        return "Equipment"
     if entities.get("sport") and any(
         token in text
         for token in (
@@ -906,6 +980,8 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
             "damaged",
             "broken",
             "holding",
+            "holder",
+            "holders",
         )
     ):
         return "Equipment"
@@ -918,6 +994,9 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
             "campus",
             "headcount",
             "strength",
+            "parade",
+            "roll call",
+            "muster",
         )
     ):
         if "strength" in text or "headcount" in text:
@@ -977,15 +1056,28 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
             "lowest",
             "worst",
             "rank",
+            "scoring",
+            "scored",
         )
     ):
         return "Performance"
+    if any(token in text for token in _PERFORMANCE_SECTION_TOKENS):
+        # Bare section name ("BPET"/"PPT"/"Firing"/"Drill") with no other
+        # Performance keyword — happens often once a query gets split into
+        # fragments, e.g. "scoring excellent in BPET" loses "score" itself
+        # to a different check but "bpet" alone is still unambiguous.
+        return "Performance"
+    if any(token in text for token in ("platoon", "batch", "company", "class", "unit")):
+        return "PersonalDetails"
     return None
+
 
 
 def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
     category = _infer_category(text, entities)
-    if category == "Equipment" and (entities.get("agniveerNo") or entities.get("agniveer_no")):
+    if category == "Equipment" and (
+        entities.get("agniveerNo") or entities.get("agniveer_no")
+    ):
         return "byagniveer"
     if any(marker in text for marker in _COMPARISON_MARKERS):
         return "compare"
@@ -1013,7 +1105,9 @@ def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
         )
     ):
         return "search"
-    if any(token in text for token in ("returned", "poor condition", "damaged", "broken")):
+    if any(
+        token in text for token in ("returned", "poor condition", "damaged", "broken")
+    ):
         return "returned"
     if any(
         token in text
@@ -1036,7 +1130,16 @@ def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
         return "absconded"
     if any(marker in text for marker in _TREND_MARKERS):
         return "trend"
-    if any(token in text for token in ("today's schedule", "today schedule", "current schedule", "training schedule", "company schedule")):
+    if any(
+        token in text
+        for token in (
+            "today's schedule",
+            "today schedule",
+            "current schedule",
+            "training schedule",
+            "company schedule",
+        )
+    ):
         return "today"
     if any(marker in text for marker in _DISTRIBUTION_MARKERS):
         return "distribution"
@@ -1216,7 +1319,7 @@ def _apply_shared_trailing_suffix(left: str, right: str) -> str:
     )
     if prep_match:
         target_part = right[: prep_match.start()].strip()
-        suffix = right[prep_match.start():].strip().rstrip(".").strip()
+        suffix = right[prep_match.start() :].strip().rstrip(".").strip()
     else:
         target_part = right.strip()
         suffix = ""
@@ -1265,14 +1368,38 @@ def _match_known_disease_prefix(text: str) -> Optional[str]:
 # (e.g. Verification/Completed vs Verification/Pending). Used only to pull a
 # cutpoint in `_split_by_category_signal` back so this word stays attached to
 # the fragment it governs — see that function's docstring.
-_STATUS_ADJECTIVES = frozenset({
-    "completed", "pending", "rejected", "sent", "unverified",
-    "overdue", "issued", "procured", "returned", "unassigned", "distributed",
-    "top", "bottom", "highest", "lowest", "best", "worst",
-    "improved", "improvement", "dropped", "drop",
-    "failed", "fail", "passed", "pass",
-    "medically", "medical", "currently",
-})
+_STATUS_ADJECTIVES = frozenset(
+    {
+        "completed",
+        "pending",
+        "rejected",
+        "sent",
+        "unverified",
+        "overdue",
+        "issued",
+        "procured",
+        "returned",
+        "unassigned",
+        "distributed",
+        "top",
+        "bottom",
+        "highest",
+        "lowest",
+        "best",
+        "worst",
+        "improved",
+        "improvement",
+        "dropped",
+        "drop",
+        "failed",
+        "fail",
+        "passed",
+        "pass",
+        "medically",
+        "medical",
+        "currently",
+    }
+)
 
 _SINGLE_WORD_CATEGORY_SIGNALS: Optional[Dict[str, str]] = None
 
@@ -1377,7 +1504,9 @@ def _extract_sub_requests(
                 # is a dependent child of it, not nested further, so split
                 # the tail on any remaining marker into flat sibling
                 # fragments instead of leaving them merged into one.
-                tail_fragments = _split_on_connectors(tail, list(_MULTI_INDEPENDENT_MARKERS))
+                tail_fragments = _split_on_connectors(
+                    tail, list(_MULTI_INDEPENDENT_MARKERS)
+                )
                 if len(tail_fragments) < 2:
                     tail_fragments = [tail]
                 result = [
@@ -1440,52 +1569,188 @@ def _extract_sub_requests(
             }
         ]
 
-    if _has_cross_filter_marker(text):
+    # Also gated on _MULTI_INDEPENDENT_MARKERS, not just cross-filter markers:
+    # this splitter is the shared fragment-extraction path both cross_filter
+    # AND multi_independent classification build on, but its entry gate used
+    # to rely solely on cross_filter_marker words that ALSO happened to be
+    # multi-independent connectors (also/plus/together/then/...). Once those
+    # duplicates were removed from _CROSS_FILTER_MARKERS (they were false
+    # "strong cross-filter evidence" — see that tuple's docstring), a plain
+    # multi-independent phrasing with no OTHER cross-filter word ("...status
+    # and police verification together?") stopped entering this block at
+    # all and fell back to a much weaker split, losing one side of the
+    # request. Checking both marker sets here keeps the split working for
+    # both intents while the (separate) cross_filter *strength* gate
+    # elsewhere still requires a real cross-filter marker.
+    if _has_cross_filter_marker(text) or any(
+        marker in text for marker in _MULTI_INDEPENDENT_MARKERS
+    ):
         parts = []
         current = text
         for sep in (
+            r"\band\s+who\b",
+            r"\band\s+whose\b",
+            r"\band\s+whom\b",
+            r"\band\s+that\b",
+            r"\band\s+which\b",
+            # Possessive-pronoun clause ("...and their police verification is
+            # verified") is grammatically the same relative-clause shape as
+            # "and whose ..." above, but names the subject with a pronoun
+            # instead of "whose". Without this, the only remaining separator
+            # match is the trailing status word ("verified"), which leaves
+            # the whole first clause (including "and their police
+            # verification is") in one fragment that then gets
+            # mis-classified by whichever category's words happen to score
+            # higher in that leftover text.
+            r"\band\s+their\b",
+            r"\band\s+his\b",
+            r"\band\s+her\b",
+            r"\band\s+its\b",
+            # Concession connectors ("...failed Firing but still have issued
+            # equipment", "...overweight despite scoring Excellent") —
+            # unambiguous cross-filter cutpoints (see _CROSS_FILTER_MARKERS),
+            # but that list only drives cross_filter_intent DETECTION, not
+            # the actual text split; without an entry here too, the whole
+            # query stays one un-split fragment and the >= 2 valid_ops
+            # cross-filter execution path never gets enough legs to run.
+            r"\bbut\s+still\b",
+            r"\byet\s+still\b",
+            r"\bdespite\b",
+            r"\bon\s+top\s+of\s+that\b",
+            # Plain "but" as a contrastive clause separator ("...scored
+            # Excellent in BPET but overweight and have pending
+            # verification") — same cross-filter semantics as "but still"
+            # above (an ADDITIONAL condition on the same subject), just
+            # without the "still". _CROSS_FILTER_MARKERS already treats
+            # "but who"/"but whose"/"but having" as strong DETECTION
+            # evidence; without a matching split here the whole clause
+            # after "but" stays fused into one fragment and whichever
+            # category's keywords happen to score higher wins, silently
+            # dropping the other condition.
+            r"\bbut\s+who\b",
+            r"\bbut\s+whose\b",
+            r"\bbut\s+having\b",
+            r"\bbut\b",
+            r"\band\s+having\b",
+            r"\band\s+belonging(?:\s+to)?\b",
+            r"\band\s+belongs?\s+to\b",
+            r"\band\s+from\b",
+            r"\band\s+with\b",
+            r"\band\s+also\b",
+            r"\bas\s+well\s+as\b",
+            r"\balong\s+with\b",
+            r"\btogether\s+with\b",
+            r"\bplus\b",
             r"\bwho\b",
             r"\bwhose\b",
             r"\bwhom\b",
             r"\bthat\b",
             r"\bwhich\b",
+            r"\bwhere\b",
+            r"\bwherein\b",
+            r"\bwhereby\b",
             r"\bwith\b",
+            r"\bwithout\b",
             r"\bamong\b",
             r"\bwithin\b",
-            r"\bsuffering\b",
-            r"\bsuffered\b",
+            r"\bfrom\s+(?:them|those|these)\b",
+
+            r"\bout\s+of\b",
+            r"\binside\b",
+            r"\bunder\b",
+            r"\bbelonging(?:\s+to)?\b",
+            r"\bbelongs?\s+to\b",
+            r"\bbelong\s+to\b",
+            r"\bbelonged\s+to\b",
+            r"\bhaving\b",
+            r"\bhas\b",
+            r"\bhave\b",
+            r"\bhad\b",
+            r"\bholding\b",
+            r"\bholds?\b",
+            r"\bheld\b",
+            r"\bpossessing\b",
+            r"\bpossesses?\b",
+            r"\bcarrying\b",
+            r"\bcarries\b",
+            r"\bkeeping\b",
+            r"\bkeeps?\b",
+            r"\bowning\b",
+            r"\bowns?\b",
+            r"\bassigned(?:\s+to)?\b",
+            r"\bissued(?:\s+with)?\b",
+            r"\ballocated(?:\s+to)?\b",
+            r"\bgiven(?:\s+to)?\b",
+            r"\bsuffering(?:\s+from)?\b",
+            r"\bsuffered(?:\s+from)?\b",
+            r"\bdiagnosed(?:\s+with)?\b",
+            r"\badmitted(?:\s+to)?\b",
+            r"\bhospitalized(?:\s+for)?\b",
+            r"\bscored\b",
+            r"\bscoring\b",
+            r"\bscores?\b",
+            r"\bpassed\b",
+            r"\bpassing\b",
+            r"\bpasses?\b",
+            r"\bfailed\b",
+            r"\bfailing\b",
+            r"\bfails?\b",
+            r"\bqualified\b",
+            r"\bqualifying\b",
+            r"\bqualifies?\b",
+            r"\bdisqualified\b",
+            r"\bverified\b",
+            r"\bapproved\b",
+            r"\brejected\b",
+            r"\bon\s+leave\b",
+            r"\babsent\b",
+            r"\bpresent\b",
+            r"\battending\b",
+            r"\battended\b",
         ):
-            split_parts = re.split(sep, current, maxsplit=1, flags=re.IGNORECASE)
-            # A leading interrogative ("Who improved... among the badminton
-            # players?") matches "who" at position 0, leaving an empty lead
-            # fragment that then gets dropped entirely — collapsing the
-            # query back to one unsplit fragment. Skip a match that produces
-            # an empty lead and keep trying the remaining separators (e.g.
-            # "among") instead of accepting the degenerate split.
-            if len(split_parts) > 1 and split_parts[0].strip(" ,"):
-                lead = split_parts[0].strip(" ,")
-                remainder = " ".join(split_parts[1:]).strip()
-                # "diagnosed with fever" / "suffering from fever" / "suffered
-                # from fever" — the value right after "with"/"from" names the
-                # medical condition itself and is what "diagnosed"/"suffering"
-                # /"suffered" is about. Left where the generic split above
-                # puts it, it gets handed to whatever clause follows instead
-                # (e.g. "...diagnosed" / "fever are currently on leave"),
-                # losing the condition from the diagnosis leg entirely and
-                # producing an incomplete Medical operation with no disease
-                # value. Pull it back onto the diagnosis fragment.
-                if sep == r"\bwith\b" and re.search(
+            # Try every occurrence of this separator, not just the first —
+            # a query can repeat the same relative pronoun ("...whose bmi is
+            # normal whose police verification is verified"), and splitting
+            # on the first occurrence can leave a generic lead ("give me
+            # agniveers") even though a later occurrence of this exact
+            # separator is the real cutpoint. Previously a generic-lead
+            # first occurrence abandoned this separator entirely and fell
+            # through to a different, lower-priority one (here: "verified"
+            # instead of the second "whose"), merging both clauses into a
+            # single mis-classified fragment instead of splitting them.
+            matched_this_sep = False
+            for sep_match in re.finditer(sep, current, flags=re.IGNORECASE):
+                lead = current[: sep_match.start()].strip(" ,")
+                if not lead:
+                    continue
+                matched_word = current[sep_match.start() : sep_match.end()]
+                remainder = current[sep_match.end() :].strip(" ,")
+                reattached_to_remainder = True
+                if sep == r"\bon\s+top\s+of\s+that\b":
+                    # Pure connective phrase, not content — reattaching it
+                    # would let "top" (a Performance ranking keyword)
+                    # confuse the remainder's own category-signal split,
+                    # e.g. "on top of that currently on leave" mis-cutting
+                    # into "on top of that" (Performance, from "top") /
+                    # "currently on leave" instead of staying one Leave
+                    # fragment.
+                    reattached_to_remainder = False
+                elif sep == r"\bwith\b" and re.search(
                     r"\bdiagnosed\s*$", lead, flags=re.IGNORECASE
                 ):
                     disease = _match_known_disease_prefix(remainder)
                     if disease:
                         lead = f"{lead} with {disease}"
-                        remainder = remainder[len(disease):].strip()
+                        remainder = remainder[len(disease) :].strip()
+                        reattached_to_remainder = False
                     else:
-                        value_match = re.match(r"(\S+)\s*(.*)", remainder, flags=re.DOTALL)
+                        value_match = re.match(
+                            r"(\S+)\s*(.*)", remainder, flags=re.DOTALL
+                        )
                         if value_match and value_match.group(1):
                             lead = f"{lead} with {value_match.group(1)}"
                             remainder = value_match.group(2).strip()
+                            reattached_to_remainder = False
                 elif sep in (r"\bsuffering\b", r"\bsuffered\b"):
                     from_match = re.match(
                         r"from\s+(.*)", remainder, flags=re.IGNORECASE | re.DOTALL
@@ -1496,15 +1761,30 @@ def _extract_sub_requests(
                         disease = _match_known_disease_prefix(after_from)
                         if disease:
                             lead = f"{lead} {verb} from {disease}"
-                            remainder = after_from[len(disease):].strip()
+                            remainder = after_from[len(disease) :].strip()
+                            reattached_to_remainder = False
                         else:
-                            single_match = re.match(r"(\S+)\s*(.*)", after_from, flags=re.DOTALL)
+                            single_match = re.match(
+                                r"(\S+)\s*(.*)", after_from, flags=re.DOTALL
+                            )
                             if single_match and single_match.group(1):
                                 lead = f"{lead} {verb} from {single_match.group(1)}"
                                 remainder = single_match.group(2).strip()
+                                reattached_to_remainder = False
+
+                if _is_generic_lead(lead):
+                    continue
+
+                if reattached_to_remainder:
+                    remainder = f"{matched_word} {remainder}".strip()
                 parts.append(lead)
                 current = remainder
+                matched_this_sep = True
                 break
+
+            if matched_this_sep:
+                break
+
         else:
             # "currently on leave"-style phrases are handled by a dedicated
             # fallback splitter one level up (in understand_query, keyed off
@@ -1529,7 +1809,9 @@ def _extract_sub_requests(
                     if m
                 ]
             )
-            roster_match = min(roster_matches, key=lambda m: m.start()) if roster_matches else None
+            roster_match = (
+                min(roster_matches, key=lambda m: m.start()) if roster_matches else None
+            )
             if roster_match:
                 lead = current[: roster_match.start()]
                 lead = re.sub(
@@ -1546,9 +1828,24 @@ def _extract_sub_requests(
                     # agniveers present today") — there's no lead text
                     # before it, so split the roster phrase itself from
                     # what follows instead of collapsing back into one
-                    # fragment with an empty lead.
-                    parts.append(current[roster_match.start() : roster_match.end()].strip())
-                    current = current[roster_match.end() :].strip()
+                    # fragment with an empty lead. A bare noun immediately
+                    # trailing the roster phrase ("cricket players LIST")
+                    # completes the same request rather than starting a new
+                    # one — absorb it too, or it strands as its own
+                    # meaningless one-word fragment once the remainder gets
+                    # split on "and" below.
+                    _roster_end = roster_match.end()
+                    _trailing_noun = re.match(
+                        r"\s*(?:list|roster|stats|details|summary)\b",
+                        current[_roster_end:],
+                        flags=re.IGNORECASE,
+                    )
+                    if _trailing_noun:
+                        _roster_end += _trailing_noun.end()
+                    parts.append(
+                        current[roster_match.start() : _roster_end].strip()
+                    )
+                    current = current[_roster_end:].strip()
             else:
                 parts = [current]
                 current = ""
@@ -1556,7 +1853,9 @@ def _extract_sub_requests(
         if current:
             and_parts = [
                 p.strip(" ,")
-                for p in re.split(r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", current, flags=re.IGNORECASE)
+                for p in re.split(
+                    r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", current, flags=re.IGNORECASE
+                )
                 if p.strip(" ,")
             ]
             if len(and_parts) < 2:
@@ -1574,23 +1873,88 @@ def _extract_sub_requests(
             for p in parts:
                 and_parts = [
                     ap.strip(" ,")
-                    for ap in re.split(r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", p, flags=re.IGNORECASE)
+                    for ap in re.split(
+                        r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", p, flags=re.IGNORECASE
+                    )
                     if ap.strip(" ,")
                 ]
                 new_parts.extend(and_parts)
             parts = new_parts
 
+        # A fragment already committed to `parts` via the main loop's single
+        # break can itself still hide a comma/and-joined list — the block
+        # above only re-examines `current` (the remainder AFTER that first
+        # split), not fragments collected before it. E.g. "who improved in
+        # bpet, the disease statistics, and the rejected verifications"
+        # splits first on "rejected", leaving "who improved in bpet, the
+        # disease statistics, and the" as one whole fragment that still
+        # hides two distinct requests. Re-splitting is safe here since a
+        # comma/explicit "and" is already trusted as an intentional
+        # separator everywhere else in this function.
+        _re_split_parts: List[str] = []
+        for p in parts:
+            if "," in p or re.search(r"\band\b", p, flags=re.IGNORECASE):
+                sub_parts = [
+                    sp.strip(" ,")
+                    for sp in re.split(
+                        r"\s*,\s*(?:and\s+)?|\s+\band\b\s+", p, flags=re.IGNORECASE
+                    )
+                    if sp.strip(" ,")
+                ]
+                if len(sub_parts) >= 2:
+                    _re_split_parts.extend(sub_parts)
+                    continue
+            _re_split_parts.append(p)
+        parts = _re_split_parts
+
         final_parts = []
         for p in parts:
             p_clean = p.strip(" ,")
-            if p_clean and p_clean not in (
+            if p_clean and p_clean.lower() not in (
                 "who",
+                "whose",
+                "whom",
+                "that",
+                "which",
                 "with",
+                "without",
                 "and",
                 "plays",
                 "suffering",
                 "suffered",
+                "having",
+                "has",
+                "have",
+                "had",
+                "belonging",
+                "belongs",
+                "belong",
+                "from",
+                "among",
+                "within",
+                "also",
+                "plus",
+                "where",
+                "as",
+                "is",
+                "are",
+                "was",
+                "were",
+                "been",
+                "being",
+                "the",
+                "a",
+                "an",
+                "or",
+                "in",
+                "on",
+                "at",
+                "to",
+                "by",
+                "for",
+                "of",
             ):
+
                 final_parts.append(p_clean)
 
         return [
@@ -1598,7 +1962,9 @@ def _extract_sub_requests(
                 {
                     "fragment": p,
                     "category": _infer_category(p, {}) or category,
-                    "operation": _infer_operation(p, {}) if _infer_operation(p, {}) != "lookup" else operation,
+                    "operation": _infer_operation(p, {})
+                    if _infer_operation(p, {}) != "lookup"
+                    else operation,
                     "entities": entities,
                 }
                 if idx == 0
@@ -1673,15 +2039,47 @@ def understand_query(query: str) -> Dict[str, Any]:
 
     comparison_intent = any(marker in text for marker in _COMPARISON_MARKERS)
 
+    sub_requests = _extract_sub_requests(text, category, operation, entities)
+    sub_req_cats = {
+        sub.get("category")
+        for sub in sub_requests
+        if isinstance(sub, dict) and sub.get("category")
+    }
+
     # cross_filter requires a marker AND at least 2 distinct inferred categories
     _cross_marker_hit = _has_cross_filter_marker(text)
     _cross_marker_strong = _has_strong_cross_filter_marker(text)
     cross_filter_intent = False
     if _cross_marker_hit:
         from intent_engine.query_planner import _detect_categories as _dc
+
         _cf_cats = _dc(text)
-        if len(set(_cf_cats[:3])) >= 2 or _distinct_performance_sections(text) >= 2:
+        _distinct_sections = _distinct_performance_sections(text)
+        if (
+            len(set(_cf_cats[:3])) >= 2
+            or _distinct_sections >= 2
+            or len(sub_req_cats) >= 2
+        ):
             cross_filter_intent = True
+
+            # _dc(text) is a coarse, whole-text category scan and can find 2
+            # categories that the PRECISE per-fragment splitter (sub_requests,
+            # computed above) resolves to the same one — "Which sport has the
+            # best performers?" scans as {Skills, Performance} from "sport"
+            # and "performers" in isolation, but both actual fragments
+            # ("which sport" / "has the best performers") classify as
+            # Performance once split. That's not 2 filters to intersect, it's
+            # one ranking query, so don't commit to cross_filter on the
+            # coarse signal alone once the precise one contradicts it.
+            if (
+                len(set(_cf_cats[:3])) >= 2
+                and _distinct_sections < 2
+                and len(sub_req_cats) <= 1
+                and len(sub_requests) >= 2
+            ):
+                cross_filter_intent = False
+
+
 
     # A later clause naming its own report/analytics noun ("...and equipment
     # summary") is asking for an independent output, not filtering the first
@@ -1698,12 +2096,144 @@ def understand_query(query: str) -> Dict[str, Any]:
         ):
             cross_filter_intent = False
 
+    # Weak status-style cues ("current", "pending", "approved", etc.) can
+    # appear in ordinary multi-section requests such as "attendance and
+    # current leave records". Those should not be forced down the
+    # cross-filter path unless a strong relationship marker is present.
+    if cross_filter_intent and not _cross_marker_strong:
+        cross_filter_intent = False
+
+    # "and how many"/"and how much" always introduces a second, independent
+    # question — unlike "who"/"which"/"that", "how many" has no relative-
+    # clause reading, so it can't be filtering the first clause's subject.
+    # E.g. "Who topped PPT and how many are present today in Lakhwinder
+    # company?" is two unrelated questions, not an intersection — without
+    # this, "who" and "present" both match _CROSS_FILTER_GENERIC_CONNECTORS
+    # as "strong" markers and the weak-marker guard above doesn't help.
+    if cross_filter_intent and re.search(
+        r"\band\s+how\s+(?:many|much)\b", text, flags=re.IGNORECASE
+    ):
+        cross_filter_intent = False
+
+    # "A, B, and C" — an Oxford-comma list (2+ commas, the last one
+    # immediately followed by "and") signals list coordination (a run of
+    # independent noun phrases), not a relative-clause chain modifying one
+    # subject. Requiring ", and " (not just 2+ commas) excludes a
+    # parenthetical aside like "...and are, on top of that, currently on
+    # leave" — that also has 2 commas, but they set off an inserted phrase,
+    # not a third list item, so it must stay cross-filter. Combined with the
+    # precise per-fragment splitter also finding 2+ distinct categories
+    # (sub_req_cats), trust the list reading over a generic-connector word
+    # ("who"/"which"/...) landing inside one of the comma segments — e.g.
+    # "Show top performers in BPET, who is on leave today, and the
+    # equipment stats." is three independent reports, not an intersection,
+    # even though "who" alone reads as a strong cross-filter marker.
+    # But not when the relative pronoun governing the whole sentence sits
+    # ONLY before the first comma ("Agniveers WHO failed Firing, are
+    # overweight, and on leave") — every comma segment after it is a bare
+    # verb-phrase continuation of that same "who", not its own independent
+    # clause, so this is one 3-way intersection, not three list items. If
+    # "who"/"which"/... shows up again in a LATER segment instead ("...,
+    # WHO is on leave today, ..."), that later segment is introducing its
+    # own new clause, so the list reading still applies.
+    _first_comma = text.find(",")
+    _rel_pronoun_only_before_first_comma = False
+    if _first_comma != -1:
+        _rel_pronoun_re = re.compile(
+            r"\b(?:who|whose|which|that|with|having)\b", re.IGNORECASE
+        )
+        # A bare sentence-initial "who" ("Who improved in BPET, ...") is the
+        # interrogative question word, not a relative pronoun governing a
+        # clause chain — that reading requires a preceding noun ("Agniveers
+        # who..."), which is impossible when "who" is the very first word.
+        # Other pre-comma matches still count as clause-governing.
+        _pre_comma_governing_match = any(
+            not (m.start() == 0 and m.group(0).lower() == "who")
+            for m in _rel_pronoun_re.finditer(text[:_first_comma])
+        )
+        if _pre_comma_governing_match and not _rel_pronoun_re.search(
+            text[_first_comma:]
+        ):
+            _rel_pronoun_only_before_first_comma = True
+
+    if (
+        cross_filter_intent
+        and text.count(",") >= 2
+        and re.search(r",\s*and\s+", text, flags=re.IGNORECASE)
+        and len(sub_req_cats) >= 2
+        and not _rel_pronoun_only_before_first_comma
+    ):
+        cross_filter_intent = False
+
+    # Plain "A and B" (one bare "and", not "and who"/"and whose" continuing
+    # a relative clause) where each side independently names its own
+    # category, and the second clause carries no continuation cue
+    # ("still"/"already"/"yet"/"too" — the tell that it's ADDING a
+    # condition to the first clause's subject rather than asking something
+    # new), is two independent requests, not an intersection — even when a
+    # strong marker (a bare "who", the class/sport-roster pattern, a bare
+    # "of", ...) fires inside one of the two clauses. E.g. "Latest
+    # distribution and who got excellent in firing." names Distribution in
+    # clause 1 and Performance in clause 2 with nothing tying them together.
+    if cross_filter_intent and " and " in text and not _rel_pronoun_only_before_first_comma:
+        _ab_parts = [p.strip(" ,?.") for p in text.split(" and ", 1)]
+        if (
+            len(_ab_parts) == 2
+            and all(_ab_parts)
+            and not re.search(
+                r"\b(?:still|already|yet|too|despite|on\s+top\s+of\s+that)\b",
+                _ab_parts[1],
+            )
+        ):
+            # Same "single continuous clause chain" reasoning as
+            # _rel_pronoun_only_before_first_comma, applied at this "and"
+            # cutpoint instead of a comma: "Agniveers who scored Excellent
+            # in BPET but overweight and have pending verification" governs
+            # all three legs with one "who" — the "and" here just adds a
+            # third leg to the same chain, it doesn't open an unrelated
+            # second topic. Only treat this as a real A-and-B split when the
+            # governing pronoun ISN'T already sitting in clause 1 alone.
+            _ab_pronoun_re = re.compile(
+                r"\b(?:who|whose|which|that|with|having)\b", re.IGNORECASE
+            )
+            # Same bare-sentence-initial-"who" exclusion as above: "Who is
+            # on leave today and what is the BMI distribution?" opens with
+            # the interrogative "who", not a relative pronoun governing
+            # clause 1 — that reading needs a preceding noun ("Agniveers
+            # who..."), impossible when "who" is clause 1's first word.
+            _ab_governing_match = any(
+                not (m.start() == 0 and m.group(0).lower() == "who")
+                for m in _ab_pronoun_re.finditer(_ab_parts[0])
+            )
+            # A repeated pronoun in clause 2 ("...agniveers who have high
+            # score in firing and who had malaria") is a second relative
+            # clause chained onto the SAME governing subject, not a fresh
+            # one — English coordinates "who X and who Y" this way all the
+            # time. That's different from clause 1 having no governing
+            # match at all (position-0 "who", or no pronoun whatsoever),
+            # where a pronoun anywhere in clause 2 doesn't prove anything.
+            # A bare "and having ..." with no pronoun in clause 1 at all
+            # ("Agniveers treated for fever and having pending
+            # verification") is unambiguous the other way: "having" can't
+            # open an independent question, so it always continues clause
+            # 1's implicit subject.
+            _ab_pronoun_governs = _ab_governing_match or bool(
+                re.match(r"^having\b", _ab_parts[1], re.IGNORECASE)
+            )
+            if not _ab_pronoun_governs:
+                _ab_cat1 = _infer_category(_ab_parts[0], {})
+                _ab_cat2 = _infer_category(_ab_parts[1], {})
+                if _ab_cat1 and _ab_cat2 and _ab_cat1 != _ab_cat2:
+                    cross_filter_intent = False
+
     # "which <group> has the most/highest/lowest ..." asks to RANK groups by
     # a single metric (a distribution/group-by question) — not to intersect
     # two independent conditions. Without this guard, the group word (e.g.
     # "unit") and the metric word (e.g. "absconded") register as two
     # distinct categories and wrongly satisfy the cross-filter gate above.
-    if re.search(r"\bwhich\s+\w+\s+has\s+(?:the\s+)?(?:most|highest|lowest|least)\b", text):
+    if re.search(
+        r"\bwhich\s+\w+\s+has\s+(?:the\s+)?(?:most|highest|lowest|least)\b", text
+    ):
         cross_filter_intent = False
 
     def _distinct_category_count(clause_parts: List[str]) -> int:
@@ -1713,7 +2243,9 @@ def understand_query(query: str) -> Dict[str, Any]:
             clause_categories.append(_infer_category(part, clause_entities))
         distinct = len({cat for cat in clause_categories if cat})
         if distinct < 2:
-            distinct = max(distinct, _distinct_performance_sections(" ".join(clause_parts)))
+            distinct = max(
+                distinct, _distinct_performance_sections(" ".join(clause_parts))
+            )
         return distinct
 
     # Every multi-independent marker — even weak ones like "also"/"then" — is

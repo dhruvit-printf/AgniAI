@@ -90,12 +90,16 @@ class TestMetricsHealth(unittest.TestCase):
         self.assertIn("pipeline_duration_sum 150.0", text)
         self.assertIn("pipeline_duration_count 1", text)
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.context_engine.resolve")
+    @patch("admin_pipeline.resolve_entities_from_query")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
-    def test_metrics_updated_on_pipeline_run(self, mock_gen_report, mock_call_dotnet):
-        mock_call_dotnet.return_value = ({"records": []}, None)
+    def test_metrics_updated_on_pipeline_run(self, mock_gen_report, mock_fetch_sql_results, mock_resolve_entities, mock_context_resolve):
+        mock_context_resolve.return_value = MagicMock(needs_clarification=False, context_source="fresh", resolved_query="Show attendance", carry_forward_filters={}, resolved_entities={})
+        mock_resolve_entities.return_value = {}
+        mock_fetch_sql_results.return_value = ([{"records": []}], [("Result", {"records": []})], None)
         mock_gen_report.return_value = {
-            "introMessage": "Intro",
+            "message": "Intro",
             "analysis": {"summary": "Sum", "observations": [], "insights": []},
             "conclusion": {"summary": "Conc"},
         }
@@ -104,8 +108,8 @@ class TestMetricsHealth(unittest.TestCase):
         metrics_collector.requests_total.clear()
 
         result = execute_admin_query(
-            user_query="Show attendance",
-            body={"session_id": "test-sess"},
+            user_query="Show attendance for agniveer 12345",
+            body={"session_id": "test-sess", "intent": {"agniveerNo": "12345"}},
             trace_id="test-trace-id",
         )
         self.assertEqual(result["type"], "query")
@@ -114,15 +118,19 @@ class TestMetricsHealth(unittest.TestCase):
         self.assertEqual(metrics_collector.requests_total.get("simple"), 1)
         self.assertGreater(metrics_collector.durations["pipeline_duration"]["count"], 0)
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.context_engine.resolve")
+    @patch("admin_pipeline.resolve_entities_from_query")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
     @patch(
         "admin_pipeline.SLOW_QUERY_THRESHOLD", -1.0
     )  # Set threshold extremely low to trigger log
-    def test_slow_query_detection_warning(self, mock_gen_report, mock_call_dotnet):
-        mock_call_dotnet.return_value = ({"records": []}, None)
+    def test_slow_query_detection_warning(self, mock_gen_report, mock_fetch_sql_results, mock_resolve_entities, mock_context_resolve):
+        mock_context_resolve.return_value = MagicMock(needs_clarification=False, context_source="fresh", resolved_query="Show attendance", carry_forward_filters={}, resolved_entities={})
+        mock_resolve_entities.return_value = {}
+        mock_fetch_sql_results.return_value = ([{"records": []}], [("Result", {"records": []})], None)
         mock_gen_report.return_value = {
-            "introMessage": "Intro",
+            "message": "Intro",
             "analysis": {"summary": "Sum", "observations": [], "insights": []},
             "conclusion": {"summary": "Conc"},
         }
@@ -131,8 +139,8 @@ class TestMetricsHealth(unittest.TestCase):
 
         with self.assertLogs(logger_pipeline, level="WARNING") as log_ctx:
             execute_admin_query(
-                user_query="Show attendance",
-                body={"session_id": "test-sess"},
+                user_query="Show attendance for agniveer 12345",
+                body={"session_id": "test-sess", "intent": {"agniveerNo": "12345"}},
                 trace_id="slow-trace-id",
             )
 

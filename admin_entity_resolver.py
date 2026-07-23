@@ -126,7 +126,13 @@ _PLATOON_PATTERNS = [
 ]
 _AGNIVEER_NUM_RE = re.compile(r"\bag[-\s]?(\d{3,8})\b", re.IGNORECASE)
 _AGNIVEER_ALPHANUM_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
-_AGNIVEER_WORD_RE = re.compile(r"\bagniveer\s+(?:no\.?|number|#)?\s*(\w{3,10})\b", re.IGNORECASE)
+_AGNIVEER_WORD_RE = re.compile(
+    # (?=\w*\d) requires the captured token to contain a digit — without it,
+    # the (?:no.|number|#)? prefix being OPTIONAL meant this matched "the
+    # next word after 'agniveer'" full stop, so "every Agniveer BELONGING
+    # to Batch 3" captured "belonging" as if it were an AgniveerNo.
+    r"\bagniveer\s+(?:no\.?|number|#)?\s*(?=\w*\d)(\w{3,10})\b", re.IGNORECASE
+)
 _BATCH_PATTERNS = [
     re.compile(r"\bbatch\s+no\.?\s*(\w[\w-]*)\b"),
     re.compile(r"\bbatch\s+(\w[\w-]*)\b"),
@@ -149,7 +155,13 @@ def extract_company_mention(text: str) -> Optional[str]:
             if candidate in _NOISE_WORDS and not (
                 len(candidate) == 1 and candidate.isalpha()
             ):
-                continue
+                # Stop at the first noise word walking outward from
+                # "company" — it marks the boundary of the actual name.
+                # Skipping past it (the old behaviour) let words from an
+                # unrelated earlier clause ("show agniveers OF alpha
+                # company") get glued onto the name as "agniveers of
+                # alpha" instead of just "alpha".
+                break
             before.append(candidate)
         if before:
             return " ".join(reversed(before)).strip()
@@ -191,6 +203,97 @@ def extract_platoon_mention(text: str) -> Optional[str]:
     return None
 
 
+def _normalise_company_or_platoon_name(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r"\b(?:company|coy|platoon|pl|unit)\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"[\s\-_./]+", " ", text)
+    return text.strip()
+
+
+_NAME_WORD = r"[a-z0-9][a-z0-9\-_./]*"
+# Bounded to at most 2 words (the longest real unit alias in UNIT_ALIASES is
+# 2 words, e.g. "golf zulu") — the old unbounded `[a-z0-9\s\-_./]*` let the
+# capture run all the way back to the start of the sentence for phrasing like
+# "show agniveers of alpha company", swallowing "agniveers of" into the
+# "company name" as well. Bounding the match keeps any stray noise word
+# (like "of") at the very edge of the capture, where _clean_candidate can
+# still trim it off.
+_COMPANY_NAME_WORDS = rf"(?:{_NAME_WORD}\s+){{0,1}}{_NAME_WORD}"
+
+
+# CompanyMaster stores some rows as "<Abbr> - <FullName>" (e.g.
+# "Lak - Lakhwinder", "Jas - Jaswant") rather than the bare spoken name, so a
+# query saying "Lakhwinder company" only ever yields the single token
+# "lakhwinder". The live .NET-backed resolve_company_id() already tolerates
+# this via substring matching in _name_matches(), but sql_executor.py's own
+# SQL-side exact-match lookups (resolve_company_id_from_name, and every
+# `LOWER(c.Name) = LOWER(?)` WHERE clause) do not — they need the literal
+# stored Name. Canonicalizing here means whichever path ends up consuming
+# this return value gets a name that matches either way.
+_COMPANY_CANONICAL_NAMES = {
+    "lak": "Lak - Lakhwinder",
+    "lakhwinder": "Lak - Lakhwinder",
+    "jas": "Jas - Jaswant",
+    "jaswant": "Jas - Jaswant",
+}
+
+
+def extract_company_name(text: str) -> Optional[str]:
+    q = text.lower().strip()
+    if not q:
+        return None
+
+    for pattern in (
+        re.compile(rf"\bcompany\s+({_COMPANY_NAME_WORDS})\b", re.IGNORECASE),
+        re.compile(rf"\b({_COMPANY_NAME_WORDS})\s+company\b", re.IGNORECASE),
+        re.compile(rf"\bcoy\s+({_COMPANY_NAME_WORDS})\b", re.IGNORECASE),
+        re.compile(rf"\b({_COMPANY_NAME_WORDS})\s+coy\b", re.IGNORECASE),
+    ):
+        m = pattern.search(q)
+        if m:
+            candidate = _clean_candidate(_normalise_company_or_platoon_name(m.group(1)))
+            if candidate:
+                return _COMPANY_CANONICAL_NAMES.get(candidate.lower(), candidate)
+
+    tokens = _COMPANY_TOKEN_RE.findall(q)
+    for idx, token in enumerate(tokens):
+        if token not in ("company", "coy"):
+            continue
+        before = [t for t in tokens[max(0, idx - 3) : idx] if t not in _NOISE_WORDS]
+        after = [t for t in tokens[idx + 1 : idx + 4] if t not in _NOISE_WORDS]
+        if before:
+            candidate = _clean_candidate(_normalise_company_or_platoon_name(" ".join(before)))
+            if candidate:
+                return _COMPANY_CANONICAL_NAMES.get(candidate.lower(), candidate)
+        if after:
+            candidate = _clean_candidate(_normalise_company_or_platoon_name(" ".join(after)))
+            if candidate:
+                return _COMPANY_CANONICAL_NAMES.get(candidate.lower(), candidate)
+
+    return None
+
+
+def extract_platoon_name(text: str) -> Optional[str]:
+    q = text.lower().strip()
+    if not q:
+        return None
+
+    for pattern in (
+        # Bounded to 2 words for the same reason as _COMPANY_NAME_WORDS above
+        # — the old unbounded `[a-z0-9\s\-_./]*` let "Platoon 2 before the
+        # current commander" capture "2 before the current commander" whole.
+        re.compile(rf"\bplatoon\s+({_COMPANY_NAME_WORDS})\b", re.IGNORECASE),
+        re.compile(r"\bpl\s*[- ]?\s*([a-z0-9][a-z0-9\-./]*)\b", re.IGNORECASE),
+    ):
+        m = pattern.search(q)
+        if m:
+            candidate = _clean_candidate(_normalise_company_or_platoon_name(m.group(1)))
+            if candidate:
+                return candidate
+
+    return None
+
+
 def extract_agniveer_mention(text: str) -> Optional[str]:
     m = _AGNIVEER_NUM_RE.search(text)
     if m:
@@ -207,6 +310,93 @@ def extract_agniveer_mention(text: str) -> Optional[str]:
         return m.group(1).upper()
 
     return None
+
+
+# Words that legitimately appear capitalised (sentence-start, or as a proper
+# category name in Title Case) but are never part of a person's name — used
+# to reject false-positive "name" matches like "Show Agniveers" or "Which
+# Platoon". Deliberately conservative: better to miss an unusual name than
+# to send a random 2-word phrase into a FullName LIKE lookup.
+_AGNIVEER_NAME_STOPWORDS = frozenset(_NOISE_WORDS) | {
+    "agniveer",
+    "agniveers",
+    "police",
+    "medical",
+    "equipment",
+    "verification",
+    "district",
+    "state",
+    "village",
+    "tehsil",
+    "which",
+    "who",
+    "what",
+    "when",
+    "where",
+    "why",
+    "how",
+    "compare",
+    "list",
+    "give",
+    "show",
+    "does",
+    "did",
+    # Org-hierarchy nouns — "Lakhwinder Company", "Current Commander" are
+    # unit/role references, not a person's own name, even though both
+    # words are capitalised.
+    "company",
+    "companies",
+    "coy",
+    "platoon",
+    "battalion",
+    "commander",
+    "commanding",
+    "officer",
+    "current",
+    "user",
+    "users",
+    "role",
+    "admin",
+}
+
+_AGNIVEER_NAME_RE = re.compile(r"\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+\b")
+
+
+def extract_agniveer_name_mention(text: str) -> Optional[str]:
+    """Find a person-name-like phrase — 2+ consecutive Title-Case words
+    (e.g. "Harminder Singh", "Aditya Kanwar") — for when the user identifies
+    an Agniveer by name instead of by AgniveerNo. Only called as a fallback
+    when no AgniveerNo pattern was found (see extract_agniveer_mention)."""
+    for candidate in _AGNIVEER_NAME_RE.findall(text or ""):
+        words = candidate.split()
+        if any(w.lower() in _AGNIVEER_NAME_STOPWORDS for w in words):
+            continue
+        return candidate
+    return None
+
+
+def resolve_agniveer_nos_by_name(name: str) -> List[Dict[str, str]]:
+    """Look up every Agniveer whose FullName matches `name` (substring,
+    case-insensitive). Returns [] on no match, and — deliberately — every
+    match when more than one Agniveer shares the name, so the caller can
+    decide how to fan the query out rather than silently picking one.
+    """
+    if not name:
+        return []
+    from sql_executor import run_readonly
+
+    rows, err = run_readonly(
+        "SELECT AgniveerNo, FullName FROM AgniveerMaster "
+        "WHERE ISNULL(IsDisqualified,0) = 0 AND LOWER(FullName) LIKE '%' + LOWER(?) + '%'",
+        [name],
+    )
+    if err or not rows:
+        return []
+    return [
+        {"agniveerNo": r["AgniveerNo"], "fullName": r["FullName"]}
+        for r in rows
+        if r.get("AgniveerNo")
+    ]
 
 
 def extract_batch_mention(text: str) -> Optional[str]:
@@ -248,6 +438,47 @@ def _normalise_name(name: str) -> str:
     return re.sub(r"[\s\-_./]+", "", (name or "").lower())
 
 
+def _max_typo_distance(word_len: int) -> int:
+    """Slightly more permissive than query_normalizer's general vocabulary
+    corrector (1 edit for words <=5 chars): company/platoon names are matched
+    against a small closed roster fetched from the .NET directory, not the
+    whole English vocabulary, so a second edit on longer names is safe from
+    false-positive collisions between unrelated real names."""
+    return 1 if word_len <= 4 else 2
+
+
+def _fuzzy_token_match(word: str, tokens: "Any") -> bool:
+    """True if `word` is a plausible misspelling of one of `tokens`
+    (e.g. "alfa"/"bravoo" for "Alpha"/"Bravo"). Guarded so ordinary English
+    query words never get mistaken for a mistyped name:
+      - both sides must be >= 4 chars (numeric IDs like platoon "101" are
+        excluded, so distinct short numbers never fuzzy-collide)
+      - the word must not already be a recognized application keyword
+        (e.g. "compare", "schedule") — those are real words, not typos.
+    """
+    word = (word or "").lower()
+    if len(word) < 4 or word in _NOISE_WORDS:
+        return False
+    try:
+        from intent_engine.intent_classifier import _damerau_levenshtein
+        from intent_engine.vocabulary_manager import vocab_manager
+
+        if word in vocab_manager.get_domain_vocab():
+            return False
+    except Exception:
+        return False
+    max_dist = _max_typo_distance(len(word))
+    for token in tokens:
+        token = (token or "").lower()
+        if len(token) < 4:
+            continue
+        if abs(len(word) - len(token)) > max_dist:
+            continue
+        if _damerau_levenshtein(word, token) <= max_dist:
+            return True
+    return False
+
+
 def _name_matches(stored_name: str, query_name: str) -> bool:
     sn = stored_name.lower().strip()
     qn = query_name.lower().strip()
@@ -276,6 +507,15 @@ def _name_matches(stored_name: str, query_name: str) -> bool:
     qn_digits = re.sub(r"\D", "", qn_norm)
     if sn_digits and qn_digits and sn_digits == qn_digits:
         if re.match(r"^(?:pl|platoon|co|company|coy|bat|battalion)", sn_norm):
+            return True
+
+    # Typo tolerance: nothing exact/substring/suffix/digit matched, so check
+    # whether the query name is a plausible misspelling of one of the
+    # stored name's words (e.g. "alfa"/"bravoo" for "Alpha"/"Bravo").
+    sn_tokens = re.findall(r"[a-z0-9]+", sn)
+    qn_tokens = re.findall(r"[a-z0-9]+", qn) or [qn]
+    for qt in qn_tokens:
+        if _fuzzy_token_match(qt, sn_tokens):
             return True
 
     return False
@@ -319,6 +559,14 @@ def resolve_platoon_id(
                 candidates.append((int(pid), cid))
 
     if not candidates:
+        # No directory match — usually because the platoon-fetch call
+        # itself failed/timed out (seen in practice: "Entity fetch failed
+        # for platoons: ... Read timed out"), not because the platoon
+        # doesn't exist. A bare numeric mention ("Platoon 2") is
+        # unambiguous enough to use directly, mirroring resolve_batch_id's
+        # existing same-shaped fallback below.
+        if re.match(r"^\d+$", platoon_name.strip()):
+            return int(platoon_name.strip())
         return None
 
     if company_id is not None:
@@ -362,6 +610,8 @@ def resolve_entities_from_query(
 
     company_mention = extract_company_mention(query)
     platoon_mention = extract_platoon_mention(query)
+    company_name_mention = extract_company_name(query)
+    platoon_name_mention = extract_platoon_name(query)
     batch_mention = extract_batch_mention(query)
     agniveer_mention = extract_agniveer_mention(query)
 
@@ -369,12 +619,42 @@ def resolve_entities_from_query(
     result["platoonName"] = platoon_mention
     result["batchName"] = batch_mention
     result["agniveerNo"] = agniveer_mention
+    result["agniveerMatches"] = []
+
+    # No AgniveerNo pattern (e.g. "A0701749H") in the query — try resolving
+    # by person NAME instead (e.g. "Who is Harminder Singh...", "What is
+    # Aditya Kanwar's date of birth"). Unlike company/platoon, Agniveers
+    # aren't a small enough set to prefetch into a directory, so this goes
+    # straight to the DB. If more than one Agniveer shares the name, every
+    # match is returned via agniveerMatches — the caller decides how to fan
+    # the query out across them, rather than this silently guessing one.
+    if not agniveer_mention:
+        name_mention = extract_agniveer_name_mention(query)
+        if name_mention:
+            matches = resolve_agniveer_nos_by_name(name_mention)
+            result["agniveerMatches"] = matches
+            if len(matches) == 1:
+                result["agniveerNo"] = matches[0]["agniveerNo"]
 
     # Fetched once and reused for every lookup below (resolve_*_id calls,
     # the authoritative directory scan, and the name backfill) instead of
     # each one re-fetching the same directory independently.
-    companies = _fetch_companies(trace_id=trace_id)
-    platoons = _fetch_platoons(trace_id=trace_id)
+    # Fetch companies and platoons in parallel so a slow/failing .NET tunnel
+    # only blocks for _TIMEOUT seconds ONCE, not twice sequentially.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    companies: List[Dict[str, Any]] = []
+    platoons: List[Dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=2) as _pool:
+        _f_co = _pool.submit(_fetch_companies, trace_id=trace_id)
+        _f_pl = _pool.submit(_fetch_platoons, trace_id=trace_id)
+        try:
+            companies = _f_co.result(timeout=5)
+        except Exception:
+            companies = []
+        try:
+            platoons = _f_pl.result(timeout=5)
+        except Exception:
+            platoons = []
 
     # `extract_company_mention`/`extract_platoon_mention` are a positional
     # heuristic (the word(s) next to "company"/"platoon") — they can pick up
@@ -385,8 +665,20 @@ def resolve_entities_from_query(
     # first and, when it finds anything, wins over the positional guess.
     if company_mention:
         result["companyId"] = resolve_company_id(
-            company_mention, trace_id=trace_id, session_id=session_id, companies=companies
+            company_mention,
+            trace_id=trace_id,
+            session_id=session_id,
+            companies=companies,
         )
+    if company_name_mention:
+        if result["companyId"] is None:
+            result["companyId"] = resolve_company_id(
+                company_name_mention,
+                trace_id=trace_id,
+                session_id=session_id,
+                companies=companies,
+            )
+        result["companyName"] = company_name_mention
     elif result["companyId"] is None:
         result["companyId"] = existing_company_id
 
@@ -398,6 +690,16 @@ def resolve_entities_from_query(
             session_id=session_id,
             platoons=platoons,
         )
+    if platoon_name_mention:
+        if result["platoonId"] is None:
+            result["platoonId"] = resolve_platoon_id(
+                platoon_name_mention,
+                company_id=result["companyId"],
+                trace_id=trace_id,
+                session_id=session_id,
+                platoons=platoons,
+            )
+        result["platoonName"] = platoon_name_mention
     elif result["platoonId"] is None:
         result["platoonId"] = existing_platoon_id
 
@@ -433,14 +735,15 @@ def resolve_entities_from_query(
     _MIN_PARTIAL_MENTION_LEN = 3
 
     def _matching_word(query_text: str, candidate_name: str) -> Optional[str]:
-        """Return the query word that would trigger `_is_partial_prefix_mention`
-        for this candidate, or None. Used only for diagnostic logging below —
-        does not change matching behaviour.
+        """Return the query word that partially or fuzzily matches this
+        candidate name, or None. A truthy return drives real matching at the
+        call site below (`if full_hit or partial_word:`), not just logging.
         """
         cand_compact = re.sub(r"[^a-z0-9]", "", candidate_name.lower())
         if not cand_compact or len(cand_compact) < _MIN_PARTIAL_MENTION_LEN:
             return None
-        for word in _COMPANY_TOKEN_RE.findall(query_text.lower()):
+        query_words = _COMPANY_TOKEN_RE.findall(query_text.lower())
+        for word in query_words:
             if len(word) < _MIN_PARTIAL_MENTION_LEN or word in _NOISE_WORDS:
                 continue
             if (
@@ -448,6 +751,13 @@ def resolve_entities_from_query(
                 or word.startswith(cand_compact)
                 or word in cand_compact
             ):
+                return word
+        # Typo tolerance: no exact/prefix hit, so check whether some query
+        # word is a plausible misspelling of one of the candidate's words
+        # (e.g. "alfa"/"bravoo" for "Alpha"/"Bravo").
+        cand_tokens = re.findall(r"[a-z0-9]+", candidate_name.lower())
+        for word in query_words:
+            if _fuzzy_token_match(word, cand_tokens):
                 return word
         return None
 
@@ -500,7 +810,9 @@ def resolve_entities_from_query(
                                 "(no 'company'/'coy' keyword in query) | query=%r | "
                                 "matched_company=%r | company_id=%s | "
                                 "match_type=%s | matched_word=%r",
-                                query, stored, cid,
+                                query,
+                                stored,
+                                cid,
                                 "full_name" if full_hit else "partial_prefix",
                                 partial_word,
                             )
@@ -534,7 +846,9 @@ def resolve_entities_from_query(
                                 "(no 'platoon' keyword in query) | query=%r | "
                                 "matched_platoon=%r | platoon_id=%s | "
                                 "match_type=%s | matched_word=%r",
-                                query, stored, pid,
+                                query,
+                                stored,
+                                pid,
                                 "full_name" if full_hit else "partial_prefix",
                                 partial_word,
                             )

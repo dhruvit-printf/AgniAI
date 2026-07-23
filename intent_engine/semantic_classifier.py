@@ -60,7 +60,11 @@ _CATALOG: List[Tuple[str, str, str]] = [
     ("Performance", "Average", "average marks for company 2 in BPET"),
     ("Performance", "Improvement", "who improved between attempts"),
     ("Performance", "Improvement", "which agniveers showed improvement in drill"),
-    ("Performance", "Improvement", "who performed better compared to their previous attempt"),
+    (
+        "Performance",
+        "Improvement",
+        "who performed better compared to their previous attempt",
+    ),
     ("Performance", "Drop", "whose score dropped between attempts"),
     ("Performance", "Drop", "who declined in performance"),
     ("Performance", "Drop", "who performed worse compared to their previous attempt"),
@@ -70,7 +74,11 @@ _CATALOG: List[Tuple[str, str, str]] = [
     ("Performance", "BestAttempt", "personal best in PPT"),
     ("Performance", "Trend", "performance trend over attempts for the batch"),
     ("Performance", "Trend", "how has the batch been performing over time"),
-    ("Performance", "Trend", "how has firing performance changed over the last attempts ?"),
+    (
+        "Performance",
+        "Trend",
+        "how has firing performance changed over the last attempts ?",
+    ),
     # Leave
     ("Leave", "Most", "who took the most leave"),
     ("Leave", "Most", "top leave takers in the company"),
@@ -86,7 +94,6 @@ _CATALOG: List[Tuple[str, str, str]] = [
     ("Leave", "Current", "show leave status for today"),
     ("Leave", "Current", "is any body absent today because of any type of leave"),
     ("Leave", "Absconded", "list absconded agniveers"),
-    ("Leave", "Absconded", "who went AWOL"),
     # Medical
     ("Medical", "BMI", "show BMI distribution of the company"),
     ("Medical", "BMI", "who is overweight or underweight"),
@@ -168,12 +175,13 @@ _CATALOG: List[Tuple[str, str, str]] = [
 
 _lock = threading.Lock()
 _catalog_embeddings: Optional[np.ndarray] = None  # shape (N, D)
-_catalog_labels: List[Tuple[str, str]] = []        # (category, operation) per row
+_catalog_labels: List[Tuple[str, str]] = []  # (category, operation) per row
 
 
 def _get_model():
     try:
         from rag import load_embedding_model
+
         return load_embedding_model()
     except Exception as exc:
         logger.warning("semantic_classifier: could not load embedding model: %s", exc)
@@ -189,19 +197,19 @@ def _build_catalog() -> None:
     labels = [(cat, op) for cat, op, _ in _CATALOG]
     try:
         vecs = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
-        with _lock:
-            _catalog_embeddings = vecs
-            _catalog_labels = labels
-        logger.info(
-            "semantic_classifier: built catalog with %d entries", len(texts)
-        )
+        _catalog_embeddings = vecs
+        _catalog_labels = labels
+        logger.info("semantic_classifier: built catalog with %d entries", len(texts))
     except Exception as exc:
         logger.error("semantic_classifier: catalog build failed: %s", exc)
 
 
 def _ensure_catalog() -> bool:
-    global _catalog_embeddings
-    if _catalog_embeddings is None:
+    if _catalog_embeddings is not None:
+        return True
+    with _lock:
+        if _catalog_embeddings is not None:
+            return True
         _build_catalog()
     return _catalog_embeddings is not None
 
@@ -228,32 +236,54 @@ def classify_semantic(
       - stage: "semantic"
     """
     if not _ensure_catalog():
-        return {"category": None, "operation": None, "confidence": 0.0,
-                "needs_clarification": False, "clarification_question": None,
-                "stage": "semantic_unavailable"}
+        return {
+            "category": None,
+            "operation": None,
+            "confidence": 0.0,
+            "needs_clarification": False,
+            "clarification_question": None,
+            "stage": "semantic_unavailable",
+        }
 
     model = _get_model()
     if model is None:
-        return {"category": None, "operation": None, "confidence": 0.0,
-                "needs_clarification": False, "clarification_question": None,
-                "stage": "semantic_unavailable"}
+        return {
+            "category": None,
+            "operation": None,
+            "confidence": 0.0,
+            "needs_clarification": False,
+            "clarification_question": None,
+            "stage": "semantic_unavailable",
+        }
 
     try:
-        q_vec = model.encode([query], convert_to_numpy=True, normalize_embeddings=True)[0]
+        q_vec = model.encode([query], convert_to_numpy=True, normalize_embeddings=True)[
+            0
+        ]
     except Exception as exc:
         logger.warning("semantic_classifier: encode failed: %s", exc)
-        return {"category": None, "operation": None, "confidence": 0.0,
-                "needs_clarification": False, "clarification_question": None,
-                "stage": "semantic_error"}
+        return {
+            "category": None,
+            "operation": None,
+            "confidence": 0.0,
+            "needs_clarification": False,
+            "clarification_question": None,
+            "stage": "semantic_error",
+        }
 
     with _lock:
         emb = _catalog_embeddings
         labels = list(_catalog_labels)
 
     if emb is None:
-        return {"category": None, "operation": None, "confidence": 0.0,
-                "needs_clarification": False, "clarification_question": None,
-                "stage": "semantic_unavailable"}
+        return {
+            "category": None,
+            "operation": None,
+            "confidence": 0.0,
+            "needs_clarification": False,
+            "clarification_question": None,
+            "stage": "semantic_unavailable",
+        }
 
     sims = emb @ q_vec  # cosine similarity (embeddings are normalised)
 
@@ -266,17 +296,27 @@ def classify_semantic(
 
     ranked = sorted(best_per_label.items(), key=lambda x: x[1], reverse=True)
     if not ranked:
-        return {"category": None, "operation": None, "confidence": 0.0,
-                "needs_clarification": False, "clarification_question": None,
-                "stage": "semantic"}
+        return {
+            "category": None,
+            "operation": None,
+            "confidence": 0.0,
+            "needs_clarification": False,
+            "clarification_question": None,
+            "stage": "semantic",
+        }
 
     top_label, top_sim = ranked[0]
     top_cat, top_op = top_label
 
     if top_sim < _SIMILARITY_THRESHOLD:
-        return {"category": None, "operation": None, "confidence": top_sim,
-                "needs_clarification": False, "clarification_question": None,
-                "stage": "semantic_below_threshold"}
+        return {
+            "category": None,
+            "operation": None,
+            "confidence": top_sim,
+            "needs_clarification": False,
+            "clarification_question": None,
+            "stage": "semantic_below_threshold",
+        }
 
     # Find the best match in a DIFFERENT category
     second_diff = next(
@@ -294,8 +334,11 @@ def classify_semantic(
         logger.info(
             "semantic_classifier: ambiguous | top=(%s/%s, %.3f) | "
             "second=(%s/%s, %.3f) | margin=%.3f",
-            top_cat, top_op, top_sim,
-            second_label[0], second_label[1],
+            top_cat,
+            top_op,
+            top_sim,
+            second_label[0],
+            second_label[1],
             second_diff[1] if second_diff else 0.0,
             margin,
         )
@@ -310,7 +353,10 @@ def classify_semantic(
 
     logger.info(
         "semantic_classifier: accepted (%s/%s) sim=%.3f margin=%.3f",
-        top_cat, top_op, top_sim, margin,
+        top_cat,
+        top_op,
+        top_sim,
+        margin,
     )
     return {
         "category": top_cat,
@@ -325,6 +371,7 @@ def classify_semantic(
 # ---------------------------------------------------------------------------
 # Stage 3 — constrained Ollama JSON (only when Stage 2 is ambiguous)
 # ---------------------------------------------------------------------------
+
 
 def classify_ollama_constrained(query: str) -> Dict[str, Any]:
     """
@@ -342,22 +389,29 @@ def classify_ollama_constrained(query: str) -> Dict[str, Any]:
         f"Classify the following admin query into exactly one category/operation "
         f"from this list:\n{pairs_str}\n\n"
         f'Query: "{query}"\n\n'
-        f'Respond with ONLY valid JSON in this format: '
+        f"Respond with ONLY valid JSON in this format: "
         f'{{"category": "...", "operation": "..."}}'
     )
 
     try:
         import requests  # type: ignore
         from config import OLLAMA_URL  # type: ignore
+
         resp = requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={"model": "mistral", "prompt": prompt, "stream": False},
+            OLLAMA_URL,
+            json={
+                "model": "mistral",
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "options": {"temperature": 0.1, "num_predict": 50},
+            },
             timeout=10,
         )
         resp.raise_for_status()
-        raw = resp.json().get("response", "").strip()
+        raw = resp.json().get("message", {}).get("content", "").strip()
         # Extract JSON block
         import re
+
         m = re.search(r"\{.*?\}", raw, re.DOTALL)
         if not m:
             raise ValueError(f"no JSON in response: {raw!r}")
@@ -397,6 +451,7 @@ def classify_ollama_constrained(query: str) -> Dict[str, Any]:
 # Public entry point used by intent_classifier.py
 # ---------------------------------------------------------------------------
 
+
 def classify_admin_intent_semantic(
     query: str,
     keyword_confidence: float,
@@ -423,5 +478,5 @@ def classify_admin_intent_semantic(
 
 
 # Trigger catalog build in background when this module is first imported
-_build_thread = threading.Thread(target=_build_catalog, daemon=True)
+_build_thread = threading.Thread(target=_ensure_catalog, daemon=True)
 _build_thread.start()

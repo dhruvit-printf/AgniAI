@@ -227,6 +227,19 @@ class TestResponseBuilder(unittest.TestCase):
         self.assertEqual(resp["suggestedQuestions"], ["Q1"])
         self.assertEqual(resp["metadata"]["operationCount"], 1)
 
+    def test_build_response_with_custom_summary(self):
+        resp = build_response(
+            message="Intro",
+            formatted_data={},
+            metadata={},
+            session_id="session-abc",
+            analysis="Analysis details.",
+            prediction="Prediction details.",
+            conclusion="Conclusion details.",
+            summary="Custom short summary.",
+        )
+        self.assertEqual(resp["summary"], "Custom short summary.")
+
     def test_build_response_uses_real_section_label_and_message(self):
         from message_engine import generate_message
 
@@ -485,16 +498,19 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         msg = build_combined_message("Hello.", "", analysis, None)
         self.assertIn("Predictions:\n- Pred 1\n- Pred 2", msg)
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
     def test_formatted_data_is_populated_on_data_query(
-        self, mock_generate_report, mock_call_dotnet
+        self, mock_generate_report, mock_fetch_sql
     ):
         # Verification data query
-        mock_call_dotnet.return_value = (
-            [{"agniveerNo": "1", "fullName": "John Doe"}],
-            None,
-        )
+        section = {
+            "success": True,
+            "records": [{"agniveerNo": "1", "fullName": "John Doe"}],
+            "data": [{"agniveerNo": "1", "fullName": "John Doe"}],
+            "count": 1,
+        }
+        mock_fetch_sql.return_value = ([section], [("Result", section)], None)
         mock_generate_report.return_value = {
             "message": "Intro.",
             "analysis": {
@@ -588,7 +604,9 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         intent = {"category": "Performance"}
         report = generate_report(combined, "cross_filter", intent, "query")
 
-        self.assertEqual(report["message"], "No matching records found.")
+        self.assertEqual(
+            report["message"], "No data is found for what you asked for."
+        )
         self.assertEqual(
             report["analysis"]["summary"],
             "The selected conditions may be too narrow for the current set of records.",

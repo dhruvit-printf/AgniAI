@@ -49,22 +49,24 @@ def _require_secret(fn):
         if API_SECRET_KEY:
             provided = request.headers.get("X-Api-Key", "")
             if provided != API_SECRET_KEY:
-                return jsonify({
-                    "status": False,
-                    "message": "Unauthorized. Provide X-Api-Key header.",
-                    "formattedData": [],
-                    "analysis": "",
-                    "prediction": "",
-                    "conclusion": "",
-                    "suggestedQuestions": [],
-                    "metadata": {
-                        "sessionId": "",
-                        "confidence": 0.0,
-                        "queryType": "error",
-                        "operationCount": 0,
-                        "executionTimeMs": 0.0,
-                    },
-                }), 401
+                return jsonify(
+                    {
+                        "status": False,
+                        "message": "Unauthorized. Provide X-Api-Key header.",
+                        "formattedData": [],
+                        "analysis": "",
+                        "prediction": "",
+                        "conclusion": "",
+                        "suggestedQuestions": [],
+                        "metadata": {
+                            "sessionId": "",
+                            "confidence": 0.0,
+                            "queryType": "error",
+                            "operationCount": 0,
+                            "executionTimeMs": 0.0,
+                        },
+                    }
+                ), 401
         return fn(*args, **kwargs)
 
     return wrapper
@@ -120,12 +122,12 @@ def admin_chat():
     message = (body.get("message") or "").strip()
 
     # Extract session ID for context; generate ephemeral one if absent
-    session_id = (
-        body.get("session_id") or body.get("sessionId") or ""
-    ).strip()
+    session_id = (body.get("session_id") or body.get("sessionId") or "").strip()
     if not session_id:
         session_id = uuid.uuid4().hex
-        logger.warning("admin_routes: request without session_id — generated %s", session_id)
+        logger.warning(
+            "admin_routes: request without session_id — generated %s", session_id
+        )
 
     # Structured entry log
     logger.info(
@@ -225,26 +227,10 @@ def check_python_health() -> str:
 
 
 def check_dotnet_health() -> str:
-    from dotnet_executor import DOTNET_EXECUTE_URL, DOTNET_VERIFY_SSL, _cb
-
+    """Legacy .NET health check - always returns healthy since .NET has been decommissioned."""
     global LAST_DOTNET_HEALTH_LATENCY_MS
-    if _cb.state == "OPEN":
-        LAST_DOTNET_HEALTH_LATENCY_MS = None
-        return "unhealthy"
-    try:
-        import requests
-
-        start = time.time()
-        resp = requests.options(DOTNET_EXECUTE_URL, timeout=2, verify=DOTNET_VERIFY_SSL)
-        LAST_DOTNET_HEALTH_LATENCY_MS = round((time.time() - start) * 1000, 2)
-        if resp.status_code < 400:
-            return "healthy"
-        if resp.status_code == 405:
-            return "degraded"
-        return "unhealthy"
-    except Exception:
-        LAST_DOTNET_HEALTH_LATENCY_MS = None
-        return "unhealthy"
+    LAST_DOTNET_HEALTH_LATENCY_MS = 0.0
+    return "healthy"
 
 
 def check_llm_health() -> str:

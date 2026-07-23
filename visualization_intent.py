@@ -119,10 +119,6 @@ _SUMMARY_WIDGET_PLANS: Dict[tuple[str, str], List[str]] = {
 }
 
 
-def _detail_widgets_for(summary_widgets: List[str]) -> List[str]:
-    return ["TABLE"]
-
-
 def _comparison_widgets(override: Optional[str]) -> List[Dict[str, Any]]:
     if not override:
         return _widget_list("COMPARE_TABLE")
@@ -151,77 +147,17 @@ def _plan_widgets(
     metric: str,
     query_type: str,
 ) -> List[Dict[str, Any]]:
-    category = (intent.get("category") or "").strip()
-    operation = (
-        intent.get("operation")
-        or intent.get("subcategory")
-        or intent.get("query_type")
-        or ""
-    ).strip().lower()
-    response_type = (intent.get("responseType") or "Summary").strip()
-
-    if explicit_override:
-        presentation = explicit_override.get("presentation")
-        chart_type = explicit_override.get("chart_type")
-        if presentation == "cards":
-            return _widget_list("CARD")
-        if presentation == "table":
-            return _widget_list("TABLE")
-        if presentation == "chart":
-            if comparison:
-                override = explicit_override.get("comparison_chart_override") or chart_type
-                return _comparison_widgets(override)
-            chart_map = {
-                "line": "CHART_LINE",
-                "bar": "CHART_BAR",
-                "pie": "CHART_PIE",
-                "donut": "CHART_PIE",
-                "radial": "CHART_LINE",
-                "area": "CHART_LINE",
-            }
-            return _widget_list(chart_map.get(chart_type or "", "CHART_BAR"))
-
-    t_lower = text.lower()
-    if t_lower.startswith("how many ") or t_lower.startswith("count "):
-        return _widget_list("CARD")
-
-    if comparison or query_type in {"compare", "comparison"}:
-        override = intent.get("comparison_chart_override")
-        return _comparison_widgets(override)
-
-    if operation in ("improvement", "drop") and response_type == "Detailed":
-        return _widget_list("TABLE")
-
-    # `query_type` is a structural classification from the planner — it must
-    # win over text-heuristic checks below (e.g. "breakdown"/"distribution"
-    # keyword sniffing), otherwise a multi-independent query whose text just
-    # happens to contain one of those words (e.g. "... and strength
-    # breakdown") gets collapsed into a single combined chart instead of one
-    # widget per independent section.
     if query_type == "multi_independent":
         widgets: List[Dict[str, Any]] = []
         sections = []
         if isinstance(intent.get("combined_result"), dict):
             sections = intent["combined_result"].get("sections") or []
-        operations = intent.get("operations") or []
         for idx, section in enumerate(sections):
             if isinstance(section, dict):
                 label = section.get("label") or "Section"
-                op_intent = operations[idx] if idx < len(operations) else {}
-                sec_category = (op_intent.get("category") or "").strip()
-                sec_operation = (
-                    op_intent.get("operation") or op_intent.get("subcategory") or ""
-                ).strip().lower()
-                # Same default widget-type lookup a standalone query for this
-                # category/operation would use — a section doesn't get a
-                # hardcoded presentation just because it's part of a
-                # multi-independent bundle.
-                sec_widgets = _SUMMARY_WIDGET_PLANS.get((sec_category, sec_operation)) or [
-                    "TABLE"
-                ]
                 widgets.append(
                     {
-                        "type": sec_widgets[0],
+                        "type": "TABLE",
                         "title": label,
                         "section_label": label,
                         "source_hint": "section",
@@ -229,39 +165,13 @@ def _plan_widgets(
                 )
         return widgets or _widget_list("TABLE")
 
-    if query_type == "cross_filter":
-        return _widget_list("TABLE")
+    # Tables-only mode: comparison queries get a dedicated COMPARE_TABLE
+    # (left/right side-by-side), everything else gets a plain TABLE.
+    # Chart types (line/pie/bar) are intentionally not planned here.
+    if comparison:
+        return _widget_list("COMPARE_TABLE")
 
-    if category != "Attendance" and (trend or query_type == "trend" or any(
-        token in text for token in ("trend", "timeline", "over months", "over time", "growth")
-    )):
-        return _widget_list(*(["CHART_LINE", "TABLE"] if response_type == "Detailed" else ["CHART_LINE"]))
-
-    # AttemptWise is always a line chart (attempt-over-attempt progression) —
-    # "attempt wise breakdown" is extremely common phrasing for this exact
-    # operation, so it must not fall into the generic "breakdown" ->
-    # CHART_PIE sniffing below meant for categories with no specific mapping.
-    if (
-        (category, operation) != ("Performance", "attemptwise")
-        and category not in ("Strength", "Attendance")
-        and (
-            query_type == "distribution"
-            or any(token in text for token in ("distribution", "breakdown", "percentage", "share"))
-        )
-    ):
-        return _widget_list(*(["CHART_PIE", "TABLE"] if response_type == "Detailed" else ["CHART_PIE"]))
-
-    summary_widgets = _SUMMARY_WIDGET_PLANS.get((category, operation))
-    if not summary_widgets:
-        # Fallbacks for queries that are clearly summary-oriented but whose
-        # canonical operation name does not have an explicit row above.
-        if response_type == "Detailed":
-            return _widget_list("TABLE")
-        return _widget_list("TABLE")
-
-    if response_type == "Detailed":
-        return _widget_list(*_detail_widgets_for(summary_widgets))
-    return _widget_list(*summary_widgets)
+    return _widget_list("TABLE")
 
 
 def build_visualization_intent(

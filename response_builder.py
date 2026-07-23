@@ -33,7 +33,9 @@ def _has_data(fd: Any) -> bool:
             if "rows" in d and not d["rows"]:
                 return False
             if "left" in d and "right" in d:
-                if not _has_data({"data": d["left"]}) and not _has_data({"data": d["right"]}):
+                if not _has_data({"data": d["left"]}) and not _has_data(
+                    {"data": d["right"]}
+                ):
                     return False
         return True
     return True
@@ -95,14 +97,20 @@ def build_response(
     overall_confidence: float = 0.0,
     partial_failure: bool = False,
     failed_sections: Optional[List[Any]] = None,
+    summary: Optional[str] = None,
 ) -> Dict[str, Any]:
     meta = dict(metadata) if isinstance(metadata, dict) else {}
     if "sessionId" not in meta:
         meta["sessionId"] = session_id
 
-    summary = " ".join(
-        part for part in (_to_str(analysis), _to_str(prediction), _to_str(conclusion)) if part
-    ).strip()
+    if summary is None:
+        summary_val = " ".join(
+            part
+            for part in (_to_str(analysis), _to_str(prediction), _to_str(conclusion))
+            if part
+        ).strip()
+    else:
+        summary_val = _to_str(summary)
 
     def _normalize_formatted_data(value: Any) -> Any:
         if isinstance(value, list):
@@ -122,7 +130,7 @@ def build_response(
         "status": True,
         "message": message or "",
         "formattedData": fd,
-        "summary": summary,
+        "summary": summary_val,
         # Root-level narrative — plain strings, never inside individual widgets
         "analysis": _to_str(analysis),
         "prediction": _to_str(prediction),

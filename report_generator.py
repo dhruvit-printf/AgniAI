@@ -268,7 +268,7 @@ def _build_data_grounded_report(
 
     message = f"The {category_label} query completed successfully and returned {cnt} matched records."
     if cnt == 0:
-        message = f"The {category_label} query completed successfully but returned no records."
+        message = "No data is found for what you asked for."
 
     analysis_summary = f"Matched {cnt} {category_label} records."
     if scores:
@@ -293,6 +293,7 @@ def _build_data_grounded_report(
 
     return {
         "message": message,
+        "summary": analysis_summary,
         "analysis": {
             "summary": analysis_summary,
             "observations": observations,
@@ -371,7 +372,7 @@ def get_fallback_report(
                 combined_result.get("message")
                 if isinstance(combined_result, dict)
                 else None
-            ) or "No matching records found."
+            ) or "No data is found for what you asked for."
             message = no_overlap_message
             summary = "The selected conditions may be too narrow for the current set of records."
             obs = ["The search did not return any overlapping records."]
@@ -386,7 +387,11 @@ def get_fallback_report(
         labels = [s.get("label", "Section") for s in sides]
         labels_str = " and ".join(labels) if labels else "selected categories"
         has_data = (
-            any(len(s.get("data", [])) > 0 or s.get("metrics", {}).get("recordCount", 0) > 0 for s in sides)
+            any(
+                len(s.get("data", [])) > 0
+                or s.get("metrics", {}).get("recordCount", 0) > 0
+                for s in sides
+            )
             if sides
             else (cnt > 0)
         )
@@ -401,7 +406,7 @@ def get_fallback_report(
                 f"The comparison of {labels_str} is complete and ready for review."
             )
         else:
-            message = "I could not complete the comparison because no matching records were found for either side."
+            message = "I couldn't complete that comparison because neither side returned any matching records. You might try adjusting the filters and searching again."
             summary = "The comparison could not be completed because the selected groups returned no records."
             obs = ["Both comparison groups returned no records."]
             insights = [
@@ -438,23 +443,24 @@ def get_fallback_report(
             key = (category, subcategory)
             if key in _INTRO_TEMPLATES:
                 message = _INTRO_TEMPLATES[key]
-            summary = f"The search returned exactly {cnt} matching {category_label} records."
+            summary = (
+                f"The search returned exactly {cnt} matching {category_label} records."
+            )
             obs = [f"Found {cnt} matching {category_label} records."]
             insights = ["The returned records match the selected criteria."]
             conclusion = f"The search is complete and the {cnt} matching {category_label} records are ready for review."
         else:
-            message = f"I could not find any matching {category_label} records."
+            message = "No data is found for what you asked for."
             summary = f"No matching records were found for the selected {category_label} criteria."
-            obs = [
-                f"The search returned 0 records for the {category_label} category."
-            ]
+            obs = [f"The search returned 0 records for the {category_label} category."]
             insights = [
                 "The selected criteria may be too narrow for the available records."
             ]
-            conclusion = f"No matching {category_label} records were found. Try broadening the criteria and search again."
+            conclusion = f"I didn't find any matching {category_label} records this time — broadening the criteria may help."
 
     return {
         "message": message,
+        "summary": summary,
         "analysis": {
             "summary": summary,
             "observations": obs,
@@ -478,9 +484,16 @@ def generate_report(
     records = _extract_records(combined_result)
 
     has_valid_data = _has_any_data(records)
-    if not has_valid_data and query_type in ("compare", "comparison") and isinstance(combined_result, dict):
+    if (
+        not has_valid_data
+        and query_type in ("compare", "comparison")
+        and isinstance(combined_result, dict)
+    ):
         sides = combined_result.get("sides", [])
-        if any(len(s.get("data", [])) > 0 or s.get("metrics", {}).get("recordCount", 0) > 0 for s in sides):
+        if any(
+            len(s.get("data", [])) > 0 or s.get("metrics", {}).get("recordCount", 0) > 0
+            for s in sides
+        ):
             has_valid_data = True
 
     if not has_valid_data:
@@ -491,20 +504,27 @@ def generate_report(
         # individually but none overlap" and phrases the message accordingly
         # — prefer that specific message over the generic fallback text.
         no_match_message = (
-            combined_result.get("message")
-            if query_type == "cross_filter" and isinstance(combined_result, dict)
-            else None
-        ) or fallback.get("message") or "No matching records found."
+            (
+                combined_result.get("message")
+                if query_type == "cross_filter" and isinstance(combined_result, dict)
+                else None
+            )
+            or fallback.get("message")
+            or "No data is found for what you asked for."
+        )
 
         analysis_summary = (
-            fallback.get("analysis", {}).get("summary") or "The selected conditions may be too narrow."
+            fallback.get("analysis", {}).get("summary")
+            or "The selected conditions may be too narrow."
         )
         conclusion_summary = (
-            fallback.get("conclusion", {}).get("summary") or "Try broadening the filters to find matching records."
+            fallback.get("conclusion", {}).get("summary")
+            or "Try broadening the filters to find matching records."
         )
 
         return {
             "message": no_match_message,
+            "summary": analysis_summary,
             "analysis": {
                 "summary": analysis_summary,
                 "insights": fallback.get("analysis", {}).get("insights", []),
@@ -611,6 +631,7 @@ def generate_report(
         analysis_str = narratives.get("analysis") or ""
         prediction_str = narratives.get("prediction") or ""
         conclusion_str = narratives.get("conclusion") or ""
+        summary_str = narratives.get("summary") or ""
     except Exception as exc:
         logger.warning("report_generator: narrative_engine failed: %s", exc)
         category = intent.get("category") or "Agniveer"
@@ -620,9 +641,14 @@ def generate_report(
         ) or f"The {category_label} query returned {len(records)} records."
         analysis_str = (analysis or {}).get("summary", "")
         prediction_str = (prediction or {}).get("projection", "")
-        conclusion_str = (conclusion or {}).get("summary") or (conclusion or {}).get("message") or ""
+        conclusion_str = (
+            (conclusion or {}).get("summary") or (conclusion or {}).get("message") or ""
+        )
+        summary_str = (analysis or {}).get("summary", "")
 
-    intro_needs_fallback = _has_negative_copy(message) or _has_negative_copy(analysis_str)
+    intro_needs_fallback = _has_negative_copy(message) or _has_negative_copy(
+        analysis_str
+    )
     conclusion_needs_fallback = _has_negative_copy(conclusion_str)
 
     if intro_needs_fallback or conclusion_needs_fallback:
@@ -630,12 +656,18 @@ def generate_report(
         if intro_needs_fallback:
             message = grounded.get("message", message)
             analysis_str = grounded.get("analysis", {}).get("summary", analysis_str)
-            prediction_str = grounded.get("prediction", {}).get("projection", prediction_str)
+            prediction_str = grounded.get("prediction", {}).get(
+                "projection", prediction_str
+            )
+            summary_str = grounded.get("summary", summary_str)
         if conclusion_needs_fallback:
-            conclusion_str = grounded.get("conclusion", {}).get("summary", conclusion_str)
+            conclusion_str = grounded.get("conclusion", {}).get(
+                "summary", conclusion_str
+            )
 
     return {
         "message": message,
+        "summary": summary_str,
         "analysis": {
             "summary": analysis_str,
             "insights": [],

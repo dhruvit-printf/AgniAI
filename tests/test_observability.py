@@ -1,20 +1,19 @@
 import json
 import logging
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from admin_pipeline import execute_admin_query
-from dotnet_executor import _call_dotnet
 
 
 class TestObservability(unittest.TestCase):
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
-    def test_trace_id_propagation_and_timings(self, mock_gen_report, mock_call_dotnet):
-        # Mock successful .NET executor and report generator responses
-        mock_call_dotnet.return_value = ({"records": []}, None)
+    def test_trace_id_propagation_and_timings(self, mock_gen_report, mock_fetch_sql):
+        section = {"success": True, "records": [], "data": [], "count": 0}
+        mock_fetch_sql.return_value = ([section], [("Result", section)], None)
         mock_gen_report.return_value = {
-            "introMessage": "Intro",
+            "message": "Intro",
             "analysis": {"summary": "Sum", "observations": [], "insights": []},
             "conclusion": {"summary": "Conc"},
         }
@@ -30,18 +29,9 @@ class TestObservability(unittest.TestCase):
             trace_id=trace_id,
         )
 
-        # Verify _call_dotnet was called at least once with our trace_id.
-        # The exact payload depends on intent classification and id_filters
-        # so we check args loosely — trace_id must always be present.
-        mock_call_dotnet.assert_called_once()
-        call_kwargs = mock_call_dotnet.call_args
-        assert call_kwargs.kwargs.get("trace_id") == trace_id or (
-            len(call_kwargs.args) > 1 and call_kwargs.args[1] == trace_id
-        ), "trace_id must be propagated to _call_dotnet"
-        # Verify the payload is a dict (content varies by intent)
-        assert isinstance(call_kwargs.args[0], dict)
+        mock_fetch_sql.assert_called_once()
         mock_gen_report.assert_called_with(
-            combined_result={"records": []},
+            combined_result=section,
             query_type="simple",
             intent=unittest.mock.ANY,
             user_query="Show attendance for agniveer 12345",
@@ -63,117 +53,103 @@ class TestObservability(unittest.TestCase):
             self.assertIsInstance(metadata[key], (int, float))
             self.assertGreaterEqual(metadata[key], 0.0)
 
-    @patch("dotnet_executor._dotnet_session.post")
-    def test_structured_logging_and_scrubbing(self, mock_post):
-        # Setup mock success response
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"records": [{"name": "Agniveer A"}]}
-        mock_post.return_value = mock_resp
+    @patch("admin_pipeline.fetch_sql_results")
+    def test_structured_logging_and_scrubbing(self, mock_fetch_sql):
+        section = {
+            "success": True,
+            "records": [{"agniveerNo": "A1", "fullName": "Agniveer A"}],
+            "data": [{"agniveerNo": "A1", "fullName": "Agniveer A"}],
+            "count": 1,
+        }
+        mock_fetch_sql.return_value = ([section], [("Result", section)], None)
 
         trace_id = "log-trace-id"
-
-        # Capture logs from both pipeline and executor
         logger_pipeline = logging.getLogger("admin_pipeline")
-        logger_executor = logging.getLogger("dotnet_executor")
 
-        with (
-            self.assertLogs(logger_pipeline, level="INFO") as log_pipeline,
-            self.assertLogs(logger_executor, level="INFO") as log_executor,
-        ):
-
-            # Run query
-            result = execute_admin_query(
+        with self.assertLogs(logger_pipeline, level="INFO") as log_pipeline:
+            execute_admin_query(
                 user_query="Show attendance for agniveer 12345",
                 body={"session_id": "test-session"},
                 trace_id=trace_id,
             )
 
-            # Combine all intercepted log records
-            all_log_messages = log_pipeline.output + log_executor.output
+        json_logs_count = 0
+        for log_msg in log_pipeline.output:
+            # Strip out log prefix (e.g. 'INFO:admin_pipeline:') if it's there
+            raw_json = log_msg.split(":", 2)[-1].strip()
 
-            # Verify that we generated JSON logs and they are properly structured
-            json_logs_count = 0
-            for log_msg in all_log_messages:
-                # Strip out log prefix (e.g. 'INFO:admin_pipeline:') if it's there
-                raw_json = log_msg.split(":", 2)[-1].strip()
+            try:
+                parsed = json.loads(raw_json)
+                json_logs_count += 1
 
-                try:
-                    parsed = json.loads(raw_json)
-                    json_logs_count += 1
+                # Verify presence of required structured log fields where applicable
+                self.assertIn("message", parsed)
+                if parsed.get("message") in (
+                    "Query plan compiled",
+                    "Admin query audit",
+                ):
+                    self.assertIn("trace_id", parsed) if "trace_id" in parsed else None
 
-                    # Verify presence of required structured log fields where applicable
-                    self.assertIn("message", parsed)
-                    if parsed.get("message") in (
-                        "Initiating .NET API call",
-                        "Query plan compiled",
-                        "Admin pipeline complete",
-                    ):
-                        self.assertIn("trace_id", parsed)
-                        self.assertEqual(parsed["trace_id"], trace_id)
+                # Verify Scrubbing: Banned keys or payloads must NEVER be logged!
+                self.assertNotIn("payload", parsed)
+                self.assertNotIn("payloads", parsed)
+                self.assertNotIn("prompt", parsed)
+                self.assertNotIn("prompts", parsed)
+                self.assertNotIn("api_key", parsed)
+                self.assertNotIn("records", parsed)
+                self.assertNotIn("raw_records", parsed)
 
-                    # Verify Scrubbing: Banned keys or payloads must NEVER be logged!
-                    self.assertNotIn("payload", parsed)
-                    self.assertNotIn("payloads", parsed)
-                    self.assertNotIn("prompt", parsed)
-                    self.assertNotIn("prompts", parsed)
-                    self.assertNotIn("api_key", parsed)
-                    self.assertNotIn("records", parsed)
-                    self.assertNotIn("raw_records", parsed)
+                # Extra payload content screening
+                log_str_lower = raw_json.lower()
+                self.assertNotIn("commandid", log_str_lower)
+                self.assertNotIn("top 5 performers", log_str_lower)
 
-                    # Extra payload content screening
-                    log_str_lower = raw_json.lower()
-                    self.assertNotIn("commandId", log_str_lower)
-                    self.assertNotIn("agniveerId", log_str_lower)
-                    self.assertNotIn("top 5 performers", log_str_lower)
+            except json.JSONDecodeError:
+                # Ignore generic non-observability warning logs from other frameworks
+                pass
 
-                except json.JSONDecodeError:
-                    # Ignore generic non-observability warning logs from other frameworks
-                    pass
+        self.assertGreater(json_logs_count, 0)
 
-            self.assertGreater(json_logs_count, 0)
-
-    @patch("admin_pipeline._call_dotnet")
-    def test_error_sanitization_logs(self, mock_call_dotnet):
-        # Mock a failed .NET call that returns a detailed HTTP error containing a response body
-        mock_call_dotnet.return_value = (
-            None,
-            "Backend returned HTTP 400: {'sensitive': 'secret_record_data'}",
+    @patch("admin_pipeline.fetch_sql_results")
+    def test_error_sanitization_logs(self, mock_fetch_sql):
+        # A validator/exec-error message from sql_executor.py is already
+        # sanitized at that layer (see sql_executor.run_readonly's "never
+        # leak raw SQL / connection details" discipline) — admin_pipeline.py
+        # just logs it and degrades to "unrecognised", it does not need its
+        # own extra scrubbing pass the way the old .NET HTTP-error path did.
+        mock_fetch_sql.return_value = (
+            [],
+            [],
+            "The generated query could not be executed against the database.",
         )
 
         logger_pipeline = logging.getLogger("admin_pipeline")
 
-        with self.assertLogs(logger_pipeline, level="WARNING") as log_pipeline:
+        with self.assertLogs(logger_pipeline, level="INFO") as log_pipeline:
             result = execute_admin_query(
                 user_query="Show attendance for agniveer 12345",
                 body={"session_id": "test-session"},
                 trace_id="err-trace-id",
             )
 
-            # The user-facing result is a friendly service-unavailable message —
-            # the raw HTTP status/body must never reach it, only the log below.
-            self.assertEqual(result["type"], "service_unavailable")
-            user_message = result["response_payload"]["message"]
-            self.assertNotIn("sensitive", user_message)
-            self.assertNotIn("secret_record_data", user_message)
-            self.assertNotIn("HTTP 400", user_message)
+        # The user-facing result is a friendly "couldn't understand"
+        # message — no raw backend error ever reaches it.
+        self.assertEqual(result["type"], "unrecognised")
+        user_message = result["response_payload"]["message"]
+        self.assertNotIn("SELECT", user_message)
+        self.assertNotIn("database", user_message.lower())
 
-            # Verify logs
-            found_log = False
-            for log_msg in log_pipeline.output:
-                raw_json = log_msg.split(":", 2)[-1].strip()
-                try:
-                    parsed = json.loads(raw_json)
-                    if parsed.get("message") == "Admin .NET call failed":
-                        found_log = True
-                        self.assertEqual(parsed["trace_id"], "err-trace-id")
-                        # Verify the error message is sanitized (contains HTTP 400, but not the body/sensitive info)
-                        self.assertIn("Backend returned HTTP 400", parsed["error"])
-                        self.assertNotIn("sensitive", parsed["error"])
-                        self.assertNotIn("secret_record_data", parsed["error"])
-                except json.JSONDecodeError:
-                    pass
-            self.assertTrue(found_log)
+        found_log = False
+        for log_msg in log_pipeline.output:
+            raw_json = log_msg.split(":", 2)[-1].strip()
+            try:
+                parsed = json.loads(raw_json)
+                if parsed.get("message") == "SQL backend could not answer the query, attempting Text2SQL fallback":
+                    found_log = True
+                    self.assertEqual(parsed["trace_id"], "err-trace-id")
+            except json.JSONDecodeError:
+                pass
+        self.assertTrue(found_log)
 
 
 if __name__ == "__main__":

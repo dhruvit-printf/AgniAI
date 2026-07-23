@@ -35,3 +35,8 @@ psutil>=7.2.2
 python-dotenv>=1.2.2
 
 pydantic-settings>=2.14.2
+
+# Text-to-SQL backend (sql_executor.py) — read-only SQL Server access.
+# Import is lazy in sql_executor.py, so the rest of AgniAI runs fine without
+# this installed when ENABLE_SQL_EXECUTOR is off.
+pyodbc>=5.1

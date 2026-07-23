@@ -113,16 +113,27 @@ def extract_records(data: Any) -> List[Dict]:
             return res
 
     # Check standard wrapper candidates
+    explicit_empty_wrapper = False
     for key in _WRAPPER_KEY_CANDIDATES:
         val = data.get(key)
         if isinstance(val, list):
             res = [item for item in val if isinstance(item, dict)]
             if res:
                 return res
+            explicit_empty_wrapper = True
         if isinstance(val, dict):
             nested = extract_records(val)
             if nested:
                 return nested
+
+    # A canonical wrapper key (records/data/result/...) was present and
+    # explicitly empty — that's an authoritative "zero rows found" signal
+    # from the backend, not an aggregate/summary object. Returning [] here
+    # (instead of falling through to the single-row fallbacks below) stops
+    # unrelated sibling keys like execution/query metadata from being
+    # misread as the one data record.
+    if explicit_empty_wrapper:
+        return []
 
     teams = data.get("teams") or data.get("Teams")
     if isinstance(teams, list):
@@ -272,6 +283,8 @@ def build_filters_from_entities(entities: Dict[str, Any]) -> Dict[str, Any]:
         "fromAttempt",
         "toAttempt",
         "date",
+        "fromDate",
+        "toDate",
         "companyId",
         "platoonId",
         "batchId",
@@ -286,7 +299,10 @@ def build_filters_from_entities(entities: Dict[str, Any]) -> Dict[str, Any]:
             filters[key] = val
 
     if entities.get("leaveType") == "Current":
-        filters["leaveStatus"] = "Current"
+        # If the user asked about a specific date (like "today"), we'll have fromDate/toDate/date.
+        # Only use the "Current" leave status macro (which enforces GETDATE()) if no explicit date is set.
+        if not entities.get("fromDate") and not entities.get("toDate") and not entities.get("date"):
+            filters["leaveStatus"] = "Current"
 
     return filters
 

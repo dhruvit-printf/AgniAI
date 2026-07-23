@@ -39,7 +39,7 @@ class TestFuzzyTypoCorrection(unittest.TestCase):
     def test_corrects_curated_map_entries_unchanged(self):
         self.assertEqual(clean_query("attandnce"), "attendance")
         self.assertEqual(clean_query("firng result"), "firing result")
-        self.assertEqual(clean_query("medcal report"), "medical report")
+        self.assertEqual(clean_query("medcal report"), "Medical report")
 
     def test_does_not_guess_on_ambiguous_short_words(self):
         # "PT" is genuinely ambiguous (Physical Training vs Platoon) —

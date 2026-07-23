@@ -8,8 +8,9 @@ from widget_engine import build_formatted_data
 
 
 class TestVisualizationQueryAware(unittest.TestCase):
-
     def test_comparison_guarantee(self):
+        # Tables-only mode: a comparison always resolves to a dedicated
+        # COMPARE_TABLE (left/right split), never a plain merged TABLE.
         combined = {
             "left": {"label": "A", "data": [{"id": 1}]},
             "right": {"label": "B", "data": [{"id": 2}]},
@@ -17,6 +18,8 @@ class TestVisualizationQueryAware(unittest.TestCase):
         }
         res = build_formatted_data(combined, query_type="compare", intent={})
         self.assertEqual(res["type"], "COMPARE_TABLE")
+        self.assertIn("left", res["data"])
+        self.assertIn("right", res["data"])
 
     def test_cross_filter_guarantee(self):
         combined = {

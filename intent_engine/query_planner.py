@@ -36,6 +36,119 @@ def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", (text or "").lower())).strip()
 
 
+def _clamp_confidence(value: float) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except Exception:
+        return 0.0
+
+
+def _should_treat_cross_filter_as_multi_independent(semantic: Dict[str, Any]) -> bool:
+    """Promote same-subject, multi-section requests and independent
+    multi-category report requests to multi-independent.
+
+    Queries like "show attendance and current leave records for agniveer 12345"
+    are not intersections between unrelated filters. They are two independent
+    facts requested for the same agniveer, so the pipeline should keep them as
+    separate sections instead of forcing cross-filter execution.
+    Likewise, unit-wide requests for distinct categories with no shared entity
+    to intersect on should also be multi-independent.
+    """
+    if not semantic or semantic.get("dependent_intent"):
+        return False
+
+    sub_requests = semantic.get("sub_requests")
+    if not isinstance(sub_requests, list) or len(sub_requests) < 2:
+        return False
+
+    # A concession/continuation cue in any fragment ("...but still have
+    # issued equipment", "...yet still holding equipment") is an explicit,
+    # unambiguous signal that the query means a genuine intersection —
+    # understand_query() already used exactly this signal to set
+    # cross_filter_intent=True. Case 2 below promotes based on the ABSENCE
+    # of a shared discriminating entity (company/section/bmi category/...),
+    # which is a fine heuristic for genuinely unrelated multi-category
+    # requests, but a query like "who are currently absent yet still
+    # holding equipment" has no such named entity on either side at all —
+    # Case 2 would wrongly promote it to multi-independent, second-guessing
+    # the better-informed upstream decision.
+    _concession_re = re.compile(
+        r"\b(?:but\s+still|yet\s+still|despite|on\s+top\s+of\s+that|still|already|yet)\b",
+        re.IGNORECASE,
+    )
+    for sub_request in sub_requests:
+        if isinstance(sub_request, dict) and _concession_re.search(
+            str(sub_request.get("fragment") or "")
+        ):
+            return False
+
+    categories = set()
+    shared_agniveer_no = None
+    has_any_agniveer_no = False
+    all_have_agniveer_no = True
+    has_any_discriminating_filter = False
+
+    for sub_request in sub_requests:
+        if not isinstance(sub_request, dict):
+            return False
+
+        category = sub_request.get("category")
+        if not category:
+            return False
+        categories.add(category)
+
+        entities = sub_request.get("entities")
+        if not isinstance(entities, dict):
+            return False
+
+        discriminating = {
+            k: v
+            for k, v in entities.items()
+            if k
+            not in (
+                "category",
+                "operation",
+                "responseType",
+                "agniveerNo",
+                "agniveer_no",
+            )
+            and v not in (None, "", [], {})
+        }
+        if discriminating:
+            has_any_discriminating_filter = True
+
+        agniveer_no = entities.get("agniveerNo") or entities.get("agniveer_no")
+        if agniveer_no in (None, "", [], {}):
+            all_have_agniveer_no = False
+            continue
+
+        agniveer_no = str(agniveer_no).strip()
+        if not agniveer_no:
+            all_have_agniveer_no = False
+            continue
+
+        has_any_agniveer_no = True
+        if shared_agniveer_no is None:
+            shared_agniveer_no = agniveer_no
+        elif agniveer_no != shared_agniveer_no:
+            return False
+
+    # Case 1: Every sub-request has the exact same non-empty agniveer_no (the original logic)
+    if all_have_agniveer_no and len(categories) >= 2 and shared_agniveer_no is not None:
+        return True
+
+    # Case 2: No agniveer_no exists in any leg, but categories are distinct.
+    if (
+        not has_any_agniveer_no
+        and len(categories) == len(sub_requests)
+        and len(categories) >= 2
+        and not has_any_discriminating_filter
+    ):
+        return True
+
+    return False
+
+
 class QueryType(Enum):
     SIMPLE = "simple"
     MULTI_INDEPENDENT = "multi_independent"
@@ -129,7 +242,6 @@ class QueryPlan:
         return d
 
 
-
 _CATEGORY_SIGNALS: Dict[str, List[str]] = {
     "Performance": [
         "performance",
@@ -163,7 +275,6 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "absent",
         "absentee",
         "absconded",
-        "awol",
         "away",
         "missing",
         "unaccounted",
@@ -338,6 +449,26 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "expelled agniveer",
         "expelled agniveers",
     ],
+    "OrgHierarchy": [
+        "commander",
+        "commanders",
+        "commanding officer",
+        "commanding officers",
+        "command structure",
+        "chain of command",
+        "predecessor commander",
+        "platoons under",
+        "headcount by company",
+    ],
+    "UsersRoles": [
+        "training officer",
+        "training officers",
+        "user role",
+        "user roles",
+        "admin role",
+        "admin roles",
+        "active users",
+    ],
 }
 
 
@@ -426,7 +557,32 @@ def _build_sub_operation(
     filter_fragment: Optional[str] = None,
 ) -> SubOperation:
     intent_result = classify_admin_intent(fragment)
-    dotnet_payload = format_admin_payload(intent_result)
+    if intent_result.get("company_name") and intent_result.get("company_id") is None:
+        try:
+            from sql_executor import resolve_company_id_from_name
+            cid = resolve_company_id_from_name(str(intent_result["company_name"]))
+            if cid is not None:
+                intent_result["company_id"] = int(cid)
+                if "filters" in intent_result and isinstance(intent_result["filters"], dict):
+                    intent_result["filters"]["companyId"] = int(cid)
+        except Exception:
+            pass
+
+    if intent_result.get("platoon_name") and intent_result.get("platoon_id") is None:
+        try:
+            from sql_executor import resolve_platoon_id_from_name
+            pid = resolve_platoon_id_from_name(str(intent_result["platoon_name"]))
+            if pid is not None:
+                intent_result["platoon_id"] = int(pid)
+                if "filters" in intent_result and isinstance(intent_result["filters"], dict):
+                    intent_result["filters"]["platoonId"] = int(pid)
+        except Exception:
+            pass
+
+    try:
+        dotnet_payload = format_admin_payload(intent_result)
+    except Exception:
+        dotnet_payload = {}
     return SubOperation(
         raw_fragment=fragment,
         intent_result=intent_result,
@@ -488,8 +644,73 @@ def _apply_number_override(ops: List[SubOperation], raw_query: str) -> None:
             op.dotnet_payload = format_admin_payload(op.intent_result)
 
 
+def _apply_scope_override(ops: List[SubOperation], raw_query: str) -> None:
+    """A cross-filter/multi-independent query's shared company/platoon/batch
+    scope often sits only in a leading clause that never survives as its own
+    operation — "Agniveers in Lakhwinder company who failed Firing and are
+    on leave" splits into "who failed Firing" and "are on leave" fragments,
+    neither of which mentions Lakhwinder in its own text, so re-classifying
+    each fragment in isolation (see _ops_from_semantic_fragments) drops the
+    company scope entirely even though the whole query clearly named one.
+    Detect scope from the full raw query once and backfill it onto any leg
+    whose own fragment didn't already resolve one — never overwrites a leg
+    that already has its own (comparison legs, and multi-independent legs
+    that each name a different company, must keep their own value).
+    """
+    from .entity_extractor import extract_entities
+
+    query_entities = extract_entities(raw_query, semantic={})
+    scope_fields = (
+        ("company_name", "companyName"),
+        ("company_id", "companyId"),
+        ("platoon_name", "platoonName"),
+        ("platoon_id", "platoonId"),
+        ("batch_id", "batchId"),
+    )
+    for op in ops:
+        ir = op.intent_result
+        changed = False
+        for snake_key, camel_key in scope_fields:
+            value = query_entities.get(camel_key)
+            if value is None:
+                continue
+            if ir.get(snake_key) or ir.get(camel_key):
+                continue
+            ir[snake_key] = value
+            ir[camel_key] = value
+            changed = True
+        if changed:
+            op.dotnet_payload = format_admin_payload(ir)
+
+
+def _find_generic_company_mentions(text: str) -> List[Tuple[int, int, str]]:
+    """Every "<Name> company"/"<Name> coy" occurrence in `text`, as
+    (start, end, lowercased name) spans.
+
+    Real company names are DB-driven (CompanyMaster: "Lak - Lakhwinder",
+    "Jas - Jaswant", Arora, Thorat, Mahadev, ...) — an open, growing set,
+    unlike the fixed NATO-alphabet placeholder vocabulary in
+    _COMPARISON_UNITS (Alpha/Bravo/Charlie/...), which no real company is
+    ever named. Matching the literal "<word> company" shape instead of a
+    hardcoded name list is what lets "BPET scores for Lak company and Jas
+    company" get recognised as naming two distinct companies at all.
+    """
+    from .entity_extractor import _COMPANY_NAME_STOPWORDS
+
+    matches: List[Tuple[int, int, str]] = []
+    for m in re.finditer(r"\b([a-z][a-z0-9\-]*)\s+(?:company|coy)\b", text, re.IGNORECASE):
+        name = m.group(1).lower()
+        if name in _COMPANY_NAME_STOPWORDS:
+            continue
+        matches.append((m.start(), m.end(), name))
+    return matches
+
+
 def _is_semantic_comparison(
-    text_lower: str, categories: List[str], semantic: Dict[str, Any]
+    text_lower: str,
+    categories: List[str],
+    semantic: Dict[str, Any],
+    raw_query: str = "",
 ) -> bool:
     # Direct keywords
     if any(kw in text_lower for kw in _COMPARISON_KEYWORDS):
@@ -508,7 +729,25 @@ def _is_semantic_comparison(
     # override that decision back to compare — e.g. "Show BPET report, also
     # show firing report and leave status" names two sections but is three
     # independent requests, not a comparison.
-    if semantic and semantic.get("query_type") in ("cross_filter", "multi_independent"):
+    # Exception: "which platoon has better attendance, PL-01 or PL-02" is an
+    # unambiguous 2-way comparison (comparative adjective + "A or B"), but
+    # "platoon" + "attendance" as two separate category signals in the same
+    # sentence is exactly the shape the semantic layer's cross_filter
+    # heuristic looks for — it wins the race before this function ever gets
+    # a chance to recognise the comparison, so this specific high-precision
+    # pattern needs to override that guess rather than defer to it.
+    # Same reasoning for two distinct real company names each individually
+    # suffixed with "company"/"coy" ("BPET scores for Lak company and Jas
+    # company") — the splitter has no marker to go on here and the second
+    # company's own category (often a low-confidence guess, since "Jas
+    # company" alone carries no topic) makes it look like two unrelated
+    # requests, when it's actually one metric asked of two companies.
+    if (
+        semantic
+        and semantic.get("query_type") in ("cross_filter", "multi_independent")
+        and not _COMPARATIVE_OR_RE.search(raw_query or text_lower)
+        and len({name for _, _, name in _find_generic_company_mentions(text_lower)}) < 2
+    ):
         return False
 
     # Adjectives / comparative words
@@ -557,13 +796,26 @@ def _is_semantic_comparison(
     if len(sections_found) >= 2 and not _section_with_grading:
         return True
 
-    # Multiple companies/units
+    # Multiple companies/units — deduped by canonical identity (UNIT_ALIASES
+    # maps both "lak" and "lakhwinder" to "Lak - Lakhwinder"), same reasoning
+    # as the identical dedup in _extract_comparison_components's "2.
+    # Company/Units" branch: without it, one company mentioned by both its
+    # abbreviation and full name in the same sentence ("Lak - Lakhwinder
+    # company") reads as two distinct companies.
     companies_found = {
-        u
+        UNIT_ALIASES.get(u, u)
         for u in _COMPARISON_UNITS
         if re.search(r"\b" + re.escape(u) + r"\b", text_lower)
     }
     if len(companies_found) >= 2:
+        return True
+
+    # Real company names aren't in the fixed _COMPARISON_UNITS vocabulary
+    # (see _find_generic_company_mentions) — "BPET scores for Lak company
+    # and Jas company" has no comparative keyword and no _COMPARISON_UNITS
+    # hit, so without this it silently falls through to a single-company
+    # SIMPLE query, dropping the second company entirely.
+    if len({name for _, _, name in _find_generic_company_mentions(text_lower)}) >= 2:
         return True
 
     # Multiple platoons
@@ -596,22 +848,46 @@ def _is_semantic_comparison(
 
     # Multiple months — only a comparison when NOT in a "from X to Y" range
     months = [
-        "january", "february", "march", "april", "may", "june",
-        "july", "august", "september", "october", "november", "december",
-        "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "oct",
+        "nov",
+        "dec",
     ]
     months_found = {
         m for m in months if re.search(r"\b" + re.escape(m) + r"\b", text_lower)
     }
     if len(months_found) >= 2:
         # Require an explicit comparison keyword alongside the two months
-        if any(kw in text_lower for kw in ("compare", "vs", "versus", "difference between")):
+        if any(
+            kw in text_lower for kw in ("compare", "vs", "versus", "difference between")
+        ):
             return True
 
     # Multiple years — same guard
     years_found = set(re.findall(r"\b(19\d{2}|20\d{2})\b", text_lower))
     if len(years_found) >= 2:
-        if any(kw in text_lower for kw in ("compare", "vs", "versus", "difference between")):
+        if any(
+            kw in text_lower for kw in ("compare", "vs", "versus", "difference between")
+        ):
             return True
 
     return False
@@ -625,13 +901,26 @@ def _normalize_n_parts(parts: List[str]) -> List[Tuple[str, str]]:
             p = re.sub(
                 r"\b" + re.escape(kw) + r"\b", "", p, flags=re.IGNORECASE
             ).strip()
+        # Strip a trailing "for <name>" qualifier BEFORE the results/stats
+        # cleanup below, so "BPET results for Alpha" reduces to "BPET
+        # results" here and then to "BPET" below — doing it in the other
+        # order leaves "for Alpha" stuck after "results", which then blocks
+        # the (now trailing-anchored) results/stats strip from firing at all.
+        p = re.sub(r"\bfor\s+\w+(?:\s+\d+)?$", "", p, flags=re.IGNORECASE).strip()
+        # Strip a trailing "results/stats/.../marks" qualifier — e.g.
+        # "Lakhwinder company performance results" -> "Lakhwinder company".
+        # Anchored so the keyword must actually trail the fragment (only
+        # punctuation may follow it), not merely appear anywhere in it —
+        # `.*$` previously nuked everything after the FIRST occurrence, so
+        # "equipment stats of Jaswant company" (keyword mid-fragment, real
+        # content — the company name — still to come) collapsed to just
+        # "equipment", silently discarding which company was being compared.
         p = re.sub(
-            r"\b(results|stats|data|records|performance|score|marks)\b.*$",
+            r"\b(results|stats|data|records|performance|score|marks)\b[\s.?!]*$",
             "",
             p,
             flags=re.IGNORECASE,
         ).strip()
-        p = re.sub(r"\bfor\s+\w+(?:\s+\d+)?$", "", p, flags=re.IGNORECASE).strip()
         cleaned_parts.append(p)
 
     # Check if there is a shared trailing category/keyword in the last part
@@ -667,8 +956,75 @@ def _normalize_n_parts(parts: List[str]) -> List[Tuple[str, str]]:
     return [(p, p) for p in cleaned_parts if p]
 
 
+def _propagate_trailing_section(parts: List[str]) -> List[str]:
+    """Mirror of propagate_lead_in_across_parts, but for a shared qualifier
+    trailing the LAST part instead of leading the first.
+
+    "Compare Lakhwinder company vs Jaswant company in BPET" splits on " vs "
+    into ["Lakhwinder company", "Jaswant company in BPET"] — only the second
+    half carries "in BPET", so the first half has no section signal at all
+    and fails to classify (confidence ~0.1, no category). Neither company
+    name is in the hardcoded UNIT_ALIASES list, so the earlier
+    "Company/Units" split branch never even sees this pair — it falls all
+    the way through to the generic " vs " split, which has never
+    back-propagated a trailing qualifier.
+    """
+    if len(parts) < 2:
+        return parts
+    last = parts[-1]
+    m = re.search(
+        rf"\b(?:in|for)\s+({'|'.join(_COMPARISON_SECTIONS)})\b",
+        last,
+        flags=re.IGNORECASE,
+    )
+    if not m:
+        return parts
+    suffix = m.group(0)
+    section = m.group(1)
+    result = []
+    for i, p in enumerate(parts):
+        if i == len(parts) - 1 or re.search(
+            rf"\b{re.escape(section)}\b", p, flags=re.IGNORECASE
+        ):
+            result.append(p)
+        else:
+            result.append(f"{p} {suffix}".strip())
+    return result
+
+
+_COMPARATIVE_OR_RE = re.compile(
+    r"\b(?:better|worse|higher|lower|more|fewer|stronger|weaker)\b\s*(.*?),\s*"
+    r"(.+?)\s+or\s+(.+?)[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
+
 def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
     text_lower = query_text.lower().strip()
+
+    # "Which company is doing better, Lak Company or Jas Company?" /
+    # "Which platoon has better attendance, PL-01 or PL-02?" — a comparison
+    # with no "vs"/"versus" at all, just a comparative adjective and an
+    # "A or B" pair after a comma. Checked before the "vs"/"versus" split
+    # below (neither separator is present here) and before the Sections/
+    # Units/Platoons/Batches fallback list (those only recognise a fixed,
+    # hardcoded vocabulary — not arbitrary company names like "Lak Company").
+    # Comma-then-"or" is deliberately narrow so it doesn't fire on unrelated
+    # "or" usage (e.g. "who is disqualified or absconded" has no comma).
+    # The metric between the comparative word and the comma ("attendance" in
+    # "better attendance, PL-01 or PL-02") is prepended to BOTH sides — left
+    # off, only one side (or neither) would carry that context.
+    or_match = _COMPARATIVE_OR_RE.search(query_text)
+    if or_match:
+        context = or_match.group(1).strip()
+        name_a, name_b = or_match.group(2).strip(), or_match.group(3).strip()
+        parts = (
+            [f"{context} {name_a}", f"{context} {name_b}"]
+            if context
+            else [name_a, name_b]
+        )
+        return _normalize_n_parts(parts)
+
     for sep in (" vs ", " versus "):
         if sep in text_lower:
             temp_text = query_text
@@ -679,6 +1035,7 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
                     temp_lower = temp_text.lower().strip()
             parts = re.split(re.escape(sep), temp_text, flags=re.IGNORECASE)
             parts = propagate_lead_in_across_parts(parts)
+            parts = _propagate_trailing_section(parts)
             return _normalize_n_parts(parts)
 
     diff_match = re.search(
@@ -734,8 +1091,100 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
 
     # 2. Company/Units
     coy_matches = find_matches(list(_COMPARISON_UNITS), text_lower)
-    if len({m[2] for m in coy_matches}) >= 2:
-        return split_on_matches(query_text, coy_matches)
+    # Multiple aliases can name the SAME canonical company — UNIT_ALIASES
+    # maps both "lak" and "lakhwinder" to "Lak - Lakhwinder" — so dedupe by
+    # canonical identity, not by which alias string literally matched.
+    # Without this, "Lak - Lakhwinder company" (one company, spoken with
+    # its own abbreviation right next to its full name) matches both
+    # aliases and gets split into two "companies" to compare against each
+    # other. Keeps the first occurrence of each canonical company.
+    _coy_seen_canonical: set = set()
+    _coy_dedup_matches: List[Tuple[int, int, str]] = []
+    for start, end, alias in coy_matches:
+        canonical = UNIT_ALIASES.get(alias, alias)
+        if canonical in _coy_seen_canonical:
+            continue
+        _coy_seen_canonical.add(canonical)
+        _coy_dedup_matches.append((start, end, alias))
+    if len(_coy_dedup_matches) >= 2:
+        return split_on_matches(query_text, _coy_dedup_matches)
+
+    # 2b. Generic "<Name> and <Name> company/companies" — company names are
+    # DB-driven (CompanyMaster: Lakhwinder, Jaswant, Arora, Thorat, ...), not
+    # a fixed vocabulary like _COMPARISON_UNITS, so a real company name can
+    # never be recognised by the Sections/Units matchers above. This keys
+    # off the literal word "company"/"companies" immediately following
+    # "<X> and <Y>" — narrow enough to avoid false positives on unrelated
+    # "and" usage, general enough to catch any two arbitrary company names.
+    # Negative lookaheads on both name groups stop this from self-matching
+    # when the text is actually the OTHER shape ("<Name> company and <Name>
+    # company", each individually suffixed, handled by 2b-ii below) —
+    # without them, "arora company and thorat company" lets name_a capture
+    # the literal word "company" itself (from "...company and thorat..."),
+    # producing a garbled "arora company company" / "arora thorat company"
+    # split instead of deferring to 2b-ii's correct per-company split.
+    _generic_coy_match = re.search(
+        r"\b(?!compan(?:y|ies)\b|coy\b)([A-Za-z][A-Za-z\-]*)\s+and\s+"
+        r"(?!compan(?:y|ies)\b|coy\b)([A-Za-z][A-Za-z\-]*)\s+compan(?:y|ies)\b",
+        query_text,
+        re.IGNORECASE,
+    )
+    if _generic_coy_match:
+        name_a, name_b = _generic_coy_match.group(1), _generic_coy_match.group(2)
+        prefix = query_text[: _generic_coy_match.start()].strip()
+        prefix = re.sub(
+            r"^(?:compare|comparison\s+of|comparison\s+between|comparison)\b\s*",
+            "",
+            prefix,
+            flags=re.IGNORECASE,
+        ).strip()
+        suffix = query_text[_generic_coy_match.end():].strip()
+        frag_a = " ".join(p for p in (prefix, f"{name_a} company", suffix) if p)
+        frag_b = " ".join(p for p in (prefix, f"{name_b} company", suffix) if p)
+        return _normalize_n_parts([frag_a, frag_b])
+
+    # 2b-ii. Generic "<Name> company ... <Name> company" — each company
+    # individually suffixed with its own "company"/"coy" (e.g. "BPET scores
+    # for Lak company and Jas company"), as opposed to 2b's single shared
+    # trailing "company" ("... for Lak and Jas company"). Deduplicated to
+    # the first mention of each distinct name so a company named twice
+    # doesn't produce a duplicate leg.
+    _generic_matches = _find_generic_company_mentions(query_text)
+    _seen_names: set = set()
+    _dedup_matches: List[Tuple[int, int, str]] = []
+    for start, end, name in _generic_matches:
+        if name in _seen_names:
+            continue
+        _seen_names.add(name)
+        _dedup_matches.append((start, end, name))
+    if len(_dedup_matches) >= 2:
+        return split_on_matches(query_text, _dedup_matches)
+
+    # 2c. AgniveerNo pairs: "compare ... agniveer X and agniveer Y ...".
+    agn_matches = [
+        (m.start(), m.end(), m.group(0))
+        for m in re.finditer(r"\bagniveer\s+[a-z]\d{5,8}[a-z]?\b", text_lower)
+    ]
+    if len({m[2] for m in agn_matches}) >= 2:
+        return split_on_matches(query_text, agn_matches)
+
+    # 2d. Attempt-number pairs: "attempt 1 and attempt 2 ..." or
+    # "first attempt and second attempt ...".
+    attempt_matches = [
+        (m.start(), m.end(), m.group(0))
+        for m in re.finditer(r"\battempt\s*\d+\b", text_lower)
+    ]
+    if len({m[2] for m in attempt_matches}) >= 2:
+        return split_on_matches(query_text, attempt_matches)
+
+    ordinal_attempt_matches = [
+        (m.start(), m.end(), m.group(0))
+        for m in re.finditer(
+            r"\b(?:first|second|third|fourth|fifth)\s+attempt\b", text_lower
+        )
+    ]
+    if len({m[2] for m in ordinal_attempt_matches}) >= 2:
+        return split_on_matches(query_text, ordinal_attempt_matches)
 
     # 3. Platoons
     platoon_matches = [
@@ -840,7 +1289,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         )
 
     categories = _detect_categories(q)
-    is_compare = _is_semantic_comparison(q, categories, semantic)
+    is_compare = _is_semantic_comparison(q, categories, semantic, raw_query=raw_query)
 
     if is_compare:
         components = _extract_comparison_components(raw_query)
@@ -890,7 +1339,9 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             return QueryPlan(
                 query_type=QueryType.COMPARE,
                 operations=ops,
-                confidence=max(float(semantic.get("confidence") or 0.85), 0.85),
+                confidence=_clamp_confidence(
+                    max(float(semantic.get("confidence") or 0.85), 0.85)
+                ),
                 raw_query=raw_query,
                 reasoning="Comparison query detected semantically",
                 filters=combined_filters,
@@ -907,6 +1358,10 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             )
 
     qtype = (semantic.get("query_type") or "simple").strip().lower()
+    if qtype == "cross_filter" and _should_treat_cross_filter_as_multi_independent(
+        semantic
+    ):
+        qtype = "multi_independent"
 
     def _ops_from_semantic_fragments(default_fragment: str) -> List[SubOperation]:
         fragments = semantic.get("sub_requests")
@@ -951,7 +1406,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             return QueryPlan(
                 QueryType.COMPARE,
                 valid_ops,
-                max(float(semantic.get("confidence") or 0.85), 0.85),
+                _clamp_confidence(max(float(semantic.get("confidence") or 0.85), 0.85)),
                 raw_query,
                 "Comparison query detected from semantic understanding",
                 filters=combined_filters,
@@ -981,10 +1436,11 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 )
             _apply_response_type_override(valid_ops, raw_query)
             _apply_number_override(valid_ops, raw_query)
+            _apply_scope_override(valid_ops, raw_query)
             return QueryPlan(
                 QueryType.MULTI_INDEPENDENT,
                 valid_ops,
-                max(float(semantic.get("confidence") or 0.8), 0.8),
+                _clamp_confidence(max(float(semantic.get("confidence") or 0.8), 0.8)),
                 raw_query,
                 f"Multi-independent semantic query: {', '.join(sorted(categories))}",
                 filters=combined_filters,
@@ -992,27 +1448,20 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
 
     if qtype == "cross_filter":
         ops = _ops_from_semantic_fragments(raw_query)
-        # Schedule is a standalone category (timetable/agenda), never a filter condition
         valid_ops = [
             op
             for op in ops
             if op.intent_result.get("category")
-            and op.intent_result.get("category") != "Schedule"
         ]
         if len([op for op in valid_ops if not _is_leftover_subject_op(op)]) >= 2:
             valid_ops = [op for op in valid_ops if not _is_leftover_subject_op(op)]
 
         if len(valid_ops) >= 2:
             for op in valid_ops:
-                if op.intent_result.get(
-                    "category"
-                ) == "Roster" and op.intent_result.get("sport"):
+                if op.intent_result.get("category") == "Roster" and op.intent_result.get("sport"):
                     op.intent_result["category"] = "Skills"
                     op.dotnet_payload = format_admin_payload(op.intent_result)
-            # Cross-filter intersects individual agniveer records by
-            # agniveerNo. A "Summary" responseType returns aggregate counts
-            # (e.g. improvedCount, totalAgniveers) with no per-agniveer rows
-            # at all, so intersection silently finds nothing. Every leg needs
+
             # the Detailed, per-agniveer response for the intersection to
             # have anything to match on.
             for op in valid_ops:
@@ -1024,6 +1473,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             # generic uncap-to-1000 below, so a real user-stated number
             # always wins over that fallback.
             _apply_number_override(valid_ops, raw_query)
+            _apply_scope_override(valid_ops, raw_query)
             # Ranking/trend operations return only the top N (default 10)
             # unless "n" is set explicitly. Left uncapped, a cross-filter leg
             # like "who improved in BPET" only ever considers the top 10
@@ -1052,7 +1502,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             return QueryPlan(
                 QueryType.CROSS_FILTER,
                 valid_ops,
-                max(float(semantic.get("confidence") or 0.8), 0.8),
+                _clamp_confidence(max(float(semantic.get("confidence") or 0.8), 0.8)),
                 raw_query,
                 "Cross-filter semantic query detected",
                 filters=combined_filters,
@@ -1064,7 +1514,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         return QueryPlan(
             QueryType.TREND,
             [op],
-            max(float(semantic.get("confidence") or 0.85), 0.85),
+            _clamp_confidence(max(float(semantic.get("confidence") or 0.85), 0.85)),
             raw_query,
             "Trend query detected from semantic understanding",
             filters=filters,
@@ -1076,7 +1526,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         return QueryPlan(
             QueryType.DISTRIBUTION,
             [op],
-            max(float(semantic.get("confidence") or 0.85), 0.85),
+            _clamp_confidence(max(float(semantic.get("confidence") or 0.85), 0.85)),
             raw_query,
             "Distribution query detected from semantic understanding",
             filters=filters,
@@ -1089,11 +1539,20 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
     # "give details of A0701763P" -> personaldetail/info at 0.52) — the
     # semantic-understanding score is a separate, more conservative signal
     # and must not silently override a real classification result.
+    sem_conf = semantic.get("confidence")
+    if isinstance(sem_conf, str):
+        sem_conf = {"low": 0.3, "medium": 0.6, "high": 0.9}.get(sem_conf.lower(), 0.0)
+    try:
+        sem_conf_val = float(sem_conf or 0.0)
+    except (ValueError, TypeError):
+        sem_conf_val = 0.0
+
     confidence = max(
         0.3,
-        float(semantic.get("confidence") or 0.0),
+        sem_conf_val,
         float(op.intent_result.get("confidence_score") or 0.0),
     )
+
     if (
         semantic.get("operation") == "ranking"
         or semantic.get("query_type") == "ranking"
@@ -1101,7 +1560,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
         return QueryPlan(
             QueryType.ANALYTICS,
             [op],
-            max(confidence, 0.75),
+            _clamp_confidence(max(confidence, 0.75)),
             raw_query,
             "Semantic ranking query detected",
             filters=filters,
@@ -1110,7 +1569,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
     return QueryPlan(
         QueryType.SIMPLE,
         [op],
-        max(confidence, 0.5 if filters else 0.3),
+        _clamp_confidence(max(confidence, 0.5 if filters else 0.3)),
         raw_query,
         "Single-intent query with filters",
         filters=filters,

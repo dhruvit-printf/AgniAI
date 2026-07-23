@@ -168,10 +168,11 @@ class TestReliability(unittest.TestCase):
         mock_post.assert_called_once()
 
     @patch("admin_pipeline.generate_report")
-    @patch("admin_pipeline._call_dotnet")
-    def test_llm_failure_isolation(self, mock_call_dotnet, mock_gen_report):
-        # .NET returns successfully
-        mock_call_dotnet.return_value = ({"records": []}, None)
+    @patch("admin_pipeline.fetch_sql_results")
+    def test_llm_failure_isolation(self, mock_fetch_sql, mock_gen_report):
+        # SQL backend returns successfully
+        section = {"success": True, "records": [], "data": [], "count": 0}
+        mock_fetch_sql.return_value = ([section], [("Result", section)], None)
 
         # LLM raises exception
         mock_gen_report.side_effect = Exception("Ollama server down")
@@ -187,23 +188,30 @@ class TestReliability(unittest.TestCase):
         self.assertEqual(response_payload["status"], True)
         self.assertIn("partial", response_payload["message"].lower())
 
-    @patch("admin_pipeline._call_dotnet")
-    def test_disqualified_lookup_backend_outage_is_graceful(self, mock_call_dotnet):
-        mock_call_dotnet.return_value = (
-            None,
-            "Cannot connect to .NET backend at https://example/api/AiCommand/execute. (timeout)",
+    @patch("admin_pipeline.fetch_sql_results")
+    def test_disqualified_lookup_backend_outage_is_graceful(self, mock_fetch_sql):
+        # A SQL backend outage (DB unreachable, query rejected, etc.) has no
+        # .NET-style "service_unavailable" path anymore — every SQL failure
+        # degrades to the same friendly "couldn't understand" response, and
+        # must never crash the pipeline or leak backend detail to the user.
+        mock_fetch_sql.return_value = (
+            [],
+            [],
+            "The generated query could not be executed against the database.",
         )
 
         payload = execute_admin_query("Show disqualified agniveers from Platoon 2.", {})
 
-        self.assertEqual(payload["type"], "service_unavailable")
+        self.assertEqual(payload["type"], "unrecognised")
         response_payload = payload["response_payload"]
-        self.assertTrue(response_payload["status"])
-        self.assertIn("trouble reaching", response_payload["message"].lower())
+        message = response_payload["message"].lower()
+        self.assertNotIn("database", message)
+        self.assertIn("rephrase", message)
 
-    @patch("admin_pipeline._call_dotnet")
-    def test_disqualified_lookup_does_not_carry_forward_stale_batch(self, mock_call_dotnet):
-        mock_call_dotnet.return_value = ({"records": []}, None)
+    @patch("admin_pipeline.fetch_sql_results")
+    def test_disqualified_lookup_does_not_carry_forward_stale_batch(self, mock_fetch_sql):
+        section = {"success": True, "records": [], "data": [], "count": 0}
+        mock_fetch_sql.return_value = ([section], [("Result", section)], None)
 
         with patch("admin_pipeline.context_engine.resolve") as mock_resolve:
             mock_resolve.return_value = type(
@@ -220,34 +228,36 @@ class TestReliability(unittest.TestCase):
             )()
             execute_admin_query("Show all disqualified agniveers.", {})
 
-        payload = mock_call_dotnet.call_args[0][0]
-        self.assertNotIn("batchId", payload)
+        primary_intent = mock_fetch_sql.call_args[0][2]
+        self.assertNotIn("batchId", primary_intent)
 
-    @patch("admin_pipeline._call_dotnet")
-    def test_disqualified_lookup_http_400_is_reported_gracefully(self, mock_call_dotnet):
-        mock_call_dotnet.return_value = (
-            None,
-            "Backend returned HTTP 400: Bad Request",
+    @patch("admin_pipeline.fetch_sql_results")
+    def test_disqualified_lookup_sql_error_is_reported_gracefully(self, mock_fetch_sql):
+        mock_fetch_sql.return_value = (
+            [],
+            [],
+            "Statement contains a forbidden keyword.",
         )
 
         payload = execute_admin_query("Show all disqualified agniveers.", {})
 
-        # The raw HTTP status/body is never shown to the user — only a
-        # friendly, conversational message (it's still logged server-side).
-        self.assertEqual(payload["type"], "service_unavailable")
+        # The raw validator/backend error text is never shown to the user —
+        # only a friendly, conversational message (it's still logged
+        # server-side).
+        self.assertEqual(payload["type"], "unrecognised")
         response_payload = payload["response_payload"]
-        self.assertTrue(response_payload["status"])
-        self.assertNotIn("HTTP 400", response_payload["message"])
-        self.assertIn("trouble reaching", response_payload["message"].lower())
+        self.assertNotIn("forbidden keyword", response_payload["message"])
+        self.assertIn("rephrase", response_payload["message"].lower())
 
     def test_progress_callback_protection(self):
         # Custom progress callback that raises an exception
         def bad_progress(stage):
             raise RuntimeError("Progress callback failure")
 
-        # Mock _call_dotnet to succeed immediately
-        with patch("admin_pipeline._call_dotnet") as mock_call_dotnet:
-            mock_call_dotnet.return_value = ({"records": []}, None)
+        # Mock fetch_sql_results to succeed immediately
+        with patch("admin_pipeline.fetch_sql_results") as mock_fetch_sql:
+            section = {"success": True, "records": [], "data": [], "count": 0}
+            mock_fetch_sql.return_value = ([section], [("Result", section)], None)
 
             # This should run to completion and not raise any exceptions
             result = execute_admin_query(

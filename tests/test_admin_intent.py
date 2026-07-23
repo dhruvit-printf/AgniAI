@@ -34,6 +34,13 @@ def test_top_performers_with_section():
     assert r["section"] == "BPET"
 
 
+def test_top_performers_with_absent_followup_stays_performance():
+    r = classify_admin_intent("Which BPET toppers are absent today?")
+    assert r["category"] == "Performance"
+    assert r["subcategory"] == "TopPerformers"
+    assert r["section"] == "BPET"
+
+
 def test_lowest_performers():
     r = classify_admin_intent("Who are the worst 3 performers in FIRING?")
     assert r["category"] == "Performance"
@@ -56,10 +63,14 @@ def test_pass_percentage():
 
 
 def test_fail_percentage():
+    # Names an explicit grade ("Fail") — per the same rule documented on
+    # test_grade_distribution below (a query naming no specific grade means
+    # GradingSummary; one that does name a grade means Grading), this must
+    # resolve to Grading/GradeDistribution, not a Bottom-performers ranking.
     r = classify_admin_intent("Show the fail percentage")
     assert r["category"] == "Performance"
-    assert r["subcategory"] == "LowestPerformers"
-    assert r["operation"] == "Bottom"
+    assert r["subcategory"] == "GradeDistribution"
+    assert r["operation"] == "Grading"
     assert r["grading"] == "Fail"
 
 
@@ -262,6 +273,14 @@ def test_disease_filter_diagnose():
     assert r7["category"] == "Medical"
     assert r7["operation"] == "Disease"
     assert r7["diagnose"] == "Back Pain"
+
+
+def test_medically_unfit_status():
+    r = classify_admin_intent("Show medically unfit agniveers")
+    assert r["category"] == "Medical"
+    assert r["medical_status"] == "Unfit"
+    payload = format_admin_payload(r)
+    assert payload["medicalStatus"] == "Unfit"
 
 
 # =============================================================================

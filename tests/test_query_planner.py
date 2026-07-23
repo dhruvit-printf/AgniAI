@@ -7,6 +7,13 @@ from intent_engine.query_planner import QueryType, plan_query
 
 class TestQueryPlanner(unittest.TestCase):
 
+    def test_confidence_is_clamped_to_one(self):
+        plan = plan_query(
+            "Show top BPET performers",
+            semantic={"query_type": "simple", "confidence": 1.7},
+        )
+        self.assertLessEqual(plan.confidence, 1.0)
+
     def test_comparison_markers_share_single_source(self):
         """Regression guard: query_planner._COMPARISON_KEYWORDS must stay an
         import of query_understanding_engine._COMPARISON_MARKERS, not an
@@ -51,6 +58,13 @@ class TestQueryPlanner(unittest.TestCase):
         self.assertEqual(len(plan.operations), 2)
         self.assertEqual(plan.operations[0].intent_result["category"], "Leave")
         self.assertEqual(plan.operations[1].intent_result["category"], "Strength")
+
+    def test_same_agniveer_multi_section_request_is_multi_independent(self):
+        plan = plan_query("Show attendance and current leave records for agniveer 12345")
+        self.assertEqual(plan.query_type, QueryType.MULTI_OPERATION)
+        self.assertEqual(len(plan.operations), 2)
+        self.assertEqual(plan.operations[0].intent_result["category"], "Attendance")
+        self.assertEqual(plan.operations[1].intent_result["category"], "Leave")
 
     def test_leave_attendance_equipment_comma_separated_multi_independent(self):
         plan = plan_query(

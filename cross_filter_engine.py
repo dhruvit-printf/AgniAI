@@ -10,17 +10,9 @@ their fields from each dataset into a single unified record.
 import logging
 from typing import Any, Dict, List, Optional, Set
 
-from universal_normalizer import normalize_response
+from universal_normalizer import _ID_FIELD_PRIORITY, normalize_response
 
 logger = logging.getLogger(__name__)
-
-# ID field resolution order — update here only if new fields are added
-_ID_FIELD_PRIORITY = (
-    "agniveerNo",
-    "agniveerId",
-    "AgniveerId",
-    "AgniVeerId",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -228,31 +220,28 @@ def _build_no_overlap_message(
     counts: List[int], labels: Optional[List[str]]
 ) -> str:
     """
-    Distinguish "a condition genuinely returned nothing" from
-    "every condition matched records on its own, they just don't overlap".
+    Distinguish when intersection data cannot be intersected across conditions / subqueries:
+    Return message indicating data exists for X question but is not in Y.
     """
     if not counts:
-        return "No matching records found."
-        
-    if any(c == 0 for c in counts):
-        if labels and len(labels) == len(counts):
-            empty_labels = [label for label, count in zip(labels, counts) if count == 0]
-            parts = " and ".join(empty_labels)
-            return f"The condition for '{parts}' produced no records, resulting in an empty intersection."
-        return "One or more conditions produced no records, resulting in an empty intersection."
+        return "No data is found for what you asked for."
 
-    if labels and len(labels) == len(counts):
-        parts = ", ".join(
-            f"{count} {label}" for label, count in zip(labels, counts)
-        )
-        return (
-            f"What you're asking for isn't present — {parts} were each found "
-            f"individually, but no records satisfy all of those conditions "
-            f"together. Try broadening one of the filters."
-        )
+    if labels and len(labels) >= 2:
+        x_label = labels[0]
+        y_label = labels[1]
+        c_x = counts[0] if len(counts) > 0 else 0
+        c_y = counts[1] if len(counts) > 1 else 0
 
-    return (
-        "What you're asking for isn't present — each condition matched "
-        "records on its own, but none of them satisfy every condition "
-        "together. Try broadening one of the filters."
-    )
+        if c_x > 0 and c_y == 0:
+            return f"The data you are finding is there for {x_label} question but is not there in {y_label}."
+        elif c_x == 0 and c_y > 0:
+            return f"The data you are finding is there for {y_label} question but is not there in {x_label}."
+        elif c_x > 0 and c_y > 0:
+            return f"The data you are finding is there for {x_label} question but is not there in {y_label}."
+        elif c_x == 0 and c_y == 0:
+            return "No data is found for what you asked for."
+
+    if any(c > 0 for c in counts):
+        return "The data you are finding is there for the first question but is not there in the second question."
+
+    return "No data is found for what you asked for."

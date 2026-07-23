@@ -39,6 +39,13 @@ def _entities(query: str) -> dict:
     return extract_entities(query)
 
 
+def test_confidence_score_is_clamped_to_one():
+    result = _classify(
+        "Show top BPET performers for company 1 batch 1 platoon 1 agniveer A0701882L"
+    )
+    assert 0.0 <= result["confidence_score"] <= 1.0
+
+
 # =============================================================================
 # TASK 8 — Mandated test cases (1-10)
 # =============================================================================
@@ -345,7 +352,7 @@ class TestVerificationCases:
     def test_completed_verification(self):
         r = _classify("how many verifications are completed")
         assert r["category"] == "Verification"
-        assert r["operation"] == "Completed"
+        assert r["operation"] == "Verified"
 
     def test_not_responded(self):
         r = _classify("who has not responded to verification")
@@ -553,6 +560,26 @@ class TestEntityExtractionEdgeCases:
         """'physically fit' with 'fitness' context must extract bmiCategory"""
         e = _entities("show physically fit agniveers by fitness score")
         assert e.get("bmiCategory") == "Normal"
+
+    def test_unfit_with_bmi_context(self):
+        """'unfit' with bmi/weight context maps to combined Overweight+Obese"""
+        e = _entities("show unfit agniveers by weight")
+        assert e.get("bmiCategory") == "Unfit"
+
+    def test_unfit_no_bmi_without_context(self):
+        """'unfit' alone must not extract bmiCategory if no bmi/weight context —
+        'unfit for duty' is a duty-status concept, not a BMI classification."""
+        e = _entities("unfit for duty check")
+        assert e.get("bmiCategory") is None
+
+    def test_not_fit_extracts_unfit_bmi(self):
+        e = _entities("who's not fit in the company")
+        assert e.get("bmiCategory") == "Unfit"
+
+    def test_unfit_classifies_as_bmi_operation(self):
+        r = _classify("show unfit agniveers by weight")
+        assert r["category"] == "Medical"
+        assert r["operation"] == "BMI"
 
 
 class TestSessionIsolation:

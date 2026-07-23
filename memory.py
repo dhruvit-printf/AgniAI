@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict, deque
 from threading import RLock
-from typing import Deque, Dict, List, Optional
+from typing import Deque, Dict, List, Optional, Any
 
 from config import MEMORY_MAX_MESSAGES
 

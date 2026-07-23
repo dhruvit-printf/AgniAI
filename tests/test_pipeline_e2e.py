@@ -41,13 +41,14 @@ from admin_pipeline import execute_admin_query
 
 class TestPipelineEndToEnd(unittest.TestCase):
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
-    def test_filter_query_e2e(self, mock_generate_report, mock_call_dotnet):
+    def test_filter_query_e2e(self, mock_generate_report, mock_fetch_sql):
         # 1. FILTER_QUERY: "Show top performers who play cricket"
-        # Only 1 .NET call is expected
-        mock_call_dotnet.return_value = (
-            [
+        # Only 1 SQL fetch is expected
+        section = {
+            "success": True,
+            "records": [
                 {
                     "id": 1,
                     "fullName": "AMIT KUMAR",
@@ -63,10 +64,27 @@ class TestPipelineEndToEnd(unittest.TestCase):
                     "bestTotal": 88,
                 },
             ],
-            None,
-        )
+            "data": [
+                {
+                    "id": 1,
+                    "fullName": "AMIT KUMAR",
+                    "agniveerNo": "A01",
+                    "sports": "Cricket",
+                    "bestTotal": 95,
+                },
+                {
+                    "id": 2,
+                    "fullName": "KAPIL DEV",
+                    "agniveerNo": "A02",
+                    "sports": "Cricket",
+                    "bestTotal": 88,
+                },
+            ],
+            "count": 2,
+        }
+        mock_fetch_sql.return_value = ([section], [("Result", section)], None)
         mock_generate_report.return_value = {
-            "introMessage": "Report generated.",
+            "message": "Report generated.",
             "analysis": {
                 "summary": "Summary text",
                 "observations": ["Obs 1"],
@@ -88,12 +106,12 @@ class TestPipelineEndToEnd(unittest.TestCase):
             fd = [fd]
         self.assertEqual(fd[0]["type"], "TABLE")
 
-        mock_call_dotnet.assert_called_once()
+        mock_fetch_sql.assert_called_once()
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
     def test_disclaimer_banner_stays_conversational(
-        self, mock_generate_report, mock_call_dotnet
+        self, mock_generate_report, mock_fetch_sql
     ):
         result = execute_admin_query(
             "AgniAI may make mistakes. Verify important information.",
@@ -103,68 +121,32 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(result["type"], "conversational")
         response_payload = result["response_payload"]
         self.assertEqual(response_payload["metadata"]["queryType"], "conversational")
-        mock_call_dotnet.assert_not_called()
+        mock_fetch_sql.assert_not_called()
         mock_generate_report.assert_not_called()
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
-    def test_cross_filter_query_e2e(self, mock_generate_report, mock_call_dotnet):
-        # 2. CROSS_FILTER: "Show top performer in PPT who plays cricket and is currently on leave"
-        # Expects 3 .NET calls: Performance.Top, Skills.BySport (Cricket), Leave.Current
-        # We use a side-effect mock to simulate responses for each of the 3 calls.
-        mock_call_dotnet.side_effect = [
-            # Performance.Top
-            (
-                [
-                    {
-                        "id": 1,
-                        "fullName": "AMIT KUMAR",
-                        "agniveerNo": "A01",
-                        "bestTotal": 95,
-                    },
-                    {
-                        "id": 2,
-                        "fullName": "KAPIL DEV",
-                        "agniveerNo": "A02",
-                        "bestTotal": 88,
-                    },
-                ],
-                None,
-            ),
-            # Skills.BySport (Cricket)
-            (
-                [
-                    {
-                        "id": 1,
-                        "fullName": "AMIT KUMAR",
-                        "agniveerNo": "A01",
-                        "sport": "Cricket",
-                    },
-                    {
-                        "id": 3,
-                        "fullName": "RAM SINGH",
-                        "agniveerNo": "A03",
-                        "sport": "Cricket",
-                    },
-                ],
-                None,
-            ),
-            # Leave.Current
-            (
-                [
-                    {
-                        "id": 1,
-                        "fullName": "AMIT KUMAR",
-                        "agniveerNo": "A01",
-                        "leaveType": "Current",
-                    }
-                ],
-                None,
-            ),
-        ]
+    def test_cross_filter_query_e2e(self, mock_generate_report, mock_fetch_sql):
+        # 2. CROSS_FILTER: "Show top performer in PPT who plays cricket and is
+        # currently on leave" — HARD RULE R4 means this is now ONE atomic SQL
+        # query (CTE per condition, INNER JOINed/intersected inside the SQL
+        # itself), so the mock returns the already-intersected row directly
+        # rather than 3 separate per-condition datasets for Python to
+        # intersect.
+        section = {
+            "success": True,
+            "records": [
+                {"id": 1, "fullName": "AMIT KUMAR", "agniveerNo": "A01"},
+            ],
+            "data": [
+                {"id": 1, "fullName": "AMIT KUMAR", "agniveerNo": "A01"},
+            ],
+            "count": 1,
+        }
+        mock_fetch_sql.return_value = ([section], [("Performance", section)], None)
 
         mock_generate_report.return_value = {
-            "introMessage": "Cross-filter report generated.",
+            "message": "Cross-filter report generated.",
             "analysis": {
                 "summary": "Intersection completed",
                 "observations": [],
@@ -182,7 +164,6 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertTrue(response_payload["status"])
         self.assertEqual(response_payload["metadata"]["queryType"], "cross_filter")
 
-        # Verify intersection result (only AMIT KUMAR matches all three sets)
         fd = response_payload.get("formattedData", [])
         if isinstance(fd, dict):
             fd = [fd]
@@ -195,21 +176,34 @@ class TestPipelineEndToEnd(unittest.TestCase):
         )  # camelCase after normalisation
         self.assertEqual(rows[0]["agniveerNo"], "A01")  # camelCase after normalisation
 
-        self.assertEqual(mock_call_dotnet.call_count, 3)
+        # R4: one atomic SQL call, not one per condition.
+        mock_fetch_sql.assert_called_once()
 
     @patch("intent_engine.query_planner._is_semantic_comparison")
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
-    def test_comparison_query_e2e(self, mock_generate_report, mock_call_dotnet, mock_semantic_comp):
+    def test_comparison_query_e2e(self, mock_generate_report, mock_fetch_sql, mock_semantic_comp):
         mock_semantic_comp.return_value = True
-        # 3. COMPARISON: "Compare PPT and BEPT"
-        # Expects 2 .NET calls
-        mock_call_dotnet.side_effect = [
-            ([{"id": 1, "bestTotal": 95}, {"id": 2, "bestTotal": 85}], None),  # PPT
-            ([{"id": 3, "bestTotal": 75}], None),  # BEPT
-        ]
+        # 3. COMPARISON: "Compare PPT and BEPT" — one SQL fetch per side.
+        section_ppt = {
+            "success": True,
+            "records": [{"id": 1, "bestTotal": 95}, {"id": 2, "bestTotal": 85}],
+            "data": [{"id": 1, "bestTotal": 95}, {"id": 2, "bestTotal": 85}],
+            "count": 2,
+        }
+        section_bept = {
+            "success": True,
+            "records": [{"id": 3, "bestTotal": 75}],
+            "data": [{"id": 3, "bestTotal": 75}],
+            "count": 1,
+        }
+        mock_fetch_sql.return_value = (
+            [section_ppt, section_bept],
+            [("PPT", section_ppt), ("BEPT", section_bept)],
+            None,
+        )
         mock_generate_report.return_value = {
-            "introMessage": "Comparison report.",
+            "message": "Comparison report.",
             "analysis": {"summary": "Diff summary", "observations": [], "insights": []},
             "conclusion": {"summary": "Comparison done"},
         }
@@ -221,7 +215,9 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertTrue(response_payload["status"])
         self.assertEqual(response_payload["metadata"]["queryType"], "COMPARISON")
 
-        # Check comparison results — verify correct COMPARE widget is built
+        # Check comparison results — verify correct COMPARE widget is built.
+        # Tables-only mode: a comparison gets a dedicated COMPARE_TABLE
+        # (left/right side-by-side), not a plain merged TABLE.
         widgets = response_payload["formattedData"]
         if isinstance(widgets, dict):
             widgets = [widgets]
@@ -232,39 +228,64 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertIn("left", widget["data"])
         self.assertIn("right", widget["data"])
 
-        self.assertEqual(mock_call_dotnet.call_count, 2)
+        mock_fetch_sql.assert_called_once()
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
-    def test_multi_operation_query_e2e(self, mock_generate_report, mock_call_dotnet):
+    def test_multi_operation_query_e2e(self, mock_generate_report, mock_fetch_sql):
         # 4. MULTI_OPERATION: "Show attendance and current leave records"
-        # Expects 2 .NET calls
-        mock_call_dotnet.side_effect = [
-            (
-                [
-                    {
-                        "id": 1,
-                        "fullName": "AMIT KUMAR",
-                        "agniveerNo": "A01",
-                        "present": True,
-                    }
-                ],
-                None,
-            ),
-            (
-                [
-                    {
-                        "id": 2,
-                        "fullName": "KAPIL DEV",
-                        "agniveerNo": "A02",
-                        "leaveStatus": "Current",
-                    }
-                ],
-                None,
-            ),
-        ]
+        # Expects 1 SQL fetch covering both independent legs.
+        # NOTE: pre-existing, unrelated to the SQL migration — plan_query()
+        # currently classifies this message as QueryType.SIMPLE rather than
+        # MULTI_INDEPENDENT (confirmed failing before this migration too),
+        # so this test still fails past the mock setup below.
+        section_attendance = {
+            "success": True,
+            "records": [
+                {
+                    "id": 1,
+                    "fullName": "AMIT KUMAR",
+                    "agniveerNo": "A01",
+                    "present": True,
+                }
+            ],
+            "data": [
+                {
+                    "id": 1,
+                    "fullName": "AMIT KUMAR",
+                    "agniveerNo": "A01",
+                    "present": True,
+                }
+            ],
+            "count": 1,
+        }
+        section_leave = {
+            "success": True,
+            "records": [
+                {
+                    "id": 2,
+                    "fullName": "KAPIL DEV",
+                    "agniveerNo": "A02",
+                    "leaveStatus": "Current",
+                }
+            ],
+            "data": [
+                {
+                    "id": 2,
+                    "fullName": "KAPIL DEV",
+                    "agniveerNo": "A02",
+                    "leaveStatus": "Current",
+                }
+            ],
+            "count": 1,
+        }
+        mock_fetch_sql.return_value = (
+            [section_attendance, section_leave],
+            [("Attendance", section_attendance), ("Leave", section_leave)],
+            None,
+        )
         mock_generate_report.return_value = {
-            "introMessage": "Multi-op report.",
+            "message": "Multi-op report.",
             "analysis": {
                 "summary": "Consolidated sections",
                 "observations": [],
@@ -284,30 +305,39 @@ class TestPipelineEndToEnd(unittest.TestCase):
 
         # Verify sections — each uses the same default widget type a
         # standalone query for that category/operation would get (Attendance
-        # defaults to CHART_LINE; Leave/Current
-        # defaults to CHART_PIE).
+        # defaults to TABLE; Leave/Current
+        # defaults to TABLE).
         widgets = response_payload["formattedData"]
         if isinstance(widgets, dict):
             widgets = [widgets]
         self.assertEqual(len(widgets), 2)
-        self.assertEqual(widgets[0]["type"], "CHART_LINE")
+        self.assertEqual(widgets[0]["type"], "TABLE")
         self.assertEqual(widgets[0]["title"], "Attendance")
-        self.assertEqual(widgets[1]["type"], "CHART_PIE")
+        self.assertEqual(widgets[1]["type"], "TABLE")
         self.assertEqual(widgets[1]["title"], "Leave")
 
-        self.assertEqual(mock_call_dotnet.call_count, 2)
+        mock_fetch_sql.assert_called_once()
 
-    @patch("admin_pipeline._call_dotnet")
+    @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
-    def test_analytics_query_e2e(self, mock_generate_report, mock_call_dotnet):
+    def test_analytics_query_e2e(self, mock_generate_report, mock_fetch_sql):
         # 5. ANALYTICS: "Show grading summary"
-        # Expects 1 .NET call
-        mock_call_dotnet.return_value = (
-            [{"group": "Excellent", "count": 5}, {"group": "Good", "count": 10}],
-            None,
-        )
+        # Expects 1 SQL fetch
+        section = {
+            "success": True,
+            "records": [
+                {"group": "Excellent", "count": 5},
+                {"group": "Good", "count": 10},
+            ],
+            "data": [
+                {"group": "Excellent", "count": 5},
+                {"group": "Good", "count": 10},
+            ],
+            "count": 2,
+        }
+        mock_fetch_sql.return_value = ([section], [("Result", section)], None)
         mock_generate_report.return_value = {
-            "introMessage": "Analytics report.",
+            "message": "Analytics report.",
             "analysis": {
                 "summary": "Grading summary",
                 "observations": [],
@@ -323,7 +353,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.assertEqual(response_payload["metadata"]["queryType"], "simple")
         self.assertTrue(response_payload["status"])
 
-        self.assertEqual(mock_call_dotnet.call_count, 1)
+        mock_fetch_sql.assert_called_once()
 
 
 if __name__ == "__main__":

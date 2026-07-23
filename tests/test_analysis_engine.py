@@ -105,7 +105,9 @@ class TestGenerateAnalysis(unittest.TestCase):
     def test_empty_combined_result_returns_no_match(self):
         result = generate_analysis({}, "simple", {"category": "Performance"})
         self.assertEqual(result["statistics"], {"record_count": 0})
-        self.assertEqual(result["summary"], "No matching records found.")
+        self.assertEqual(
+            result["summary"], "I couldn't find any matching records for that request."
+        )
         self.assertEqual(result["insights"], [])
 
     def test_none_combined_result_handled_gracefully(self):

@@ -24,9 +24,7 @@ import logging
 import os
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
-
 
 from admin_context import AdminSessionContext
 from admin_entity_resolver import resolve_entities_from_query
@@ -39,20 +37,15 @@ from conversation_detector import (
 from conversation_detector import (
     is_conversational_query,
 )
-from dotnet_executor import _call_dotnet
 from feature_flags import get_flags
-from intent_engine.admin_intent import (
-    PayloadValidationError,
-    classify_admin_intent,
-    format_admin_payload,
-)
+from intent_engine.admin_intent import PayloadValidationError
+from intent_engine.entity_extractor import extract_entities, merge_frontend_intent
 from intent_engine.intent_schema import agniveer_no_required
+from intent_engine.query_intelligence_engine import process_query as qie_process
 from intent_engine.query_planner import QueryType, plan_query
-from universal_normalizer import normalize_response
 from metadata_builder import build_metadata
 from normalized_models import extract_records as _extract_records
 from query_normalizer import admin_normalize_query, clean_query
-from intent_engine.query_intelligence_engine import process_query as qie_process
 from query_understanding_engine import understand_query
 from report_generator import (
     _build_fallback_prediction_dict,
@@ -61,19 +54,17 @@ from report_generator import (
 )
 from response_builder import build_response
 from result_combiner import combine_results
-from schedule_enrichment import enrich_schedule_by_company
 from schemas import (
     AnalysisModel,
     CombinedResponseModel,
     ConclusionModel,
-    DotNetPayloadModel,
-    DotNetResponseModel,
     FinalResponseModel,
     IntentModel,
     MetadataModel,
     PredictionModel,
     SuggestedQuestionModel,
 )
+from sql_query_plan import fetch_sql_results
 from suggested_question_engine import generate_suggested_questions
 from telemetry import (
     SPAN_BUILD_RESPONSE,
@@ -85,9 +76,9 @@ from telemetry import (
     request_id_var,
     session_id_var,
     span,
-    trace_context,
     trace_id_var,
 )
+from universal_normalizer import normalize_response
 from visualization_intent import build_visualization_intent
 
 logger = logging.getLogger(__name__)
@@ -113,83 +104,91 @@ def ensure_agniveer_no_in_data(
 
     Prevents infinite recursion on circular structures using a visited set and a max_depth limit.
     """
-    if max_depth <= 0:
-        return
-    if visited is None:
-        visited = set()
+    pass
 
-    data_id = id(data)
-    if data_id in visited:
-        return
-    visited.add(data_id)
 
+def _find_agniveer_no_key(record: Dict[str, Any]) -> Optional[str]:
+    for key in record.keys():
+        if key.lower() == "agniveerno":
+            return key
+    return None
+
+
+def _collect_agniveer_nos(data: Any, out: set, depth: int = 0) -> None:
+    """Recursively walk a result section and collect every AgniveerNo value
+    found, regardless of how deeply it's nested (flat record lists, grouped/
+    distribution envelopes, etc.)."""
+    if depth > 10:
+        return
+    if isinstance(data, dict):
+        key = _find_agniveer_no_key(data)
+        if key is not None and data.get(key) not in (None, ""):
+            out.add(str(data[key]))
+        for value in data.values():
+            _collect_agniveer_nos(value, out, depth + 1)
+    elif isinstance(data, list):
+        for item in data:
+            _collect_agniveer_nos(item, out, depth + 1)
+
+
+def _prune_records_outside_batch(data: Any, allowed_agniveer_nos: set, depth: int = 0) -> Any:
+    """Mirror of `_collect_agniveer_nos` that drops any record whose
+    AgniveerNo isn't in `allowed_agniveer_nos`. Records with no AgniveerNo
+    (aggregate rows, counts, non-agniveer sections) are left untouched."""
+    if depth > 10:
+        return data
     if isinstance(data, list):
+        kept = []
         for item in data:
             if isinstance(item, dict):
-                id_val = None
-                for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-                    if key in item and item[key] is not None:
-                        id_val = item[key]
-                        break
-                if "agniveerNo" not in item and id_val is not None:
-                    item["agniveerNo"] = str(id_val)
-            ensure_agniveer_no_in_data(item, max_depth - 1, visited)
-
-    elif isinstance(data, dict):
-        id_val = None
-        for key in ("agniveerId", "AgniveerId", "AgniVeerId", "id", "Id"):
-            if key in data and data[key] is not None:
-                id_val = data[key]
-                break
-        if "agniveerNo" not in data and id_val is not None:
-            data["agniveerNo"] = str(id_val)
-
-        for value in data.values():
-            ensure_agniveer_no_in_data(value, max_depth - 1, visited)
+                key = _find_agniveer_no_key(item)
+                if key is not None and item.get(key) not in (None, ""):
+                    if str(item[key]) not in allowed_agniveer_nos:
+                        continue
+                item = _prune_records_outside_batch(item, allowed_agniveer_nos, depth + 1)
+            kept.append(item)
+        return kept
+    if isinstance(data, dict):
+        return {
+            k: _prune_records_outside_batch(v, allowed_agniveer_nos, depth + 1)
+            for k, v in data.items()
+        }
+    return data
 
 
-def _filter_dotnet_data_by_agniveer_no(dotnet_data: Any, target_no: str) -> None:
-    """In-place filter of .NET response rows when the backend ignores the agniveerNo parameter."""
-    if not target_no or not isinstance(dotnet_data, dict):
-        return
-        
-    data_list = dotnet_data.get("data")
-    if not isinstance(data_list, list):
-        return
-        
-    target_no = str(target_no).strip().lower()
-    filtered_list = []
-    
-    for row in data_list:
-        if not isinstance(row, dict):
-            filtered_list.append(row)
-            continue
-            
-        is_match = False
-        # 1) Check standard keys
-        for key in ("agniveerNo", "agniveer_no", "AgniveerNo", "AgniveerId", "id", "Id"):
-            if str(row.get(key, "")).strip().lower() == target_no:
-                is_match = True
-                break
-                
-        # 2) Check pivot keys like Data_{Name}_AgniveerNo if not found yet
-        if not is_match:
-            for key, val in row.items():
-                if str(key).lower().endswith("agniveerno") and str(val).strip().lower() == target_no:
-                    is_match = True
-                    break
-                    
-        if is_match:
-            filtered_list.append(row)
+def enforce_batch_scope(sections: List[Any], batch_id: Optional[int]) -> List[Any]:
+    """Defense-in-depth guard applied to every fetched result leg: whatever
+    agniveer records a SQL leg produced, drop any whose AgniveerMaster row
+    shows a different BatchId than the one the frontend passed — regardless
+    of the question asked.
 
-    dotnet_data["data"] = filtered_list
+    SQL-level BatchId filters exist per query builder, but are applied
+    inconsistently (some aggregate builders and the text2sql fallback have
+    no code-level guarantee they filtered by batch at all — see
+    sql_executor.get_batch_ids_for_agniveers), so this is the single place
+    batch scoping is always enforced no matter which builder answered.
+    """
+    if batch_id is None:
+        return sections
+    agniveer_nos: set = set()
+    for section in sections:
+        _collect_agniveer_nos(section, agniveer_nos)
+    if not agniveer_nos:
+        return sections
+
+    from sql_executor import get_batch_ids_for_agniveers
+
+    batch_map = get_batch_ids_for_agniveers(sorted(agniveer_nos))
+    allowed = {no for no, bid in batch_map.items() if bid == batch_id}
+    return [_prune_records_outside_batch(section, allowed) for section in sections]
 
 
 def _normalize_dotnet_leg(dotnet_data: Any) -> Any:
-    """Single canonical normalization step for one .NET response leg — used by
-    every query type (simple, cross-filter, multi-operation) so there is one
-    place that decides how a raw .NET payload (dict envelope or bare list)
-    becomes normalized records, instead of each call site re-implementing it."""
+    """Single canonical normalization step for one result leg (SQL or,
+    historically, .NET) — used by every query type (simple, cross-filter,
+    multi-independent) so there is one place that decides how a raw
+    envelope (dict with "data", or a bare list) becomes normalized records,
+    instead of each call site re-implementing it."""
     if isinstance(dotnet_data, dict) and "data" in dotnet_data:
         norm_res = normalize_response(dotnet_data)
         if norm_res or isinstance(dotnet_data.get("data"), list):
@@ -216,19 +215,6 @@ def map_query_type(qt: QueryType) -> str:
         return "simple"
 
 
-def _sanitize_error(err_msg: Any) -> str:
-    """Scrub raw database response body or detail dumps from error messages."""
-    if not err_msg:
-        return ""
-    err_str = str(err_msg)
-    if "Backend returned HTTP" in err_str:
-        # e.g. "Backend returned HTTP 400: <json-body>" -> "Backend returned HTTP 400"
-        parts = err_str.split(":", 1)
-        if len(parts) > 0:
-            return parts[0]
-    return err_str
-
-
 # ID fields that must never be sent as null / empty / zero (Rule 9)
 _ID_FIELDS: frozenset = frozenset({"companyId", "platoonId", "batchId", "agniveerNo"})
 
@@ -243,60 +229,75 @@ _NO_CARRY_FORWARD_CATEGORIES = frozenset(
 # collisions across categories). Every other operation in the schema is a
 # listing/ranking/aggregate operation (Top, BySport, ByUnit, Monthly, ...)
 # that returns many agniveers, so silently injecting a carried-forward
-# agniveerNo/fullName from an earlier, unrelated turn would incorrectly
-# scope — or corrupt — an otherwise multi-record answer (e.g. a "who plays
-# cricket" listing must never be filtered down to one leftover agniveer).
+# agniveerNo from an earlier, unrelated turn would incorrectly scope — or
+# corrupt — an otherwise multi-record answer (e.g. a "who plays cricket"
+# listing must never be filtered down to one leftover agniveer).
 _SINGLE_AGNIVEER_OPERATIONS = frozenset(
     {
         "info",  # personaldetail
         "Individual",  # Medical
         "AgniveerWise",  # Equipment
         "byagniveer",  # Schedule
+        "Monthly",  # Attendance
+        "Weekly",  # Attendance
+        "Daily",  # Attendance
+        "Summary",  # Attendance
     }
 )
 
 
-def _allows_agniveer_carry_forward(category: Optional[str], operation: Optional[str]) -> bool:
+
+def _allows_agniveer_carry_forward(
+    category: Optional[str], operation: Optional[str]
+) -> bool:
     return category == "personaldetail" or operation in _SINGLE_AGNIVEER_OPERATIONS
-
-
-def _strip_empty_id_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Final payload sanitiser — called immediately before every _call_dotnet() invocation.
-
-    Removes any ID field whose value is None, empty string, or 0.
-    This is the last line of defence against phantom IDs reaching the backend.
-
-    Rules enforced:
-      Rule 5  — payload must contain only meaningful filters.
-      Rule 9  — validate and strip unresolved fields before calling .NET.
-    """
-    cleaned: Dict[str, Any] = {}
-    for k, v in payload.items():
-        if k in _ID_FIELDS:
-            # Only include if it's a genuine, non-empty, non-zero value
-            if v is None or v == "" or v == 0:
-                continue
-        cleaned[k] = v
-    return cleaned
 
 
 _AGNIVEER_NO_MISSING_MESSAGE = "Please provide agniveer number"
 
-# Friendly, conversational fallbacks — the raw exception/status text is always
+# Friendly, conversational fallback — the raw exception/status text is always
 # logged server-side for diagnostics, but never shown to the user verbatim.
-_BACKEND_UNAVAILABLE_MESSAGE = (
-    "I'm having trouble reaching the records system right now. "
-    "Please try again in a moment."
-)
 _REQUEST_UNPROCESSABLE_MESSAGE = (
-    "I couldn't quite work out how to run that request. "
-    "Could you try rephrasing your question?"
+    "Question is not understood. The system was unable to understand your question. "
+    "Please try rephrasing your request."
 )
 
 
-def _agniveer_no_missing_response(session_id: str) -> Dict[str, Any]:
-    """Clarification response for categories/operations that require agniveerNo."""
+def _agniveer_no_missing_response(
+    session_id: str,
+    *,
+    user_message: str = "",
+    resolved_query: str = "",
+    intent: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Clarification response for categories/operations that require agniveerNo.
+
+    Records the pending intent (category/operation/section) as an interaction
+    so that when the user's next message is a bare AgniveerNo answering this
+    clarification, context_engine.resolve() has something to fuse it back
+    into — without this, the clarification turn was never persisted and the
+    follow-up AgniveerNo had no prior interaction to attach to at all.
+    """
+    intent = intent or {}
+    if resolved_query:
+        try:
+            context_engine.add_interaction(
+                session_id,
+                user_message=user_message or resolved_query,
+                resolved_query=resolved_query,
+                intent=intent,
+                entities={},
+                filters={},
+                category=intent.get("category"),
+                section=intent.get("section"),
+                operation=intent.get("operation") or "lookup",
+                payload_summary=_AGNIVEER_NO_MISSING_MESSAGE,
+            )
+        except Exception:
+            logger.debug(
+                "context_engine.add_interaction failed for agniveer-no clarification",
+                exc_info=True,
+            )
     payload = build_conversation_payload(
         _AGNIVEER_NO_MISSING_MESSAGE,
         session_id=session_id,
@@ -313,10 +314,13 @@ def _agniveer_no_missing_response(session_id: str) -> Dict[str, Any]:
 def _get_session_id(data: Dict) -> str:
     """Extract session ID from request body or headers."""
     import uuid as _uuid
+
     session_id = (data.get("session_id") or data.get("sessionId") or "").strip()
     if not session_id:
         session_id = _uuid.uuid4().hex
-        logger.warning("request without session_id — generated ephemeral id %s", session_id)
+        logger.warning(
+            "request without session_id — generated ephemeral id %s", session_id
+        )
     return session_id
 
 
@@ -669,6 +673,26 @@ _ADMIN_SIGNAL_WORDS = {
     "responded",
     "agniveer",
     "agniveers",
+    # Medical / Leave terms that appear in short queries
+    "hospitalized",
+    "hospitalization",
+    "sick",
+    "threshold",
+    "disqualified",
+    "annual",
+    "abscond",
+    "absconded",
+    "cricket",
+    "football",
+    "volleyball",
+    "sports",
+    "hobby",
+    "height",
+    "weight",
+    "eyesight",
+    "platoon",
+    "company",
+    "batch",
 }
 
 _ADMIN_SIGNAL_PHRASES = (
@@ -679,6 +703,20 @@ _ADMIN_SIGNAL_PHRASES = (
     "approved",
     "cleared",
     "rejected",
+    "is hospitalized",
+    "has been hospitalized",
+    "on sick leave",
+    "on medical leave",
+    "on annual leave",
+    "on leave",
+    "leave threshold",
+    "threshold leave",
+    "most leaves",
+    "least leaves",
+    "plays cricket",
+    "plays football",
+    "average height",
+    "average weight",
 )
 
 
@@ -872,12 +910,15 @@ def execute_admin_query(
     comparison_datasets_info: List[Any] = []
     failed_filters: List[Any] = []
     widget_start: float = 0.0
+    sql_served: bool = False
     response_dotnet_payload: Any = []
 
     request_id = uuid.uuid4().hex
     if not session_id or session_id == "admin-default":
         session_id = uuid.uuid4().hex
-        logger.warning(f"No persistent sessionId provided. Assigned random session ID: {session_id}. Conversational memory disabled for this request.")
+        logger.warning(
+            f"No persistent sessionId provided. Assigned random session ID: {session_id}. Conversational memory disabled for this request."
+        )
 
     token_req = request_id_var.set(request_id)
     token_trace = trace_id_var.set(trace_id)
@@ -924,14 +965,16 @@ def execute_admin_query(
     # Initialise entity dict so it's always bound when add_interaction() fires
     resolved_entities: Dict[str, Any] = dict(_ctx_resolution.resolved_entities or {})
 
-
-
     try:
         message = clean_query(user_query or "").strip()
         frontend_intent = _extract_frontend_intent(body)
         frontend_visualization_intent = _extract_frontend_visualization_intent(body)
         id_filters = _get_id_filters(body)
-        full_name = _get_full_name(body)
+        # Ground-truth batch scope for this request — captured before any
+        # later mutation of id_filters (e.g. query-text entity resolution),
+        # since whatever batch the frontend passed must govern every
+        # question, not what the free-text query happens to mention.
+        frontend_batch_id = id_filters.get("batchId")
         semantic_understanding = understand_query(message)
 
         # ── Greeting / conversational short-circuit ──────────────────────────
@@ -943,8 +986,8 @@ def execute_admin_query(
                 _, reply_text = _build_greeting_response(body, session_id)
                 qtype = "greeting"
             else:
-                reply_text = (
-                    "I can help with administrative data, reports, and analysis."
+                _, reply_text = _build_conversational_response(
+                    message, body, session_id, trace_id
                 )
                 qtype = "conversational"
             intent_duration = time.time() - intent_start
@@ -1008,8 +1051,15 @@ def execute_admin_query(
                     new_cat = semantic_understanding.get("category")
                     old_cat = prev_intent.get("category")
 
-                    if new_cat and old_cat and new_cat != old_cat and new_cat != "Unknown":
-                        logger.info(f"Category shift ({old_cat} -> {new_cat}). Dropping conversational filters.")
+                    if (
+                        new_cat
+                        and old_cat
+                        and new_cat != old_cat
+                        and new_cat != "Unknown"
+                    ):
+                        logger.info(
+                            f"Category shift ({old_cat} -> {new_cat}). Dropping conversational filters."
+                        )
                         carry_forward_filters.clear()
                     else:
                         resolved_agniveer_no = prev_intent.get(
@@ -1050,9 +1100,72 @@ def execute_admin_query(
             )
 
             planning_start = time.time()
-            qie_result = qie_process(message)
-            message = qie_result.canonical_text
-            query_plan = plan_query(message)
+            from intent_engine.personal_details_parser import parse_personal_details
+            from intent_engine.users_roles_parser import parse_users_roles
+            from intent_engine.org_hierarchy_parser import parse_org_hierarchy
+            pd_intent_early = (
+                parse_personal_details(user_query or message)
+                or parse_users_roles(user_query or message)
+                or parse_org_hierarchy(user_query or message)
+            )
+
+            if pd_intent_early:
+                # Bypass LLM completely for personal details / users&roles /
+                # org-hierarchy questions — all three are deterministic
+                # keyword parsers, same rationale as personal details alone.
+                from intent_engine.query_planner import QueryPlan, SubOperation
+                from intent_engine.query_intelligence_engine import NormalizedQuery
+
+                qie_result = NormalizedQuery(
+                    original_query=message,
+                    normalized_text=message,
+                    canonical_text=message
+                )
+                query_plan = QueryPlan(
+                    raw_query=message,
+                    query_type=QueryType.SIMPLE,
+                    operations=[SubOperation(raw_fragment=message, intent_result=pd_intent_early)],
+                    confidence=1.0,
+                    reasoning="Heuristically matched personal details"
+                )
+            else:
+                qie_result = qie_process(message)
+                message = qie_result.canonical_text
+                query_plan = plan_query(message)
+
+            # The query named a person ("Who is Harminder Singh...") rather
+            # than an AgniveerNo, and more than one Agniveer shares that
+            # name — resolve_entities_from_query() deliberately left
+            # agniveerNo unset in that case rather than guessing which one.
+            # Fan the single operation out into one per match so every one
+            # of them comes back, instead of silently answering for none or
+            # picking an arbitrary one.
+            _agniveer_matches = resolved_entities.get("agniveerMatches") or []
+            if len(_agniveer_matches) > 1 and len(query_plan.operations) == 1:
+                from intent_engine.query_planner import SubOperation
+
+                _template_op = query_plan.operations[0]
+                query_plan.operations = [
+                    SubOperation(
+                        raw_fragment=(
+                            f"{_template_op.raw_fragment} "
+                            f"({_match['fullName']} / {_match['agniveerNo']})"
+                        ),
+                        intent_result={
+                            **_template_op.intent_result,
+                            "agniveerNo": _match["agniveerNo"],
+                            "agniveer_no": _match["agniveerNo"],
+                        },
+                    )
+                    for _match in _agniveer_matches
+                ]
+                query_plan.query_type = QueryType.MULTI_INDEPENDENT
+                logger.info(
+                    "Name mention resolved to %d Agniveers — fanned out as multi_independent: %s",
+                    len(_agniveer_matches),
+                    [m["agniveerNo"] for m in _agniveer_matches],
+                )
+
             planning_duration = time.time() - planning_start
             planner_duration = time.time() - planner_start
             logger.info(
@@ -1067,701 +1180,332 @@ def execute_admin_query(
 
         _notify("intent")
 
-        # ── Step 2: Intent Classification ────────────────────────────────────
+        # ── Step 2: Build the SQL intent hint ────────────────────────────────
         with span(SPAN_CLASSIFY_ADMIN_INTENT, trace_id=trace_id):
             intent_start = time.time()
             raw_results: List[Any] = []
             labeled_results: List[Tuple[str, Any]] = []
-            primary_intent: Dict[str, Any] = {}
-            operation_count: int = 1
+            operation_count: int = (
+                len(query_plan.operations) if query_plan.operations else 1
+            )
             partial_failure = False
-            failed_sections = []
+            failed_sections: List[str] = []
+            comparison_datasets_info = []
 
-            if (
-                query_plan.query_type
-                in (
-                    QueryType.CROSS_FILTER,
-                    QueryType.COMPARE,
-                    QueryType.COMPARISON,
-                    QueryType.MULTI_INDEPENDENT,
-                    QueryType.MULTI_OPERATION,
-                )
-                and len(query_plan.operations) >= 2
-            ):
+            qtype_str = map_query_type(query_plan.query_type)
 
-                qtype_str = map_query_type(query_plan.query_type)
-                operation_count = len(query_plan.operations)
-
-                logger.info(
-                    json.dumps(
-                        {
-                            "message": "Query plan compiled",
-                            "trace_id": trace_id,
-                            "session_id": session_id,
-                            "query_type": qtype_str,
-                            "confidence": query_plan.confidence,
-                            "operation_count": operation_count,
-                            "reasoning": query_plan.reasoning,
-                        }
-                    )
-                )
-
-                # Validate each sub-op intent
-                for op in query_plan.operations:
-                    _validate_model_payload(
-                        IntentModel, op.intent_result, "multi.intent"
-                    )
-
-                # Categories like personaldetail (always) and Attendance
-                # (except Present) require an agniveerNo on every operation.
-                for op in query_plan.operations:
-                    op_agniveer_no = (
-                        op.intent_result.get("agniveer_no") or resolved_agniveer_no
-                    )
-                    if agniveer_no_required(
-                        op.intent_result.get("category"),
-                        op.intent_result.get("operation"),
-                    ) and not op_agniveer_no:
-                        return _agniveer_no_missing_response(session_id)
-
-                intent_duration = time.time() - intent_start
-                logger.info(
+            logger.info(
+                json.dumps(
                     {
-                        "stage": "classifier_time",
-                        "duration_ms": round(intent_duration * 1000, 2),
+                        "message": "Query plan compiled",
                         "trace_id": trace_id,
                         "session_id": session_id,
                         "query_type": qtype_str,
+                        "confidence": query_plan.confidence,
+                        "operation_count": operation_count,
+                        "reasoning": query_plan.reasoning,
                     }
                 )
+            )
 
-                # ── Step 3: Execute .NET API Call(s) ─────────────────────────
-                with span(SPAN_CALL_DOTNET, trace_id=trace_id):
-                    dotnet_start = time.time()
-                    _notify("dotnet")
+            # Validate each sub-op intent (shape check only, non-fatal)
+            for op in query_plan.operations:
+                _validate_model_payload(IntentModel, op.intent_result, "op.intent")
 
-                    max_workers = min(
-                        len(query_plan.operations),
-                        int(os.getenv("DOTNET_MAX_PARALLEL", "4")),
+            # Categories like personaldetail (always) and Attendance (except
+            # Present) require an agniveerNo before the SQL backend runs.
+            for op in query_plan.operations or [None]:
+                op_intent = op.intent_result if op is not None else {}
+                op_agniveer_no = (
+                    op_intent.get("agniveer_no")
+                    or op_intent.get("agniveerNo")
+                    or resolved_agniveer_no
+                )
+                if (
+                    agniveer_no_required(
+                        op_intent.get("category"), op_intent.get("operation")
+                    )
+                    and not op_agniveer_no
+                ):
+                    return _agniveer_no_missing_response(
+                        session_id,
+                        user_message=_original_user_query or message,
+                        resolved_query=message,
+                        intent=op_intent,
+                    )
+                elif op_agniveer_no and op_intent:
+                    op_intent["agniveerNo"] = op_agniveer_no
+                    op_intent["agniveer_no"] = op_agniveer_no
+
+
+            if query_plan.operations:
+                # op.intent_result already carries classify_admin_intent's
+                # category/operation/section plus its own extract_entities()
+                # pass over that fragment — frontend_intent listed first so
+                # its values win via _merge_intents' setdefault semantics.
+                primary_intent = _merge_intents(
+                    frontend_intent,
+                    *(op.intent_result for op in query_plan.operations),
+                )
+            else:
+                # No per-fragment classification exists at all (rare) — the
+                # only source left is a fresh free-text extraction over the
+                # whole message, merged with frontend overrides.
+                extracted_entities = extract_entities(
+                    message,
+                    resolved_entities=resolved_entities,
+                    semantic=semantic_understanding,
+                )
+                primary_intent = merge_frontend_intent(
+                    frontend_intent, extracted_entities
+                )
+
+            if pd_intent_early:
+                primary_intent.update(pd_intent_early)
+                query_plan.operations = []
+
+            primary_intent["operations"] = [
+                op.intent_result for op in query_plan.operations
+            ]
+            primary_intent["filters"] = _merge_intents(
+                frontend_intent.get("filters", {}),
+                *(op.intent_result.get("filters", {}) for op in query_plan.operations),
+            )
+
+            if primary_intent.get("category") in _NO_CARRY_FORWARD_CATEGORIES:
+                carry_forward_filters = {}
+
+            # Conversational carry-forward (e.g. "show his medical record"
+            # after a prior turn established company/platoon) fills gaps
+            # only — it never overrides a value this turn already resolved.
+            for _cf_key, _cf_value in carry_forward_filters.items():
+                if primary_intent.get(_cf_key) in (None, ""):
+                    primary_intent[_cf_key] = _cf_value
+
+            # A carried-forward agniveerNo from an earlier turn is only safe
+            # to inject for operations that genuinely target one specific
+            # agniveer — never for a listing/ranking operation, where it
+            # would silently over-scope a multi-record answer.
+            if (
+                resolved_agniveer_no
+                and not primary_intent.get("agniveerNo")
+                and _allows_agniveer_carry_forward(
+                    primary_intent.get("category"), primary_intent.get("operation")
+                )
+            ):
+                primary_intent["agniveerNo"] = resolved_agniveer_no
+
+            # Validate the merged intent
+            _validate_model_payload(IntentModel, primary_intent, "primary.intent")
+
+            if getattr(query_plan, "confidence", 1.0) <= 0.45:
+                primary_intent["query_type"] = "text2sql"
+                qtype_str = "text2sql"
+                logger.info(
+                    "Confidence <= 0.45, overriding query type to text2sql for fallback."
+                )
+
+            intent_duration = time.time() - intent_start
+            logger.info(
+                {
+                    "stage": "classifier_time",
+                    "duration_ms": round(intent_duration * 1000, 2),
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "query_type": qtype_str,
+                }
+            )
+
+            # `id_filters` (the frontend's batchId, plus any companyId/
+            # platoonId resolved above from the query text or an existing
+            # session hint) was never actually merged into the per-operation
+            # intents that fetch_sql_results()/execute_sql_query() run
+            # against — only primary_intent, which sql_query_plan._fetch_simple
+            # ignores in favour of op.intent_result whenever operations exist
+            # (i.e. on almost every real query). That meant the frontend's
+            # batchId never reached a single generated WHERE clause; the only
+            # thing enforcing it was enforce_batch_scope() AFTER the fact —
+            # too late to help once a fast path's TOP(N) cap has already
+            # truncated the result set to the wrong universe. batchId always
+            # wins (matches enforce_batch_scope's own "governs every
+            # question" precedent); companyId/platoonId only fill a gap so a
+            # per-operation value already resolved from the query text itself
+            # (e.g. "Platoon 1 vs Platoon 2") is never clobbered.
+            def _inject_org_scope(op_intent: Dict[str, Any]) -> None:
+                if not isinstance(op_intent, dict):
+                    return
+                if id_filters.get("batchId") is not None:
+                    op_intent["batchId"] = id_filters["batchId"]
+                    op_intent["batch_id"] = id_filters["batchId"]
+
+                # Handle company scope
+                op_c_name = op_intent.get("company_name") or op_intent.get("companyName")
+                op_c_id = op_intent.get("company_id") or op_intent.get("companyId")
+                if op_c_id is None and op_c_name:
+                    try:
+                        from sql_executor import resolve_company_id_from_name
+                        op_c_id = resolve_company_id_from_name(str(op_c_name))
+                        if op_c_id is not None:
+                            op_intent["companyId"] = int(op_c_id)
+                            op_intent["company_id"] = int(op_c_id)
+                    except Exception:
+                        pass
+                elif op_c_id is None and id_filters.get("companyId") is not None:
+                    op_intent["companyId"] = id_filters["companyId"]
+                    op_intent["company_id"] = id_filters["companyId"]
+
+                # Handle platoon scope
+                op_p_name = op_intent.get("platoon_name") or op_intent.get("platoonName")
+                op_p_id = op_intent.get("platoon_id") or op_intent.get("platoonId")
+                if op_p_id is None and op_p_name:
+                    try:
+                        from sql_executor import resolve_platoon_id_from_name
+                        op_p_id = resolve_platoon_id_from_name(str(op_p_name))
+                        if op_p_id is not None:
+                            op_intent["platoonId"] = int(op_p_id)
+                            op_intent["platoon_id"] = int(op_p_id)
+                    except Exception:
+                        pass
+                elif op_p_id is None and id_filters.get("platoonId") is not None:
+                    op_intent["platoonId"] = id_filters["platoonId"]
+                    op_intent["platoon_id"] = id_filters["platoonId"]
+
+            for op in query_plan.operations:
+                _inject_org_scope(op.intent_result)
+            # query_plan.operations is empty for personaldetail/UsersRoles/
+            # OrgHierarchy early-exit intents (parse_personal_details() etc.
+            # cleared it above so sql_query_plan._fetch_simple falls back to
+            # primary_intent directly) — the loop above never touches those,
+            # so inject here too or their batch/company/platoon scope is
+            # silently dropped.
+            _inject_org_scope(primary_intent)
+
+            # ── Step 3: Execute the SQL backend (the only backend) ───────────
+            with span(SPAN_CALL_DOTNET, trace_id=trace_id):
+                sql_start = time.time()
+                _notify("dotnet")
+
+                sql_raw: List[Any] = []
+                sql_labeled: List[Tuple[str, Any]] = []
+                sql_err: Optional[str] = None
+                try:
+                    sql_raw, sql_labeled, sql_err = fetch_sql_results(
+                        query_plan, message, primary_intent
+                    )
+                except Exception as sql_exc:
+                    sql_raw, sql_labeled, sql_err = [], [], str(sql_exc)
+                dotnet_duration = time.time() - sql_start
+                metrics_collector.record_sql_latency(dotnet_duration)
+
+                if sql_err or not sql_raw:
+                    logger.info(
+                        json.dumps(
+                            {
+                                "message": "SQL backend could not answer the query, attempting Text2SQL fallback",
+                                "trace_id": trace_id,
+                                "session_id": session_id,
+                                "error": sql_err,
+                            }
+                        )
+                    )
+                    from sql_executor import execute_sql_query
+
+                    fallback_intent = {**primary_intent, "query_type": "text2sql"}
+                    fallback_section, fallback_err = execute_sql_query(
+                        question=message, intent=fallback_intent
                     )
 
-                    response_dotnet_payload = [None] * len(query_plan.operations)
+                    if not fallback_err and fallback_section:
+                        sql_raw = [fallback_section]
+                        sql_labeled = [("Result", fallback_section)]
+                        sql_err = None
+                        qtype_str = "text2sql"
+                    else:
+                        unrecognised_msg = (
+                            "Question is not understood. The system was unable to understand your query. "
+                            "Please rephrase or provide more details."
+                        )
 
-                    def run_op(idx, op):
-                        payload = dict(op.dotnet_payload)
-                        # Each comparison/multi-op fragment may name its own
-                        # company/platoon/batch (e.g. "... of Arora" vs
-                        # "... of Thorat company") — resolve per-fragment so
-                        # the two sides don't collapse onto the same
-                        # globally-resolved id. Fragments that don't mention
-                        # a distinct entity fall back to the shared filters.
-                        frag_entities = resolve_entities_from_query(
-                            op.raw_fragment,
-                            trace_id=trace_id,
+                        total_duration = time.time() - start_time
+                        durations = {
+                            "entity_resolution_ms": round(
+                                entity_resolution_duration * 1000, 2
+                            ),
+                            "planning_ms": round(planning_duration * 1000, 2),
+                            "planner_duration": round(planner_duration * 1000, 2),
+                            "intent_duration": round(intent_duration * 1000, 2),
+                            "dotnet_duration": round(dotnet_duration * 1000, 2),
+                            "combiner_duration": round(combiner_duration * 1000, 2),
+                            "widget_duration": 0.0,
+                            "response_assembly_duration": 0.0,
+                            "report_duration": round(report_duration * 1000, 2),
+                            "total_duration": round(total_duration * 1000, 2),
+                        }
+
+                        response_payload = build_conversation_payload(
+                            unrecognised_msg,
                             session_id=session_id,
+                            query_type="unclear",
                         )
-                        op_filters = dict(id_filters)
-                        for key in ("companyId", "platoonId", "batchId"):
-                            frag_value = frag_entities.get(key)
-                            if frag_value is not None:
-                                op_filters[key] = frag_value
-                        payload.update(op_filters)
-                        for k, v in carry_forward_filters.items():
-                            if payload.get(k) in (None, ""):
-                                payload[k] = v
-                        if _allows_agniveer_carry_forward(
-                            op.intent_result.get("category"),
-                            op.intent_result.get("operation"),
-                        ):
-                            if resolved_agniveer_no and not payload.get("agniveerNo"):
-                                payload["agniveerNo"] = resolved_agniveer_no
-                            if full_name:
-                                payload["fullName"] = full_name
-
-                        # ── Rule 9: strip empty/zero/null ID fields before sending ──
-                        payload = _strip_empty_id_fields(payload)
-
-                        # Validate DotNetPayloadModel
-                        _validate_model_payload(
-                            DotNetPayloadModel, payload, "multi.dotnet_payload"
+                        response_payload.setdefault("metadata", {})
+                        response_payload["metadata"].setdefault("timings", {})
+                        response_payload["metadata"]["timings"].update(
+                            {
+                                "entityResolutionMs": round(
+                                    entity_resolution_duration * 1000
+                                ),
+                                "planningMs": round(planning_duration * 1000),
+                                "plannerDurationMs": round(planner_duration * 1000),
+                                "intentDurationMs": round(intent_duration * 1000),
+                                "dotnetDurationMs": round(dotnet_duration * 1000),
+                                "combineDurationMs": 0,
+                                "widgetMs": 0,
+                                "responseAssemblyMs": 0,
+                                "analysisDurationMs": 0,
+                                "predictionDurationMs": 0,
+                                "conclusionDurationMs": 0,
+                                "totalDurationMs": round(total_duration * 1000),
+                                "executionTimeMs": round(total_duration * 1000),
+                            }
                         )
+                        response_payload["metadata"].setdefault("metrics", {})
+                        response_payload["metadata"]["metrics"]["confidence"] = round(
+                            float(query_plan.confidence), 2
+                        )
+                        response_payload["intent"] = {
+                            "category": primary_intent.get("category") or "unclear",
+                            "confidence": round(float(query_plan.confidence), 2),
+                            "operation": primary_intent.get("operation"),
+                            "query_type": "unrecognised",
+                        }
 
                         logger.info(
                             json.dumps(
                                 {
-                                    "message": "Sending multi-op request to .NET",
-                                    "trace_id": trace_id,
-                                    "session_id": session_id,
-                                    "query_type": qtype_str,
-                                    "op_index": idx + 1,
-                                    "total_ops": len(query_plan.operations),
-                                }
-                            )
-                        )
-
-                        response_dotnet_payload[idx] = dict(payload)
-
-                        op_start = time.time()
-                        try:
-                            with trace_context(request_id, trace_id, session_id):
-                                data, err = _call_dotnet(
-                                    payload,
-                                    trace_id=trace_id,
-                                    session_id=session_id,
-                                    query_type=qtype_str,
-                                )
-                            op_time_ms = round((time.time() - op_start) * 1000, 2)
-                            if not err and data is not None:
-                                # Validate DotNetResponseModel
-                                if isinstance(data, dict):
-                                    _validate_model_payload(
-                                        DotNetResponseModel,
-                                        data,
-                                        "multi.dotnet_response",
-                                    )
-                                elif isinstance(data, list):
-                                    _validate_model_payload(
-                                        DotNetResponseModel,
-                                        {
-                                            "success": True,
-                                            "commandLabel": op.intent_result.get(
-                                                "subcategory"
-                                            )
-                                            or op.intent_result.get("category")
-                                            or "",
-                                            "data": data,
-                                            "message": "",
-                                        },
-                                        "multi.dotnet_response_list",
-                                    )
-                            return idx, op, data, err, op_time_ms
-                        except Exception as exc:
-                            op_time_ms = round((time.time() - op_start) * 1000, 2)
-                            return idx, op, None, str(exc), op_time_ms
-
-                    try:
-                        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                            futures = [
-                                executor.submit(run_op, i, op)
-                                for i, op in enumerate(query_plan.operations)
-                            ]
-                            results = [f.result() for f in futures]
-                    except BaseException as exc:
-                        import traceback as _tb
-
-                        total_duration = time.time() - start_time
-                        logger.error(
-                            json.dumps(
-                                {
-                                    "message": "Backend thread execution failed",
-                                    "trace_id": trace_id,
-                                    "session_id": session_id,
-                                    "query_type": qtype_str,
-                                    "exception": str(exc),
-                                    "traceback": _tb.format_exc(),
-                                }
-                            )
-                        )
-                        metrics_collector.inc_errors(qtype_str)
-                        metrics_collector.record_duration(
-                            "pipeline_duration", round(total_duration * 1000, 2)
-                        )
-                        write_audit_log(
-                            trace_id=trace_id,
-                            session_id=session_id,
-                            query_type=qtype_str,
-                            query_duration=round(total_duration * 1000, 2),
-                            success=False,
-                            error_type="thread_exception",
-                        )
-                        return {
-                            "type": "error",
-                            "error_type": "thread_exception",
-                            "error_message": _BACKEND_UNAVAILABLE_MESSAGE,
-                        }
-
-                    # ── Dependent Schedule enrichment ─────────────────────
-                    # A "Schedule" leg with no company/platoon of its own
-                    # (e.g. "top performers in BPET and their today's
-                    # schedule") can't be resolved from its own fragment
-                    # text — the company only becomes known from a peer
-                    # leg's records (each carrying a platoonName). Re-fetch
-                    # that leg scoped to the company(ies) actually present
-                    # in the peer data instead of leaving it as a generic,
-                    # unscoped schedule call.
-                    for pos, (idx, op, _data, _err, op_time_ms) in enumerate(results):
-                        if op.intent_result.get("category") != "Schedule":
-                            continue
-                        sent_payload = response_dotnet_payload[idx] or {}
-                        if sent_payload.get("companyId") or sent_payload.get(
-                            "platoonId"
-                        ):
-                            continue  # already scoped from its own fragment
-                        for _, peer_op, peer_data, peer_err, _ in results:
-                            if (
-                                peer_err
-                                or peer_data is None
-                                or peer_op.intent_result.get("category")
-                                == "Schedule"
-                            ):
-                                continue
-                            enriched = enrich_schedule_by_company(
-                                sent_payload,
-                                peer_data,
-                                trace_id=trace_id,
-                                session_id=session_id,
-                                query_type=qtype_str,
-                            )
-                            if enriched is not None:
-                                results[pos] = (idx, op, enriched, None, op_time_ms)
-                                logger.info(
-                                    json.dumps(
-                                        {
-                                            "message": "Schedule leg enriched from peer records",
-                                            "trace_id": trace_id,
-                                            "session_id": session_id,
-                                            "companies": enriched["data"][
-                                                "totalCompanies"
-                                            ],
-                                        }
-                                    )
-                                )
-                                break
-
-                    dotnet_duration = time.time() - dotnet_start
-                    logger.info(
-                        {
-                            "stage": "dotnet_time",
-                            "duration_ms": round(dotnet_duration * 1000, 2),
-                            "trace_id": trace_id,
-                            "session_id": session_id,
-                            "query_type": qtype_str,
-                        }
-                    )
-
-                    # ── Task 2: Partial failure checks ──
-                    all_failed = all(r[3] is not None for r in results)
-                    if all_failed:
-                        for idx, op, _, err, _ in results:
-                            metrics_collector.inc_errors(qtype_str)
-                        total_duration = time.time() - start_time
-                        metrics_collector.record_duration(
-                            "pipeline_duration", round(total_duration * 1000, 2)
-                        )
-                        write_audit_log(
-                            trace_id=trace_id,
-                            session_id=session_id,
-                            query_type=qtype_str,
-                            query_duration=round(total_duration * 1000, 2),
-                            success=False,
-                            error_type="dotnet_error",
-                        )
-                        return {
-                            "type": "error",
-                            "error_message": _BACKEND_UNAVAILABLE_MESSAGE,
-                        }
-
-                    # CROSS_FILTER primary failure check
-                    if query_plan.query_type == QueryType.CROSS_FILTER:
-                        primary_idx, primary_op, primary_data, primary_error, _ = (
-                            results[0]
-                        )
-                        if primary_error:
-                            metrics_collector.inc_errors(qtype_str)
-                            total_duration = time.time() - start_time
-                            metrics_collector.record_duration(
-                                "pipeline_duration", round(total_duration * 1000, 2)
-                            )
-                            write_audit_log(
-                                trace_id=trace_id,
-                                session_id=session_id,
-                                query_type=qtype_str,
-                                query_duration=round(total_duration * 1000, 2),
-                                success=False,
-                                error_type="dotnet_error",
-                            )
-                            return {
-                                "type": "error",
-                                "error_message": _BACKEND_UNAVAILABLE_MESSAGE,
-                            }
-
-                    # Build raw_results and labeled_results preserving the order
-                    failed_filters = []
-                    comparison_datasets_info = []
-                    for res in results:
-                        idx = res[0]
-                        op = res[1]
-                        dotnet_data = res[2]
-                        dotnet_error = res[3]
-                        op_time_ms = res[4]
-
-                        resolved_canonical = (
-                            op.intent_result.get("section")
-                            or op.intent_result.get("sport")
-                            or op.intent_result.get("class")
-                        )
-                        plan_label = None
-                        if (
-                            hasattr(query_plan, "comparison_execution_plan")
-                            and query_plan.comparison_execution_plan
-                            and idx < len(query_plan.comparison_execution_plan)
-                        ):
-                            plan_label = query_plan.comparison_execution_plan[idx].get(
-                                "label"
-                            )
-
-                        if resolved_canonical:
-                            label = resolved_canonical
-                        elif plan_label:
-                            label = plan_label
-                        else:
-                            label = (
-                                op.intent_result.get("category")
-                                or op.raw_fragment.upper()
-                            )
-
-                        if dotnet_error:
-                            partial_failure = True
-                            failed_sections.append(label)
-
-                        if query_plan.query_type == QueryType.CROSS_FILTER:
-                            if dotnet_error:
-                                metrics_collector.inc_errors(qtype_str)
-                                category = op.intent_result.get(
-                                    "category", f"Filter {idx + 1}"
-                                )
-                                failed_filters.append(category)
-                            else:
-                                ensure_agniveer_no_in_data(dotnet_data)
-                                dotnet_data = _normalize_dotnet_leg(dotnet_data)
-                                raw_results.append(dotnet_data)
-                                label = op.intent_result.get(
-                                    "category", f"Query {idx + 1}"
-                                )
-                                labeled_results.append((label, dotnet_data))
-                        elif query_plan.query_type == QueryType.COMPARISON:
-                            if dotnet_error:
-                                metrics_collector.inc_errors(qtype_str)
-                                data_placeholder = {"unavailable": True}
-                                raw_results.append(data_placeholder)
-                                labeled_results.append((label, data_placeholder))
-                            else:
-                                ensure_agniveer_no_in_data(dotnet_data)
-                                raw_results.append(dotnet_data)
-                                labeled_results.append((label, dotnet_data))
-
-                            comparison_datasets_info.append(
-                                {
-                                    "id": f"dataset_{idx + 1}",
-                                    "label": label,
-                                    "intent": op.intent_result,
-                                    "dotnetPayload": response_dotnet_payload[idx],
-                                    "rawData": (
-                                        dotnet_data
-                                        if not dotnet_error
-                                        else {"unavailable": True}
-                                    ),
-                                    "metadata": {
-                                        "endpoint": "api/AiCommand/execute",
-                                        "status": (
-                                            "SUCCESS" if not dotnet_error else "FAILURE"
-                                        ),
-                                        "executionTimeMs": op_time_ms,
-                                    },
-                                }
-                            )
-                        elif query_plan.query_type == QueryType.MULTI_OPERATION:
-                            label = op.intent_result.get(
-                                "category", f"Section {idx + 1}"
-                            )
-                            if dotnet_error:
-                                metrics_collector.inc_errors(qtype_str)
-                                data_placeholder = {"unavailable": True}
-                                raw_results.append(data_placeholder)
-                                labeled_results.append((label, data_placeholder))
-                            else:
-                                ensure_agniveer_no_in_data(dotnet_data)
-                                _target_no = op.intent_result.get("agniveer_no") or resolved_agniveer_no
-                                if _target_no:
-                                    _filter_dotnet_data_by_agniveer_no(dotnet_data, _target_no)
-                                dotnet_data = _normalize_dotnet_leg(dotnet_data)
-                                raw_results.append(dotnet_data)
-                                labeled_results.append((label, dotnet_data))
-
-                    if query_plan.query_type == QueryType.COMPARISON:
-                        comparison_context = {"datasets": comparison_datasets_info}
-                    else:
-                        comparison_context = None
-
-                    primary_intent = _merge_intents(
-                        frontend_intent,
-                        *(op.intent_result for op in query_plan.operations),
-                    )
-                    primary_intent["operations"] = [
-                        op.intent_result for op in query_plan.operations
-                    ]
-                    primary_intent["filters"] = _merge_intents(
-                        frontend_intent.get("filters", {}),
-                        *(
-                            op.intent_result.get("filters", {})
-                            for op in query_plan.operations
-                        ),
-                    )
-                    dotnet_duration = time.time() - dotnet_start
-
-            else:
-                # FILTER_QUERY / ANALYTICS: single .NET call
-                qtype_str = map_query_type(query_plan.query_type)
-                operation_count = 1
-
-                classified_intent = (
-                    query_plan.operations[0].intent_result
-                    if (
-                        query_plan.operations
-                        and query_plan.operations[0].intent_result.get("category")
-                    )
-                    else classify_admin_intent(
-                        message, resolved_entities=resolved_entities
-                    )
-                )
-                primary_intent = _merge_intents(
-                    frontend_intent,
-                    classified_intent,
-                )
-                primary_intent["filters"] = _merge_intents(
-                    frontend_intent.get("filters", {}),
-                    classified_intent.get("filters", {}),
-                )
-
-                if primary_intent.get("category") in _NO_CARRY_FORWARD_CATEGORIES:
-                    carry_forward_filters = {}
-
-                # Validate IntentModel
-                _validate_model_payload(IntentModel, primary_intent, "single.intent")
-
-                logger.info(
-                    json.dumps(
-                        {
-                            "message": "Query plan compiled",
-                            "trace_id": trace_id,
-                            "session_id": session_id,
-                            "query_type": qtype_str,
-                            "confidence": query_plan.confidence,
-                            "operation_count": operation_count,
-                            "reasoning": query_plan.reasoning,
-                        }
-                    )
-                )
-
-                # Low-confidence or unrecognised query
-                if primary_intent.get("category") is None or float(
-                    query_plan.confidence
-                ) < float(os.getenv("INTENT_CONFIDENCE_THRESHOLD", "0.35")):
-                    intent_duration = time.time() - intent_start
-                    unrecognised_msg = (
-                        "I couldn't understand the query clearly. "
-                        "Could you please rephrase it?"
-                    )
-
-                    total_duration = time.time() - start_time
-                    durations = {
-                        "entity_resolution_ms": round(
-                            entity_resolution_duration * 1000, 2
-                        ),
-                        "planning_ms": round(planning_duration * 1000, 2),
-                        "planner_duration": round(planner_duration * 1000, 2),
-                        "intent_duration": round(intent_duration * 1000, 2),
-                        "dotnet_duration": round(dotnet_duration * 1000, 2),
-                        "combiner_duration": round(combiner_duration * 1000, 2),
-                        "widget_duration": 0.0,
-                        "response_assembly_duration": 0.0,
-                        "report_duration": round(report_duration * 1000, 2),
-                        "total_duration": round(total_duration * 1000, 2),
-                    }
-
-                    response_payload = build_conversation_payload(
-                        unrecognised_msg,
-                        session_id=session_id,
-                        query_type="unclear",
-                    )
-                    response_payload.setdefault("metadata", {})
-                    response_payload["metadata"].setdefault("timings", {})
-                    response_payload["metadata"]["timings"].update(
-                        {
-                            "entityResolutionMs": round(
-                                entity_resolution_duration * 1000
-                            ),
-                            "planningMs": round(planning_duration * 1000),
-                            "plannerDurationMs": round(planner_duration * 1000),
-                            "intentDurationMs": round(intent_duration * 1000),
-                            "dotnetDurationMs": 0,
-                            "combineDurationMs": 0,
-                            "widgetMs": 0,
-                            "responseAssemblyMs": 0,
-                            "analysisDurationMs": 0,
-                            "predictionDurationMs": 0,
-                            "conclusionDurationMs": 0,
-                            "totalDurationMs": round(total_duration * 1000),
-                            "executionTimeMs": round(total_duration * 1000),
-                        }
-                    )
-                    response_payload["metadata"].setdefault("metrics", {})
-                    response_payload["metadata"]["metrics"]["confidence"] = round(
-                        float(query_plan.confidence), 2
-                    )
-                    response_payload["intent"] = {
-                        "category": primary_intent.get("category") or "unclear",
-                        "confidence": round(float(query_plan.confidence), 2),
-                        "operation": primary_intent.get("operation"),
-                        "query_type": "unrecognised",
-                    }
-
-                    logger.info(
-                        json.dumps(
-                            {
-                                "message": "Admin pipeline complete",
-                                "question": user_query,
-                                "query_type": "unrecognised",
-                                "intent_formed": primary_intent,
-                                "trace_id": trace_id,
-                            }
-                        )
-                    )
-
-                    metrics_collector.inc_requests("unrecognised")
-                    metrics_collector.record_duration(
-                        "planner_duration", durations["planner_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "intent_duration", durations["intent_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "dotnet_duration", durations["dotnet_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "report_duration", durations["report_duration"]
-                    )
-                    metrics_collector.record_duration(
-                        "pipeline_duration", durations["total_duration"]
-                    )
-
-                    if total_duration > SLOW_QUERY_THRESHOLD:
-                        logger.warning(
-                            json.dumps(
-                                {
-                                    "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
-                                    "trace_id": trace_id,
-                                    "session_id": session_id,
+                                    "message": "Admin pipeline complete",
+                                    "question": user_query,
                                     "query_type": "unrecognised",
-                                    "duration_ms": round(total_duration * 1000, 2),
-                                }
-                            )
-                        )
-
-                    write_audit_log(
-                        trace_id=trace_id,
-                        session_id=session_id,
-                        query_type="unrecognised",
-                        query_duration=durations["total_duration"],
-                        success=True,
-                    )
-
-                    combined_message = response_payload.get("message", "")
-                    metrics_collector.inc_success("unrecognised")
-                    return {
-                        "type": "unrecognised",
-                        "response_payload": response_payload,
-                        "combined_message": combined_message,
-                    }
-
-                # Categories like personaldetail (always) and Attendance
-                # (except Present) require an agniveerNo before calling .NET.
-                _primary_agniveer_no = (
-                    primary_intent.get("agniveer_no") or resolved_agniveer_no
-                )
-                if agniveer_no_required(
-                    primary_intent.get("category"), primary_intent.get("operation")
-                ) and not _primary_agniveer_no:
-                    return _agniveer_no_missing_response(session_id)
-
-                dotnet_payload = format_admin_payload(primary_intent)
-                dotnet_payload.update(id_filters)
-                for k, v in carry_forward_filters.items():
-                    if dotnet_payload.get(k) in (None, ""):
-                        dotnet_payload[k] = v
-                if _allows_agniveer_carry_forward(
-                    primary_intent.get("category"), primary_intent.get("operation")
-                ):
-                    if full_name:
-                        dotnet_payload["fullName"] = full_name
-                    # Wire in agniveerNo from entity resolution if not already set by intent
-                    if resolved_agniveer_no and not dotnet_payload.get("agniveerNo"):
-                        dotnet_payload["agniveerNo"] = resolved_agniveer_no
-
-                # ── Rule 9: strip empty/zero/null ID fields before sending ──
-                dotnet_payload = _strip_empty_id_fields(dotnet_payload)
-
-                # Validate DotNetPayloadModel
-                _validate_model_payload(
-                    DotNetPayloadModel, dotnet_payload, "single.dotnet_payload"
-                )
-
-                if (
-                    query_plan.query_type == QueryType.ANALYTICS
-                    and query_plan.operations
-                ):
-                    op = query_plan.operations[0]
-                    if getattr(op, "group_by", None):
-                        dotnet_payload["groupBy"] = op.group_by
-                    if query_plan.analytics_hint:
-                        dotnet_payload["analyticsHint"] = query_plan.analytics_hint
-
-                response_dotnet_payload = [dict(dotnet_payload)]
-
-                intent_duration = time.time() - intent_start
-
-                # ── Step 3: Execute .NET API Call ─────────────────────────────
-                with span(SPAN_CALL_DOTNET, trace_id=trace_id):
-                    dotnet_start = time.time()
-                    _notify("dotnet")
-
-                    logger.info(
-                        json.dumps(
-                            {
-                                "message": "Sending simple request to .NET",
-                                "trace_id": trace_id,
-                                "session_id": session_id,
-                                "query_type": qtype_str,
-                            }
-                        )
-                    )
-
-                    with trace_context(request_id, trace_id, session_id):
-                        dotnet_data, dotnet_error = _call_dotnet(
-                            dotnet_payload,
-                            trace_id=trace_id,
-                            session_id=session_id,
-                            query_type=qtype_str,
-                        )
-                    if dotnet_error:
-                        sanitized_error = _sanitize_error(dotnet_error)
-                        logger.warning(
-                            json.dumps(
-                                {
-                                    "message": "Admin .NET call failed",
+                                    "intent_formed": primary_intent,
                                     "trace_id": trace_id,
-                                    "session_id": session_id,
-                                    "query_type": qtype_str,
-                                    "error": sanitized_error,
                                 }
                             )
                         )
 
-                        metrics_collector.inc_requests(qtype_str)
-                        metrics_collector.inc_errors(qtype_str)
-                        total_duration = time.time() - start_time
+                        metrics_collector.inc_requests("unrecognised")
                         metrics_collector.record_duration(
-                            "pipeline_duration", round(total_duration * 1000, 2)
+                            "planner_duration", durations["planner_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "intent_duration", durations["intent_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "dotnet_duration", durations["dotnet_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "report_duration", durations["report_duration"]
+                        )
+                        metrics_collector.record_duration(
+                            "pipeline_duration", durations["total_duration"]
                         )
 
                         if total_duration > SLOW_QUERY_THRESHOLD:
@@ -1771,7 +1515,7 @@ def execute_admin_query(
                                         "message": f"Query exceeded {int(SLOW_QUERY_THRESHOLD)} seconds.",
                                         "trace_id": trace_id,
                                         "session_id": session_id,
-                                        "query_type": qtype_str,
+                                        "query_type": "unrecognised",
                                         "duration_ms": round(total_duration * 1000, 2),
                                     }
                                 )
@@ -1780,71 +1524,84 @@ def execute_admin_query(
                         write_audit_log(
                             trace_id=trace_id,
                             session_id=session_id,
-                            query_type=qtype_str,
-                            query_duration=round(total_duration * 1000, 2),
-                            success=False,
-                            error_type="dotnet_error",
+                            query_type="unrecognised",
+                            query_duration=durations["total_duration"],
+                            success=True,
                         )
 
-                        # Every .NET call failure — a transient outage or a
-                        # rejected request — is surfaced as one friendly,
-                        # conversational message. The raw status/body is only
-                        # ever written to the log above, never to the user.
-                        unavailable_msg = _BACKEND_UNAVAILABLE_MESSAGE
-                        availability_payload = build_conversation_payload(
-                            unavailable_msg,
-                            session_id=session_id,
-                            query_type="service_unavailable",
-                        )
-                        availability_payload.setdefault("metadata", {})
-                        availability_payload["metadata"].setdefault("timings", {})
-                        availability_payload["metadata"]["timings"][
-                            "dotnetDurationMs"
-                        ] = round(dotnet_duration * 1000, 2)
-                        availability_payload["metadata"][
-                            "executionTimeMs"
-                        ] = round(total_duration * 1000)
+                        combined_message = response_payload.get("message", "")
+                        metrics_collector.inc_success("unrecognised")
                         return {
-                            "type": "service_unavailable",
-                            "response_payload": availability_payload,
-                            "combined_message": unavailable_msg,
-                            "execution_time_ms": round(total_duration * 1000),
+                            "type": "unrecognised",
+                            "response_payload": response_payload,
+                            "combined_message": combined_message,
                         }
 
-                    ensure_agniveer_no_in_data(dotnet_data)
-                    _target_no = primary_intent.get("agniveer_no") or resolved_agniveer_no
-                    if _target_no:
-                        _filter_dotnet_data_by_agniveer_no(dotnet_data, _target_no)
+                # ── SQL backend answered — shape results exactly like the
+                # retired .NET branches did, so Step 4 onward needs no changes
+                sql_served = True
+                set_audit_context(backend="sql")
+                response_dotnet_payload = [{"backend": "sql"}]
 
-                    dotnet_data = _normalize_dotnet_leg(dotnet_data)
+                sql_queries = [
+                    s.get("sql")
+                    for s in sql_raw
+                    if isinstance(s, dict) and s.get("sql")
+                ]
+                if sql_queries:
+                    response_dotnet_payload[0]["sqlQueries"] = sql_queries
+                    response_dotnet_payload[0]["sqlQuery"] = "\n\n-- Leg / Sub-query --\n".join(sql_queries)
 
-                    # Validate DotNetResponseModel
-                    if dotnet_data is not None:
-                        if isinstance(dotnet_data, dict):
-                            _validate_model_payload(
-                                DotNetResponseModel,
-                                dotnet_data,
-                                "single.dotnet_response",
-                            )
-                        elif isinstance(dotnet_data, list):
-                            _validate_model_payload(
-                                DotNetResponseModel,
-                                {
-                                    "success": True,
-                                    "commandLabel": primary_intent.get("subcategory")
-                                    or primary_intent.get("category")
-                                    or "",
-                                    "data": dotnet_data,
-                                    "message": "",
-                                },
-                                "single.dotnet_response_list",
-                            )
 
-                    raw_results = [dotnet_data]
-                    labeled_results = [
-                        (primary_intent.get("category", "Result"), dotnet_data)
+                for section in sql_raw:
+                    ensure_agniveer_no_in_data(section)
+                normalized_sections = [_normalize_dotnet_leg(s) for s in sql_raw]
+                normalized_sections = enforce_batch_scope(
+                    normalized_sections, frontend_batch_id
+                )
+                raw_results = normalized_sections
+                labeled_results = [
+                    (label, normalized_sections[idx])
+                    for idx, (label, _section) in enumerate(sql_labeled)
+                ]
+
+                if qtype_str == "multi_independent":
+                    failed_sections = [
+                        label
+                        for label, data in labeled_results
+                        if isinstance(data, dict) and data.get("unavailable") is True
                     ]
-                    dotnet_duration = time.time() - dotnet_start
+                    partial_failure = bool(failed_sections)
+
+                if qtype_str == "compare":
+                    comparison_datasets_info = [
+                        {
+                            "id": f"dataset_{idx + 1}",
+                            "label": label,
+                            "intent": {},
+                            "dotnetPayload": (
+                                {"backend": "sql", "sqlQuery": data.get("sql")}
+                                if isinstance(data, dict) and data.get("sql")
+                                else {"backend": "sql"}
+                            ),
+                            "rawData": data,
+                            "metadata": {
+                                "endpoint": "sql",
+                                "status": (
+                                    "FAILURE"
+                                    if isinstance(data, dict)
+                                    and data.get("unavailable")
+                                    else "SUCCESS"
+                                ),
+                            },
+                        }
+                        for idx, (label, data) in enumerate(labeled_results)
+                    ]
+
+                if query_plan.query_type in (QueryType.COMPARE, QueryType.COMPARISON):
+                    comparison_context = {"datasets": comparison_datasets_info}
+                else:
+                    comparison_context = None
 
         # ── Step 4: Result Combiner ───────────────────────────────────────────
         with span(SPAN_COMBINE_RESULTS, trace_id=trace_id):
@@ -1945,7 +1702,7 @@ def execute_admin_query(
                 # result set is empty, replace that with a grounded no-data report
                 # so the user still gets an explanation instead of a silent payload.
                 if (
-                    not (report.get("introMessage") or "").strip()
+                    not (report.get("message") or "").strip()
                     and not report.get("analysis")
                     and not report.get("prediction")
                     and not report.get("conclusion")
@@ -2188,7 +1945,9 @@ def execute_admin_query(
         except Exception as widget_exc:
             import traceback as _tb
 
-            widget_duration = time.time() - widget_start if 'widget_start' in locals() else 0.0
+            widget_duration = (
+                time.time() - widget_start if "widget_start" in locals() else 0.0
+            )
             logger.error(
                 json.dumps(
                     {
@@ -2207,11 +1966,13 @@ def execute_admin_query(
             )
 
         if not formatted_data_payload:
-            formatted_data_payload = [{
-                "type": "null",
-                "title": "No Data Available",
-                "data": [],
-            }]
+            formatted_data_payload = [
+                {
+                    "type": "null",
+                    "title": "No Data Available",
+                    "data": [],
+                }
+            ]
 
         # ── Step 6b: Build suggested questions (independent) ──────────────
         suggested = []
@@ -2290,6 +2051,7 @@ def execute_admin_query(
                     overall_confidence=query_plan.confidence,
                     partial_failure=partial_failure,
                     failed_sections=failed_sections,
+                    summary=report.get("summary"),
                 )
                 response_assembly_duration = time.time() - response_assembly_start
                 logger.info(
@@ -2447,7 +2209,11 @@ def execute_admin_query(
                 )
             )
 
-        write_audit_log(question=user_query, intent=primary_intent)
+        write_audit_log(
+            question=user_query,
+            intent=primary_intent,
+            backend="sql" if sql_served else "dotnet",
+        )
 
         # Validate FinalResponseModel and MetadataModel
         if "metadata" in response_payload:
@@ -2458,8 +2224,6 @@ def execute_admin_query(
 
         combined_message = response_payload.get("message", "")
         metrics_collector.inc_success(qtype_str)
-
-
 
         return {
             "type": "query",

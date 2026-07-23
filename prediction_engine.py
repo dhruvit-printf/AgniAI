@@ -187,7 +187,9 @@ def _heuristic_estimate(
     direction = (
         "continue improving"
         if momentum > MOMENTUM_SIGNAL
-        else "show slight decline" if momentum < -MOMENTUM_SIGNAL else "remain steady"
+        else "show slight decline"
+        if momentum < -MOMENTUM_SIGNAL
+        else "remain steady"
     )
     next_est = round(avg + (momentum * 0.5), 2)
     return (
@@ -661,7 +663,11 @@ def generate_predictions(
                 # Summary {"DRILL (AMT)": {"Excellent": 188, ...}}) collapse
                 # to a single opaque record upstream, so total_points here
                 # would misreport "1" instead of the real total graded.
-                numeric_distribution = None if breakdown else _numeric_distribution_breakdown(target_records)
+                numeric_distribution = (
+                    None
+                    if breakdown
+                    else _numeric_distribution_breakdown(target_records)
+                )
                 if breakdown:
                     top = breakdown["breakdown"][0]
                     share = (
@@ -685,7 +691,9 @@ def generate_predictions(
                     total_graded = numeric_distribution["total"]
                     top = numeric_distribution["breakdown"][0]
                     share = (
-                        round((top["count"] / total_graded) * 100, 1) if total_graded else 0
+                        round((top["count"] / total_graded) * 100, 1)
+                        if total_graded
+                        else 0
                     )
                     confidence = "Medium"
                     future_trends.append(

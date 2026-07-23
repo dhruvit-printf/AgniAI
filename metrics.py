@@ -52,6 +52,16 @@ class Metrics:
         self.cache_hits: int = 0
         self.cache_misses: int = 0
 
+        # SQL text-to-SQL backend counters (sql_executor.py)
+        self.sql_generated_total: int = 0
+        self.sql_validator_rejected_total: int = 0
+        self.sql_cannot_answer_total: int = 0
+        self.sql_exec_error_total: int = 0
+        self.sql_llm_fallback_total: int = 0
+        self.sql_capability_gap_fallback_total: int = 0
+        self.sql_structural_reject_fallback_total: int = 0
+        self.sql_latency_seconds: Dict[str, float] = {"sum": 0.0, "count": 0.0}
+
         # Duration summaries (milliseconds)
         self.durations: Dict[str, Dict[str, float]] = {
             "entity_resolution_ms": {"sum": 0.0, "count": 0.0},
@@ -104,6 +114,42 @@ class Metrics:
     def inc_cache_misses(self) -> None:
         with self._lock:
             self.cache_misses += 1
+
+    # ── SQL backend counters ─────────────────────────────────────────────
+
+    def inc_sql_generated(self) -> None:
+        with self._lock:
+            self.sql_generated_total += 1
+
+    def inc_sql_validator_rejected(self) -> None:
+        with self._lock:
+            self.sql_validator_rejected_total += 1
+
+    def inc_sql_cannot_answer(self) -> None:
+        with self._lock:
+            self.sql_cannot_answer_total += 1
+
+    def inc_sql_exec_error(self) -> None:
+        with self._lock:
+            self.sql_exec_error_total += 1
+
+    def inc_sql_llm_fallback(self) -> None:
+        with self._lock:
+            self.sql_llm_fallback_total += 1
+
+    def inc_sql_capability_gap_fallback(self) -> None:
+        with self._lock:
+            self.sql_capability_gap_fallback_total += 1
+
+    def inc_sql_structural_reject_fallback(self) -> None:
+        with self._lock:
+            self.sql_structural_reject_fallback_total += 1
+            self.sql_validator_rejected_total += 1
+
+    def record_sql_latency(self, duration_seconds: float) -> None:
+        with self._lock:
+            self.sql_latency_seconds["sum"] += duration_seconds
+            self.sql_latency_seconds["count"] += 1.0
 
     # ── Durations ──────────────────────────────────────────────────────────
 
@@ -176,6 +222,60 @@ class Metrics:
             lines.append("# HELP cache_misses Total cache misses.")
             lines.append("# TYPE cache_misses counter")
             lines.append(f"cache_misses {self.cache_misses}")
+
+            # ── SQL backend counters ────────────────────────────────────────
+            lines.append("# HELP sql_generated_total Total LLM-generated SQL queries.")
+            lines.append("# TYPE sql_generated_total counter")
+            lines.append(f"sql_generated_total {self.sql_generated_total}")
+
+            lines.append(
+                "# HELP sql_validator_rejected_total Total SQL rejected by validate_sql."
+            )
+            lines.append("# TYPE sql_validator_rejected_total counter")
+            lines.append(
+                f"sql_validator_rejected_total {self.sql_validator_rejected_total}"
+            )
+
+            lines.append(
+                "# HELP sql_cannot_answer_total Total CANNOT_ANSWER responses from the SQL generator."
+            )
+            lines.append("# TYPE sql_cannot_answer_total counter")
+            lines.append(f"sql_cannot_answer_total {self.sql_cannot_answer_total}")
+
+            lines.append("# HELP sql_exec_error_total Total SQL execution errors.")
+            lines.append("# TYPE sql_exec_error_total counter")
+            lines.append(f"sql_exec_error_total {self.sql_exec_error_total}")
+
+            lines.append(
+                "# HELP sql_llm_fallback_total Total SQL queries that fell back to LLM."
+            )
+            lines.append("# TYPE sql_llm_fallback_total counter")
+            lines.append(f"sql_llm_fallback_total {self.sql_llm_fallback_total}")
+
+            lines.append(
+                "# HELP sql_capability_gap_fallback_total Total SQL queries that fell back due to capability gap."
+            )
+            lines.append("# TYPE sql_capability_gap_fallback_total counter")
+            lines.append(
+                f"sql_capability_gap_fallback_total {self.sql_capability_gap_fallback_total}"
+            )
+
+            lines.append(
+                "# HELP sql_structural_reject_fallback_total Total SQL queries that fell back due to structural validator rejection."
+            )
+            lines.append("# TYPE sql_structural_reject_fallback_total counter")
+            lines.append(
+                f"sql_structural_reject_fallback_total {self.sql_structural_reject_fallback_total}"
+            )
+
+            lines.append(
+                "# HELP sql_latency_seconds SQL backend end-to-end latency in seconds."
+            )
+            lines.append("# TYPE sql_latency_seconds histogram")
+            lines.append(f"sql_latency_seconds_sum {self.sql_latency_seconds['sum']}")
+            lines.append(
+                f"sql_latency_seconds_count {int(self.sql_latency_seconds['count'])}"
+            )
 
             # ── duration summaries ─────────────────────────────────────────
             for name in sorted(self.durations.keys()):

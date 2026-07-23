@@ -67,13 +67,3 @@ def validate_payload(
 
     errors.extend(_validate_entities_for_category(category, entities))
     return len(errors) == 0, errors
-
-
-def validate_payload_strict(
-    category: Optional[str],
-    operation: Optional[str],
-    entities: Dict[str, Any],
-) -> None:
-    is_valid, errors = validate_payload(category, operation, entities)
-    if not is_valid:
-        raise PayloadValidationError(errors)

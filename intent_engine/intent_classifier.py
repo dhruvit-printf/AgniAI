@@ -100,6 +100,28 @@ def _phrase_score(text: str, phrase: str) -> int:
     return base * occurrences + boundary_bonus
 
 
+
+# Word roots that share a long enough prefix with each other (so the
+# common_prefix >= 5 rule below would call them the same word family) to
+# false-positive-match, despite being unrelated in this domain — "district"
+# (an AgniveerMaster.District column) was fuzzy-matching "distribute"/
+# "distributed"/"distributing"/"distribution" (the unrelated DistributionMaster
+# /team-assignment concept) via their shared "distri-" prefix, routing
+# "compare Agniveers across all districts" to the wrong table entirely.
+# Keyed by root word -> the *other* roots it must never be treated as a
+# family match against, regardless of which one is text_word vs phrase.
+_WORD_FAMILY_ROOT_EXCLUSIONS = {
+    "district": {"distribute", "distributed", "distributing", "distribution", "distributions"},
+}
+
+
+def _excluded_word_family(a: str, b: str) -> bool:
+    for word, blocked in _WORD_FAMILY_ROOT_EXCLUSIONS.items():
+        if (a.startswith(word) and b in blocked) or (b.startswith(word) and a in blocked):
+            return True
+    return False
+
+
 def _word_family_score(text_word: str, phrase: str) -> int:
     """Typo/word-family fallback for a single-word keyword against one query token.
 
@@ -109,6 +131,8 @@ def _word_family_score(text_word: str, phrase: str) -> int:
         "performance" all share "perform") via a long common prefix.
     """
     if len(phrase) < 4 or len(text_word) < 4 or text_word == phrase:
+        return 0
+    if _excluded_word_family(text_word, phrase):
         return 0
 
     common_prefix = 0
@@ -126,9 +150,10 @@ def _word_family_score(text_word: str, phrase: str) -> int:
     # positive while still catching an adjacent-letter swap typo like
     # "levae" for "leave" (a single transposition costs 1, not 2, here).
     max_distance = 1 if len(phrase) <= 7 else 2
-    if abs(len(text_word) - len(phrase)) <= max_distance and _damerau_levenshtein(
-        text_word, phrase
-    ) <= max_distance:
+    if (
+        abs(len(text_word) - len(phrase)) <= max_distance
+        and _damerau_levenshtein(text_word, phrase) <= max_distance
+    ):
         return 10
     return 0
 
@@ -175,9 +200,7 @@ def _semantic_score(candidate: str, semantic_value: Optional[str]) -> int:
 
 
 def _has_action_signal(query_text: str) -> bool:
-    return any(
-        _phrase_score(query_text, hint) for hint in _ACTION_HINTS
-    ) or any(
+    return any(_phrase_score(query_text, hint) for hint in _ACTION_HINTS) or any(
         phrase in query_text
         for phrase in (
             "vs",
@@ -284,8 +307,7 @@ def _category_entity_bonus(category: str, entities: Optional[Dict[str, Any]]) ->
         "Overall": [
             ("section", 10),
         ],
-        "Schedule": [
-        ],
+        "Schedule": [],
     }
 
     bonus = 0
@@ -341,11 +363,11 @@ def _score_category(
         # "overall performance" as a compound phrase means the composite
         # ranking, not a Performance-category lookup.
         overall_phrases = [
-            "overall performance", 
-            "overall performing", 
-            "overall performer", 
-            "best overall", 
-            "across all activities"
+            "overall performance",
+            "overall performing",
+            "overall performer",
+            "best overall",
+            "across all activities",
         ]
         for phrase in overall_phrases:
             if _phrase_score(query_text, phrase):
@@ -392,11 +414,21 @@ def _score_operation(
     if category == "Equipment" and operation == "Returned":
         score += 8 if _phrase_score(query_text, "poor condition") else 0
         # If they haven't returned it, they are still holding it
-        if _phrase_score(query_text, "haven't returned") or _phrase_score(query_text, "not returned") or _phrase_score(query_text, "has not returned") or _phrase_score(query_text, "hasn't returned"):
+        if (
+            _phrase_score(query_text, "haven't returned")
+            or _phrase_score(query_text, "not returned")
+            or _phrase_score(query_text, "has not returned")
+            or _phrase_score(query_text, "hasn't returned")
+        ):
             score -= 60
     if category == "Equipment" and operation == "Holding":
         score += 8 if _phrase_score(query_text, "currently holding") else 0
-        if _phrase_score(query_text, "haven't returned") or _phrase_score(query_text, "not returned") or _phrase_score(query_text, "has not returned") or _phrase_score(query_text, "hasn't returned"):
+        if (
+            _phrase_score(query_text, "haven't returned")
+            or _phrase_score(query_text, "not returned")
+            or _phrase_score(query_text, "has not returned")
+            or _phrase_score(query_text, "hasn't returned")
+        ):
             score += 60
         # If the user explicitly asks about issued/procured equipment, they want Holding stats, not ByName
         if _entity_present(entities, "equipmentType"):
@@ -406,7 +438,11 @@ def _score_operation(
     if category == "Equipment" and operation == "AgniveerWise":
         score += 8 if _entity_present(entities, "equipmentName") else 0
         # Penalize AgniveerWise (ByName) if they are explicitly asking for Issued/Procured counts
-        if _entity_present(entities, "equipmentType") or _phrase_score(query_text, "issued") or _phrase_score(query_text, "procured"):
+        if (
+            _entity_present(entities, "equipmentType")
+            or _phrase_score(query_text, "issued")
+            or _phrase_score(query_text, "procured")
+        ):
             score -= 50
     if category == "Medical" and operation == "BMI":
         score += 10 if _entity_present(entities, "bmiCategory") else 0
@@ -417,11 +453,14 @@ def _score_operation(
         # Company/Date/Agniveer when the query actually names one of those
         # (e.g. "schedule for Lakhwinder company" contains "schedule" too,
         # but should resolve to Company, not the bare Today default).
-        has_more_specific_signal = (
-            _entity_present(entities, "agniveerNo", "date")
-            or bool(re.search(r"\b(company)\b", query_text, re.IGNORECASE))
+        has_more_specific_signal = _entity_present(
+            entities, "agniveerNo", "date"
+        ) or bool(re.search(r"\b(company)\b", query_text, re.IGNORECASE))
+        score += (
+            10
+            if _phrase_score(query_text, "schedule") and not has_more_specific_signal
+            else 0
         )
-        score += 10 if _phrase_score(query_text, "schedule") and not has_more_specific_signal else 0
     if category == "Attendance" and operation in {
         "Monthly",
         "Weekly",
@@ -432,25 +471,6 @@ def _score_operation(
         score += 8 if _entity_present(entities, "date", "fromDate", "toDate") else 0
 
     return score
-
-
-def _levenshtein(a: str, b: str) -> int:
-    if a == b:
-        return 0
-    if not a:
-        return len(b)
-    if not b:
-        return len(a)
-    previous_row = list(range(len(b) + 1))
-    for i, char_a in enumerate(a, start=1):
-        current_row = [i]
-        for j, char_b in enumerate(b, start=1):
-            insertion = previous_row[j] + 1
-            deletion = current_row[j - 1] + 1
-            substitution = previous_row[j - 1] + (char_a != char_b)
-            current_row.append(min(insertion, deletion, substitution))
-        previous_row = current_row
-    return previous_row[-1]
 
 
 def _damerau_levenshtein(a: str, b: str) -> int:
@@ -472,17 +492,14 @@ def _damerau_levenshtein(a: str, b: str) -> int:
                 d[i][j - 1] + 1,
                 d[i - 1][j - 1] + cost,
             )
-            if (
-                i > 1
-                and j > 1
-                and a[i - 1] == b[j - 2]
-                and a[i - 2] == b[j - 1]
-            ):
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
                 d[i][j] = min(d[i][j], d[i - 2][j - 2] + cost)
     return d[la][lb]
 
 
-def _fuzzy_contains_word(query_text: str, targets: Iterable[str], max_distance: int = 2) -> bool:
+def _fuzzy_contains_word(
+    query_text: str, targets: Iterable[str], max_distance: int = 2
+) -> bool:
     # Tolerates typos (e.g. "derail"/"detril" for "detail") so a misspelled
     # request for a detailed/summary response is still recognized. Uses
     # transposition-aware distance so an adjacent-letter swap typo (e.g.
@@ -516,9 +533,11 @@ def _detect_explicit_response_type(query_text: str) -> Optional[str]:
             return "Detailed"
     if _fuzzy_contains_word(query_text, _DETAILED_SINGLE_WORDS):
         return "Detailed"
-    if _phrase_score(query_text, "summary") or _phrase_score(
-        query_text, "summarize"
-    ) or _phrase_score(query_text, "summarise"):
+    if (
+        _phrase_score(query_text, "summary")
+        or _phrase_score(query_text, "summarize")
+        or _phrase_score(query_text, "summarise")
+    ):
         return "Summary"
     if _fuzzy_contains_word(query_text, ("summary", "summarize", "summarise")):
         return "Summary"
@@ -622,6 +641,13 @@ def _compute_confidence(
     return confidence_score
 
 
+def _clamp_confidence(value: float) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except Exception:
+        return 0.0
+
+
 def _should_entity_override_category(
     entities: Optional[Dict[str, Any]],
     classified_category: Optional[str],
@@ -641,6 +667,7 @@ def _should_entity_override_category(
     if (
         _entity_present(entities, "equipmentName")
         and classified_category != "Equipment"
+        and not _entity_present(entities, "section", "subSection")
     ):
         return (
             True,
@@ -649,11 +676,28 @@ def _should_entity_override_category(
         )
 
     # Confidence guard — if the classifier is already confident, trust it.
-    if confidence_score >= 0.45:
+    if confidence_score >= 0.45 and not (
+        classified_category == "Leave"
+        and _entity_present(entities, "section")
+        and any(
+            _phrase_score(query_text, phrase)
+            for phrase in (
+                "topper",
+                "toppers",
+                "top performer",
+                "top performers",
+                "highest performer",
+                "best performer",
+                "top scorer",
+                "highest scorer",
+                "best scorer",
+            )
+        )
+    ):
         return (
             False,
             None,
-            f"confidence sufficient ({confidence_score:.2f}) — classifier wins",
+            f"confidence sufficient ({confidence_score:.2f}) - classifier wins",
         )
 
     if _entity_present(entities, "leaveType") and classified_category != "Leave":
@@ -671,11 +715,12 @@ def _should_entity_override_category(
         and classified_category != "Performance"
     ):
         return True, "Performance", "performance entity present"
-    if (
-        _entity_present(entities, "section", "subSection")
-        and classified_category not in ("Performance", "Skills", "Strength")
-    ):
-        if _phrase_score(query_text, "strength") or _phrase_score(query_text, "headcount"):
+    if _entity_present(
+        entities, "section", "subSection"
+    ) and classified_category not in ("Performance", "Skills", "Strength"):
+        if _phrase_score(query_text, "strength") or _phrase_score(
+            query_text, "headcount"
+        ):
             return True, "Strength", "strength entity with section present"
         return True, "Performance", "section entity present"
 
@@ -725,10 +770,28 @@ def _should_entity_override_operation(
     if category == "Performance":
         if _entity_present(
             entities, "attemptNo", "fromAttempt", "toAttempt"
-        ) and classified_operation not in ("AttemptWise", "BestAttempt", "Improvement", "ImprovementTrend", "Drop", "DropTrend"):
+        ) and classified_operation not in (
+            "AttemptWise",
+            "BestAttempt",
+            "Improvement",
+            "ImprovementTrend",
+            "Drop",
+            "DropTrend",
+        ):
             return True, "AttemptWise", "attempt entity present"
-        if not classified_operation and _entity_present(entities, "grading"):
-            return True, "Grading", "grading entity present without operation"
+        if _entity_present(entities, "grading") and classified_operation not in (
+            "Grading",
+            "GradingSummary",
+        ):
+            # A specific grade value (Excellent/SAT/Fail/ExceptionallyWell/...)
+            # is a precise, curated-vocabulary signal (see entity_extractor's
+            # _extract_grading) — it must win even when the keyword-score
+            # heuristic in _choose_operation picked a wrong operation with a
+            # nonzero score (e.g. "who scored exceptionally well" scoring
+            # higher for Drop/Improvement than Grading), not just when it
+            # picked no operation at all. Matches the unconditional
+            # bmiCategory/bloodGroup overrides above for the same reason.
+            return True, "Grading", "grading entity present"
         if classified_operation == "Grading" and not _entity_present(
             entities, "grading"
         ):
@@ -761,6 +824,19 @@ def _should_entity_override_operation(
         and classified_operation != "Current"
     ):
         return True, "Current", "leaveType Current present"
+
+    if (
+        category == "Leave"
+        and entities.get("leaveType") == "Threshold"
+        and classified_operation != "Threshold"
+    ):
+        # Threshold is a precise, curated-vocabulary signal (see
+        # entity_extractor's _has_threshold_day_range_signal /
+        # _has_threshold_filter_signal) — it must win even when the
+        # keyword-score heuristic picked a different Leave operation
+        # (e.g. "most"/"least"/generic day counts overlapping other
+        # operations' synonym lists), not just when it picked none at all.
+        return True, "Threshold", "leaveType Threshold present"
 
     if category == "Attendance" and classified_operation not in (
         "Weekly",
@@ -807,6 +883,28 @@ def _should_entity_override_operation(
         if _phrase_score(query_text, "search") or _phrase_score(query_text, "find"):
             return True, "ByName", "equipment search phrase present"
         return True, "Holding", "equipment query default operation"
+
+    if category == "Verification":
+        raw_lower = query_text.lower()
+        has_explicit_pending = any(w in raw_lower for w in ("pending", "unverified", "awaiting verification", "not verified"))
+        has_explicit_sent = any(w in raw_lower for w in ("sent verification", "verification sent", "dispatched", "request sent"))
+        has_explicit_not_responded = any(w in raw_lower for w in ("not responded", "no response", "awaiting response", "no reply", "unresponsive"))
+        has_explicit_verified = any(w in raw_lower for w in ("verified verification", "completed verification", "all verified", "fully verified", "verification completed", "verification done"))
+        has_explicit_rejected = any(w in raw_lower for w in ("rejected verification", "failed verification", "verification failed", "denied"))
+
+        if has_explicit_pending:
+            return True, "Pending", "explicit pending verification query"
+        if has_explicit_sent:
+            return True, "Sent", "explicit sent verification query"
+        if has_explicit_not_responded:
+            return True, "NotResponded", "explicit not responded verification query"
+        if has_explicit_verified:
+            return True, "Verified", "explicit verified verification query"
+        if has_explicit_rejected:
+            return True, "Rejected", "explicit rejected verification query"
+
+        if _entity_present(entities, "agniveerNo") or any(w in raw_lower for w in ("status", "police verification status", "verification status")):
+            return True, "info", "general verification status query without specific status filter"
 
     if category in ("Skills",):
         if not classified_operation and _entity_present(entities, "sport"):
@@ -864,6 +962,7 @@ def classify_intent(
     if confidence_score < 0.45:
         try:
             from .semantic_classifier import classify_admin_intent_semantic
+
             sem_result = classify_admin_intent_semantic(query, confidence_score)
             if sem_result is not None:
                 if sem_result.get("needs_clarification"):
@@ -872,18 +971,25 @@ def classify_intent(
                         "operation": None,
                         "responseType": _detect_response_type(query_text),
                         "raw_query": query,
-                        "confidence_score": round(sem_result.get("confidence", 0.0), 2),
+                        "confidence_score": round(
+                            _clamp_confidence(sem_result.get("confidence", 0.0)), 2
+                        ),
                         "confidence": "low",
                         "needs_clarification": True,
-                        "clarification_question": sem_result.get("clarification_question"),
+                        "clarification_question": sem_result.get(
+                            "clarification_question"
+                        ),
                     }
                 sem_cat = sem_result.get("category")
                 sem_op = sem_result.get("operation")
-                sem_conf = float(sem_result.get("confidence", 0.0))
+                sem_conf = _clamp_confidence(sem_result.get("confidence", 0.0))
                 if sem_cat:
                     logger.info(
                         "[SEMANTIC STAGE2] %s → %s/%s conf=%.3f",
-                        query, sem_cat, sem_op, sem_conf,
+                        query,
+                        sem_cat,
+                        sem_op,
+                        sem_conf,
                     )
                     category = sem_cat
                     operation = sem_op
@@ -924,7 +1030,8 @@ def classify_intent(
     if (
         entities
         and entities.get("sport")
-        and category not in ("Leave", "Medical", "Attendance", "Performance", "Equipment")
+        and category
+        not in ("Leave", "Medical", "Attendance", "Performance", "Equipment")
     ):
         if category != "Skills" or confidence_score < 0.6:
             category = "Skills"
@@ -943,6 +1050,7 @@ def classify_intent(
             category, category_score, operation, operation_score, semantic, entities
         )
 
+    confidence_score = _clamp_confidence(confidence_score)
     response_type = _detect_response_type(query_text, category)
 
     return {
