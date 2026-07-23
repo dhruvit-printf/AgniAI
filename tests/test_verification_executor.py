@@ -36,7 +36,7 @@ def test_verification_pending_sql():
 def test_verification_sent_sql():
     sql, params = build_verification_sql("Sent")
     assert "LatestVerification AS (" in sql
-    assert "lv.Status != 'Pending'" in sql
+    assert "lv.Status = 'Sent'" in sql
 
 
 def test_verification_not_responded_sql():

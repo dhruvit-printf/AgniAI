@@ -192,8 +192,8 @@ class TestMultiIndependent:
             raw, labeled, err = fetch_sql_results(plan, "q", {})
 
         assert err is None
-        assert raw == [section1, {"unavailable": True}]
-        assert labeled == [("Attendance", section1), ("Leave", {"unavailable": True})]
+        assert raw == [section1]
+        assert labeled == [("Attendance", section1)]
 
     def test_multi_independent_all_failed_bubbles_error(self):
         op1 = _op("attendance summary", "Attendance")

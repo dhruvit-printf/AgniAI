@@ -1516,8 +1516,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "turnout overview",
         ),
     },
-    "Strength": {
-    },
+    "Strength": {},
     "Equipment": {
         "Stats": (
             "how much equipment do we have",
@@ -2198,9 +2197,7 @@ SECTION: Dict[str, Dict[str, Any]] = {
     },
     "Tactics": {
         "name": "Tactics",
-        "aliases": (
-            "tactics",
-        ),
+        "aliases": ("tactics",),
         "isExceptional": True,
     },
     "Exceptional Sport": {
@@ -2214,30 +2211,22 @@ SECTION: Dict[str, Dict[str, Any]] = {
     },
     "BFC": {
         "name": "BFC",
-        "aliases": (
-            "bfc",
-        ),
+        "aliases": ("bfc",),
         "isExceptional": True,
     },
     "PDP": {
         "name": "PDP",
-        "aliases": (
-            "pdp",
-        ),
+        "aliases": ("pdp",),
         "isExceptional": True,
     },
     "MR": {
         "name": "MR",
-        "aliases": (
-            "mr",
-        ),
+        "aliases": ("mr",),
         "isExceptional": True,
     },
     "IT": {
         "name": "IT",
-        "aliases": (
-            "it",
-        ),
+        "aliases": ("it",),
         "isExceptional": True,
     },
     "FC/BC": {
@@ -2251,9 +2240,7 @@ SECTION: Dict[str, Dict[str, Any]] = {
     },
     "CBRN": {
         "name": "CBRN",
-        "aliases": (
-            "cbrn",
-        ),
+        "aliases": ("cbrn",),
         "isExceptional": True,
     },
     "Test Written (AMT)": {
