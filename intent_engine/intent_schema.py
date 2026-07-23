@@ -471,6 +471,17 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "personal",
         "profile",
         "profiles",
+        # Bare roster-listing phrasing ("give me agniveers in Thorat
+        # company") has no other topic keyword to score against, so it fell
+        # through the keyword scorer entirely and landed on whatever the
+        # low-confidence semantic fallback guessed (observed defaulting to
+        # Equipment/AgniveerWise, silently dropping the company scope).
+        # These give it a real category+operation before that fallback
+        # ever runs, reaching the personaldetail fast-path that actually
+        # applies company/platoon/batch scope.
+        "agniveers in",
+        "agniveers of",
+        "agniveers from",
         "biography",
         "bio data",
         "biodata",
@@ -2683,6 +2694,32 @@ UNIT_ALIASES: Dict[str, str] = {
     "arora": "Arora",
     "krishna": "Krishna",
     "mahadev": "Mahadev",
+    "alpha": "Alpha Unit",
+    "bravo": "Bravo Unit",
+    "charlie": "Charlie Unit",
+    "delta": "Delta Unit",
+    "echo": "Echo Unit",
+    "foxtrot": "Foxtrot Unit",
+    "golf": "Golf Unit",
+    "hotel": "Hotel Unit",
+    "india": "India Unit",
+    "juliet": "Juliet Unit",
+    "kilo": "Kilo Unit",
+    "lima": "Lima Unit",
+    "mike": "Mike Unit",
+    "november": "November Unit",
+    "oscar": "Oscar Unit",
+    "papa": "Papa Unit",
+    "quebec": "Quebec Unit",
+    "romeo": "Romeo Unit",
+    "sierra": "Sierra Unit",
+    "tango": "Tango Unit",
+    "uniform": "Uniform Unit",
+    "victor": "Victor Unit",
+    "whiskey": "Whiskey Unit",
+    "xray": "Xray Unit",
+    "yankee": "Yankee Unit",
+    "zulu": "Zulu Unit",
 }
 
 # Relative date phrases returned by the extractor in canonical form.

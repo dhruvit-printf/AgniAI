@@ -774,9 +774,14 @@ def _is_semantic_comparison(
     if len(sections_found) >= 2 and not _section_with_grading:
         return True
 
-    # Multiple companies/units
+    # Multiple companies/units — deduped by canonical identity (UNIT_ALIASES
+    # maps both "lak" and "lakhwinder" to "Lak - Lakhwinder"), same reasoning
+    # as the identical dedup in _extract_comparison_components's "2.
+    # Company/Units" branch: without it, one company mentioned by both its
+    # abbreviation and full name in the same sentence ("Lak - Lakhwinder
+    # company") reads as two distinct companies.
     companies_found = {
-        u
+        UNIT_ALIASES.get(u, u)
         for u in _COMPARISON_UNITS
         if re.search(r"\b" + re.escape(u) + r"\b", text_lower)
     }
@@ -1064,8 +1069,23 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
 
     # 2. Company/Units
     coy_matches = find_matches(list(_COMPARISON_UNITS), text_lower)
-    if len({m[2] for m in coy_matches}) >= 2:
-        return split_on_matches(query_text, coy_matches)
+    # Multiple aliases can name the SAME canonical company — UNIT_ALIASES
+    # maps both "lak" and "lakhwinder" to "Lak - Lakhwinder" — so dedupe by
+    # canonical identity, not by which alias string literally matched.
+    # Without this, "Lak - Lakhwinder company" (one company, spoken with
+    # its own abbreviation right next to its full name) matches both
+    # aliases and gets split into two "companies" to compare against each
+    # other. Keeps the first occurrence of each canonical company.
+    _coy_seen_canonical: set = set()
+    _coy_dedup_matches: List[Tuple[int, int, str]] = []
+    for start, end, alias in coy_matches:
+        canonical = UNIT_ALIASES.get(alias, alias)
+        if canonical in _coy_seen_canonical:
+            continue
+        _coy_seen_canonical.add(canonical)
+        _coy_dedup_matches.append((start, end, alias))
+    if len(_coy_dedup_matches) >= 2:
+        return split_on_matches(query_text, _coy_dedup_matches)
 
     # 2b. Generic "<Name> and <Name> company/companies" — company names are
     # DB-driven (CompanyMaster: Lakhwinder, Jaswant, Arora, Thorat, ...), not

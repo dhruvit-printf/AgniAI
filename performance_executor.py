@@ -117,6 +117,12 @@ def execute_performance_query(
     batch_id = intent.get("batch_id") or intent.get("batchId")
     agniveer_class = intent.get("class")
     platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+    platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+    platoon_name = intent.get("platoon_name") or intent.get("platoonName")
+    if platoon_id is None and platoon_name:
+        from sql_executor import resolve_platoon_id_from_name
+        platoon_id = resolve_platoon_id_from_name(str(platoon_name))
+
     company_id = intent.get("company_id") or intent.get("companyId")
     company_name = intent.get("company_name") or intent.get("companyName")
     if company_id is None and company_name:
@@ -130,7 +136,7 @@ def execute_performance_query(
     from_attempt = intent.get("from_attempt") or intent.get("fromAttempt")
     to_attempt = intent.get("to_attempt") or intent.get("toAttempt")
     requested_grade = intent.get("grading")
-    _top_n_raw = intent.get("number") or intent.get("top_n")
+    _top_n_raw = intent.get("number") or intent.get("top_n") or intent.get("n")
     top_n = int(_top_n_raw) if _top_n_raw is not None else None
 
     def _scope_clause(alias: str = "a") -> Tuple[str, List[Any]]:
@@ -148,6 +154,11 @@ def execute_performance_query(
         if platoon_id is not None:
             clauses.append(f"{alias}.PlatoonId = ?")
             params.append(int(platoon_id))
+        elif platoon_name:
+            clauses.append(
+                f"EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = {alias}.PlatoonId AND (LOWER(p.Name) LIKE '%' + LOWER(?) + '%' OR LOWER(p.Name) = LOWER(?)))"
+            )
+            params.extend([str(platoon_name), str(platoon_name)])
         if company_id is not None:
             clauses.append(
                 f"EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = {alias}.PlatoonId AND p.CompanyId = ?)"
@@ -347,6 +358,72 @@ def execute_performance_query(
             rows = rows if top_n is None else rows[:top_n]
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
+
+        is_detailed = any(
+            kw in _raw_q
+            for kw in (
+                "detailed",
+                "in detail",
+                "detail",
+                "subsections",
+                "sub section",
+                "subsection",
+                "full breakdown",
+                "section wise",
+                "subsection wise",
+            )
+        )
+
+        if is_detailed:
+            source_sql, source_params = _filtered_attempts_source(
+                require_best_attempt=(attempt_no is None)
+            )
+            descending = operation != "Bottom"
+            order_dir = "DESC" if descending else "ASC"
+
+            if top_n is not None:
+                sql = f"""
+                WITH FilteredAttempts AS (
+                    {source_sql}
+                ),
+                TopAgniveers AS (
+                    SELECT TOP ({int(top_n)}) AgniveerNo
+                    FROM FilteredAttempts
+                    GROUP BY AgniveerNo
+                    ORDER BY SUM(MarksObtained) {order_dir}, AgniveerNo ASC
+                )
+                SELECT
+                    fa.AgniveerNo,
+                    fa.FullName,
+                    fa.SectionName,
+                    fa.SubItemName AS SubSection,
+                    fa.MarksObtained,
+                    fa.MaxMarks
+                FROM FilteredAttempts fa
+                    INNER JOIN TopAgniveers ta ON ta.AgniveerNo = fa.AgniveerNo
+                ORDER BY fa.AgniveerNo ASC, fa.SectionName ASC, fa.SubItemName ASC
+                """
+            else:
+                sql = f"""
+                WITH FilteredAttempts AS (
+                    {source_sql}
+                )
+                SELECT
+                    AgniveerNo,
+                    FullName,
+                    SectionName,
+                    SubItemName AS SubSection,
+                    MarksObtained,
+                    MaxMarks
+                FROM FilteredAttempts
+                ORDER BY AgniveerNo ASC, SectionName ASC, SubItemName ASC
+                """
+
+            rows, err = _run(sql, source_params, max_rows=0 if top_n is not None else None)
+            if err:
+                return None, err
+            _mark_generated()
+            return _to_section(rows=rows or [], intent=intent, sql=sql), None
 
         if operation in ("Top", "Bottom", "OverallPerformance"):
             descending = operation != "Bottom"

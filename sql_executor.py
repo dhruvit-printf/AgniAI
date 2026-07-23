@@ -574,6 +574,31 @@ def resolve_company_id_from_name(company_name: str) -> Optional[int]:
     return rows[0].get("CompanyId")
 
 
+def resolve_platoon_id_from_name(platoon_name: str) -> Optional[int]:
+    """Resolve platoon ID from platoon name or number."""
+    if not platoon_name:
+        return None
+    try:
+        from admin_entity_resolver import resolve_platoon_id
+        pid = resolve_platoon_id(str(platoon_name))
+        if pid is not None:
+            return pid
+    except Exception:
+        pass
+    clean_p = str(platoon_name).strip()
+    p_num = re.search(r"\d+", clean_p)
+    if p_num:
+        try:
+            return int(p_num.group(0))
+        except ValueError:
+            pass
+    sql = "SELECT TOP (1) Id AS PlatoonId FROM PlatoonMaster WHERE LOWER(Name) LIKE '%' + LOWER(?) + '%'"
+    rows, err = run_readonly(sql, [clean_p])
+    if err or not rows:
+        return None
+    return rows[0].get("PlatoonId")
+
+
 def build_schedule_sql(
     company_id: Optional[int] = None,
     date: Optional[str] = None,
@@ -915,7 +940,7 @@ def build_verification_sql(
         return sql, scope_params
     
     elif status_lower in ("sent", "sentverification", "dispatched", "dispatchedforverification", "requestsent", "verificationrequested"):
-        # Sent = Has a record (not Pending)
+        # Sent = Status is 'Sent'
         sql = f"""
         WITH LatestVerification AS (
             SELECT
@@ -945,7 +970,7 @@ def build_verification_sql(
         LEFT JOIN BatchMaster b ON b.Id = a.BatchId
         INNER JOIN LatestVerification lv ON lv.AgniveerId = a.Id AND lv.rn = 1
         WHERE {scope_where}
-            AND lv.Status != 'Pending'
+            AND lv.Status = 'Sent'
         ORDER BY lv.SentDate DESC
         """
         return sql, scope_params
@@ -1590,15 +1615,47 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
 def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Absconded Leave query.
-    Returns Agniveers marked as absconded.
+    Returns Agniveers marked as absconded (IsAbscondedLeave = 1).
+    Applies only Disqualified filter and scope filters (BatchId/Company/Platoon).
+    Does NOT filter out IsActive = 0 or NULL FromDate.
     """
     try:
         top_n = _get_top_n(intent)
         response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
         detailed = response_type.lower() == "detailed"
 
-        # ── Base scope ──────────────────────────────────────────────────────
-        base_where, base_params = _build_leave_base_query(intent)
+        clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)", "l.IsAbscondedLeave = 1"]
+        params: List[Any] = []
+
+        batch_id = intent.get("batch_id") or intent.get("batchId")
+        platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+        company_id = intent.get("company_id") or intent.get("companyId")
+        company_name = intent.get("company_name") or intent.get("companyName")
+        agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+
+        if agniveer_no:
+            clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
+            params.append(str(agniveer_no))
+
+        if batch_id is not None:
+            clauses.append("a.BatchId = ?")
+            params.append(int(batch_id))
+
+        if platoon_id is not None:
+            clauses.append("a.PlatoonId = ?")
+            params.append(int(platoon_id))
+
+        if company_id is not None:
+            clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+            params.append(int(company_id))
+        elif company_name:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM PlatoonMaster p INNER JOIN CompanyMaster c "
+                "ON c.Id = p.CompanyId WHERE p.Id = a.PlatoonId AND (LOWER(c.Name) LIKE '%' + LOWER(?) + '%' OR LOWER(c.Name) = LOWER(?)))"
+            )
+            params.extend([str(company_name), str(company_name)])
+
+        where_str = "WHERE " + " AND ".join(clauses)
 
         # ── Short/Summary ──────────────────────────────────────────────────
         if not detailed:
@@ -1606,17 +1663,14 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
             SELECT COUNT(*) AS TotalAbsconded
             FROM AgniveerLeaveMaster l
             INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
-            WHERE {base_where}
-                AND l.IsAbscondedLeave = 1
-                AND l.FromDate IS NOT NULL
-                AND l.ToDate IS NOT NULL
+            {where_str}
             """
             
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Absconded Leave SQL validation failed: {err}"
             
-            rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
+            rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Absconded Leave execution failed: {run_err}"
             
@@ -1637,17 +1691,18 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
             b.BatchName,
             l.FromDate,
             l.ToDate,
-            DATEDIFF(DAY, l.FromDate, l.ToDate) + 1 AS LeaveDays,
+            CASE
+                WHEN l.FromDate IS NOT NULL AND l.ToDate IS NOT NULL THEN DATEDIFF(DAY, l.FromDate, l.ToDate) + 1
+                WHEN l.FromDate IS NOT NULL THEN DATEDIFF(DAY, l.FromDate, GETDATE())
+                ELSE NULL
+            END AS LeaveDays,
             l.Remarks
         FROM AgniveerLeaveMaster l
         INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
         LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
         LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
         LEFT JOIN BatchMaster b ON b.Id = a.BatchId
-        WHERE {base_where}
-            AND l.IsAbscondedLeave = 1
-            AND l.FromDate IS NOT NULL
-            AND l.ToDate IS NOT NULL
+        {where_str}
         ORDER BY a.AgniveerNo ASC
         """
         
@@ -1655,7 +1710,7 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         if not is_valid:
             return None, f"Absconded Leave SQL validation failed: {err}"
         
-        rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
+        rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Absconded Leave execution failed: {run_err}"
         
@@ -1679,7 +1734,7 @@ def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         # ── Base scope ──────────────────────────────────────────────────────
         base_where, base_params = _build_leave_base_query(intent)
 
-        # ── Threshold SQL (Union of Continuous and Total) ──────────────────
+        # ── Threshold SQL (Union of Continuous and Total with Deduplication) ──
         sql = f"""
         WITH ContinuousThreshold AS (
             SELECT
@@ -1712,7 +1767,7 @@ def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
                 p.Name AS PlatoonName,
                 c.Name AS CompanyName,
                 b.BatchName,
-                SUM(DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) AS TotalLeaveDays,
+                SUM(DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) AS LeaveDays,
                 'Total 55-59 days' AS Reason
             FROM AgniveerLeaveMaster l
             INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
@@ -1723,12 +1778,46 @@ def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
                 AND l.FromDate IS NOT NULL
                 AND l.ToDate IS NOT NULL
                 AND ISNULL(l.IsAbscondedLeave, 0) != 1
-            GROUP BY a.AgniveerNo, a.FullName, a.PhotoPath, a.Class, p.Name, c.Name, b.BatchName
+            GROUP BY
+                a.AgniveerNo,
+                a.FullName,
+                a.PhotoPath,
+                a.Class,
+                p.Name,
+                c.Name,
+                b.BatchName
             HAVING SUM(DATEDIFF(DAY, l.FromDate, l.ToDate) + 1) BETWEEN 55 AND 59
+        ),
+        Combined AS (
+            SELECT * FROM ContinuousThreshold
+            UNION ALL
+            SELECT * FROM TotalThreshold
+        ),
+        UniqueAgniveers AS (
+            SELECT *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY AgniveerNo
+                    ORDER BY
+                        CASE
+                            WHEN Reason = 'Continuous 40-44 days' THEN 1
+                            WHEN Reason = 'Total 55-59 days' THEN 2
+                            ELSE 3
+                        END
+                ) AS RowNum
+            FROM Combined
         )
-        SELECT * FROM ContinuousThreshold
-        UNION
-        SELECT * FROM TotalThreshold
+        SELECT
+            AgniveerNo,
+            FullName,
+            PhotoPath,
+            Class,
+            PlatoonName,
+            CompanyName,
+            BatchName,
+            LeaveDays,
+            Reason
+        FROM UniqueAgniveers
+        WHERE RowNum = 1
         ORDER BY AgniveerNo ASC
         """
         
@@ -3918,11 +4007,15 @@ def _org_scope_sql(
 ) -> Tuple[str, List[Any]]:
     batch_id = intent.get("batch_id") or intent.get("batchId")
     platoon_id = intent.get("platoon_id") or intent.get("platoonId")
+    platoon_name = intent.get("platoon_name") or intent.get("platoonName")
     company_id = intent.get("company_id") or intent.get("companyId")
     company_name = intent.get("company_name") or intent.get("companyName")
 
     if company_id is None and company_name:
         company_id = resolve_company_id_from_name(str(company_name))
+
+    if platoon_id is None and platoon_name:
+        platoon_id = resolve_platoon_id_from_name(str(platoon_name))
 
     clauses: List[str] = []
     params: List[Any] = []
@@ -3932,6 +4025,12 @@ def _org_scope_sql(
     if platoon_id is not None:
         clauses.append(f"{alias}.PlatoonId = ?")
         params.append(int(platoon_id))
+    elif platoon_name:
+        clauses.append(
+            f"EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = {alias}.PlatoonId AND (LOWER(p.Name) LIKE '%' + LOWER(?) + '%' OR LOWER(p.Name) = LOWER(?)))"
+        )
+        params.extend([str(platoon_name), str(platoon_name)])
+
     if company_id is not None:
         clauses.append(
             f"EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = {alias}.PlatoonId AND p.CompanyId = ?)"
