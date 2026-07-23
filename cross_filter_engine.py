@@ -220,39 +220,28 @@ def _build_no_overlap_message(
     counts: List[int], labels: Optional[List[str]]
 ) -> str:
     """
-    Distinguish "a condition genuinely returned nothing" from
-    "every condition matched records on its own, they just don't overlap".
+    Distinguish when intersection data cannot be intersected across conditions / subqueries:
+    Return message indicating data exists for X question but is not in Y.
     """
     if not counts:
-        return "I couldn't find any records matching that request."
+        return "No data is found for what you asked for."
 
-    if any(c == 0 for c in counts):
-        if labels and len(labels) == len(counts):
-            empty_labels = [label for label, count in zip(labels, counts) if count == 0]
-            parts = " and ".join(empty_labels)
-            return (
-                f"I couldn't find any records for '{parts}', so there's nothing "
-                f"to combine with the rest of your request. You might try "
-                f"adjusting that part of the search."
-            )
-        return (
-            "One or more of the conditions in your request didn't match any "
-            "records, so there's nothing to combine. You might try adjusting "
-            "the filters and searching again."
-        )
+    if labels and len(labels) >= 2:
+        x_label = labels[0]
+        y_label = labels[1]
+        c_x = counts[0] if len(counts) > 0 else 0
+        c_y = counts[1] if len(counts) > 1 else 0
 
-    if labels and len(labels) == len(counts):
-        parts = ", ".join(
-            f"{count} {label}" for label, count in zip(labels, counts)
-        )
-        return (
-            f"I found {parts} individually, but none of them meet all of "
-            f"those conditions at the same time. You might try relaxing one "
-            f"of the filters to see more results."
-        )
+        if c_x > 0 and c_y == 0:
+            return f"The data you are finding is there for {x_label} question but is not there in {y_label}."
+        elif c_x == 0 and c_y > 0:
+            return f"The data you are finding is there for {y_label} question but is not there in {x_label}."
+        elif c_x > 0 and c_y > 0:
+            return f"The data you are finding is there for {x_label} question but is not there in {y_label}."
+        elif c_x == 0 and c_y == 0:
+            return "No data is found for what you asked for."
 
-    return (
-        "Each condition matched some records on its own, but none satisfy "
-        "every condition together. You might try relaxing one of the "
-        "filters to see more results."
-    )
+    if any(c > 0 for c in counts):
+        return "The data you are finding is there for the first question but is not there in the second question."
+
+    return "No data is found for what you asked for."

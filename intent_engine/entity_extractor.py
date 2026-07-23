@@ -746,6 +746,7 @@ def _extract_to_attempt(query: str) -> Optional[int]:
 
 
 def _extract_unit_name(query: str) -> Optional[str]:
+    from .intent_schema import UNIT_ALIASES
     query_lower = _normalise(query)
     # Pattern 1: "unit alpha", "alpha unit", "in unit alpha", "from unit alpha"
     match = re.search(
@@ -793,15 +794,43 @@ def _extract_state(query: str) -> Optional[str]:
     m = re.search(r"\bfrom\s+([a-z\s]+?)(?:\s+who|\s+and|\s+belong|\s+with|\s*[\.,!]|$)", text)
     if m:
         val = m.group(1).strip()
-        if val not in ("batch", "platoon", "company", "unit", "class"):
-            return val.title()
+        if val.endswith(" unit") or val in ("batch", "platoon", "company", "unit", "class"):
+            return None
+        return val.title()
     return None
 
 
 _COMPANY_NAME_STOPWORDS = frozenset(
     {"in", "for", "of", "the", "a", "an", "this", "that", "and", "or",
-     "at", "to", "from", "by", "on", "with", "about", "vs", "versus"}
+     "at", "to", "from", "by", "on", "with", "about", "vs", "versus",
+     # Generic descriptors/determiners that can sit directly before
+     # "company" without being a real company name ("unknown company",
+     # "another company", ...) — without these, _find_generic_company_mentions
+     # in query_planner.py mistakes "Show data for unknown company Zulu
+     # Company" for TWO named companies ("unknown" and "Zulu") and wrongly
+     # triggers comparison mode on a query naming only one real company.
+     "unknown", "some", "any", "another", "other", "different", "new",
+     "old", "same", "such", "given", "particular", "specific", "certain",
+     "each", "every", "no", "which", "what", "our", "your", "my", "his",
+     "her", "their", "its"}
 )
+
+
+# CompanyMaster.Name isn't always just the spoken name — some companies are
+# stored as "<Abbr> - <FullName>" (e.g. "Lak - Lakhwinder", "Jas - Jaswant")
+# while others are the bare name ("Arora", "Thorat", "Mahadev"). A query
+# saying "Lakhwinder company" only ever yields the single token
+# "lakhwinder", which then fails every SQL site's exact
+# LOWER(c.Name) = LOWER(?) match against the real "Lak - Lakhwinder" row.
+# Mapping the spoken short forms to the canonical stored Name here — the one
+# place this gets extracted — fixes every downstream consumer at once
+# instead of patching each SQL clause individually.
+_COMPANY_CANONICAL_NAMES = {
+    "lak": "Lak - Lakhwinder",
+    "lakhwinder": "Lak - Lakhwinder",
+    "jas": "Jas - Jaswant",
+    "jaswant": "Jas - Jaswant",
+}
 
 
 def _extract_company_name(query: str) -> Optional[str]:
@@ -812,11 +841,11 @@ def _extract_company_name(query: str) -> Optional[str]:
     # "Lakhwinder" at all, which sits right before the keyword.
     m = re.search(r"\b([a-z0-9][a-z0-9\-_]*)\s+company\b", text)
     if m and m.group(1) not in _COMPANY_NAME_STOPWORDS:
-        return m.group(1)
+        return _COMPANY_CANONICAL_NAMES.get(m.group(1), m.group(1))
     # "company <Name>"
     m = re.search(r"\bcompany\s+([a-z0-9\-_]+)", text)
     if m and m.group(1) not in _COMPANY_NAME_STOPWORDS:
-        return m.group(1)
+        return _COMPANY_CANONICAL_NAMES.get(m.group(1), m.group(1))
     return None
 
 

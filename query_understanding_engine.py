@@ -1617,6 +1617,20 @@ def _extract_sub_requests(
             r"\byet\s+still\b",
             r"\bdespite\b",
             r"\bon\s+top\s+of\s+that\b",
+            # Plain "but" as a contrastive clause separator ("...scored
+            # Excellent in BPET but overweight and have pending
+            # verification") — same cross-filter semantics as "but still"
+            # above (an ADDITIONAL condition on the same subject), just
+            # without the "still". _CROSS_FILTER_MARKERS already treats
+            # "but who"/"but whose"/"but having" as strong DETECTION
+            # evidence; without a matching split here the whole clause
+            # after "but" stays fused into one fragment and whichever
+            # category's keywords happen to score higher wins, silently
+            # dropping the other condition.
+            r"\bbut\s+who\b",
+            r"\bbut\s+whose\b",
+            r"\bbut\s+having\b",
+            r"\bbut\b",
             r"\band\s+having\b",
             r"\band\s+belonging(?:\s+to)?\b",
             r"\band\s+belongs?\s+to\b",
@@ -2128,9 +2142,18 @@ def understand_query(query: str) -> Dict[str, Any]:
         _rel_pronoun_re = re.compile(
             r"\b(?:who|whose|which|that|with|having)\b", re.IGNORECASE
         )
-        if _rel_pronoun_re.search(
-            text[:_first_comma]
-        ) and not _rel_pronoun_re.search(text[_first_comma:]):
+        # A bare sentence-initial "who" ("Who improved in BPET, ...") is the
+        # interrogative question word, not a relative pronoun governing a
+        # clause chain — that reading requires a preceding noun ("Agniveers
+        # who..."), which is impossible when "who" is the very first word.
+        # Other pre-comma matches still count as clause-governing.
+        _pre_comma_governing_match = any(
+            not (m.start() == 0 and m.group(0).lower() == "who")
+            for m in _rel_pronoun_re.finditer(text[:_first_comma])
+        )
+        if _pre_comma_governing_match and not _rel_pronoun_re.search(
+            text[_first_comma:]
+        ):
             _rel_pronoun_only_before_first_comma = True
 
     if (
@@ -2162,10 +2185,46 @@ def understand_query(query: str) -> Dict[str, Any]:
                 _ab_parts[1],
             )
         ):
-            _ab_cat1 = _infer_category(_ab_parts[0], {})
-            _ab_cat2 = _infer_category(_ab_parts[1], {})
-            if _ab_cat1 and _ab_cat2 and _ab_cat1 != _ab_cat2:
-                cross_filter_intent = False
+            # Same "single continuous clause chain" reasoning as
+            # _rel_pronoun_only_before_first_comma, applied at this "and"
+            # cutpoint instead of a comma: "Agniveers who scored Excellent
+            # in BPET but overweight and have pending verification" governs
+            # all three legs with one "who" — the "and" here just adds a
+            # third leg to the same chain, it doesn't open an unrelated
+            # second topic. Only treat this as a real A-and-B split when the
+            # governing pronoun ISN'T already sitting in clause 1 alone.
+            _ab_pronoun_re = re.compile(
+                r"\b(?:who|whose|which|that|with|having)\b", re.IGNORECASE
+            )
+            # Same bare-sentence-initial-"who" exclusion as above: "Who is
+            # on leave today and what is the BMI distribution?" opens with
+            # the interrogative "who", not a relative pronoun governing
+            # clause 1 — that reading needs a preceding noun ("Agniveers
+            # who..."), impossible when "who" is clause 1's first word.
+            _ab_governing_match = any(
+                not (m.start() == 0 and m.group(0).lower() == "who")
+                for m in _ab_pronoun_re.finditer(_ab_parts[0])
+            )
+            # A repeated pronoun in clause 2 ("...agniveers who have high
+            # score in firing and who had malaria") is a second relative
+            # clause chained onto the SAME governing subject, not a fresh
+            # one — English coordinates "who X and who Y" this way all the
+            # time. That's different from clause 1 having no governing
+            # match at all (position-0 "who", or no pronoun whatsoever),
+            # where a pronoun anywhere in clause 2 doesn't prove anything.
+            # A bare "and having ..." with no pronoun in clause 1 at all
+            # ("Agniveers treated for fever and having pending
+            # verification") is unambiguous the other way: "having" can't
+            # open an independent question, so it always continues clause
+            # 1's implicit subject.
+            _ab_pronoun_governs = _ab_governing_match or bool(
+                re.match(r"^having\b", _ab_parts[1], re.IGNORECASE)
+            )
+            if not _ab_pronoun_governs:
+                _ab_cat1 = _infer_category(_ab_parts[0], {})
+                _ab_cat2 = _infer_category(_ab_parts[1], {})
+                if _ab_cat1 and _ab_cat2 and _ab_cat1 != _ab_cat2:
+                    cross_filter_intent = False
 
     # "which <group> has the most/highest/lowest ..." asks to RANK groups by
     # a single metric (a distribution/group-by question) — not to intersect

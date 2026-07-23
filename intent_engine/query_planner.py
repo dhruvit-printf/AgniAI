@@ -622,6 +622,68 @@ def _apply_number_override(ops: List[SubOperation], raw_query: str) -> None:
             op.dotnet_payload = format_admin_payload(op.intent_result)
 
 
+def _apply_scope_override(ops: List[SubOperation], raw_query: str) -> None:
+    """A cross-filter/multi-independent query's shared company/platoon/batch
+    scope often sits only in a leading clause that never survives as its own
+    operation — "Agniveers in Lakhwinder company who failed Firing and are
+    on leave" splits into "who failed Firing" and "are on leave" fragments,
+    neither of which mentions Lakhwinder in its own text, so re-classifying
+    each fragment in isolation (see _ops_from_semantic_fragments) drops the
+    company scope entirely even though the whole query clearly named one.
+    Detect scope from the full raw query once and backfill it onto any leg
+    whose own fragment didn't already resolve one — never overwrites a leg
+    that already has its own (comparison legs, and multi-independent legs
+    that each name a different company, must keep their own value).
+    """
+    from .entity_extractor import extract_entities
+
+    query_entities = extract_entities(raw_query, semantic={})
+    scope_fields = (
+        ("company_name", "companyName"),
+        ("company_id", "companyId"),
+        ("platoon_name", "platoonName"),
+        ("platoon_id", "platoonId"),
+        ("batch_id", "batchId"),
+    )
+    for op in ops:
+        ir = op.intent_result
+        changed = False
+        for snake_key, camel_key in scope_fields:
+            value = query_entities.get(camel_key)
+            if value is None:
+                continue
+            if ir.get(snake_key) or ir.get(camel_key):
+                continue
+            ir[snake_key] = value
+            ir[camel_key] = value
+            changed = True
+        if changed:
+            op.dotnet_payload = format_admin_payload(ir)
+
+
+def _find_generic_company_mentions(text: str) -> List[Tuple[int, int, str]]:
+    """Every "<Name> company"/"<Name> coy" occurrence in `text`, as
+    (start, end, lowercased name) spans.
+
+    Real company names are DB-driven (CompanyMaster: "Lak - Lakhwinder",
+    "Jas - Jaswant", Arora, Thorat, Mahadev, ...) — an open, growing set,
+    unlike the fixed NATO-alphabet placeholder vocabulary in
+    _COMPARISON_UNITS (Alpha/Bravo/Charlie/...), which no real company is
+    ever named. Matching the literal "<word> company" shape instead of a
+    hardcoded name list is what lets "BPET scores for Lak company and Jas
+    company" get recognised as naming two distinct companies at all.
+    """
+    from .entity_extractor import _COMPANY_NAME_STOPWORDS
+
+    matches: List[Tuple[int, int, str]] = []
+    for m in re.finditer(r"\b([a-z][a-z0-9\-]*)\s+(?:company|coy)\b", text, re.IGNORECASE):
+        name = m.group(1).lower()
+        if name in _COMPANY_NAME_STOPWORDS:
+            continue
+        matches.append((m.start(), m.end(), name))
+    return matches
+
+
 def _is_semantic_comparison(
     text_lower: str,
     categories: List[str],
@@ -652,10 +714,17 @@ def _is_semantic_comparison(
     # heuristic looks for — it wins the race before this function ever gets
     # a chance to recognise the comparison, so this specific high-precision
     # pattern needs to override that guess rather than defer to it.
+    # Same reasoning for two distinct real company names each individually
+    # suffixed with "company"/"coy" ("BPET scores for Lak company and Jas
+    # company") — the splitter has no marker to go on here and the second
+    # company's own category (often a low-confidence guess, since "Jas
+    # company" alone carries no topic) makes it look like two unrelated
+    # requests, when it's actually one metric asked of two companies.
     if (
         semantic
         and semantic.get("query_type") in ("cross_filter", "multi_independent")
         and not _COMPARATIVE_OR_RE.search(raw_query or text_lower)
+        and len({name for _, _, name in _find_generic_company_mentions(text_lower)}) < 2
     ):
         return False
 
@@ -712,6 +781,14 @@ def _is_semantic_comparison(
         if re.search(r"\b" + re.escape(u) + r"\b", text_lower)
     }
     if len(companies_found) >= 2:
+        return True
+
+    # Real company names aren't in the fixed _COMPARISON_UNITS vocabulary
+    # (see _find_generic_company_mentions) — "BPET scores for Lak company
+    # and Jas company" has no comparative keyword and no _COMPARISON_UNITS
+    # hit, so without this it silently falls through to a single-company
+    # SIMPLE query, dropping the second company entirely.
+    if len({name for _, _, name in _find_generic_company_mentions(text_lower)}) >= 2:
         return True
 
     # Multiple platoons
@@ -997,8 +1074,16 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
     # off the literal word "company"/"companies" immediately following
     # "<X> and <Y>" — narrow enough to avoid false positives on unrelated
     # "and" usage, general enough to catch any two arbitrary company names.
+    # Negative lookaheads on both name groups stop this from self-matching
+    # when the text is actually the OTHER shape ("<Name> company and <Name>
+    # company", each individually suffixed, handled by 2b-ii below) —
+    # without them, "arora company and thorat company" lets name_a capture
+    # the literal word "company" itself (from "...company and thorat..."),
+    # producing a garbled "arora company company" / "arora thorat company"
+    # split instead of deferring to 2b-ii's correct per-company split.
     _generic_coy_match = re.search(
-        r"\b([A-Za-z][A-Za-z\-]*)\s+and\s+([A-Za-z][A-Za-z\-]*)\s+compan(?:y|ies)\b",
+        r"\b(?!compan(?:y|ies)\b|coy\b)([A-Za-z][A-Za-z\-]*)\s+and\s+"
+        r"(?!compan(?:y|ies)\b|coy\b)([A-Za-z][A-Za-z\-]*)\s+compan(?:y|ies)\b",
         query_text,
         re.IGNORECASE,
     )
@@ -1015,6 +1100,23 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
         frag_a = " ".join(p for p in (prefix, f"{name_a} company", suffix) if p)
         frag_b = " ".join(p for p in (prefix, f"{name_b} company", suffix) if p)
         return _normalize_n_parts([frag_a, frag_b])
+
+    # 2b-ii. Generic "<Name> company ... <Name> company" — each company
+    # individually suffixed with its own "company"/"coy" (e.g. "BPET scores
+    # for Lak company and Jas company"), as opposed to 2b's single shared
+    # trailing "company" ("... for Lak and Jas company"). Deduplicated to
+    # the first mention of each distinct name so a company named twice
+    # doesn't produce a duplicate leg.
+    _generic_matches = _find_generic_company_mentions(query_text)
+    _seen_names: set = set()
+    _dedup_matches: List[Tuple[int, int, str]] = []
+    for start, end, name in _generic_matches:
+        if name in _seen_names:
+            continue
+        _seen_names.add(name)
+        _dedup_matches.append((start, end, name))
+    if len(_dedup_matches) >= 2:
+        return split_on_matches(query_text, _dedup_matches)
 
     # 2c. AgniveerNo pairs: "compare ... agniveer X and agniveer Y ...".
     agn_matches = [
@@ -1292,6 +1394,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
                 )
             _apply_response_type_override(valid_ops, raw_query)
             _apply_number_override(valid_ops, raw_query)
+            _apply_scope_override(valid_ops, raw_query)
             return QueryPlan(
                 QueryType.MULTI_INDEPENDENT,
                 valid_ops,
@@ -1328,6 +1431,7 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
             # generic uncap-to-1000 below, so a real user-stated number
             # always wins over that fallback.
             _apply_number_override(valid_ops, raw_query)
+            _apply_scope_override(valid_ops, raw_query)
             # Ranking/trend operations return only the top N (default 10)
             # unless "n" is set explicitly. Left uncapped, a cross-filter leg
             # like "who improved in BPET" only ever considers the top 10

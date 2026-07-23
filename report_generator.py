@@ -268,7 +268,7 @@ def _build_data_grounded_report(
 
     message = f"The {category_label} query completed successfully and returned {cnt} matched records."
     if cnt == 0:
-        message = f"The {category_label} query completed successfully but returned no records."
+        message = "No data is found for what you asked for."
 
     analysis_summary = f"Matched {cnt} {category_label} records."
     if scores:
@@ -372,7 +372,7 @@ def get_fallback_report(
                 combined_result.get("message")
                 if isinstance(combined_result, dict)
                 else None
-            ) or "I couldn't find any matching records for that search."
+            ) or "No data is found for what you asked for."
             message = no_overlap_message
             summary = "The selected conditions may be too narrow for the current set of records."
             obs = ["The search did not return any overlapping records."]
@@ -450,10 +450,7 @@ def get_fallback_report(
             insights = ["The returned records match the selected criteria."]
             conclusion = f"The search is complete and the {cnt} matching {category_label} records are ready for review."
         else:
-            message = (
-                f"I couldn't find any {category_label} records matching that "
-                f"request. You might try adjusting the filters and searching again."
-            )
+            message = "No data is found for what you asked for."
             summary = f"No matching records were found for the selected {category_label} criteria."
             obs = [f"The search returned 0 records for the {category_label} category."]
             insights = [
@@ -513,7 +510,7 @@ def generate_report(
                 else None
             )
             or fallback.get("message")
-            or "No matching records found."
+            or "No data is found for what you asked for."
         )
 
         analysis_summary = (

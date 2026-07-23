@@ -517,13 +517,13 @@ def _build_medical_blood_group_sql(
 #   AgniveerMaster.AgniveerNo -> AgniveerMaster.PlatoonId
 #   -> PlatoonMaster.Id/CompanyId -> CompanyMaster.Id -> CompanySchedule.CompanyId
 _COMPANY_ID_BY_NAME_SQL = (
-    "SELECT TOP (1) Id AS CompanyId FROM CompanyMaster WHERE LOWER(Name) = LOWER(?)"
+    "SELECT TOP (1) Id AS CompanyId FROM CompanyMaster WHERE LOWER(Name) LIKE '%' + LOWER(?) + '%'"
 )
 _COMPANY_ID_BY_PLATOON_ID_SQL = (
     "SELECT TOP (1) CompanyId FROM PlatoonMaster WHERE Id = ?"
 )
 _COMPANY_ID_BY_PLATOON_NAME_SQL = (
-    "SELECT TOP (1) CompanyId FROM PlatoonMaster WHERE LOWER(Name) = LOWER(?)"
+    "SELECT TOP (1) CompanyId FROM PlatoonMaster WHERE LOWER(Name) LIKE '%' + LOWER(?) + '%'"
 )
 _COMPANY_ID_BY_AGNIVEER_NO_SQL = (
     "SELECT TOP (1) p.CompanyId AS CompanyId "
@@ -558,8 +558,17 @@ def resolve_company_id_from_platoon(platoon_id: int) -> Optional[int]:
 
 def resolve_company_id_from_name(company_name: str) -> Optional[int]:
     """Resolve company ID from company name."""
-    sql = "SELECT TOP (1) Id AS CompanyId FROM CompanyMaster WHERE LOWER(Name) = LOWER(?)"
-    rows, err = run_readonly(sql, [company_name])
+    if not company_name:
+        return None
+    try:
+        from admin_entity_resolver import resolve_company_id
+        cid = resolve_company_id(str(company_name))
+        if cid is not None:
+            return cid
+    except Exception:
+        pass
+    sql = "SELECT TOP (1) Id AS CompanyId FROM CompanyMaster WHERE LOWER(Name) = LOWER(?) OR LOWER(Name) LIKE '%' + LOWER(?) + '%'"
+    rows, err = run_readonly(sql, [str(company_name), str(company_name)])
     if err or not rows:
         return None
     return rows[0].get("CompanyId")
@@ -690,25 +699,33 @@ def _build_disqualified_base_query(intent: Dict[str, Any]) -> Tuple[str, List[An
     batch_id = intent.get("batch_id") or intent.get("batchId")
     platoon_id = intent.get("platoon_id") or intent.get("platoonId")
     company_id = intent.get("company_id") or intent.get("companyId")
+    company_name = intent.get("company_name") or intent.get("companyName")
     from_date = intent.get("from_date") or intent.get("fromDate")
     to_date = intent.get("to_date") or intent.get("toDate")
-    
+
     if agniveer_no:
         clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
         params.append(str(agniveer_no))
-    
+
     if batch_id is not None:
         clauses.append("a.BatchId = ?")
         params.append(int(batch_id))
-    
+
     if platoon_id is not None:
         clauses.append("a.PlatoonId = ?")
         params.append(int(platoon_id))
-    
+
     if company_id is not None:
         clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
         params.append(int(company_id))
-    
+
+    if company_name:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p INNER JOIN CompanyMaster c "
+            "ON c.Id = p.CompanyId WHERE p.Id = a.PlatoonId AND LOWER(c.Name) = LOWER(?))"
+        )
+        params.append(str(company_name))
+
     if from_date:
         clauses.append("CAST(a.DisqualifiedDate AS DATE) >= CAST(? AS DATE)")
         params.append(str(from_date)[:10])
@@ -1142,6 +1159,7 @@ def _build_leave_base_query(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
     batch_id = intent.get("batch_id") or intent.get("batchId")
     platoon_id = intent.get("platoon_id") or intent.get("platoonId")
     company_id = intent.get("company_id") or intent.get("companyId")
+    company_name = intent.get("company_name") or intent.get("companyName")
     from_date = intent.get("from_date") or intent.get("fromDate")
     to_date = intent.get("to_date") or intent.get("toDate")
 
@@ -1160,6 +1178,13 @@ def _build_leave_base_query(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
     if company_id is not None:
         clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
         params.append(int(company_id))
+
+    if company_name:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p INNER JOIN CompanyMaster c "
+            "ON c.Id = p.CompanyId WHERE p.Id = a.PlatoonId AND LOWER(c.Name) = LOWER(?))"
+        )
+        params.append(str(company_name))
 
     # ── Date range filters ────────────────────────────────────────────────
     if from_date:
@@ -2076,16 +2101,16 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
     try:
         top_n = _get_top_n(intent)
         blood_group = intent.get("blood_group") or intent.get("bloodGroup")
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
-        detailed = response_type.lower() == "detailed"
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
 
         base_where, base_params = _build_medical_base_scope(intent)
 
         # ── Report/Distribution ─────────────────────────────────────────────
-        # A named agniveer means "their blood group", not the org-wide
-        # distribution, even when the caller didn't also set detailed/blood_group.
-        if not blood_group and not detailed and not agniveer_no:
+        # With no specific blood group or agniveer named, the only useful
+        # answer is the org-wide breakdown by group — routing this off the
+        # response_type default would make the aggregate branch unreachable
+        # now that "Detailed" is the default response type.
+        if not blood_group and not agniveer_no:
             sql = f"""
             SELECT
                 COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown') AS BloodGroup,
@@ -2110,7 +2135,7 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
             return _to_section(rows or [], intent, sql=sql), None
 
         # ── Detailed with specific blood group ─────────────────────────────
-        if blood_group or detailed or agniveer_no:
+        if blood_group or agniveer_no:
             blood_clause = ""
             params = list(base_params)
             if blood_group:
@@ -2519,6 +2544,7 @@ def _build_attendance_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]
     batch_id = intent.get("batch_id") or intent.get("batchId")
     platoon_id = intent.get("platoon_id") or intent.get("platoonId")
     company_id = intent.get("company_id") or intent.get("companyId")
+    company_name = intent.get("company_name") or intent.get("companyName")
 
     if agniveer_no:
         clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
@@ -2532,6 +2558,12 @@ def _build_attendance_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]
     if company_id is not None:
         clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
         params.append(int(company_id))
+    if company_name:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p INNER JOIN CompanyMaster c "
+            "ON c.Id = p.CompanyId WHERE p.Id = a.PlatoonId AND LOWER(c.Name) = LOWER(?))"
+        )
+        params.append(str(company_name))
 
     return " AND ".join(clauses), params
 
@@ -3212,6 +3244,7 @@ def _build_distribution_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[An
     batch_id = intent.get("batch_id") or intent.get("batchId")
     platoon_id = intent.get("platoon_id") or intent.get("platoonId")
     company_id = intent.get("company_id") or intent.get("companyId")
+    company_name = intent.get("company_name") or intent.get("companyName")
 
     if agniveer_no:
         clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
@@ -3225,6 +3258,12 @@ def _build_distribution_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[An
     if company_id is not None:
         clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
         params.append(int(company_id))
+    if company_name:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p INNER JOIN CompanyMaster c "
+            "ON c.Id = p.CompanyId WHERE p.Id = a.PlatoonId AND LOWER(c.Name) = LOWER(?))"
+        )
+        params.append(str(company_name))
 
     return " AND ".join(clauses), params
 
@@ -3877,21 +3916,13 @@ def _org_scope_sql(
     alias: str,
     intent: Dict[str, Any],
 ) -> Tuple[str, List[Any]]:
-    """Build the ' AND ...' fragment scoping `alias` (an AgniveerMaster
-    alias) to whichever of batch/platoon/company the request carries.
-
-    Several raw-SQL fast paths below only wired up a subset of these three
-    (e.g. Verification wired none, Equipment/PersonalDetails wired batch but
-    not company) — each one independently re-implementing this by hand is
-    exactly how those gaps happened. Centralising it here means a query
-    scoped to a specific batch/platoon/company (from the frontend's batchId,
-    or from a resolved company/platoon NAME upstream in
-    admin_entity_resolver.py) is honoured by every fast path, not just the
-    ones someone remembered to wire it into.
-    """
     batch_id = intent.get("batch_id") or intent.get("batchId")
     platoon_id = intent.get("platoon_id") or intent.get("platoonId")
     company_id = intent.get("company_id") or intent.get("companyId")
+    company_name = intent.get("company_name") or intent.get("companyName")
+
+    if company_id is None and company_name:
+        company_id = resolve_company_id_from_name(str(company_name))
 
     clauses: List[str] = []
     params: List[Any] = []
@@ -3906,6 +3937,11 @@ def _org_scope_sql(
             f"EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = {alias}.PlatoonId AND p.CompanyId = ?)"
         )
         params.append(int(company_id))
+    elif company_name:
+        clauses.append(
+            f"EXISTS (SELECT 1 FROM PlatoonMaster p INNER JOIN CompanyMaster c ON c.Id = p.CompanyId WHERE p.Id = {alias}.PlatoonId AND (LOWER(c.Name) LIKE '%' + LOWER(?) + '%' OR LOWER(c.Name) = LOWER(?)))"
+        )
+        params.extend([str(company_name), str(company_name)])
 
     if not clauses:
         return "", []
@@ -4019,11 +4055,47 @@ ORDER BY sec.SectionName ASC, si.DisplayOrder ASC
         )
         _v_status = _v_status_raw.lower() if _v_status_raw else ""
 
+        _raw_q = (intent.get("raw_query") or "").lower()
+        _v_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
+
+        _has_explicit_status_kw = any(
+            kw in _raw_q
+            for kw in [
+                "pending",
+                "unverified",
+                "awaiting verification",
+                "not responded",
+                "no response",
+                "no reply",
+                "rejected",
+                "failed",
+                "denied",
+                "completed",
+                "verified",
+                "cleared",
+                "approved",
+                "sent verification",
+                "verification sent",
+            ]
+        )
+        if (_v_agniveer_no or "status" in _raw_q) and not _has_explicit_status_kw:
+            _v_status = "info"
+
         _limit = _get_top_n(intent)
 
         _base_cols = (
             "m.AgniveerNo, m.FullName, pv.Status, pv.SentDate, "
             "pv.PoliceStation, pv.ReceivedDate, pv.Remarks"
+        )
+        _generic_cols = (
+            "m.AgniveerNo, m.FullName, "
+            "CASE "
+            "  WHEN pv.AgniveerId IS NULL OR pv.Status IS NULL OR pv.Status = '' THEN 'Pending' "
+            "  WHEN pv.Status = 'Sent' AND pv.ReceivedDate IS NULL THEN 'Not Responded' "
+            "  WHEN pv.Status = 'Sent' AND pv.ReceivedDate IS NOT NULL THEN 'Sent' "
+            "  ELSE pv.Status "
+            "END AS Status, "
+            "pv.SentDate, pv.PoliceStation, pv.ReceivedDate, pv.Remarks"
         )
         _args: List[Any] = []
 
@@ -4031,7 +4103,6 @@ ORDER BY sec.SectionName ASC, si.DisplayOrder ASC
         # (e.g. "police verification status of A0701749H") — every branch
         # below must scope to them, or the query silently returns the whole
         # roster's verification status instead.
-        _v_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         _agniveer_filter = ""
         if _v_agniveer_no:
             _agniveer_filter = "AND m.AgniveerNo = ?"
@@ -4098,9 +4169,9 @@ WHERE ISNULL(m.IsDisqualified,0) = 0
 ORDER BY pv.SentDate DESC
 """
         else:
-            # Generic — show all with their current status
+            # Generic — show all with their current status (Pending, Sent, Not Responded, Verified, Rejected)
             _sql = f"""
-SELECT {_top_clause(_limit)} {_base_cols}
+SELECT {_top_clause(_limit)} {_generic_cols}
 FROM AgniveerMaster m
 LEFT JOIN PoliceVerificationMaster pv ON pv.AgniveerId = m.Id
 WHERE ISNULL(m.IsDisqualified,0) = 0
@@ -4848,6 +4919,9 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
     from_date = _pick_legacy_value("fromDate", "from_date")
     to_date = _pick_legacy_value("toDate", "to_date")
     leave_status = _pick_legacy_value("leaveStatus", "leave_status", "leaveType", "leave_type")
+
+    if company_id is None and company_name is not None:
+        company_id = resolve_company_id_from_name(str(company_name))
 
     if company_id is not None:
         filters.setdefault("Company.Id", company_id)

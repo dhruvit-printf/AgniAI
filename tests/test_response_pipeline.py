@@ -605,7 +605,7 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         report = generate_report(combined, "cross_filter", intent, "query")
 
         self.assertEqual(
-            report["message"], "I couldn't find any matching records for that search."
+            report["message"], "No data is found for what you asked for."
         )
         self.assertEqual(
             report["analysis"]["summary"],

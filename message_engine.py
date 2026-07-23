@@ -435,18 +435,7 @@ def _static_fallback(
     # ── No results ───────────────────────────────────────────────────────────
     count = data_summary.get("record_count") or data_summary.get("match_count") or 0
     if count == 0 and qtype not in ("comparison", "multi_independent"):
-        filter_hints = []
-        if ctx.get("batch"):
-            filter_hints.append(f"Batch {ctx['batch']}")
-        if ctx.get("platoon"):
-            filter_hints.append(f"Platoon {ctx['platoon']}")
-        if ctx.get("agniveer"):
-            filter_hints.append(f"Agniveer {ctx['agniveer']}")
-        scope_note = f" under {', '.join(filter_hints)}" if filter_hints else ""
-        return (
-            f"No {scope} records were found{scope_note}. "
-            "You may want to check the filter criteria or broaden the date range."
-        )
+        return "No data is found for what you asked for."
 
     # ── Comparison ───────────────────────────────────────────────────────────
     if qtype in ("comparison", "compare"):

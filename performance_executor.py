@@ -118,6 +118,10 @@ def execute_performance_query(
     agniveer_class = intent.get("class")
     platoon_id = intent.get("platoon_id") or intent.get("platoonId")
     company_id = intent.get("company_id") or intent.get("companyId")
+    company_name = intent.get("company_name") or intent.get("companyName")
+    if company_id is None and company_name:
+        from sql_executor import resolve_company_id_from_name
+        company_id = resolve_company_id_from_name(str(company_name))
 
     agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
     section = str(intent.get("section") or "").strip()
@@ -149,6 +153,11 @@ def execute_performance_query(
                 f"EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = {alias}.PlatoonId AND p.CompanyId = ?)"
             )
             params.append(int(company_id))
+        elif company_name:
+            clauses.append(
+                f"EXISTS (SELECT 1 FROM PlatoonMaster p INNER JOIN CompanyMaster c ON c.Id = p.CompanyId WHERE p.Id = {alias}.PlatoonId AND (LOWER(c.Name) LIKE '%' + LOWER(?) + '%' OR LOWER(c.Name) = LOWER(?)))"
+            )
+            params.extend([str(company_name), str(company_name)])
         if agniveer_no is not None:
             clauses.append(f"LOWER({alias}.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
             params.append(str(agniveer_no))

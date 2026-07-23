@@ -119,7 +119,11 @@ def test_volleyball_playing_query_with_company_scope():
         intent = parse_personal_details(query)
         assert intent is not None
         assert intent.get("sport") == "Volleyball"
-        assert intent.get("company_name") == "jaswant"
+        # CompanyMaster stores this row as "Jas - Jaswant", not bare
+        # "Jaswant" — the raw "jaswant" token extracted from the query text
+        # is mapped to the canonical stored name so downstream SQL's
+        # LOWER(c.Name) = LOWER(?) match actually finds the row.
+        assert intent.get("company_name") == "Jas - Jaswant"
 
         intent["raw_query"] = query
         with patch("sql_executor.run_readonly") as mock_run:
@@ -135,6 +139,6 @@ def test_volleyball_playing_query_with_company_scope():
         params = mock_run.call_args[0][1]
         assert "LOWER(m.Sports) LIKE '%' + LOWER(?) + '%'" in sql_executed
         assert "LOWER(c.Name) LIKE '%' + LOWER(?) + '%'" in sql_executed
-        assert "jaswant" in params
+        assert "Jas - Jaswant" in params
         assert "Volleyball" in params
 

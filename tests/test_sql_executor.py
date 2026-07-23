@@ -489,7 +489,11 @@ class TestExecuteSqlQuery:
             assert mock_run.call_count == 2
             lookup_sql, lookup_params = mock_run.call_args_list[0][0]
             assert "CompanyMaster" in lookup_sql
-            assert lookup_params == ["Lakhwinder"]
+            # resolve_company_id_from_name tries the live entity resolver
+            # first (unmocked here, so it fails and falls through) and then
+            # falls back to this SQL lookup, which matches on both an exact
+            # name and a LIKE substring — one param bound per placeholder.
+            assert lookup_params == ["Lakhwinder", "Lakhwinder"]
             final_sql, final_params = mock_run.call_args_list[1][0]
             assert "CompanySchedule" in final_sql
             assert final_params == [5]

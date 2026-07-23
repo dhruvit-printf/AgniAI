@@ -883,6 +883,28 @@ def _should_entity_override_operation(
         if _phrase_score(query_text, "search") or _phrase_score(query_text, "find"):
             return True, "Search", "equipment search phrase present"
 
+    if category == "Verification":
+        raw_lower = query_text.lower()
+        has_explicit_pending = any(w in raw_lower for w in ("pending", "unverified", "awaiting verification", "not verified"))
+        has_explicit_sent = any(w in raw_lower for w in ("sent verification", "verification sent", "dispatched", "request sent"))
+        has_explicit_not_responded = any(w in raw_lower for w in ("not responded", "no response", "awaiting response", "no reply", "unresponsive"))
+        has_explicit_verified = any(w in raw_lower for w in ("verified verification", "completed verification", "all verified", "fully verified", "verification completed", "verification done"))
+        has_explicit_rejected = any(w in raw_lower for w in ("rejected verification", "failed verification", "verification failed", "denied"))
+
+        if has_explicit_pending:
+            return True, "Pending", "explicit pending verification query"
+        if has_explicit_sent:
+            return True, "Sent", "explicit sent verification query"
+        if has_explicit_not_responded:
+            return True, "NotResponded", "explicit not responded verification query"
+        if has_explicit_verified:
+            return True, "Verified", "explicit verified verification query"
+        if has_explicit_rejected:
+            return True, "Rejected", "explicit rejected verification query"
+
+        if _entity_present(entities, "agniveerNo") or any(w in raw_lower for w in ("status", "police verification status", "verification status")):
+            return True, "info", "general verification status query without specific status filter"
+
     if category in ("Skills",):
         if not classified_operation and _entity_present(entities, "sport"):
             return True, "BySport", "sport entity present without operation"

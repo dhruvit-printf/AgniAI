@@ -258,8 +258,8 @@ _AGNIVEER_NO_MISSING_MESSAGE = "Please provide agniveer number"
 # Friendly, conversational fallback — the raw exception/status text is always
 # logged server-side for diagnostics, but never shown to the user verbatim.
 _REQUEST_UNPROCESSABLE_MESSAGE = (
-    "I couldn't quite work out how to run that request. "
-    "Could you try rephrasing your question?"
+    "Question is not understood. The system was unable to understand your question. "
+    "Please try rephrasing your request."
 )
 
 
@@ -1400,8 +1400,8 @@ def execute_admin_query(
                         qtype_str = "text2sql"
                     else:
                         unrecognised_msg = (
-                            "I couldn't understand the query clearly. "
-                            "Could you please rephrase it?"
+                            "Question is not understood. The system was unable to understand your query. "
+                            "Please rephrase or provide more details."
                         )
 
                         total_duration = time.time() - start_time

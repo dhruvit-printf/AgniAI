@@ -221,6 +221,23 @@ _NAME_WORD = r"[a-z0-9][a-z0-9\-_./]*"
 _COMPANY_NAME_WORDS = rf"(?:{_NAME_WORD}\s+){{0,1}}{_NAME_WORD}"
 
 
+# CompanyMaster stores some rows as "<Abbr> - <FullName>" (e.g.
+# "Lak - Lakhwinder", "Jas - Jaswant") rather than the bare spoken name, so a
+# query saying "Lakhwinder company" only ever yields the single token
+# "lakhwinder". The live .NET-backed resolve_company_id() already tolerates
+# this via substring matching in _name_matches(), but sql_executor.py's own
+# SQL-side exact-match lookups (resolve_company_id_from_name, and every
+# `LOWER(c.Name) = LOWER(?)` WHERE clause) do not — they need the literal
+# stored Name. Canonicalizing here means whichever path ends up consuming
+# this return value gets a name that matches either way.
+_COMPANY_CANONICAL_NAMES = {
+    "lak": "Lak - Lakhwinder",
+    "lakhwinder": "Lak - Lakhwinder",
+    "jas": "Jas - Jaswant",
+    "jaswant": "Jas - Jaswant",
+}
+
+
 def extract_company_name(text: str) -> Optional[str]:
     q = text.lower().strip()
     if not q:
@@ -236,7 +253,7 @@ def extract_company_name(text: str) -> Optional[str]:
         if m:
             candidate = _clean_candidate(_normalise_company_or_platoon_name(m.group(1)))
             if candidate:
-                return candidate
+                return _COMPANY_CANONICAL_NAMES.get(candidate.lower(), candidate)
 
     tokens = _COMPANY_TOKEN_RE.findall(q)
     for idx, token in enumerate(tokens):
@@ -247,11 +264,11 @@ def extract_company_name(text: str) -> Optional[str]:
         if before:
             candidate = _clean_candidate(_normalise_company_or_platoon_name(" ".join(before)))
             if candidate:
-                return candidate
+                return _COMPANY_CANONICAL_NAMES.get(candidate.lower(), candidate)
         if after:
             candidate = _clean_candidate(_normalise_company_or_platoon_name(" ".join(after)))
             if candidate:
-                return candidate
+                return _COMPANY_CANONICAL_NAMES.get(candidate.lower(), candidate)
 
     return None
 
