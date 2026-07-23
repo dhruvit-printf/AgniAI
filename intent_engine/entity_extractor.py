@@ -17,6 +17,7 @@ from .intent_schema import (
     BLOOD_GROUPS,
     BMI_CATEGORIES,
     CLASSES,
+    COMPANY_CANONICAL_NAMES,
     GRADING_CATEGORIES,
     ISSUED_EQUIPMENT_ITEMS,
     LEAVE_TYPES,
@@ -250,7 +251,6 @@ def _extract_number(query: str) -> Optional[int]:
         return num
 
     return None
-
 
 
 def detect_query_number_override(raw_query: str) -> Optional[int]:
@@ -530,10 +530,35 @@ def _tokenize(text: str) -> List[str]:
     return [t for t in re.split(r"\s+", _normalise(text)) if t and t not in _STOPWORDS]
 
 
-def _score_equipment_match(query_tokens: List[str], item: str) -> Tuple[int, int]:
+def _fuzzy_token_overlap(query_tokens: List[str], item_tokens: List[str]) -> int:
+    """Count item tokens with a near-miss (edit distance <=1, near-equal
+    length) among query tokens that didn't already exactly match — catches a
+    misspelled equipment name ("bootss"/"combatt") that plain token-overlap
+    would otherwise miss entirely. Reuses the same Damerau-Levenshtein
+    helper and >=4-char gating already used for this purpose elsewhere
+    (query_normalizer.py, admin_entity_resolver.py's _fuzzy_token_match) —
+    short tokens are too ambiguous for edit-distance matching."""
+    try:
+        from .intent_classifier import _damerau_levenshtein
+    except Exception:
+        return 0
+
+    exact = set(query_tokens) & set(item_tokens)
+    remaining_query = [t for t in query_tokens if t not in exact and len(t) >= 4]
+    remaining_item = [t for t in item_tokens if t not in exact and len(t) >= 4]
+    hits = 0
+    for it in remaining_item:
+        for qt in remaining_query:
+            if abs(len(qt) - len(it)) <= 1 and _damerau_levenshtein(qt, it) <= 1:
+                hits += 1
+                break
+    return hits
+
+
+def _score_equipment_match(query_tokens: List[str], item: str) -> Tuple[int, int, int]:
     item_tokens = _tokenize(item)
     if not item_tokens:
-        return 0, 0
+        return 0, 0, 0
     overlap = len(set(query_tokens) & set(item_tokens))
     phrase_hits = 0
     query_text = " ".join(query_tokens)
@@ -542,7 +567,14 @@ def _score_equipment_match(query_tokens: List[str], item: str) -> Tuple[int, int
         phrase_hits += len(item_tokens)
     if query_text in item_text:
         phrase_hits += len(query_tokens)
-    return overlap + phrase_hits, -len(item_tokens)
+    # Only worth computing when exact/phrase matching left something
+    # unmatched — avoids the extra edit-distance work on the common case.
+    fuzzy_overlap = (
+        _fuzzy_token_overlap(query_tokens, item_tokens)
+        if overlap < len(item_tokens)
+        else 0
+    )
+    return overlap + phrase_hits, fuzzy_overlap, -len(item_tokens)
 
 
 def _extract_equipment_item(query: str) -> Optional[str]:
@@ -567,11 +599,15 @@ def _extract_equipment_item(query: str) -> Optional[str]:
         return None
 
     best_item: Optional[str] = None
-    best_score: Tuple[int, int] = (0, 0)
+    best_score: Tuple[int, int, int] = (0, 0, 0)
 
     for item in ISSUED_EQUIPMENT_ITEMS + PROCURED_EQUIPMENT_ITEMS:
         score = _score_equipment_match(query_tokens, item)
-        if score > best_score and score[0] > 0:
+        # A pure-fuzzy hit (score[0] == 0) is only ever considered when the
+        # query already has other equipment-context signal — same
+        # conservative gate as the final acceptance check below, so a
+        # misspelled item name never gets guessed at in isolation.
+        if score > best_score and (score[0] > 0 or (score[1] > 0 and has_equipment_context)):
             best_item = item
             best_score = score
 
@@ -747,6 +783,7 @@ def _extract_to_attempt(query: str) -> Optional[int]:
 
 def _extract_unit_name(query: str) -> Optional[str]:
     from .intent_schema import UNIT_ALIASES
+
     query_lower = _normalise(query)
     # Pattern 1: "unit alpha", "alpha unit", "in unit alpha", "from unit alpha"
     match = re.search(
@@ -771,7 +808,9 @@ def _extract_unit_name(query: str) -> Optional[str]:
 
 def _extract_numeric_id(query: str, id_pattern: str) -> Optional[int]:
     query_lower = _normalise(query)
-    match = re.search(rf"\b(?:{id_pattern})\s*[-#]?\s*(\d+)\b", query_lower, re.IGNORECASE)
+    match = re.search(
+        rf"\b(?:{id_pattern})\s*[-#]?\s*(\d+)\b", query_lower, re.IGNORECASE
+    )
     if match:
         return int(match.group(1))
     return None
@@ -791,28 +830,77 @@ def _extract_batch_id(query: str) -> Optional[int]:
 
 def _extract_state(query: str) -> Optional[str]:
     text = query.lower()
-    m = re.search(r"\bfrom\s+([a-z\s]+?)(?:\s+who|\s+and|\s+belong|\s+with|\s*[\.,!]|$)", text)
+    m = re.search(
+        r"\bfrom\s+([a-z\s]+?)(?:\s+who|\s+and|\s+belong|\s+with|\s*[\.,!]|$)", text
+    )
     if m:
         val = m.group(1).strip()
-        if val.endswith(" unit") or val in ("batch", "platoon", "company", "unit", "class"):
+        if val.endswith(" unit") or val in (
+            "batch",
+            "platoon",
+            "company",
+            "unit",
+            "class",
+        ):
             return None
         return val.title()
     return None
 
 
 _COMPANY_NAME_STOPWORDS = frozenset(
-    {"in", "for", "of", "the", "a", "an", "this", "that", "and", "or",
-     "at", "to", "from", "by", "on", "with", "about", "vs", "versus",
-     # Generic descriptors/determiners that can sit directly before
-     # "company" without being a real company name ("unknown company",
-     # "another company", ...) — without these, _find_generic_company_mentions
-     # in query_planner.py mistakes "Show data for unknown company Zulu
-     # Company" for TWO named companies ("unknown" and "Zulu") and wrongly
-     # triggers comparison mode on a query naming only one real company.
-     "unknown", "some", "any", "another", "other", "different", "new",
-     "old", "same", "such", "given", "particular", "specific", "certain",
-     "each", "every", "no", "which", "what", "our", "your", "my", "his",
-     "her", "their", "its"}
+    {
+        "in",
+        "for",
+        "of",
+        "the",
+        "a",
+        "an",
+        "this",
+        "that",
+        "and",
+        "or",
+        "at",
+        "to",
+        "from",
+        "by",
+        "on",
+        "with",
+        "about",
+        "vs",
+        "versus",
+        # Generic descriptors/determiners that can sit directly before
+        # "company" without being a real company name ("unknown company",
+        # "another company", ...) — without these, _find_generic_company_mentions
+        # in query_planner.py mistakes "Show data for unknown company Zulu
+        # Company" for TWO named companies ("unknown" and "Zulu") and wrongly
+        # triggers comparison mode on a query naming only one real company.
+        "unknown",
+        "some",
+        "any",
+        "another",
+        "other",
+        "different",
+        "new",
+        "old",
+        "same",
+        "such",
+        "given",
+        "particular",
+        "specific",
+        "certain",
+        "each",
+        "every",
+        "no",
+        "which",
+        "what",
+        "our",
+        "your",
+        "my",
+        "his",
+        "her",
+        "their",
+        "its",
+    }
 )
 
 
@@ -825,12 +913,9 @@ _COMPANY_NAME_STOPWORDS = frozenset(
 # Mapping the spoken short forms to the canonical stored Name here — the one
 # place this gets extracted — fixes every downstream consumer at once
 # instead of patching each SQL clause individually.
-_COMPANY_CANONICAL_NAMES = {
-    "lak": "Lak - Lakhwinder",
-    "lakhwinder": "Lak - Lakhwinder",
-    "jas": "Jas - Jaswant",
-    "jaswant": "Jas - Jaswant",
-}
+# Alias map itself lives in intent_schema.COMPANY_CANONICAL_NAMES (shared
+# with admin_entity_resolver.py) so it's maintained in one place.
+_COMPANY_CANONICAL_NAMES = COMPANY_CANONICAL_NAMES
 
 
 def _extract_company_name(query: str) -> Optional[str]:
@@ -847,7 +932,6 @@ def _extract_company_name(query: str) -> Optional[str]:
     if m and m.group(1) not in _COMPANY_NAME_STOPWORDS:
         return _COMPANY_CANONICAL_NAMES.get(m.group(1), m.group(1))
     return None
-
 
 
 def _extract_agniveer_no(query: str) -> Optional[str]:
@@ -907,9 +991,15 @@ def _extract_days(query: str) -> Optional[int]:
 
 def _extract_verification_status(query: str) -> Optional[str]:
     query_lower = _normalise(query)
-    if any(phrase in query_lower for phrase in ("completed", "verified", "cleared", "approved", "complete")):
+    if any(
+        phrase in query_lower
+        for phrase in ("completed", "verified", "cleared", "approved", "complete")
+    ):
         return "Completed"
-    if any(phrase in query_lower for phrase in ("pending", "not verified", "not responded", "not complete")):
+    if any(
+        phrase in query_lower
+        for phrase in ("pending", "not verified", "not responded", "not complete")
+    ):
         return "Pending"
     if any(phrase in query_lower for phrase in ("rejected", "failed")):
         return "Rejected"
@@ -925,7 +1015,10 @@ def _extract_return_condition(
     if semantic and semantic.get("module", "").lower() == "equipment":
         is_equipment = True
         op = str(semantic.get("operation") or "").lower()
-    if any(w in query_lower for w in ("equipment", "issued", "returned", "return", "item", "condition")):
+    if any(
+        w in query_lower
+        for w in ("equipment", "issued", "returned", "return", "item", "condition")
+    ):
         is_equipment = True
 
     for cond in ("good", "fair", "poor", "damaged"):
@@ -949,7 +1042,10 @@ def _extract_given_condition(
     if semantic and semantic.get("module", "").lower() == "equipment":
         is_equipment = True
         op = str(semantic.get("operation") or "").lower()
-    if any(w in query_lower for w in ("equipment", "issued", "returned", "return", "item", "condition")):
+    if any(
+        w in query_lower
+        for w in ("equipment", "issued", "returned", "return", "item", "condition")
+    ):
         is_equipment = True
 
     for cond in ("good", "fair", "poor", "damaged"):
@@ -1001,7 +1097,6 @@ CANONICAL_ENTITY_KEYS = frozenset(
 )
 
 
-
 def assert_canonical_entity_keys(entities: Dict[str, Any]) -> None:
     for key in entities.keys():
         if key not in CANONICAL_ENTITY_KEYS:
@@ -1042,7 +1137,13 @@ _MEDICAL_CONTEXT_WORDS = frozenset(
 # meaningful when a disease was actually extracted; scoped separately from
 # _MEDICAL_CONTEXT_WORDS above so a generic "currently" doesn't force a date
 # filter onto unrelated medical-context matches.
-_DIAGNOSE_CURRENT_HINTS = ("right now", "currently", "today", "as of today", "at the moment")
+_DIAGNOSE_CURRENT_HINTS = (
+    "right now",
+    "currently",
+    "today",
+    "as of today",
+    "at the moment",
+)
 
 
 _KNOWN_DISEASES = (
@@ -1163,7 +1264,9 @@ def _extract_diagnose_is_current(query: str) -> bool:
     return any(hint in query_lower for hint in _DIAGNOSE_CURRENT_HINTS)
 
 
-_HOSPITAL_STOPWORDS = frozenset({"the", "a", "an", "this", "that", "which", "what", "which"})
+_HOSPITAL_STOPWORDS = frozenset(
+    {"the", "a", "an", "this", "that", "which", "what", "which"}
+)
 
 # Question/verb words that mean the text before "hospital" is part of the
 # QUESTION ("who was admitted to hospital this month?"), not a hospital's
@@ -1171,9 +1274,26 @@ _HOSPITAL_STOPWORDS = frozenset({"the", "a", "an", "this", "that", "which", "wha
 # no other way to tell those apart, so any overlap rejects the match.
 _HOSPITAL_NAME_REJECT_WORDS = frozenset(
     {
-        "who", "was", "is", "are", "were", "did", "does", "do",
-        "admitted", "hospitalized", "hospitalised", "got", "went",
-        "show", "list", "find", "give", "tell", "please", "any",
+        "who",
+        "was",
+        "is",
+        "are",
+        "were",
+        "did",
+        "does",
+        "do",
+        "admitted",
+        "hospitalized",
+        "hospitalised",
+        "got",
+        "went",
+        "show",
+        "list",
+        "find",
+        "give",
+        "tell",
+        "please",
+        "any",
     }
 )
 

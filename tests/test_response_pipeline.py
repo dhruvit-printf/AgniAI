@@ -133,7 +133,9 @@ class TestFallbackReport(unittest.TestCase):
         shared by both."""
         pred = _build_fallback_prediction_dict("Leave", has_records=False)
         self.assertEqual(pred["trend"], "Insufficient Data")
-        expected = "Future projection is unavailable because no Leave records were returned."
+        expected = (
+            "Future projection is unavailable because no Leave records were returned."
+        )
         self.assertEqual(pred["projection"], expected)
         self.assertEqual(pred["heuristicEstimate"], expected)
         self.assertEqual(pred["futureTrends"], [expected])
@@ -534,9 +536,7 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         if isinstance(formatted, dict):
             table_widget = formatted if formatted.get("type") == "TABLE" else None
         else:
-            table_widget = next(
-                (w for w in formatted if w["type"] == "TABLE"), None
-            )
+            table_widget = next((w for w in formatted if w["type"] == "TABLE"), None)
         self.assertIsNotNone(table_widget, "TABLE widget not found")
         rows = table_widget["data"]["row"]
         found_john = any(
@@ -604,9 +604,7 @@ class TestResponsePipelinePredictionsAndFallback(unittest.TestCase):
         intent = {"category": "Performance"}
         report = generate_report(combined, "cross_filter", intent, "query")
 
-        self.assertEqual(
-            report["message"], "No data is found for what you asked for."
-        )
+        self.assertEqual(report["message"], "No data is found for what you asked for.")
         self.assertEqual(
             report["analysis"]["summary"],
             "The selected conditions may be too narrow for the current set of records.",

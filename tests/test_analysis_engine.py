@@ -63,11 +63,15 @@ class TestStatisticalHelpers(unittest.TestCase):
 
     def test_extract_scores_preserve_order_true(self):
         records = [{"bestTotal": 30}, {"bestTotal": 10}, {"bestTotal": 20}]
-        self.assertEqual(_extract_scores(records, preserve_order=True), [30.0, 10.0, 20.0])
+        self.assertEqual(
+            _extract_scores(records, preserve_order=True), [30.0, 10.0, 20.0]
+        )
 
     def test_extract_scores_preserve_order_false_sorts(self):
         records = [{"bestTotal": 30}, {"bestTotal": 10}, {"bestTotal": 20}]
-        self.assertEqual(_extract_scores(records, preserve_order=False), [10.0, 20.0, 30.0])
+        self.assertEqual(
+            _extract_scores(records, preserve_order=False), [10.0, 20.0, 30.0]
+        )
 
     def test_extract_scores_uses_max_nested_when_no_top_level(self):
         records = [
@@ -91,7 +95,9 @@ class TestGenerateAnalysis(unittest.TestCase):
                 }
             ]
         }
-        result = generate_analysis(combined_result, "simple", {"category": "Performance"})
+        result = generate_analysis(
+            combined_result, "simple", {"category": "Performance"}
+        )
         stats = result["statistics"]
         self.assertEqual(stats["record_count"], 4)
         self.assertEqual(stats["average_score"], 67.5)
@@ -119,7 +125,9 @@ class TestGenerateAnalysis(unittest.TestCase):
             "left": {"label": "Alpha", "data": [{"bestTotal": 80}, {"bestTotal": 90}]},
             "right": {"label": "Bravo", "data": [{"bestTotal": 60}, {"bestTotal": 70}]},
         }
-        result = generate_analysis(combined_result, "compare", {"category": "Performance"})
+        result = generate_analysis(
+            combined_result, "compare", {"category": "Performance"}
+        )
         stats = result["statistics"]
         self.assertEqual(stats["left_average"], 85.0)
         self.assertEqual(stats["right_average"], 65.0)
@@ -140,7 +148,9 @@ class TestGenerateAnalysis(unittest.TestCase):
                 }
             ]
         }
-        result = generate_analysis(combined_result, "simple", {"category": "Performance"})
+        result = generate_analysis(
+            combined_result, "simple", {"category": "Performance"}
+        )
         self.assertEqual(result["statistics"]["average_score"], 88.0)
 
 

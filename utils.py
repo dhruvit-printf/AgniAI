@@ -217,7 +217,9 @@ def extract_records(data: Any) -> List[Dict]:
     # this object, but it carries real scalar content (e.g. a Summary-shaped
     # .NET response like {"totalRecords": 42, "averageScore": 71.3}).
     # Treat it as a single record instead of silently returning [].
-    if not any(isinstance(value, (dict, list)) for value in data.values()) and has_any_data([data]):
+    if not any(
+        isinstance(value, (dict, list)) for value in data.values()
+    ) and has_any_data([data]):
         return [data]
 
     return []
@@ -301,21 +303,51 @@ def build_filters_from_entities(entities: Dict[str, Any]) -> Dict[str, Any]:
     if entities.get("leaveType") == "Current":
         # If the user asked about a specific date (like "today"), we'll have fromDate/toDate/date.
         # Only use the "Current" leave status macro (which enforces GETDATE()) if no explicit date is set.
-        if not entities.get("fromDate") and not entities.get("toDate") and not entities.get("date"):
+        if (
+            not entities.get("fromDate")
+            and not entities.get("toDate")
+            and not entities.get("date")
+        ):
             filters["leaveStatus"] = "Current"
 
     return filters
 
 
 _ATTENTION_KEYWORDS = (
-    "overdue", "pending", "rejected", "disqualified", "absconded", "poor",
-    "damaged", "lost", "expired", "failed", "not responded", "notresponded",
-    "awol", "missing", "unassigned", "declined",
+    "overdue",
+    "pending",
+    "rejected",
+    "disqualified",
+    "absconded",
+    "poor",
+    "damaged",
+    "lost",
+    "expired",
+    "failed",
+    "not responded",
+    "notresponded",
+    "awol",
+    "missing",
+    "unassigned",
+    "declined",
 )
 
 _CATEGORICAL_SKIP_HINTS = (
-    "id", "no", "number", "name", "date", "time", "url", "link", "guid",
-    "email", "phone", "remark", "comment", "description", "address",
+    "id",
+    "no",
+    "number",
+    "name",
+    "date",
+    "time",
+    "url",
+    "link",
+    "guid",
+    "email",
+    "phone",
+    "remark",
+    "comment",
+    "description",
+    "address",
 )
 
 

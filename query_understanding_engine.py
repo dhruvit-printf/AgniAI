@@ -1072,7 +1072,6 @@ def _infer_category(text: str, entities: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-
 def _infer_operation(text: str, entities: Dict[str, Any]) -> str:
     category = _infer_category(text, entities)
     if category == "Equipment" and (
@@ -1654,7 +1653,6 @@ def _extract_sub_requests(
             r"\bamong\b",
             r"\bwithin\b",
             r"\bfrom\s+(?:them|those|these)\b",
-
             r"\bout\s+of\b",
             r"\binside\b",
             r"\bunder\b",
@@ -1842,9 +1840,7 @@ def _extract_sub_requests(
                     )
                     if _trailing_noun:
                         _roster_end += _trailing_noun.end()
-                    parts.append(
-                        current[roster_match.start() : _roster_end].strip()
-                    )
+                    parts.append(current[roster_match.start() : _roster_end].strip())
                     current = current[_roster_end:].strip()
             else:
                 parts = [current]
@@ -1962,9 +1958,11 @@ def _extract_sub_requests(
                 {
                     "fragment": p,
                     "category": _infer_category(p, {}) or category,
-                    "operation": _infer_operation(p, {})
-                    if _infer_operation(p, {}) != "lookup"
-                    else operation,
+                    "operation": (
+                        _infer_operation(p, {})
+                        if _infer_operation(p, {}) != "lookup"
+                        else operation
+                    ),
                     "entities": entities,
                 }
                 if idx == 0
@@ -2079,8 +2077,6 @@ def understand_query(query: str) -> Dict[str, Any]:
             ):
                 cross_filter_intent = False
 
-
-
     # A later clause naming its own report/analytics noun ("...and equipment
     # summary") is asking for an independent output, not filtering the first
     # clause's subject — even though a weak status word (rejected/issued/...)
@@ -2175,7 +2171,11 @@ def understand_query(query: str) -> Dict[str, Any]:
     # "of", ...) fires inside one of the two clauses. E.g. "Latest
     # distribution and who got excellent in firing." names Distribution in
     # clause 1 and Performance in clause 2 with nothing tying them together.
-    if cross_filter_intent and " and " in text and not _rel_pronoun_only_before_first_comma:
+    if (
+        cross_filter_intent
+        and " and " in text
+        and not _rel_pronoun_only_before_first_comma
+    ):
         _ab_parts = [p.strip(" ,?.") for p in text.split(" and ", 1)]
         if (
             len(_ab_parts) == 2

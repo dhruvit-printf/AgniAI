@@ -23,11 +23,11 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
-from .intent_schema import OPERATIONS_BY_CATEGORY
+from .intent_schema import OPERATION_SYNONYMS, OPERATIONS_BY_CATEGORY
 
 logger = logging.getLogger(__name__)
 
@@ -188,13 +188,38 @@ def _get_model():
         return None
 
 
+def _operation_synonym_catalog() -> List[Tuple[str, str, str]]:
+    """Auto-derived catalog entries from OPERATION_SYNONYMS — the same
+    curated phrase data already authored for Stage-1 keyword scoring
+    (intent_schema.py), reused here so Stage-2's paraphrase coverage grows
+    with the existing keyword vocabulary instead of needing a second,
+    hand-authored set of catalog descriptions. Deduplicated per (category,
+    operation) since OPERATION_SYNONYMS itself contains repeated phrases."""
+    entries: List[Tuple[str, str, str]] = []
+    for category, ops in OPERATION_SYNONYMS.items():
+        for operation, phrases in ops.items():
+            seen: Set[str] = set()
+            for phrase in phrases:
+                key = phrase.strip().lower()
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                entries.append((category, operation, phrase))
+    return entries
+
+
+def _full_catalog() -> List[Tuple[str, str, str]]:
+    return _CATALOG + _operation_synonym_catalog()
+
+
 def _build_catalog() -> None:
     global _catalog_embeddings, _catalog_labels
     model = _get_model()
     if model is None:
         return
-    texts = [desc for _, _, desc in _CATALOG]
-    labels = [(cat, op) for cat, op, _ in _CATALOG]
+    catalog = _full_catalog()
+    texts = [desc for _, _, desc in catalog]
+    labels = [(cat, op) for cat, op, _ in catalog]
     try:
         vecs = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
         _catalog_embeddings = vecs

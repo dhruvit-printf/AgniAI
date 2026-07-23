@@ -2686,11 +2686,23 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
 }
 
 # Named unit aliases that should normalize to canonical unit labels.
-UNIT_ALIASES: Dict[str, str] = {
+# CompanyMaster.Name is stored inconsistently — some rows carry an
+# "<Abbr> - <FullName>" prefix ("Lak - Lakhwinder"), others are bare
+# ("Arora"). A query saying "Lakhwinder company" only ever extracts the
+# single token "lakhwinder", which fails exact-match SQL lookups against
+# the real "Lak - Lakhwinder" row. This is the single source of truth for
+# that alias mapping — entity_extractor.py and admin_entity_resolver.py
+# both import it instead of hardcoding their own copies (they used to,
+# which meant a new abbreviated company had to be added in three places).
+COMPANY_CANONICAL_NAMES: Dict[str, str] = {
     "lak": "Lak - Lakhwinder",
     "lakhwinder": "Lak - Lakhwinder",
     "jas": "Jas - Jaswant",
     "jaswant": "Jas - Jaswant",
+}
+
+UNIT_ALIASES: Dict[str, str] = {
+    **COMPANY_CANONICAL_NAMES,
     "arora": "Arora",
     "krishna": "Krishna",
     "mahadev": "Mahadev",
@@ -3693,10 +3705,14 @@ def agniveer_no_required(category: Optional[str], operation: Optional[str]) -> b
     Only individual-level targeted lookups require agniveerNo."""
     if not category:
         return False
-    if operation in ("Individual", "IndividualMedical", "IndividualPersonalDetail", "IndividualEquipment"):
+    if operation in (
+        "Individual",
+        "IndividualMedical",
+        "IndividualPersonalDetail",
+        "IndividualEquipment",
+    ):
         return True
     return False
-
 
 
 def is_valid_category(category: str) -> bool:

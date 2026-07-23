@@ -41,7 +41,9 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 def _require_secret(fn):
     """Decorator: reject request if API_SECRET_KEY is set and header doesn't match."""
     from functools import wraps
-    from flask import request, jsonify
+
+    from flask import jsonify, request
+
     from config import API_SECRET_KEY
 
     @wraps(fn)
@@ -49,24 +51,27 @@ def _require_secret(fn):
         if API_SECRET_KEY:
             provided = request.headers.get("X-Api-Key", "")
             if provided != API_SECRET_KEY:
-                return jsonify(
-                    {
-                        "status": False,
-                        "message": "Unauthorized. Provide X-Api-Key header.",
-                        "formattedData": [],
-                        "analysis": "",
-                        "prediction": "",
-                        "conclusion": "",
-                        "suggestedQuestions": [],
-                        "metadata": {
-                            "sessionId": "",
-                            "confidence": 0.0,
-                            "queryType": "error",
-                            "operationCount": 0,
-                            "executionTimeMs": 0.0,
-                        },
-                    }
-                ), 401
+                return (
+                    jsonify(
+                        {
+                            "status": False,
+                            "message": "Unauthorized. Provide X-Api-Key header.",
+                            "formattedData": [],
+                            "analysis": "",
+                            "prediction": "",
+                            "conclusion": "",
+                            "suggestedQuestions": [],
+                            "metadata": {
+                                "sessionId": "",
+                                "confidence": 0.0,
+                                "queryType": "error",
+                                "operationCount": 0,
+                                "executionTimeMs": 0.0,
+                            },
+                        }
+                    ),
+                    401,
+                )
         return fn(*args, **kwargs)
 
     return wrapper

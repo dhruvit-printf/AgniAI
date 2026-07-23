@@ -174,7 +174,6 @@ def classify_admin_intent(
     """
 
 
-
 def classify_admin_intent(
     query: str,
     resolved_entities: Optional[Dict[str, Any]] = None,
@@ -280,7 +279,6 @@ def classify_admin_intent(
     entities = extract_entities(raw_query, resolved_entities)
     assert_canonical_entity_keys(entities)
 
-    
     # ── Stage 2: Semantic understanding ─────────────────────────────────────
     semantic = understand_query(raw_query)
 

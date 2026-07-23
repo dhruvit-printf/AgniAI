@@ -560,10 +560,13 @@ def _build_sub_operation(
     if intent_result.get("company_name") and intent_result.get("company_id") is None:
         try:
             from sql_executor import resolve_company_id_from_name
+
             cid = resolve_company_id_from_name(str(intent_result["company_name"]))
             if cid is not None:
                 intent_result["company_id"] = int(cid)
-                if "filters" in intent_result and isinstance(intent_result["filters"], dict):
+                if "filters" in intent_result and isinstance(
+                    intent_result["filters"], dict
+                ):
                     intent_result["filters"]["companyId"] = int(cid)
         except Exception:
             pass
@@ -571,10 +574,13 @@ def _build_sub_operation(
     if intent_result.get("platoon_name") and intent_result.get("platoon_id") is None:
         try:
             from sql_executor import resolve_platoon_id_from_name
+
             pid = resolve_platoon_id_from_name(str(intent_result["platoon_name"]))
             if pid is not None:
                 intent_result["platoon_id"] = int(pid)
-                if "filters" in intent_result and isinstance(intent_result["filters"], dict):
+                if "filters" in intent_result and isinstance(
+                    intent_result["filters"], dict
+                ):
                     intent_result["filters"]["platoonId"] = int(pid)
         except Exception:
             pass
@@ -698,7 +704,9 @@ def _find_generic_company_mentions(text: str) -> List[Tuple[int, int, str]]:
     from .entity_extractor import _COMPANY_NAME_STOPWORDS
 
     matches: List[Tuple[int, int, str]] = []
-    for m in re.finditer(r"\b([a-z][a-z0-9\-]*)\s+(?:company|coy)\b", text, re.IGNORECASE):
+    for m in re.finditer(
+        r"\b([a-z][a-z0-9\-]*)\s+(?:company|coy)\b", text, re.IGNORECASE
+    ):
         name = m.group(1).lower()
         if name in _COMPANY_NAME_STOPWORDS:
             continue
@@ -1138,7 +1146,7 @@ def _extract_comparison_components(query_text: str) -> List[Tuple[str, str]]:
             prefix,
             flags=re.IGNORECASE,
         ).strip()
-        suffix = query_text[_generic_coy_match.end():].strip()
+        suffix = query_text[_generic_coy_match.end() :].strip()
         frag_a = " ".join(p for p in (prefix, f"{name_a} company", suffix) if p)
         frag_b = " ".join(p for p in (prefix, f"{name_b} company", suffix) if p)
         return _normalize_n_parts([frag_a, frag_b])
@@ -1448,17 +1456,15 @@ def plan_query(query: str, semantic: Optional[Dict[str, Any]] = None) -> QueryPl
 
     if qtype == "cross_filter":
         ops = _ops_from_semantic_fragments(raw_query)
-        valid_ops = [
-            op
-            for op in ops
-            if op.intent_result.get("category")
-        ]
+        valid_ops = [op for op in ops if op.intent_result.get("category")]
         if len([op for op in valid_ops if not _is_leftover_subject_op(op)]) >= 2:
             valid_ops = [op for op in valid_ops if not _is_leftover_subject_op(op)]
 
         if len(valid_ops) >= 2:
             for op in valid_ops:
-                if op.intent_result.get("category") == "Roster" and op.intent_result.get("sport"):
+                if op.intent_result.get(
+                    "category"
+                ) == "Roster" and op.intent_result.get("sport"):
                     op.intent_result["category"] = "Skills"
                     op.dotnet_payload = format_admin_payload(op.intent_result)
 

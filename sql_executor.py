@@ -46,8 +46,8 @@ SAFETY MODEL (do not weaken any of these):
 from __future__ import annotations
 
 import datetime
-import json
 import decimal
+import json
 import logging
 import os
 import re
@@ -227,9 +227,7 @@ def _build_project_overview_context() -> str:
 
 
 def _build_strength_breakdown_sql() -> str:
-    today_in_range = (
-        "CAST(GETDATE() AS DATE) BETWEEN CAST(FromDate AS DATE) AND CAST(ToDate AS DATE)"
-    )
+    today_in_range = "CAST(GETDATE() AS DATE) BETWEEN CAST(FromDate AS DATE) AND CAST(ToDate AS DATE)"
     # Same ">90% leave taken" definition as the Leave/Threshold operation
     # above: total leave days >= 55, or any single leave >= 40 days.
     leave_threshold_sql = (
@@ -263,7 +261,9 @@ def _build_strength_breakdown_sql() -> str:
 # requested range is Present unless a leave record's FromDate/ToDate spans
 # that day, in which case it's Absent. SQL Server 2008 has no date-series
 # generator, so the calendar is built with a recursive CTE.
-_AGNIVEER_LOOKUP_SQL = "SELECT TOP (1) Id, AgniveerNo, FullName FROM AgniveerMaster WHERE AgniveerNo = ?"
+_AGNIVEER_LOOKUP_SQL = (
+    "SELECT TOP (1) Id, AgniveerNo, FullName FROM AgniveerMaster WHERE AgniveerNo = ?"
+)
 
 
 def _build_attendance_calendar_sql() -> str:
@@ -472,7 +472,9 @@ def _build_medical_blood_group_sql(
         clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
         params.append(str(agniveer_no))
     if blood_group:
-        clauses.append("LOWER(COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown')) = LOWER(?)")
+        clauses.append(
+            "LOWER(COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown')) = LOWER(?)"
+        )
         params.append(blood_group)
 
     sql = f"""
@@ -516,15 +518,11 @@ def _build_medical_blood_group_sql(
 # up the chain to the company that platoon/agniveer belongs to:
 #   AgniveerMaster.AgniveerNo -> AgniveerMaster.PlatoonId
 #   -> PlatoonMaster.Id/CompanyId -> CompanyMaster.Id -> CompanySchedule.CompanyId
-_COMPANY_ID_BY_NAME_SQL = (
-    "SELECT TOP (1) Id AS CompanyId FROM CompanyMaster WHERE LOWER(Name) LIKE '%' + LOWER(?) + '%'"
-)
+_COMPANY_ID_BY_NAME_SQL = "SELECT TOP (1) Id AS CompanyId FROM CompanyMaster WHERE LOWER(Name) LIKE '%' + LOWER(?) + '%'"
 _COMPANY_ID_BY_PLATOON_ID_SQL = (
     "SELECT TOP (1) CompanyId FROM PlatoonMaster WHERE Id = ?"
 )
-_COMPANY_ID_BY_PLATOON_NAME_SQL = (
-    "SELECT TOP (1) CompanyId FROM PlatoonMaster WHERE LOWER(Name) LIKE '%' + LOWER(?) + '%'"
-)
+_COMPANY_ID_BY_PLATOON_NAME_SQL = "SELECT TOP (1) CompanyId FROM PlatoonMaster WHERE LOWER(Name) LIKE '%' + LOWER(?) + '%'"
 _COMPANY_ID_BY_AGNIVEER_NO_SQL = (
     "SELECT TOP (1) p.CompanyId AS CompanyId "
     "FROM AgniveerMaster a "
@@ -562,6 +560,7 @@ def resolve_company_id_from_name(company_name: str) -> Optional[int]:
         return None
     try:
         from admin_entity_resolver import resolve_company_id
+
         cid = resolve_company_id(str(company_name))
         if cid is not None:
             return cid
@@ -580,6 +579,7 @@ def resolve_platoon_id_from_name(platoon_name: str) -> Optional[int]:
         return None
     try:
         from admin_entity_resolver import resolve_platoon_id
+
         pid = resolve_platoon_id(str(platoon_name))
         if pid is not None:
             return pid
@@ -604,10 +604,10 @@ def build_schedule_sql(
     date: Optional[str] = None,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
-    top_n: Optional[int] = None
+    top_n: Optional[int] = None,
 ) -> Tuple[str, List[Any]]:
     """Build schedule SQL with proper filters."""
-    
+
     clauses = []
     params = []
 
@@ -653,9 +653,9 @@ def build_schedule_sql(
 
 def _execute_schedule_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
     """Dispatch schedule query based on intent."""
-    
+
     operation = str(intent.get("operation") or "bytoday").lower()
-    
+
     # ── Resolve Company ID ─────────────────────────────────────────────
     company_id = None
     scope_requested = False
@@ -686,12 +686,12 @@ def _execute_schedule_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]
     from_date = intent.get("from_date") or intent.get("fromDate")
     to_date = intent.get("to_date") or intent.get("toDate")
     date = intent.get("date")
-    
+
     # Default to today for "bytoday" operation
     if operation in ("bytoday", "today", "now", "current"):
         if not date and not from_date and not to_date:
             date = datetime.date.today().isoformat()
-    
+
     # ── Build and Execute SQL ──────────────────────────────────────────
     top_n = _get_top_n(intent)
     sql, params = build_schedule_sql(
@@ -701,7 +701,7 @@ def _execute_schedule_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]
         to_date=to_date,
         top_n=top_n,
     )
-    
+
     rows, err = run_readonly(sql, params, max_rows=_row_cap(top_n))
     if err:
         return None, err
@@ -710,6 +710,7 @@ def _execute_schedule_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]
 
 
 # ── Disqualified Agniveers ──────────────────────────────────────────────────
+
 
 def _build_disqualified_base_query(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
     """
@@ -741,7 +742,9 @@ def _build_disqualified_base_query(intent: Dict[str, Any]) -> Tuple[str, List[An
         params.append(int(platoon_id))
 
     if company_id is not None:
-        clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)"
+        )
         params.append(int(company_id))
 
     if company_name:
@@ -754,11 +757,11 @@ def _build_disqualified_base_query(intent: Dict[str, Any]) -> Tuple[str, List[An
     if from_date:
         clauses.append("CAST(a.DisqualifiedDate AS DATE) >= CAST(? AS DATE)")
         params.append(str(from_date)[:10])
-    
+
     if to_date:
         clauses.append("CAST(a.DisqualifiedDate AS DATE) <= CAST(? AS DATE)")
         params.append(str(to_date)[:10])
-    
+
     # ── Leave filter ──────────────────────────────────────────────────────────
     leave_type = intent.get("leave_type") or intent.get("leaveType")
     if leave_type and str(leave_type).lower() in ("leave", "on leave", "any"):
@@ -769,7 +772,7 @@ def _build_disqualified_base_query(intent: Dict[str, Any]) -> Tuple[str, List[An
                     AND l.FromDate IS NOT NULL
             )
         """)
-    
+
     where_clause = " AND ".join(clauses)
     return where_clause, params
 
@@ -803,36 +806,47 @@ def _build_disqualified_select_clause(detailed: bool = False) -> str:
 def execute_disqualified_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
     """
     Execute Disqualified Agniveers query.
-    
+
     Returns:
         - Summary: {"totalDisqualified": count}
         - Detailed: List of disqualified Agniveers with full details
     """
     try:
         raw_q = str(intent.get("raw_query") or "").lower()
-        response_type = str(intent.get("responseType") or intent.get("response_type") or intent.get("operation") or "").lower()
-        
+        response_type = str(
+            intent.get("responseType")
+            or intent.get("response_type")
+            or intent.get("operation")
+            or ""
+        ).lower()
+
         # Check if user asks for count/summary vs detailed list
-        wants_count = (
-            response_type in ("summary", "count", "disqualifiedcount")
-            or any(kw in raw_q for kw in ("how many", "count", "number of", "total disqualified", "total number"))
+        wants_count = response_type in ("summary", "count", "disqualifiedcount") or any(
+            kw in raw_q
+            for kw in (
+                "how many",
+                "count",
+                "number of",
+                "total disqualified",
+                "total number",
+            )
         )
         detailed = not wants_count if response_type != "detailed" else True
         top_n = _get_top_n(intent)
-        
+
         # ── Build WHERE clause ──────────────────────────────────────────────────
         where_clause, params = _build_disqualified_base_query(intent)
-        
+
         # ── Build SELECT clause ─────────────────────────────────────────────────
         select_clause = _build_disqualified_select_clause(detailed)
-        
+
         # ── Build JOINs ─────────────────────────────────────────────────────────
         joins = """
             LEFT JOIN PlatoonMaster p ON p.Id = a.PlatoonId
             LEFT JOIN CompanyMaster c ON c.Id = p.CompanyId
             LEFT JOIN BatchMaster b ON b.Id = a.BatchId
         """
-        
+
         # ── Build final SQL ─────────────────────────────────────────────────────
         if detailed:
             sql = f"""
@@ -849,33 +863,34 @@ def execute_disqualified_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
             FROM AgniveerMaster a
             WHERE {where_clause}
             """
-        
+
         # ── Validate ────────────────────────────────────────────────────────────
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Disqualified SQL validation failed: {err}"
-        
+
         # ── Execute ─────────────────────────────────────────────────────────────
         rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Disqualified execution failed: {run_err}"
-        
+
         # ── Build response ──────────────────────────────────────────────────────
         if not detailed:
             # Summary: return count
             count = rows[0].get("TotalDisqualified", 0) if rows else 0
             result = {"totalDisqualified": count}
             return _to_section([result], intent, sql=sql), None
-        
+
         # Detailed: return list
         return _to_section(rows or [], intent, sql=sql), None
-        
+
     except Exception as exc:
         logger.error("Disqualified query failed: %s", exc, exc_info=True)
         return None, str(exc)
 
 
 # ── Verification (Police Verification) ──────────────────────────────────────
+
 
 def build_verification_sql(
     status: str,
@@ -884,17 +899,20 @@ def build_verification_sql(
     platoon_id: Optional[int] = None,
     company_id: Optional[int] = None,
     detailed: bool = False,
-    top_n: Optional[int] = None
+    top_n: Optional[int] = None,
 ) -> Tuple[str, List[Any]]:
     """
     Build Verification SQL based on status.
     status: Pending, Sent, NotResponded, Verified, Rejected, Summary
     """
-    
+
     # ── Base Agniveer scope ──────────────────────────────────────────────────
-    scope_clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)", "a.IsActive = 1"]
+    scope_clauses = [
+        "(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)",
+        "a.IsActive = 1",
+    ]
     scope_params: List[Any] = []
-    
+
     if agniveer_no:
         scope_clauses.append("LOWER(a.AgniveerNo) LIKE '%' + LOWER(?) + '%'")
         scope_params.append(str(agniveer_no))
@@ -905,14 +923,24 @@ def build_verification_sql(
         scope_clauses.append("a.PlatoonId = ?")
         scope_params.append(int(platoon_id))
     if company_id is not None:
-        scope_clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        scope_clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)"
+        )
         scope_params.append(int(company_id))
-    
+
     scope_where = " AND ".join(scope_clauses)
     status_lower = str(status or "").lower().replace(" ", "").replace("_", "")
-    
+
     # ── Build SQL based on status ─────────────────────────────────────────────
-    if status_lower in ("pending", "pendingverification", "unverified", "awaitingverification", "notverified", "notverifiedyet", "waitingforverification"):
+    if status_lower in (
+        "pending",
+        "pendingverification",
+        "unverified",
+        "awaitingverification",
+        "notverified",
+        "notverifiedyet",
+        "waitingforverification",
+    ):
         # Pending = No record OR Rejected
         sql = f"""
         SELECT {_top_clause(top_n)}
@@ -938,8 +966,15 @@ def build_verification_sql(
         ORDER BY a.AgniveerNo ASC
         """
         return sql, scope_params
-    
-    elif status_lower in ("sent", "sentverification", "dispatched", "dispatchedforverification", "requestsent", "verificationrequested"):
+
+    elif status_lower in (
+        "sent",
+        "sentverification",
+        "dispatched",
+        "dispatchedforverification",
+        "requestsent",
+        "verificationrequested",
+    ):
         # Sent = Status is 'Sent'
         sql = f"""
         WITH LatestVerification AS (
@@ -974,8 +1009,19 @@ def build_verification_sql(
         ORDER BY lv.SentDate DESC
         """
         return sql, scope_params
-    
-    elif status_lower in ("notresponded", "noresponse", "unresponded", "awaitingresponse", "pendingresponse", "responsepending", "noreply", "noreplyyet", "notrespondedverification", "unresponsive"):
+
+    elif status_lower in (
+        "notresponded",
+        "noresponse",
+        "unresponded",
+        "awaitingresponse",
+        "pendingresponse",
+        "responsepending",
+        "noreply",
+        "noreplyyet",
+        "notrespondedverification",
+        "unresponsive",
+    ):
         sql = f"""
         WITH LatestVerification AS (
             SELECT
@@ -1010,8 +1056,17 @@ def build_verification_sql(
         ORDER BY lv.SentDate ASC
         """
         return sql, scope_params
-    
-    elif status_lower in ("verified", "completed", "completedverification", "verifiedverification", "allverified", "fullyverified", "verificationdone", "cleared"):
+
+    elif status_lower in (
+        "verified",
+        "completed",
+        "completedverification",
+        "verifiedverification",
+        "allverified",
+        "fullyverified",
+        "verificationdone",
+        "cleared",
+    ):
         sql = f"""
         WITH LatestVerification AS (
             SELECT
@@ -1045,8 +1100,15 @@ def build_verification_sql(
         ORDER BY lv.ReceivedDate DESC
         """
         return sql, scope_params
-    
-    elif status_lower in ("rejected", "rejectedverification", "failedverification", "verificationfailed", "denied", "verificationdenied"):
+
+    elif status_lower in (
+        "rejected",
+        "rejectedverification",
+        "failedverification",
+        "verificationfailed",
+        "denied",
+        "verificationdenied",
+    ):
         sql = f"""
         WITH LatestVerification AS (
             SELECT
@@ -1079,7 +1141,7 @@ def build_verification_sql(
         ORDER BY lv.ReceivedDate DESC
         """
         return sql, scope_params
-    
+
     else:
         # Default: Summary
         sql = f"""
@@ -1106,16 +1168,23 @@ def execute_verification_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
     Execute Verification query based on status.
     """
     try:
-        status = intent.get("operation") or intent.get("verification_status") or intent.get("verificationStatus") or "Summary"
+        status = (
+            intent.get("operation")
+            or intent.get("verification_status")
+            or intent.get("verificationStatus")
+            or "Summary"
+        )
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         batch_id = intent.get("batch_id") or intent.get("batchId")
         platoon_id = intent.get("platoon_id") or intent.get("platoonId")
         company_id = intent.get("company_id") or intent.get("companyId")
-        response_type = intent.get("responseType") or intent.get("response_type") or "Detailed"
+        response_type = (
+            intent.get("responseType") or intent.get("response_type") or "Detailed"
+        )
         top_n = _get_top_n(intent)
-        
+
         detailed = str(response_type).lower() == "detailed"
-        
+
         sql, params = build_verification_sql(
             status=status,
             agniveer_no=agniveer_no,
@@ -1123,19 +1192,19 @@ def execute_verification_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
             platoon_id=platoon_id,
             company_id=company_id,
             detailed=detailed,
-            top_n=top_n
+            top_n=top_n,
         )
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Verification SQL validation failed: {err}"
-        
+
         rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Verification execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
-        
+
     except Exception as exc:
         logger.error("Verification query failed: %s", exc, exc_info=True)
         return None, str(exc)
@@ -1201,7 +1270,9 @@ def _build_leave_base_query(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
         params.append(int(platoon_id))
 
     if company_id is not None:
-        clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)"
+        )
         params.append(int(company_id))
 
     if company_name:
@@ -1224,14 +1295,18 @@ def _build_leave_base_query(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
     if leave_type and str(leave_type).lower() not in ("threshold", "noleave"):
         column = _get_leave_column(leave_type)
         if column:
-            col_ref = f"l.[{column}]" if (" " in column or "'" in column) else f"l.{column}"
+            col_ref = (
+                f"l.[{column}]" if (" " in column or "'" in column) else f"l.{column}"
+            )
             clauses.append(f"{col_ref} = 1")
 
     where_clause = " AND ".join(clauses)
     return where_clause, params
 
 
-def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_leave_current(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Current Leave query.
     Returns Agniveers currently on leave (FromDate <= today <= ToDate).
@@ -1239,7 +1314,9 @@ def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
     """
     try:
         top_n = _get_top_n(intent)
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
+        response_type = str(
+            intent.get("responseType") or intent.get("response_type") or "Detailed"
+        )
         detailed = response_type.lower() == "detailed"
 
         # ── Base scope ──────────────────────────────────────────────────────
@@ -1249,16 +1326,20 @@ def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
         leave_type = intent.get("leave_type") or intent.get("leaveType")
         leave_clause = ""
         leave_params: List[Any] = []
-        
+
         if leave_type and str(leave_type).lower() not in ("threshold", "noleave"):
             column = _get_leave_column(leave_type)
             if column:
-                col_ref = f"l.[{column}]" if (" " in column or "'" in column) else f"l.{column}"
+                col_ref = (
+                    f"l.[{column}]"
+                    if (" " in column or "'" in column)
+                    else f"l.{column}"
+                )
                 leave_clause = f" AND {col_ref} = 1"
 
         # ── Current date filter ─────────────────────────────────────────────
         date_filter = "AND CAST(GETDATE() AS DATE) BETWEEN CAST(l.FromDate AS DATE) AND CAST(l.ToDate AS DATE)"
-        
+
         from_date = intent.get("from_date") or intent.get("fromDate")
         to_date = intent.get("to_date") or intent.get("toDate")
         if from_date and to_date:
@@ -1287,16 +1368,16 @@ def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
                      OR l.IsHospitalized = 1 OR l.[OnATTN'C'] = 1 OR l.[OnEX PPG] = 1)
                 {leave_clause}
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Current Leave SQL validation failed: {err}"
-            
+
             all_params = base_params + leave_params
             rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Current Leave execution failed: {run_err}"
-            
+
             row = rows[0] if rows else {}
             result = {
                 "onLeaveCount": row.get("OnLeaveCount") or 0,
@@ -1347,16 +1428,16 @@ def _execute_leave_current(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
             {leave_clause}
         ORDER BY a.AgniveerNo ASC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Current Leave SQL validation failed: {err}"
-        
+
         all_params = base_params + leave_params
         rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Current Leave execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -1371,7 +1452,9 @@ def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optiona
     """
     try:
         top_n = _get_top_n(intent)
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
+        response_type = str(
+            intent.get("responseType") or intent.get("response_type") or "Detailed"
+        )
         detailed = response_type.lower() == "detailed"
 
         # ── Base scope ──────────────────────────────────────────────────────
@@ -1384,7 +1467,11 @@ def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optiona
         if leave_type and str(leave_type).lower() not in ("threshold", "noleave"):
             column = _get_leave_column(leave_type)
             if column:
-                col_ref = f"l.[{column}]" if (" " in column or "'" in column) else f"l.{column}"
+                col_ref = (
+                    f"l.[{column}]"
+                    if (" " in column or "'" in column)
+                    else f"l.{column}"
+                )
                 leave_clause = f" AND {col_ref} = 1"
 
         # ── Short/Summary ──────────────────────────────────────────────────
@@ -1405,16 +1492,16 @@ def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optiona
                 AND l.ToDate IS NOT NULL
                 {leave_clause}
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Most Leave SQL validation failed: {err}"
-            
+
             all_params = base_params + leave_params
             rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Most Leave execution failed: {run_err}"
-            
+
             row = rows[0] if rows else {}
             result = {
                 "totalAgniveers": row.get("TotalAgniveers") or 0,
@@ -1450,16 +1537,16 @@ def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optiona
         GROUP BY a.AgniveerNo, a.FullName, a.PhotoPath, a.Class, p.Name, c.Name, b.BatchName
         ORDER BY TotalLeaveDays DESC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Most Leave SQL validation failed: {err}"
-        
+
         all_params = base_params + leave_params
         rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Most Leave execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -1467,14 +1554,18 @@ def _execute_leave_most(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optiona
         return None, str(exc)
 
 
-def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_leave_least(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Least Leave Taken query.
     Returns Agniveers with lowest leave counts (excluding zero).
     """
     try:
         top_n = _get_top_n(intent)
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
+        response_type = str(
+            intent.get("responseType") or intent.get("response_type") or "Detailed"
+        )
         detailed = response_type.lower() == "detailed"
 
         # ── Base scope ──────────────────────────────────────────────────────
@@ -1484,7 +1575,7 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
         leave_type = intent.get("leave_type") or intent.get("leaveType")
         leave_clause = ""
         leave_params: List[Any] = []
-        
+
         if leave_type and str(leave_type).lower() == "noleave":
             # No Leave mode: return Agniveers with zero leave
             sql = f"""
@@ -1509,21 +1600,25 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
                 )
             ORDER BY a.AgniveerNo ASC
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Least Leave SQL validation failed: {err}"
-            
+
             rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Least Leave execution failed: {run_err}"
-            
+
             return _to_section(rows or [], intent, sql=sql), None
-        
+
         if leave_type and str(leave_type).lower() not in ("threshold", "noleave"):
             column = _get_leave_column(leave_type)
             if column:
-                col_ref = f"l.[{column}]" if (" " in column or "'" in column) else f"l.{column}"
+                col_ref = (
+                    f"l.[{column}]"
+                    if (" " in column or "'" in column)
+                    else f"l.{column}"
+                )
                 leave_clause = f" AND {col_ref} = 1"
 
         # ── Short/Summary ──────────────────────────────────────────────────
@@ -1544,16 +1639,16 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
                 AND l.ToDate IS NOT NULL
                 {leave_clause}
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Least Leave SQL validation failed: {err}"
-            
+
             all_params = base_params + leave_params
             rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Least Leave execution failed: {run_err}"
-            
+
             row = rows[0] if rows else {}
             result = {
                 "totalAgniveers": row.get("TotalAgniveers") or 0,
@@ -1595,16 +1690,16 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
         ) > 0
         ORDER BY TotalLeaveDays ASC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Least Leave SQL validation failed: {err}"
-        
+
         all_params = base_params + leave_params
         rows, run_err = run_readonly(sql, all_params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Least Leave execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -1612,7 +1707,9 @@ def _execute_leave_least(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
         return None, str(exc)
 
 
-def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_leave_absconded(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Absconded Leave query.
     Returns Agniveers marked as absconded (IsAbscondedLeave = 1).
@@ -1621,10 +1718,15 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
     """
     try:
         top_n = _get_top_n(intent)
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
+        response_type = str(
+            intent.get("responseType") or intent.get("response_type") or "Detailed"
+        )
         detailed = response_type.lower() == "detailed"
 
-        clauses = ["(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)", "l.IsAbscondedLeave = 1"]
+        clauses = [
+            "(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)",
+            "l.IsAbscondedLeave = 1",
+        ]
         params: List[Any] = []
 
         batch_id = intent.get("batch_id") or intent.get("batchId")
@@ -1646,7 +1748,9 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
             params.append(int(platoon_id))
 
         if company_id is not None:
-            clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+            clauses.append(
+                "EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)"
+            )
             params.append(int(company_id))
         elif company_name:
             clauses.append(
@@ -1665,17 +1769,21 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
             INNER JOIN AgniveerMaster a ON a.Id = l.AgniveerId
             {where_str}
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Absconded Leave SQL validation failed: {err}"
-            
+
             rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Absconded Leave execution failed: {run_err}"
-            
+
             row = rows[0] if rows else {}
-            total_abs = row.get("TotalAbsconded") if row.get("TotalAbsconded") is not None else row.get("totalAbsconded")
+            total_abs = (
+                row.get("TotalAbsconded")
+                if row.get("TotalAbsconded") is not None
+                else row.get("totalAbsconded")
+            )
             result = {"totalAbsconded": total_abs or 0}
             return _to_section([result], intent, sql=sql), None
 
@@ -1705,15 +1813,15 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         {where_str}
         ORDER BY a.AgniveerNo ASC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Absconded Leave SQL validation failed: {err}"
-        
+
         rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Absconded Leave execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -1721,14 +1829,18 @@ def _execute_leave_absconded(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         return None, str(exc)
 
 
-def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_leave_threshold(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Threshold Leave query.
     Returns Agniveers with continuous 40-44 days OR total 55-59 days.
     """
     try:
         top_n = _get_top_n(intent)
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
+        response_type = str(
+            intent.get("responseType") or intent.get("response_type") or "Detailed"
+        )
         detailed = response_type.lower() == "detailed"
 
         # ── Base scope ──────────────────────────────────────────────────────
@@ -1820,7 +1932,7 @@ def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         WHERE RowNum = 1
         ORDER BY AgniveerNo ASC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Threshold Leave SQL validation failed: {err}"
@@ -1838,16 +1950,24 @@ def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
 
         if not detailed:
             # Summary: return counts
-            continuous_ids = {r.get("AgniveerNo") for r in rows if r.get("Reason") == "Continuous 40-44 days"}
-            total_ids = {r.get("AgniveerNo") for r in rows if r.get("Reason") == "Total 55-59 days"}
-            
+            continuous_ids = {
+                r.get("AgniveerNo")
+                for r in rows
+                if r.get("Reason") == "Continuous 40-44 days"
+            }
+            total_ids = {
+                r.get("AgniveerNo")
+                for r in rows
+                if r.get("Reason") == "Total 55-59 days"
+            }
+
             result = {
                 "thresholdCount": len(continuous_ids | total_ids),
                 "continuous40to44Count": len(continuous_ids),
                 "total55to59Count": len(total_ids),
             }
             return _to_section([result], intent, sql=sql), None
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -1855,7 +1975,9 @@ def _execute_leave_threshold(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         return None, str(exc)
 
 
-def _execute_leave_history(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_leave_history(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Leave History query for a specific Agniveer.
     """
@@ -1900,15 +2022,15 @@ def _execute_leave_history(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Opti
             AND l.ToDate IS NOT NULL
         ORDER BY l.FromDate DESC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Leave History SQL validation failed: {err}"
-        
+
         rows, run_err = run_readonly(sql, base_params)
         if run_err:
             return None, f"Leave History execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -1921,7 +2043,7 @@ def execute_leave_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
     Dispatch Leave queries based on operation.
     """
     operation = str(intent.get("operation") or "Current").lower()
-    
+
     if operation == "current":
         return _execute_leave_current(intent)
     elif operation in ("most", "highest"):
@@ -1993,7 +2115,9 @@ def _build_medical_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
         clauses.append("a.PlatoonId = ?")
         params.append(int(platoon_id))
     if company_id is not None:
-        clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)"
+        )
         params.append(int(company_id))
     if company_name:
         # Self-contained EXISTS (independent of whatever the outer query
@@ -2012,7 +2136,9 @@ def _build_medical_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]]:
     return " AND ".join(clauses), params
 
 
-def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_medical_bmi(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute BMI query.
     Returns BMI distribution or individual BMI values.
@@ -2020,7 +2146,9 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
     try:
         top_n = _get_top_n(intent)
         bmi_category = intent.get("bmi_category") or intent.get("bmiCategory")
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
+        response_type = str(
+            intent.get("responseType") or intent.get("response_type") or "Detailed"
+        )
         detailed = response_type.lower() == "detailed"
         blood_group = intent.get("blood_group") or intent.get("bloodGroup")
 
@@ -2030,7 +2158,9 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
         blood_filter = ""
         blood_params: List[Any] = []
         if blood_group:
-            blood_filter = "AND UPPER(REPLACE(a.BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))"
+            blood_filter = (
+                "AND UPPER(REPLACE(a.BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))"
+            )
             blood_params = [str(blood_group)]
 
         # ── Build BMI CTE ─────────────────────────────────────────────────────
@@ -2112,9 +2242,16 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
                 rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
                 if run_err:
                     return None, f"BMI execution failed: {run_err}"
-                
+
                 row = rows[0] if rows else {}
-                result = {"bmiCategory": bmi_category, "count": row.get("Count") if row.get("Count") is not None else (row.get("count") or 0)}
+                result = {
+                    "bmiCategory": bmi_category,
+                    "count": (
+                        row.get("Count")
+                        if row.get("Count") is not None
+                        else (row.get("count") or 0)
+                    ),
+                }
                 return _to_section([result], intent, sql=sql), None
             else:
                 # Distribution by category
@@ -2131,12 +2268,12 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
                 is_valid, err = sql_validator.validate_sql(sql)
                 if not is_valid:
                     return None, f"BMI SQL validation failed: {err}"
-                
+
                 params = base_params + blood_params
                 rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
                 if run_err:
                     return None, f"BMI execution failed: {run_err}"
-                
+
                 return _to_section(rows or [], intent, sql=sql), None
 
         # ── Detailed ──────────────────────────────────────────────────────────
@@ -2165,16 +2302,16 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
         {category_filter}
         ORDER BY BmiValue DESC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"BMI SQL validation failed: {err}"
-        
+
         params = base_params + blood_params
         rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"BMI execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -2182,7 +2319,9 @@ def _execute_medical_bmi(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Option
         return None, str(exc)
 
 
-def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_medical_blood_group(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Blood Group query.
     Returns distribution or details for specific group.
@@ -2212,15 +2351,15 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
             GROUP BY COALESCE(NULLIF(a.BloodGroup, ''), 'Unknown')
             ORDER BY AgniveerCount DESC, BloodGroup ASC
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Blood Group SQL validation failed: {err}"
-            
+
             rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Blood Group execution failed: {run_err}"
-            
+
             return _to_section(rows or [], intent, sql=sql), None
 
         # ── Detailed with specific blood group ─────────────────────────────
@@ -2249,15 +2388,15 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
                 {blood_clause}
             ORDER BY a.AgniveerNo ASC
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Blood Group SQL validation failed: {err}"
-            
+
             rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Blood Group execution failed: {run_err}"
-            
+
             return _to_section(rows or [], intent, sql=sql), None
 
         return None, "Blood Group query not configured"
@@ -2267,7 +2406,9 @@ def _execute_medical_blood_group(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
         return None, str(exc)
 
 
-def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_medical_disease(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Disease query.
     Returns disease statistics or details.
@@ -2276,7 +2417,9 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         top_n = _get_top_n(intent)
         diagnose = intent.get("diagnose") or intent.get("diagnosis")
         days = intent.get("days")
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
+        response_type = str(
+            intent.get("responseType") or intent.get("response_type") or "Detailed"
+        )
         detailed = response_type.lower() == "detailed"
 
         base_where, base_params = _build_medical_base_scope(intent)
@@ -2291,7 +2434,7 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
             date_filter = "AND CAST(mr.VisitDate AS DATE) >= CAST(? AS DATE) AND CAST(mr.VisitDate AS DATE) <= CAST(? AS DATE)"
             date_params = [
                 str(intent.get("from_date") or "")[:10],
-                str(intent.get("to_date") or "")[:10]
+                str(intent.get("to_date") or "")[:10],
             ]
 
         # ── Specific disease ──────────────────────────────────────────────────
@@ -2320,16 +2463,16 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
                 {date_filter}
             ORDER BY mr.VisitDate DESC
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Disease SQL validation failed: {err}"
-            
+
             params = base_params + [str(diagnose)] + date_params
             rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Disease execution failed: {run_err}"
-            
+
             return _to_section(rows or [], intent, sql=sql), None
 
         # ── Short: Disease statistics ──────────────────────────────────────
@@ -2351,16 +2494,16 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
             GROUP BY mr.Diagnosis
             ORDER BY TotalCount DESC
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Disease SQL validation failed: {err}"
-            
+
             params = base_params + date_params
             rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
             if run_err:
                 return None, f"Disease execution failed: {run_err}"
-            
+
             return _to_section(rows or [], intent, sql=sql), None
 
         # ── Detailed: Disease with per-agniveer breakdown ──────────────────
@@ -2390,16 +2533,16 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
             {date_filter}
         ORDER BY mr.Diagnosis ASC, mr.VisitDate DESC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Disease SQL validation failed: {err}"
-        
+
         params = base_params + date_params
         rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Disease execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -2407,7 +2550,9 @@ def _execute_medical_disease(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Op
         return None, str(exc)
 
 
-def _execute_medical_individual(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_medical_individual(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Individual Medical Report query.
     Returns complete medical history for a single Agniveer.
@@ -2471,15 +2616,15 @@ def _execute_medical_individual(intent: Dict[str, Any]) -> Tuple[Optional[Dict],
         WHERE {base_where}
         ORDER BY mr.VisitDate DESC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Individual Medical SQL validation failed: {err}"
-        
+
         rows, run_err = run_readonly(sql, base_params)
         if run_err:
             return None, f"Individual Medical execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -2487,7 +2632,9 @@ def _execute_medical_individual(intent: Dict[str, Any]) -> Tuple[Optional[Dict],
         return None, str(exc)
 
 
-def _execute_medical_followup(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_medical_followup(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Follow-Up query.
     Returns Agniveers with follow-up appointments.
@@ -2502,12 +2649,12 @@ def _execute_medical_followup(intent: Dict[str, Any]) -> Tuple[Optional[Dict], O
         # ── Date filter ──────────────────────────────────────────────────────
         date_filter = "mr.FollowUpDate >= CAST(GETDATE() AS DATE)"
         date_params: List[Any] = []
-        
+
         if intent.get("from_date") and intent.get("to_date"):
             date_filter = "CAST(mr.FollowUpDate AS DATE) >= CAST(? AS DATE) AND CAST(mr.FollowUpDate AS DATE) <= CAST(? AS DATE)"
             date_params = [
                 str(intent.get("from_date") or "")[:10],
-                str(intent.get("to_date") or "")[:10]
+                str(intent.get("to_date") or "")[:10],
             ]
 
         # ── Build SQL ──────────────────────────────────────────────────────
@@ -2535,16 +2682,16 @@ def _execute_medical_followup(intent: Dict[str, Any]) -> Tuple[Optional[Dict], O
             AND {date_filter}
         ORDER BY mr.FollowUpDate ASC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Follow-Up SQL validation failed: {err}"
-        
+
         params = base_params + date_params
         rows, run_err = run_readonly(sql, params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Follow-Up execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -2552,7 +2699,9 @@ def _execute_medical_followup(intent: Dict[str, Any]) -> Tuple[Optional[Dict], O
         return None, str(exc)
 
 
-def _execute_medical_hospital_stats(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_medical_hospital_stats(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Hospital Statistics query.
     Returns hospitals with most Agniveer visits.
@@ -2576,15 +2725,15 @@ def _execute_medical_hospital_stats(intent: Dict[str, Any]) -> Tuple[Optional[Di
         GROUP BY mr.HospitalNameLocation
         ORDER BY AgniveerCount DESC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Hospital Stats SQL validation failed: {err}"
-        
+
         rows, run_err = run_readonly(sql, base_params, max_rows=_row_cap(top_n))
         if run_err:
             return None, f"Hospital Stats execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -2596,8 +2745,10 @@ def execute_medical_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
     """
     Dispatch Medical queries based on operation.
     """
-    operation = str(intent.get("operation") or intent.get("subcategory") or "BMI").lower()
-    
+    operation = str(
+        intent.get("operation") or intent.get("subcategory") or "BMI"
+    ).lower()
+
     if operation in ("bmi", "bmianalysis"):
         return _execute_medical_bmi(intent)
     elif operation in ("bloodgroup", "blood_group"):
@@ -2645,7 +2796,9 @@ def _build_attendance_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]
         clauses.append("a.PlatoonId = ?")
         params.append(int(platoon_id))
     if company_id is not None:
-        clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)"
+        )
         params.append(int(company_id))
     if company_name:
         clauses.append(
@@ -2657,26 +2810,28 @@ def _build_attendance_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[Any]
     return " AND ".join(clauses), params
 
 
-def _resolve_attendance_dates(operation: str, intent: Dict[str, Any]) -> Tuple[str, str]:
+def _resolve_attendance_dates(
+    operation: str, intent: Dict[str, Any]
+) -> Tuple[str, str]:
     """
     Resolve date range for attendance queries.
     Returns (from_date, to_date) as ISO date strings.
     """
     import datetime
-    
+
     # If explicit dates provided, use them
     date = intent.get("date")
     from_date = intent.get("from_date") or intent.get("fromDate")
     to_date = intent.get("to_date") or intent.get("toDate")
-    
+
     if from_date and to_date:
         return str(from_date)[:10], str(to_date)[:10]
     if date:
         return str(date)[:10], str(date)[:10]
-    
+
     # Default ranges based on operation
     today = datetime.date.today()
-    
+
     if operation == "daily":
         # Current month
         start = datetime.date(today.year, today.month, 1)
@@ -2685,14 +2840,14 @@ def _resolve_attendance_dates(operation: str, intent: Dict[str, Any]) -> Tuple[s
         ) + datetime.timedelta(days=4)
         end = end - datetime.timedelta(days=end.day)
         return start.isoformat(), end.isoformat()
-    
+
     elif operation == "weekly":
         # Last 4 weeks from Monday
         monday = today - datetime.timedelta(days=today.weekday())
         start = monday - datetime.timedelta(weeks=3)
         end = monday + datetime.timedelta(days=6)
         return start.isoformat(), end.isoformat()
-    
+
     else:  # monthly
         # Last 3 months
         start = datetime.date(today.year, today.month, 1) - datetime.timedelta(days=90)
@@ -2703,19 +2858,24 @@ def _resolve_attendance_dates(operation: str, intent: Dict[str, Any]) -> Tuple[s
         return start.isoformat(), end.isoformat()
 
 
-def _execute_attendance_summary(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_attendance_summary(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Attendance Summary query.
     Returns present/absent counts for today.
     """
     try:
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
+        response_type = str(
+            intent.get("responseType") or intent.get("response_type") or "Detailed"
+        )
         detailed = response_type.lower() == "detailed"
-        
+
         base_where, base_params = _build_attendance_base_scope(intent)
-        
+
         # ── Get date ──────────────────────────────────────────────────────────
         import datetime
+
         today = datetime.date.today().isoformat()
         date = intent.get("date") or today
 
@@ -2769,22 +2929,30 @@ def _execute_attendance_summary(intent: Dict[str, Any]) -> Tuple[Optional[Dict],
                 ) AS PresentCount
             FROM AgniveerScope a
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Attendance Summary SQL validation failed: {err}"
-            
+
             params = base_params + [date, date, date, date]
             rows, run_err = run_readonly(sql, params)
             if run_err:
                 return None, f"Attendance Summary execution failed: {run_err}"
-            
+
             row = rows[0] if rows else {}
-            total = row.get("TotalActive") if row.get("TotalActive") is not None else (row.get("totalActive") or 0)
-            present = row.get("PresentCount") if row.get("PresentCount") is not None else (row.get("presentCount") or 0)
+            total = (
+                row.get("TotalActive")
+                if row.get("TotalActive") is not None
+                else (row.get("totalActive") or 0)
+            )
+            present = (
+                row.get("PresentCount")
+                if row.get("PresentCount") is not None
+                else (row.get("presentCount") or 0)
+            )
             absent = total - present
             pct = round((present / total * 100), 2) if total > 0 else 0
-            
+
             result = {
                 "date": date,
                 "totalActive": total,
@@ -2793,7 +2961,7 @@ def _execute_attendance_summary(intent: Dict[str, Any]) -> Tuple[Optional[Dict],
                 "presentPct": pct,
             }
             return _to_section([result], intent, sql=sql), None
-        
+
         # ── Detailed: list of Agniveers with status ──────────────────────────
         sql = f"""
         WITH AgniveerScope AS (
@@ -2855,16 +3023,16 @@ def _execute_attendance_summary(intent: Dict[str, Any]) -> Tuple[Optional[Dict],
         FROM AgniveerScope a
         ORDER BY a.AgniveerNo ASC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Attendance Summary SQL validation failed: {err}"
-        
+
         params = base_params + [date, date, date, date, date]
         rows, run_err = run_readonly(sql, params)
         if run_err:
             return None, f"Attendance Summary execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -2872,7 +3040,9 @@ def _execute_attendance_summary(intent: Dict[str, Any]) -> Tuple[Optional[Dict],
         return None, str(exc)
 
 
-def _execute_attendance_daily(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_attendance_daily(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Daily Attendance query.
     Returns day-by-day calendar for Agniveers.
@@ -2886,8 +3056,10 @@ def _execute_attendance_daily(intent: Dict[str, Any]) -> Tuple[Optional[Dict], O
         # A specific AgniveerNo already uniquely identifies the person — see
         # _execute_medical_individual for why batch/platoon/company/class
         # (the frontend's current browsing scope) must not be applied here.
-        base_where, base_params = _build_attendance_base_scope({"agniveer_no": agniveer_no})
-        
+        base_where, base_params = _build_attendance_base_scope(
+            {"agniveer_no": agniveer_no}
+        )
+
         # ── Resolve date range ──────────────────────────────────────────────
         from_date, to_date = _resolve_attendance_dates("daily", intent)
 
@@ -2949,16 +3121,16 @@ def _execute_attendance_daily(intent: Dict[str, Any]) -> Tuple[Optional[Dict], O
         CROSS JOIN AgniveerInfo a
         OPTION (MAXRECURSION 366)
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Daily Attendance SQL validation failed: {err}"
-        
+
         params = base_params + [to_date, from_date, from_date, to_date]
         rows, run_err = run_readonly(sql, params)
         if run_err:
             return None, f"Daily Attendance execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -2966,14 +3138,16 @@ def _execute_attendance_daily(intent: Dict[str, Any]) -> Tuple[Optional[Dict], O
         return None, str(exc)
 
 
-def _execute_attendance_weekly(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_attendance_weekly(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Weekly Attendance query.
     Returns weekly attendance summary for Agniveers.
     """
     try:
         base_where, base_params = _build_attendance_base_scope(intent)
-        
+
         # ── Resolve date range ──────────────────────────────────────────────
         from_date, to_date = _resolve_attendance_dates("weekly", intent)
 
@@ -3061,16 +3235,16 @@ def _execute_attendance_weekly(intent: Dict[str, Any]) -> Tuple[Optional[Dict], 
         ORDER BY AgniveerNo ASC, WeekStart ASC
         OPTION (MAXRECURSION 366)
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Weekly Attendance SQL validation failed: {err}"
-        
+
         params = base_params + [from_date, to_date, to_date, from_date]
         rows, run_err = run_readonly(sql, params)
         if run_err:
             return None, f"Weekly Attendance execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -3078,14 +3252,16 @@ def _execute_attendance_weekly(intent: Dict[str, Any]) -> Tuple[Optional[Dict], 
         return None, str(exc)
 
 
-def _execute_attendance_monthly(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_attendance_monthly(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Monthly Attendance query.
     Returns monthly attendance summary for Agniveers.
     """
     try:
         base_where, base_params = _build_attendance_base_scope(intent)
-        
+
         # ── Resolve date range ──────────────────────────────────────────────
         from_date, to_date = _resolve_attendance_dates("monthly", intent)
 
@@ -3173,16 +3349,16 @@ def _execute_attendance_monthly(intent: Dict[str, Any]) -> Tuple[Optional[Dict],
         ORDER BY AgniveerNo ASC, Month ASC
         OPTION (MAXRECURSION 366)
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Monthly Attendance SQL validation failed: {err}"
-        
+
         params = base_params + [from_date, to_date, to_date, from_date]
         rows, run_err = run_readonly(sql, params)
         if run_err:
             return None, f"Monthly Attendance execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -3190,7 +3366,9 @@ def _execute_attendance_monthly(intent: Dict[str, Any]) -> Tuple[Optional[Dict],
         return None, str(exc)
 
 
-def _execute_attendance_individual(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_attendance_individual(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Individual Attendance History query.
     Returns full attendance history for a single Agniveer.
@@ -3204,8 +3382,10 @@ def _execute_attendance_individual(intent: Dict[str, Any]) -> Tuple[Optional[Dic
         # A specific AgniveerNo already uniquely identifies the person — see
         # _execute_medical_individual for why batch/platoon/company/class
         # (the frontend's current browsing scope) must not be applied here.
-        base_where, base_params = _build_attendance_base_scope({"agniveer_no": agniveer_no})
-        
+        base_where, base_params = _build_attendance_base_scope(
+            {"agniveer_no": agniveer_no}
+        )
+
         # ── Resolve date range ──────────────────────────────────────────────
         from_date, to_date = _resolve_attendance_dates("monthly", intent)
 
@@ -3275,16 +3455,16 @@ def _execute_attendance_individual(intent: Dict[str, Any]) -> Tuple[Optional[Dic
         ORDER BY AttendanceDate ASC
         OPTION (MAXRECURSION 366)
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Individual Attendance SQL validation failed: {err}"
-        
+
         params = base_params + [from_date, to_date]
         rows, run_err = run_readonly(sql, params)
         if run_err:
             return None, f"Individual Attendance execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -3296,8 +3476,10 @@ def execute_attendance_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[str]
     """
     Dispatch Attendance queries based on operation.
     """
-    operation = str(intent.get("operation") or intent.get("subcategory") or "Summary").lower()
-    
+    operation = str(
+        intent.get("operation") or intent.get("subcategory") or "Summary"
+    ).lower()
+
     if operation == "summary":
         return _execute_attendance_summary(intent)
     elif operation == "daily":
@@ -3345,7 +3527,9 @@ def _build_distribution_base_scope(intent: Dict[str, Any]) -> Tuple[str, List[An
         clauses.append("a.PlatoonId = ?")
         params.append(int(platoon_id))
     if company_id is not None:
-        clauses.append("EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)")
+        clauses.append(
+            "EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)"
+        )
         params.append(int(company_id))
     if company_name:
         clauses.append(
@@ -3364,22 +3548,30 @@ def _get_latest_distribution_id() -> Optional[int]:
     if err or not rows:
         return None
     row = rows[0] if rows else {}
-    return row.get("DistributionId") if row.get("DistributionId") is not None else row.get("distributionId")
+    return (
+        row.get("DistributionId")
+        if row.get("DistributionId") is not None
+        else row.get("distributionId")
+    )
 
 
-def _execute_distribution_latest(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_distribution_latest(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Latest Distribution query.
     Returns the most recent distribution with team breakdown.
-    
+
     C# Equivalent: Cmd17_LatestUnitDistribution
     """
     try:
-        response_type = str(intent.get("responseType") or intent.get("response_type") or "Detailed")
+        response_type = str(
+            intent.get("responseType") or intent.get("response_type") or "Detailed"
+        )
         detailed = response_type.lower() == "detailed"
-        
+
         base_where, base_params = _build_distribution_base_scope(intent)
-        
+
         # ── Get latest distribution ID ──────────────────────────────────────
         latest_id = _get_latest_distribution_id()
         if latest_id is None:
@@ -3401,21 +3593,21 @@ def _execute_distribution_latest(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
             GROUP BY dm.Id, dm.Name
             ORDER BY MIN(h.Rank) ASC
             """
-            
+
             is_valid, err = sql_validator.validate_sql(sql)
             if not is_valid:
                 return None, f"Latest Distribution SQL validation failed: {err}"
-            
+
             params = [latest_id] + base_params
             rows, run_err = run_readonly(sql, params)
             if run_err:
                 return None, f"Latest Distribution execution failed: {run_err}"
-            
+
             # Get distribution date
             date_sql = "SELECT TOP 1 InsertedDate AS DistributionDate FROM DistributionHistoryMaster WHERE DistributionId = ?"
             date_rows, _ = run_readonly(date_sql, [latest_id])
             dist_date = date_rows[0].get("DistributionDate") if date_rows else None
-            
+
             result = {
                 "distributionId": latest_id,
                 "distributionDate": dist_date,
@@ -3449,16 +3641,16 @@ def _execute_distribution_latest(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
             AND h.TeamId IS NOT NULL
         ORDER BY h.TeamId ASC, h.Rank ASC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Latest Distribution SQL validation failed: {err}"
-        
+
         params = [latest_id] + base_params
         rows, run_err = run_readonly(sql, params)
         if run_err:
             return None, f"Latest Distribution execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -3466,16 +3658,23 @@ def _execute_distribution_latest(intent: Dict[str, Any]) -> Tuple[Optional[Dict]
         return None, str(exc)
 
 
-def _execute_distribution_by_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_distribution_by_unit(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute By Unit query.
     Returns Agniveers assigned to a specific unit.
-    
+
     C# Equivalent: Cmd19_AgniveersInUnit
     """
     try:
-        unit_name = intent.get("unit_name") or intent.get("unitName") or intent.get("team_name") or intent.get("teamName")
-        
+        unit_name = (
+            intent.get("unit_name")
+            or intent.get("unitName")
+            or intent.get("team_name")
+            or intent.get("teamName")
+        )
+
         if not unit_name:
             return None, "UnitName required for by unit query"
 
@@ -3488,14 +3687,18 @@ def _execute_distribution_by_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dict
         is_valid, err = sql_validator.validate_sql(lookup_sql)
         if not is_valid:
             return None, f"Unit lookup SQL validation failed: {err}"
-            
+
         rows, run_err = run_readonly(lookup_sql, [str(unit_name)])
         if run_err:
             return None, f"Unit lookup failed: {run_err}"
         if not rows:
             return _to_section([], intent), f"Unit '{unit_name}' not found"
 
-        unit_id = rows[0].get("UnitId") if rows[0].get("UnitId") is not None else rows[0].get("unitId")
+        unit_id = (
+            rows[0].get("UnitId")
+            if rows[0].get("UnitId") is not None
+            else rows[0].get("unitId")
+        )
         base_where, base_params = _build_distribution_base_scope(intent)
 
         # ── Build SQL ──────────────────────────────────────────────────────────
@@ -3520,16 +3723,16 @@ def _execute_distribution_by_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dict
             AND {base_where}
         ORDER BY h.Rank ASC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"By Unit SQL validation failed: {err}"
-        
+
         params = [unit_id] + base_params
         rows, run_err = run_readonly(sql, params)
         if run_err:
             return None, f"By Unit execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -3537,11 +3740,13 @@ def _execute_distribution_by_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dict
         return None, str(exc)
 
 
-def _execute_distribution_unassigned(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_distribution_unassigned(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Unassigned query.
     Returns Agniveers not assigned to any unit.
-    
+
     C# Equivalent: Cmd20_UnassignedAgniveers
     """
     try:
@@ -3567,15 +3772,15 @@ def _execute_distribution_unassigned(intent: Dict[str, Any]) -> Tuple[Optional[D
             )
         ORDER BY a.AgniveerNo ASC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Unassigned SQL validation failed: {err}"
-        
+
         rows, run_err = run_readonly(sql, base_params)
         if run_err:
             return None, f"Unassigned execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -3583,11 +3788,13 @@ def _execute_distribution_unassigned(intent: Dict[str, Any]) -> Tuple[Optional[D
         return None, str(exc)
 
 
-def _execute_distribution_top_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_distribution_top_unit(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Top Unit query.
     Returns the unit with most Agniveers in latest distribution.
-    
+
     C# Equivalent: Cmd21_TopUnitLatestDistribution
     """
     try:
@@ -3622,7 +3829,7 @@ def _execute_distribution_top_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dic
         rows, run_err = run_readonly(sql, params)
         if run_err:
             return None, f"Top Unit execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -3630,13 +3837,15 @@ def _execute_distribution_top_unit(intent: Dict[str, Any]) -> Tuple[Optional[Dic
         return None, str(exc)
 
 
-def _execute_distribution_history(intent: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+def _execute_distribution_history(
+    intent: Dict[str, Any],
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Execute Distribution History for a specific Agniveer.
     """
     try:
         agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
-        
+
         if not agniveer_no:
             return None, "AgniveerNo required for distribution history"
 
@@ -3651,8 +3860,10 @@ def _execute_distribution_history(intent: Dict[str, Any]) -> Tuple[Optional[Dict
         rows, err = run_readonly(lookup_sql, [str(agniveer_no)])
         if err or not rows:
             return _to_section([], intent), f"Agniveer '{agniveer_no}' not found"
-        
-        agniveer_id = rows[0].get("Id") if rows[0].get("Id") is not None else rows[0].get("id")
+
+        agniveer_id = (
+            rows[0].get("Id") if rows[0].get("Id") is not None else rows[0].get("id")
+        )
 
         sql = f"""
         SELECT
@@ -3667,15 +3878,15 @@ def _execute_distribution_history(intent: Dict[str, Any]) -> Tuple[Optional[Dict
         WHERE h.AgniveerId = ?
         ORDER BY h.InsertedDate DESC
         """
-        
+
         is_valid, err = sql_validator.validate_sql(sql)
         if not is_valid:
             return None, f"Distribution History SQL validation failed: {err}"
-        
+
         rows, run_err = run_readonly(sql, [agniveer_id])
         if run_err:
             return None, f"Distribution History execution failed: {run_err}"
-        
+
         return _to_section(rows or [], intent, sql=sql), None
 
     except Exception as exc:
@@ -3687,8 +3898,10 @@ def execute_distribution_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
     """
     Dispatch Distribution queries based on operation.
     """
-    operation = str(intent.get("operation") or intent.get("subcategory") or "Latest").lower()
-    
+    operation = str(
+        intent.get("operation") or intent.get("subcategory") or "Latest"
+    ).lower()
+
     if operation in ("latest", "latestdistribution", "latest_distribution"):
         return _execute_distribution_latest(intent)
     elif operation in ("byunit", "by_unit", "inunit", "in_unit"):
@@ -3702,11 +3915,6 @@ def execute_distribution_query(intent: Dict[str, Any]) -> Tuple[Any, Optional[st
     else:
         # Default to Latest
         return _execute_distribution_latest(intent)
-
-
-
-
-
 
 
 def _resolve_attendance_range(intent: Dict) -> Tuple[Optional[str], Optional[str]]:
@@ -3751,7 +3959,6 @@ def _resolve_attendance_range(intent: Dict) -> Tuple[Optional[str], Optional[str
     return None, None
 
 
-
 # ── Safety validator ───────────────────────────────────────────────────────
 def validate_sql(sql: str) -> Optional[str]:
     """Return an error string if the SQL is unsafe, else None.
@@ -3773,10 +3980,10 @@ def generate_sql(
 ) -> Tuple[Optional[str], Optional[str]]:
     """Generate a single SELECT for `question`. Returns (sql, error)."""
     try:
+        from business_rules import LLM_HARD_RULES
         from config import DEFAULT_MODEL, ollama_session
         from ollama_cpu_chat import chat_with_fallback
         from sql_schema_guard import generate_dynamic_schema_card
-        from business_rules import LLM_HARD_RULES
     except Exception as exc:  # pragma: no cover
         return None, f"LLM unavailable: {exc}"
 
@@ -4089,7 +4296,7 @@ def execute_sql_query(
         except Exception as exc:
             logger.error("Explicit text2sql fallback failed: %s", exc, exc_info=True)
             return None, f"Fallback LLM pipeline failed: {exc}"
-        
+
     if intent.get("category") == "Performance":
         _cutoff_raw_q = (question or intent.get("raw_query") or "").lower()
         # "What's the cutoff for X" asks for the cutoff VALUE itself
@@ -4130,6 +4337,7 @@ ORDER BY sec.SectionName ASC, si.DisplayOrder ASC
 
     if intent.get("category") in ("Performance", "Overall"):
         from performance_executor import execute_performance_query
+
         return execute_performance_query(intent)
 
     if intent.get("category") == "Strength":
@@ -4148,9 +4356,7 @@ ORDER BY sec.SectionName ASC, si.DisplayOrder ASC
         # LEFT JOIN + IS NULL checks needed for Pending / NotResponded.
         # We build the SQL directly here for all 5 verification statuses.
         _v_status_raw = (
-            intent.get("filters", {}).get("operation")
-            or intent.get("operation")
-            or ""
+            intent.get("filters", {}).get("operation") or intent.get("operation") or ""
         )
         _v_status = _v_status_raw.lower() if _v_status_raw else ""
 
@@ -4286,25 +4492,35 @@ ORDER BY m.AgniveerNo ASC
             return None, f"Verification execution failed: {_run_err}"
         return _to_section(_rows or [], intent, sql=_sql), None
 
-
     if str(intent.get("category") or "").lower() in ("leave", "agniveerleave"):
         return execute_leave_query(intent)
 
-
     # ── Attendance Fast-Path ─────────────────────────────────────────────────
-    if str(intent.get("category") or "").lower() in ("attendance", "attendancetracking", "present"):
+    if str(intent.get("category") or "").lower() in (
+        "attendance",
+        "attendancetracking",
+        "present",
+    ):
         return execute_attendance_query(intent)
     # ── Medical Fast-Path ──────────────────────────────────────────────────
     if str(intent.get("category") or "").lower() in ("medical", "health", "bmi"):
         return execute_medical_query(intent)
 
     # ── Distribution Fast-Path ───────────────────────────────────────────────
-    if str(intent.get("category") or "").lower() in ("distribution", "unitdistribution", "unit_distribution"):
+    if str(intent.get("category") or "").lower() in (
+        "distribution",
+        "unitdistribution",
+        "unit_distribution",
+    ):
         return execute_distribution_query(intent)
 
     # ── Equipment Fast-Path ────────────────────────────────────────────────
     if intent.get("category") == "Equipment":
-        _eq_type = intent.get("equipment_type") or intent.get("item_name") or intent.get("equipmentType")
+        _eq_type = (
+            intent.get("equipment_type")
+            or intent.get("item_name")
+            or intent.get("equipmentType")
+        )
         _eq_op = intent.get("operation") or intent.get("subcategory")
         _eq_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         _limit = _get_top_n(intent)
@@ -4361,7 +4577,9 @@ FROM Categorized
             _stats_rows, _stats_run_err = run_readonly(_stats_sql, _stats_params)
             if not _stats_run_err:
                 _r = (_stats_rows or [{}])[0]
-                _tot_assigned = _r.get("TotalAssignedEquipments") or _r.get("TotalAssigned") or 0
+                _tot_assigned = (
+                    _r.get("TotalAssignedEquipments") or _r.get("TotalAssigned") or 0
+                )
                 _issued_tot = _r.get("IssuedTotal") or 0
                 _issued_curr = _r.get("IssuedCurrentlyWithAgniveer") or 0
                 _issued_ret = _r.get("IssuedReturned") or 0
@@ -4392,7 +4610,11 @@ FROM Categorized
                 return _to_section([_summary_row], intent, sql=_stats_sql), None
 
         # 2. AgniveerWise (Specific Agniveer Equipment Lookup)
-        if _eq_op == "AgniveerWise" or (_eq_agniveer_no and _eq_op not in ("Holding", "Returned", "HoldingEquipment", "ReturnedEquipment")):
+        if _eq_op == "AgniveerWise" or (
+            _eq_agniveer_no
+            and _eq_op
+            not in ("Holding", "Returned", "HoldingEquipment", "ReturnedEquipment")
+        ):
             _sql = f"""
 SELECT {_top_clause(_limit)}
     eq.Id AS AssignmentId,
@@ -4412,7 +4634,9 @@ WHERE LOWER(a.AgniveerNo) = LOWER(?)
     AND (a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)
 ORDER BY eq.GivenDateTime DESC
 """
-            _rows, _run_err = run_readonly(_sql, [str(_eq_agniveer_no)], max_rows=_row_cap(_limit))
+            _rows, _run_err = run_readonly(
+                _sql, [str(_eq_agniveer_no)], max_rows=_row_cap(_limit)
+            )
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
@@ -4428,7 +4652,9 @@ ORDER BY eq.GivenDateTime DESC
                 clauses.append("LOWER(a.AgniveerNo) = LOWER(?)")
                 params.append(str(_eq_agniveer_no))
             if _eq_type and _eq_type not in ("Issued", "Returned", "Holding"):
-                clauses.append("(LOWER(eq.Type) LIKE '%' + LOWER(?) + '%' OR LOWER(em.Name) LIKE '%' + LOWER(?) + '%')")
+                clauses.append(
+                    "(LOWER(eq.Type) LIKE '%' + LOWER(?) + '%' OR LOWER(em.Name) LIKE '%' + LOWER(?) + '%')"
+                )
                 params.extend([str(_eq_type), str(_eq_type)])
 
             _org_filter, _org_params = _org_scope_sql("a", intent)
@@ -4470,7 +4696,9 @@ ORDER BY eq.ReturnDateTime DESC
             clauses.append("LOWER(a.AgniveerNo) = LOWER(?)")
             params.append(str(_eq_agniveer_no))
         if _eq_type and _eq_type not in ("Issued", "Returned", "Holding"):
-            clauses.append("(LOWER(eq.Type) LIKE '%' + LOWER(?) + '%' OR LOWER(em.Name) LIKE '%' + LOWER(?) + '%')")
+            clauses.append(
+                "(LOWER(eq.Type) LIKE '%' + LOWER(?) + '%' OR LOWER(em.Name) LIKE '%' + LOWER(?) + '%')"
+            )
             params.extend([str(_eq_type), str(_eq_type)])
 
         _org_filter, _org_params = _org_scope_sql("a", intent)
@@ -4504,11 +4732,17 @@ ORDER BY eq.GivenDateTime DESC
         return _execute_schedule_query(intent)
 
     # ── Disqualified Fast-Path ───────────────────────────────────────────────
-    if str(intent.get("category") or "").lower() in ("disqualified", "disqualification"):
+    if str(intent.get("category") or "").lower() in (
+        "disqualified",
+        "disqualification",
+    ):
         return execute_disqualified_query(intent)
 
     # ── Verification Fast-Path ───────────────────────────────────────────────
-    if str(intent.get("category") or "").lower() in ("verification", "policeverification"):
+    if str(intent.get("category") or "").lower() in (
+        "verification",
+        "policeverification",
+    ):
         return execute_verification_query(intent)
 
     # ── Medical Fast-Path ────────────────────────────────────────────────────
@@ -4517,7 +4751,16 @@ ORDER BY eq.GivenDateTime DESC
 
     # ── PersonalDetails & Skills Fast-Path ─────────────────────────────────
     _cat_lower = str(intent.get("category") or "").lower()
-    if _cat_lower in ("personaldetails", "personaldetail", "personal_details", "skills", "skill") or (not intent.get("category") and (intent.get("agniveer_no") or intent.get("agniveerNo"))):
+    if _cat_lower in (
+        "personaldetails",
+        "personaldetail",
+        "personal_details",
+        "skills",
+        "skill",
+    ) or (
+        not intent.get("category")
+        and (intent.get("agniveer_no") or intent.get("agniveerNo"))
+    ):
 
         _p_agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
         _p_class = intent.get("class") or intent.get("class_")
@@ -4529,7 +4772,23 @@ ORDER BY eq.GivenDateTime DESC
             or intent.get("filters", {}).get("value")
         )
         if not _p_sport:
-            for s_token in ("volleyball", "cricket", "football", "soccer", "hockey", "basketball", "kabaddi", "badminton", "tennis", "swimming", "athletics", "boxing", "wrestling", "handball", "squash"):
+            for s_token in (
+                "volleyball",
+                "cricket",
+                "football",
+                "soccer",
+                "hockey",
+                "basketball",
+                "kabaddi",
+                "badminton",
+                "tennis",
+                "swimming",
+                "athletics",
+                "boxing",
+                "wrestling",
+                "handball",
+                "squash",
+            ):
                 if s_token in _raw_q:
                     _p_sport = s_token.capitalize()
                     break
@@ -4586,12 +4845,22 @@ WHERE {_p_active_where}
   {_p_org_filter}
 ORDER BY m.AgniveerNo ASC
 """
-            _rows, _run_err = run_readonly(_sql, _p_active_params, max_rows=_row_cap(_limit))
+            _rows, _run_err = run_readonly(
+                _sql, _p_active_params, max_rows=_row_cap(_limit)
+            )
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
         # BloodGroup summary breakdown query (e.g. "Show blood group details")
-        if ("blood group" in _raw_q or _p_metric == "BloodGroup" or _p_op in ("BloodGroup", "BloodGroupDetails")) and not _p_blood_group and not _p_agniveer_no:
+        if (
+            (
+                "blood group" in _raw_q
+                or _p_metric == "BloodGroup"
+                or _p_op in ("BloodGroup", "BloodGroupDetails")
+            )
+            and not _p_blood_group
+            and not _p_agniveer_no
+        ):
             _sql = f"""
 SELECT {_top_clause(_limit)} m.BloodGroup, COUNT(*) AS AgniveerCount
 FROM AgniveerMaster m
@@ -4600,7 +4869,9 @@ WHERE ISNULL(m.IsDisqualified,0) = 0 AND m.BloodGroup IS NOT NULL AND TRIM(m.Blo
 GROUP BY m.BloodGroup
 ORDER BY AgniveerCount DESC
 """
-            _rows, _run_err = run_readonly(_sql, _p_org_params, max_rows=_row_cap(_limit))
+            _rows, _run_err = run_readonly(
+                _sql, _p_org_params, max_rows=_row_cap(_limit)
+            )
             if not _run_err:
                 return _to_section(_rows or [], intent, sql=_sql), None
 
@@ -4644,16 +4915,27 @@ ORDER BY AgniveerCount DESC
             clauses.append("LOWER(m.Class) LIKE '%' + LOWER(?) + '%'")
             params.append(str(_p_class))
         if _p_state:
-            clauses.append("(LOWER(m.State) LIKE '%' + LOWER(?) + '%' OR LOWER(m.District) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Address) LIKE '%' + LOWER(?) + '%')")
+            clauses.append(
+                "(LOWER(m.State) LIKE '%' + LOWER(?) + '%' OR LOWER(m.District) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Address) LIKE '%' + LOWER(?) + '%')"
+            )
             params.extend([str(_p_state)] * 3)
         if _p_sport:
-            clauses.append("(LOWER(m.Sports) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Skill) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Hobby) LIKE '%' + LOWER(?) + '%')")
+            clauses.append(
+                "(LOWER(m.Sports) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Skill) LIKE '%' + LOWER(?) + '%' OR LOWER(m.Hobby) LIKE '%' + LOWER(?) + '%')"
+            )
             params.extend([str(_p_sport)] * 3)
         if _p_blood_group:
-            clauses.append("UPPER(REPLACE(m.BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))")
+            clauses.append(
+                "UPPER(REPLACE(m.BloodGroup, ' ', '')) = UPPER(REPLACE(?, ' ', ''))"
+            )
             params.append(str(_p_blood_group))
         _p_height_filter = intent.get("height_filter")
-        if isinstance(_p_height_filter, dict) and _p_height_filter.get("operator") in (">", "<", ">=", "<="):
+        if isinstance(_p_height_filter, dict) and _p_height_filter.get("operator") in (
+            ">",
+            "<",
+            ">=",
+            "<=",
+        ):
             clauses.append(f"m.Height {_p_height_filter['operator']} ?")
             params.append(float(_p_height_filter["value"]))
         _p_join_year = intent.get("join_year")
@@ -4662,7 +4944,11 @@ ORDER BY AgniveerCount DESC
             params.append(int(_p_join_year))
 
         join_str = (" " + " ".join(joins)) if joins else ""
-        where_str = f"FROM AgniveerMaster m{join_str}\nWHERE " + " AND ".join(clauses) + _p_org_filter
+        where_str = (
+            f"FROM AgniveerMaster m{join_str}\nWHERE "
+            + " AND ".join(clauses)
+            + _p_org_filter
+        )
         params.extend(_p_org_params)
 
         # One or more specific fields were asked about (e.g. "height and
@@ -4675,7 +4961,10 @@ ORDER BY AgniveerCount DESC
         # Validated against the same column whitelist personal_details_parser.py
         # extracts metrics from, so this can never become a column-name
         # injection point.
-        from intent_engine.personal_details_parser import AGNIVEER_PERSONAL_COLUMNS, COL_MAP
+        from intent_engine.personal_details_parser import (
+            AGNIVEER_PERSONAL_COLUMNS,
+            COL_MAP,
+        )
 
         raw_metrics = intent.get("metrics")
         if not raw_metrics and intent.get("metric"):
@@ -4684,7 +4973,7 @@ ORDER BY AgniveerCount DESC
             raw_metrics = [raw_metrics]
 
         _p_metrics: List[str] = []
-        for m in (raw_metrics or []):
+        for m in raw_metrics or []:
             m_str = str(m).strip()
             canonical = COL_MAP.get(m_str.lower())
             if not canonical:
@@ -4692,9 +4981,17 @@ ORDER BY AgniveerCount DESC
                     if col.lower() == m_str.lower():
                         canonical = col
                         break
-            if canonical and canonical not in ("AgniveerNo", "FullName") and canonical not in _p_metrics:
+            if (
+                canonical
+                and canonical not in ("AgniveerNo", "FullName")
+                and canonical not in _p_metrics
+            ):
                 _p_metrics.append(canonical)
-            elif m_str in AGNIVEER_PERSONAL_COLUMNS and m_str not in ("AgniveerNo", "FullName") and m_str not in _p_metrics:
+            elif (
+                m_str in AGNIVEER_PERSONAL_COLUMNS
+                and m_str not in ("AgniveerNo", "FullName")
+                and m_str not in _p_metrics
+            ):
                 _p_metrics.append(m_str)
 
         # Fallback: If _p_metrics is still empty, scan raw_query for specific column mentions in COL_MAP
@@ -4702,9 +4999,12 @@ ORDER BY AgniveerCount DESC
             _raw_q = str(intent.get("raw_query") or "").lower()
             if _raw_q:
                 for col_alias in sorted(COL_MAP.keys(), key=len, reverse=True):
-                    if re.search(rf'\b{re.escape(col_alias)}\b', _raw_q):
+                    if re.search(rf"\b{re.escape(col_alias)}\b", _raw_q):
                         canonical = COL_MAP[col_alias]
-                        if canonical not in ("AgniveerNo", "FullName") and canonical not in _p_metrics:
+                        if (
+                            canonical not in ("AgniveerNo", "FullName")
+                            and canonical not in _p_metrics
+                        ):
                             _p_metrics.append(canonical)
 
         if _p_metrics:
@@ -4769,11 +5069,16 @@ ORDER BY u.Username ASC
             _u_is_valid, _u_err = sql_validator.validate_sql(_u_sql)
             if not _u_is_valid:
                 return None, f"Users/Roles SQL validation failed: {_u_err}"
-            _u_rows, _u_run_err = run_readonly(_u_sql, _u_params, max_rows=_row_cap(_limit))
+            _u_rows, _u_run_err = run_readonly(
+                _u_sql, _u_params, max_rows=_row_cap(_limit)
+            )
             if _u_run_err:
                 return None, f"Users/Roles execution failed: {_u_run_err}"
             return _to_section(_u_rows or [], intent, sql=_u_sql), None
-        return None, "Unsupported Users/Roles question — logged-in-session and login-token questions are not exposed by this system."
+        return (
+            None,
+            "Unsupported Users/Roles question — logged-in-session and login-token questions are not exposed by this system.",
+        )
 
     # ── Organizational Hierarchy Fast-Path ──────────────────────────────────
     if intent.get("category") == "OrgHierarchy":
@@ -4903,15 +5208,25 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
 """
             _oh_params = [str(intent.get("agniveer_no"))]
 
-        if _oh_sql is not None and (_oh_params or _oh_op in ("HeadcountByCompany", "TopCompanyByHeadcount")):
+        if _oh_sql is not None and (
+            _oh_params or _oh_op in ("HeadcountByCompany", "TopCompanyByHeadcount")
+        ):
             _oh_is_valid, _oh_err = sql_validator.validate_sql(_oh_sql)
             if not _oh_is_valid:
-                return None, f"Organizational hierarchy SQL validation failed: {_oh_err}"
-            _oh_rows, _oh_run_err = run_readonly(_oh_sql, _oh_params, max_rows=_row_cap(_limit))
+                return (
+                    None,
+                    f"Organizational hierarchy SQL validation failed: {_oh_err}",
+                )
+            _oh_rows, _oh_run_err = run_readonly(
+                _oh_sql, _oh_params, max_rows=_row_cap(_limit)
+            )
             if _oh_run_err:
                 return None, f"Organizational hierarchy execution failed: {_oh_run_err}"
             return _to_section(_oh_rows or [], intent, sql=_oh_sql), None
-        return None, "Could not resolve the company/platoon for this organizational question."
+        return (
+            None,
+            "Could not resolve the company/platoon for this organizational question.",
+        )
 
     if intent.get("category") == "Schedule":
 
@@ -4929,7 +5244,6 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
         _s_from_date = intent.get("from_date") or intent.get("fromDate")
         _s_to_date = intent.get("to_date") or intent.get("toDate")
         _s_top_n = _get_top_n(intent)
-
 
         _resolved_company_id: Optional[int] = None
         _lookup_sql: Optional[str] = None
@@ -4953,14 +5267,18 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
         if _resolved_company_id is None and _lookup_sql is not None:
             _is_lookup_valid, _lookup_err = sql_validator.validate_sql(_lookup_sql)
             if not _is_lookup_valid:
-                return None, f"Schedule company lookup SQL validation failed: {_lookup_err}"
+                return (
+                    None,
+                    f"Schedule company lookup SQL validation failed: {_lookup_err}",
+                )
             _lookup_rows, _lookup_run_err = run_readonly(_lookup_sql, _lookup_params)
             if _lookup_run_err:
                 return None, f"Schedule company lookup failed: {_lookup_run_err}"
-            _resolved_company_id = _lookup_rows[0].get("CompanyId") if _lookup_rows else None
+            _resolved_company_id = (
+                _lookup_rows[0].get("CompanyId") if _lookup_rows else None
+            )
             if _resolved_company_id is None:
                 return _to_section([], intent), None
-
 
         sql, params = build_schedule_sql(
             company_id=_resolved_company_id,
@@ -4977,11 +5295,11 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
             return None, f"Schedule execution failed: {run_err}"
         return _to_section(rows or [], intent, sql=sql), None
 
+    import time
+
+    from explainability_engine import explainability_engine
     from query_planner_v2 import query_planner_v2
     from sql_builder import sql_builder
-
-    import time
-    from explainability_engine import explainability_engine
 
     # Convert legacy intent to v2 intent format
     def _pick_legacy_value(*keys: str) -> Any:
@@ -5006,7 +5324,9 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
     batch_id = _pick_legacy_value("batchId", "batch_id")
     agniveer_no = _pick_legacy_value("agniveerNo", "agniveer_no")
     medical_status = _pick_legacy_value("medicalStatus", "medical_status")
-    company_name = _pick_legacy_value("Company", "company", "companyName", "company_name")
+    company_name = _pick_legacy_value(
+        "Company", "company", "companyName", "company_name"
+    )
     platoon_name = _pick_legacy_value("platoonName", "platoon_name")
     class_ = _pick_legacy_value("class", "class_")
     blood_group = _pick_legacy_value("bloodGroup", "blood_group")
@@ -5017,7 +5337,9 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
     unit_name = _pick_legacy_value("unitName", "unit_name")
     from_date = _pick_legacy_value("fromDate", "from_date")
     to_date = _pick_legacy_value("toDate", "to_date")
-    leave_status = _pick_legacy_value("leaveStatus", "leave_status", "leaveType", "leave_type")
+    leave_status = _pick_legacy_value(
+        "leaveStatus", "leave_status", "leaveType", "leave_type"
+    )
 
     if company_id is None and company_name is not None:
         company_id = resolve_company_id_from_name(str(company_name))
@@ -5053,9 +5375,13 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
                 ],
             )
         elif from_date is not None:
-            filters.setdefault("Medical.VisitDate", {"operator": ">=", "value": from_date})
+            filters.setdefault(
+                "Medical.VisitDate", {"operator": ">=", "value": from_date}
+            )
         elif to_date is not None:
-            filters.setdefault("Medical.VisitDate", {"operator": "<=", "value": to_date})
+            filters.setdefault(
+                "Medical.VisitDate", {"operator": "<=", "value": to_date}
+            )
     if class_ is not None:
         filters.setdefault("Agniveer.Class", class_)
     if blood_group is not None:
@@ -5101,18 +5427,30 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
             filters.setdefault(
                 "AND",
                 [
-                    {"Agniveer.DisqualifiedDate": {"operator": ">=", "value": from_date}},
+                    {
+                        "Agniveer.DisqualifiedDate": {
+                            "operator": ">=",
+                            "value": from_date,
+                        }
+                    },
                     {"Agniveer.DisqualifiedDate": {"operator": "<=", "value": to_date}},
                 ],
             )
         elif from_date is not None:
-            filters.setdefault("Agniveer.DisqualifiedDate", {"operator": ">=", "value": from_date})
+            filters.setdefault(
+                "Agniveer.DisqualifiedDate", {"operator": ">=", "value": from_date}
+            )
         elif to_date is not None:
-            filters.setdefault("Agniveer.DisqualifiedDate", {"operator": "<=", "value": to_date})
+            filters.setdefault(
+                "Agniveer.DisqualifiedDate", {"operator": "<=", "value": to_date}
+            )
         else:
             disqualified_date = _pick_legacy_value("date")
             if disqualified_date is not None:
-                filters.setdefault("Agniveer.DisqualifiedDate", {"operator": "=", "value": disqualified_date})
+                filters.setdefault(
+                    "Agniveer.DisqualifiedDate",
+                    {"operator": "=", "value": disqualified_date},
+                )
     elif category == "personaldetail":
         base_concept = "Agniveer"
         extra_aggregates = None
@@ -5122,19 +5460,60 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
         if metric:
             col_ref = f"Agniveer.{metric}"
             if operation == "average":
-                extra_aggregates = [{"function": "AVG", "concept": None, "column": metric, "alias": f"Average{metric}"}]
+                extra_aggregates = [
+                    {
+                        "function": "AVG",
+                        "concept": None,
+                        "column": metric,
+                        "alias": f"Average{metric}",
+                    }
+                ]
             elif operation == "max":
-                filters.setdefault(col_ref, {"operator": "=", "value": {"__raw_sql": f"(SELECT MAX({metric}) FROM AgniveerMaster)"}})
+                filters.setdefault(
+                    col_ref,
+                    {
+                        "operator": "=",
+                        "value": {
+                            "__raw_sql": f"(SELECT MAX({metric}) FROM AgniveerMaster)"
+                        },
+                    },
+                )
             elif operation == "min":
-                filters.setdefault(col_ref, {"operator": "=", "value": {"__raw_sql": f"(SELECT MIN({metric}) FROM AgniveerMaster)"}})
+                filters.setdefault(
+                    col_ref,
+                    {
+                        "operator": "=",
+                        "value": {
+                            "__raw_sql": f"(SELECT MIN({metric}) FROM AgniveerMaster)"
+                        },
+                    },
+                )
             elif operation == "above_average":
-                filters.setdefault(col_ref, {"operator": ">", "value": {"__raw_sql": f"(SELECT AVG({metric}) FROM AgniveerMaster)"}})
+                filters.setdefault(
+                    col_ref,
+                    {
+                        "operator": ">",
+                        "value": {
+                            "__raw_sql": f"(SELECT AVG({metric}) FROM AgniveerMaster)"
+                        },
+                    },
+                )
             elif operation == "below_average":
-                filters.setdefault(col_ref, {"operator": "<", "value": {"__raw_sql": f"(SELECT AVG({metric}) FROM AgniveerMaster)"}})
+                filters.setdefault(
+                    col_ref,
+                    {
+                        "operator": "<",
+                        "value": {
+                            "__raw_sql": f"(SELECT AVG({metric}) FROM AgniveerMaster)"
+                        },
+                    },
+                )
             elif operation == "match":
                 val = intent.get("value")
                 if val:
-                    filters.setdefault(col_ref, {"operator": "LIKE", "value": f"%{val}%"})
+                    filters.setdefault(
+                        col_ref, {"operator": "LIKE", "value": f"%{val}%"}
+                    )
     elif category == "Skills":
         base_concept = "Agniveer"
         if operation == "BySport":
@@ -5155,11 +5534,11 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
             )
     elif category == "Leave":
         base_concept = "Leave"
-        
+
         extra_aggregates = None
         extra_order_by = None
         extra_group_by = None
-        
+
         # --- Type of Leave filters ---
         # "these are the types of leaves exist in our system so if user has asked any types of these leaves then you have to check these columns in agniveer leave master tables if its true"
         leave_col_mapping = {
@@ -5174,10 +5553,11 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
         if leave_status in leave_col_mapping:
             col_name = leave_col_mapping[leave_status]
             filters.setdefault(f"Leave.{col_name}", 1)
-        
+
         # --- Operation specific filters ---
         if operation == "Current" and from_date is None and to_date is None:
             import datetime
+
             today = datetime.date.today().isoformat()
             filters.setdefault("Leave.FromDate", {"operator": "<=", "value": today})
             filters.setdefault("Leave.ToDate", {"operator": ">=", "value": today})
@@ -5207,36 +5587,54 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
                 "HAVING SUM(DATEDIFF(day, FromDate, ToDate) + 1) >= 55 "
                 "OR MAX(DATEDIFF(day, FromDate, ToDate) + 1) >= 40)"
             )
-            # The AST needs Agniveer.Id IN (...) so we filter the base_concept (which is Leave) 
+            # The AST needs Agniveer.Id IN (...) so we filter the base_concept (which is Leave)
             # Wait, base_concept for Leave is "Leave"!
             # So if base_concept is "Leave", the AST generates SELECT ... FROM AgniveerLeaveMaster JOIN AgniveerMaster
             # So filtering Agniveer.Id is totally fine and supported!
-            filters.setdefault("Agniveer.Id", {"operator": "IN", "value": {"__raw_sql": threshold_sql}})
+            filters.setdefault(
+                "Agniveer.Id", {"operator": "IN", "value": {"__raw_sql": threshold_sql}}
+            )
         else:
             if from_date is not None:
-                filters.setdefault("Leave.ToDate", {"operator": ">=", "value": from_date})
+                filters.setdefault(
+                    "Leave.ToDate", {"operator": ">=", "value": from_date}
+                )
             if to_date is not None:
-                filters.setdefault("Leave.FromDate", {"operator": "<=", "value": to_date})
+                filters.setdefault(
+                    "Leave.FromDate", {"operator": "<=", "value": to_date}
+                )
     elif category == "Verification":
         base_concept = "Agniveer"
-        verification_status = _pick_legacy_value("verificationStatus", "verification_status")
+        verification_status = _pick_legacy_value(
+            "verificationStatus", "verification_status"
+        )
         if verification_status is not None:
             v_status_lower = verification_status.lower()
             if v_status_lower == "pending":
-                filters.setdefault("OR", [
-                    {"Verification.Status": "Rejected"},
-                    {"Verification.AgniveerId": {"operator": "=", "value": None}}
-                ])
+                filters.setdefault(
+                    "OR",
+                    [
+                        {"Verification.Status": "Rejected"},
+                        {"Verification.AgniveerId": {"operator": "=", "value": None}},
+                    ],
+                )
             elif v_status_lower == "not responded":
                 filters.setdefault("Verification.Status", "Sent")
-                filters.setdefault("Verification.ReturnDate", {"operator": "=", "value": None})
+                filters.setdefault(
+                    "Verification.ReturnDate", {"operator": "=", "value": None}
+                )
             elif v_status_lower in ("verified", "completed"):
-                filters.setdefault("OR", [
-                    {"Verification.Status": "Verified"},
-                    {"Verification.Status": "Completed"}
-                ])
+                filters.setdefault(
+                    "OR",
+                    [
+                        {"Verification.Status": "Verified"},
+                        {"Verification.Status": "Completed"},
+                    ],
+                )
             else:
-                filters.setdefault("Verification.Status", verification_status.capitalize())
+                filters.setdefault(
+                    "Verification.Status", verification_status.capitalize()
+                )
     elif category == "Equipment":
         base_concept = "Equipment"
 
@@ -5245,18 +5643,26 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
         # drops since they have no "Concept.Column" dot. Pull them out and
         # re-express them with the concept-qualified keys the AST planner
         # actually understands.
-        equipment_name = _pick_legacy_value("equipmentName", "equipment_name", "item_name")
+        equipment_name = _pick_legacy_value(
+            "equipmentName", "equipment_name", "item_name"
+        )
         equipment_type = _pick_legacy_value("equipmentType", "equipment_type")
         given_condition = _pick_legacy_value("givenCondition", "given_condition")
         return_condition = _pick_legacy_value("returnCondition", "return_condition")
-        for legacy_key in ("equipmentName", "equipmentType", "givenCondition", "returnCondition"):
+        for legacy_key in (
+            "equipmentName",
+            "equipmentType",
+            "givenCondition",
+            "returnCondition",
+        ):
             filters.pop(legacy_key, None)
 
         # Equipment name -> join AgniveerEquipment.EquipmentId to
         # EquipmentMaster.Id and match on the master item name.
         if equipment_name is not None:
             filters.setdefault(
-                "EquipmentMaster.Name", {"operator": "LIKE", "value": f"%{equipment_name}%"}
+                "EquipmentMaster.Name",
+                {"operator": "LIKE", "value": f"%{equipment_name}%"},
             )
         # "Issued" / "Procured" type of equipment -> AgniveerEquipment.Type.
         if equipment_type is not None:
@@ -5284,7 +5690,7 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
         "filters": filters,
         "limit": v2_limit,
     }
-    
+
     if category in ("Leave", "personaldetail"):
         if extra_aggregates:
             v2_intent["aggregates"] = extra_aggregates
@@ -5381,7 +5787,8 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
             _bg_top_n = int(intent["number"]) if intent.get("number") else None
             sql, params = _build_medical_blood_group_sql(
                 top_n=_bg_top_n,
-                report_mode=report_mode and not bool(
+                report_mode=report_mode
+                and not bool(
                     intent.get("agniveer_no")
                     or company_id
                     or platoon_id
@@ -5443,7 +5850,11 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
 
         ast = query_planner_v2.plan_query(v2_intent)
 
-        if category == "Verification" and verification_status and verification_status.lower() == "pending":
+        if (
+            category == "Verification"
+            and verification_status
+            and verification_status.lower() == "pending"
+        ):
             for j in ast.joins:
                 if j.right_table == "PoliceVerificationMaster":
                     j.join_type = "LEFT"

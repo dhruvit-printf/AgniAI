@@ -21,24 +21,29 @@ def test_build_schedule_sql():
 
 def test_schedule_bytoday_execution():
     def mock_run(sql, params=(), max_rows=None):
-        return ([{
-            "ScheduleId": 1,
-            "CompanyId": 10,
-            "CompanyName": "Bravo Company",
-            "ScheduleDate": "2026-07-22",
-            "Pd": 1,
-            "TimeRange": "06:00 - 07:00",
-            "Code": "BPET",
-            "Type": "Physical",
-            "Details": "Morning BPET",
-            "Location": "Ground A",
-            "Resp": "Instructor A"
-        }], None)
+        return (
+            [
+                {
+                    "ScheduleId": 1,
+                    "CompanyId": 10,
+                    "CompanyName": "Bravo Company",
+                    "ScheduleDate": "2026-07-22",
+                    "Pd": 1,
+                    "TimeRange": "06:00 - 07:00",
+                    "Code": "BPET",
+                    "Type": "Physical",
+                    "Details": "Morning BPET",
+                    "Location": "Ground A",
+                    "Resp": "Instructor A",
+                }
+            ],
+            None,
+        )
 
     intent = {
         "category": "Schedule",
         "operation": "bytoday",
-        "raw_query": "Show schedule for today"
+        "raw_query": "Show schedule for today",
     }
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):

@@ -34,8 +34,8 @@ import random
 import re
 from typing import Any, Dict, List, Optional
 
-from utils import get_score as _get_score
 from question_bank import QUESTION_BANK
+from utils import get_score as _get_score
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Alias tables — map live intent category/subcategory names to the bank's keys

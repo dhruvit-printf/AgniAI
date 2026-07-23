@@ -13,7 +13,7 @@ def test_disqualified_summary_count():
     intent = {
         "category": "disqualified",
         "responseType": "Summary",
-        "raw_query": "How many disqualified agniveers are there?"
+        "raw_query": "How many disqualified agniveers are there?",
     }
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):
@@ -26,21 +26,26 @@ def test_disqualified_summary_count():
 
 def test_disqualified_detailed_list():
     def mock_run(sql, params=(), max_rows=None):
-        return ([{
-            "Id": 1,
-            "AgniveerNo": "A0701882L",
-            "FullName": "HARMAN SINGH",
-            "PlatoonName": "Platoon 1",
-            "CompanyName": "Alpha Company",
-            "BatchName": "Batch 2026",
-            "DisqualifiedDate": "2026-03-15",
-            "Remarks": "Medical Unfit"
-        }], None)
+        return (
+            [
+                {
+                    "Id": 1,
+                    "AgniveerNo": "A0701882L",
+                    "FullName": "HARMAN SINGH",
+                    "PlatoonName": "Platoon 1",
+                    "CompanyName": "Alpha Company",
+                    "BatchName": "Batch 2026",
+                    "DisqualifiedDate": "2026-03-15",
+                    "Remarks": "Medical Unfit",
+                }
+            ],
+            None,
+        )
 
     intent = {
         "category": "disqualified",
         "responseType": "Detailed",
-        "raw_query": "Show disqualified agniveers list"
+        "raw_query": "Show disqualified agniveers list",
     }
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):
@@ -63,7 +68,7 @@ def test_disqualified_with_filters():
         "responseType": "Summary",
         "batch_id": 1,
         "company_id": 5,
-        "raw_query": "Count disqualified in batch 1 company 5"
+        "raw_query": "Count disqualified in batch 1 company 5",
     }
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):
@@ -82,7 +87,7 @@ def test_disqualified_with_leave_filter():
         "category": "disqualified",
         "responseType": "Detailed",
         "leave_type": "leave",
-        "raw_query": "Show disqualified agniveers on leave"
+        "raw_query": "Show disqualified agniveers on leave",
     }
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):
@@ -102,7 +107,7 @@ def test_disqualified_with_date_range():
         "responseType": "Detailed",
         "from_date": "2026-01-01",
         "to_date": "2026-06-30",
-        "raw_query": "Disqualified between 2026-01-01 and 2026-06-30"
+        "raw_query": "Disqualified between 2026-01-01 and 2026-06-30",
     }
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):

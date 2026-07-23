@@ -146,7 +146,11 @@ def _resolve_duplicates(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         bucket = resolved.setdefault(canonical_id, [])
         merge_target = next(
-            (existing for existing in bucket if not _records_conflict(existing, record)),
+            (
+                existing
+                for existing in bucket
+                if not _records_conflict(existing, record)
+            ),
             None,
         )
         if merge_target is None:
@@ -154,7 +158,11 @@ def _resolve_duplicates(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         else:
             # Intelligent merge: don't overwrite populated fields, just fill missing
             for k, v in record.items():
-                if k not in merge_target or merge_target[k] is None or merge_target[k] == "":
+                if (
+                    k not in merge_target
+                    or merge_target[k] is None
+                    or merge_target[k] == ""
+                ):
                     merge_target[k] = v
 
     out: List[Dict[str, Any]] = []

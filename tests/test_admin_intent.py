@@ -116,7 +116,9 @@ def test_improvement_with_attempts():
 
 
 def test_improvement_with_attempts_does_not_infer_date_range():
-    r = classify_admin_intent("give me improvement from attempt 1 to attempt 3 in firing section")
+    r = classify_admin_intent(
+        "give me improvement from attempt 1 to attempt 3 in firing section"
+    )
     assert r["category"] == "Performance"
     assert r["subcategory"] == "Improvement"
     assert r["from_attempt"] == 1
@@ -126,7 +128,9 @@ def test_improvement_with_attempts_does_not_infer_date_range():
 
 
 def test_compare_sections_with_leave_filter():
-    r = classify_admin_intent("Compare PPT and BEPT among cricket players currently on leave")
+    r = classify_admin_intent(
+        "Compare PPT and BEPT among cricket players currently on leave"
+    )
     assert r["category"] == "Leave"
     assert r["subcategory"] == "Comparison"
     assert r["operation"] == "Compare"

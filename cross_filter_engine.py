@@ -216,9 +216,7 @@ def _no_match_result(
     }
 
 
-def _build_no_overlap_message(
-    counts: List[int], labels: Optional[List[str]]
-) -> str:
+def _build_no_overlap_message(counts: List[int], labels: Optional[List[str]]) -> str:
     """
     Distinguish when intersection data cannot be intersected across conditions / subqueries:
     Return message indicating data exists for X question but is not in Y.

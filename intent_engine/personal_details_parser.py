@@ -3,14 +3,45 @@ from typing import Optional, Dict, Any, List
 
 # All 39 columns in AgniveerMaster
 AGNIVEER_PERSONAL_COLUMNS = [
-    'FullName', 'AgniveerNo', 'DateOfBirth', 'DateOfJoining', 'Address',
-    'MobileNo', 'EroName', 'NextOfKin', 'Class', 'BloodGroup',
-    'Height', 'Weight', 'EyeSight', 'PlatoonId', 'IsActive',
-    'PhotoPath', 'District', 'Email', 'EnrolledId', 'HouseNo',
-    'IdMarkI', 'IdMarkI1', 'MainCategory', 'PinCode', 'PoliceStation',
-    'PostOffice', 'Qualification', 'State', 'Tehsil', 'Village',
-    'Awards', 'Certificate', 'Hobby', 'Skill', 'Sports',
-    'IsDisqualified', 'Remarks', 'SponserUnitId', 'DisqualifiedDate'
+    "FullName",
+    "AgniveerNo",
+    "DateOfBirth",
+    "DateOfJoining",
+    "Address",
+    "MobileNo",
+    "EroName",
+    "NextOfKin",
+    "Class",
+    "BloodGroup",
+    "Height",
+    "Weight",
+    "EyeSight",
+    "PlatoonId",
+    "IsActive",
+    "PhotoPath",
+    "District",
+    "Email",
+    "EnrolledId",
+    "HouseNo",
+    "IdMarkI",
+    "IdMarkI1",
+    "MainCategory",
+    "PinCode",
+    "PoliceStation",
+    "PostOffice",
+    "Qualification",
+    "State",
+    "Tehsil",
+    "Village",
+    "Awards",
+    "Certificate",
+    "Hobby",
+    "Skill",
+    "Sports",
+    "IsDisqualified",
+    "Remarks",
+    "SponserUnitId",
+    "DisqualifiedDate",
 ]
 
 # Lowercase mapping for fast lookup
@@ -19,52 +50,130 @@ COL_MAP = {col.lower(): col for col in AGNIVEER_PERSONAL_COLUMNS}
 # Comprehensive Column Aliases
 COLUMN_ALIASES = {
     # Identity
-    "fullname": "FullName", "name": "FullName", "agniveer name": "FullName", "agniveername": "FullName",
-    
+    "fullname": "FullName",
+    "name": "FullName",
+    "agniveer name": "FullName",
+    "agniveername": "FullName",
     # Number
-    "agniveer no": "AgniveerNo", "agniveerno": "AgniveerNo", "agniveer number": "AgniveerNo",
-    "enrollment no": "AgniveerNo", "enrollment number": "AgniveerNo", "enrolled id": "EnrolledId", "enrolledid": "EnrolledId",
-    
+    "agniveer no": "AgniveerNo",
+    "agniveerno": "AgniveerNo",
+    "agniveer number": "AgniveerNo",
+    "enrollment no": "AgniveerNo",
+    "enrollment number": "AgniveerNo",
+    "enrolled id": "EnrolledId",
+    "enrolledid": "EnrolledId",
     # Dates
-    "date of birth": "DateOfBirth", "dob": "DateOfBirth", "birth date": "DateOfBirth", "birthday": "DateOfBirth", "age": "DateOfBirth",
-    "date of joining": "DateOfJoining", "doj": "DateOfJoining", "joining date": "DateOfJoining", "joined date": "DateOfJoining",
-    "disqualified date": "DisqualifiedDate", "disqualification date": "DisqualifiedDate",
-    
+    "date of birth": "DateOfBirth",
+    "dob": "DateOfBirth",
+    "birth date": "DateOfBirth",
+    "birthday": "DateOfBirth",
+    "age": "DateOfBirth",
+    "date of joining": "DateOfJoining",
+    "doj": "DateOfJoining",
+    "joining date": "DateOfJoining",
+    "joined date": "DateOfJoining",
+    "disqualified date": "DisqualifiedDate",
+    "disqualification date": "DisqualifiedDate",
     # Address
-    "address": "Address", "full address": "Address", "home address": "Address", "permanent address": "Address", "correspondence address": "Address",
-    "state": "State", "district": "District", "tehsil": "Tehsil", "village": "Village", "city": "District", "town": "Tehsil",
-    "pin code": "PinCode", "pincode": "PinCode", "zip code": "PinCode", "postal code": "PinCode", "zipcode": "PinCode",
-    "post office": "PostOffice", "police station": "PoliceStation", "house no": "HouseNo", "houseno": "HouseNo",
-    
+    "address": "Address",
+    "full address": "Address",
+    "home address": "Address",
+    "permanent address": "Address",
+    "correspondence address": "Address",
+    "state": "State",
+    "district": "District",
+    "tehsil": "Tehsil",
+    "village": "Village",
+    "city": "District",
+    "town": "Tehsil",
+    "pin code": "PinCode",
+    "pincode": "PinCode",
+    "zip code": "PinCode",
+    "postal code": "PinCode",
+    "zipcode": "PinCode",
+    "post office": "PostOffice",
+    "police station": "PoliceStation",
+    "house no": "HouseNo",
+    "houseno": "HouseNo",
     # Contact
-    "mobile no": "MobileNo", "mobileno": "MobileNo", "phone": "MobileNo", "phone number": "MobileNo", "phone no": "MobileNo",
-    "contact": "MobileNo", "contact number": "MobileNo", "contact no": "MobileNo", "mobile": "MobileNo", "mobile number": "MobileNo",
-    "email": "Email", "email id": "Email", "mail": "Email",
-    
+    "mobile no": "MobileNo",
+    "mobileno": "MobileNo",
+    "phone": "MobileNo",
+    "phone number": "MobileNo",
+    "phone no": "MobileNo",
+    "contact": "MobileNo",
+    "contact number": "MobileNo",
+    "contact no": "MobileNo",
+    "mobile": "MobileNo",
+    "mobile number": "MobileNo",
+    "email": "Email",
+    "email id": "Email",
+    "mail": "Email",
     # Physical
-    "height": "Height", "weight": "Weight", "eye sight": "EyeSight", "eyesight": "EyeSight", "vision": "EyeSight",
-    
+    "height": "Height",
+    "weight": "Weight",
+    "eye sight": "EyeSight",
+    "eyesight": "EyeSight",
+    "vision": "EyeSight",
     # Personal
-    "class": "Class", "community": "Class", "blood group": "BloodGroup", "bloodgroup": "BloodGroup", "blood type": "BloodGroup",
-    "qualification": "Qualification", "education": "Qualification", "academic": "Qualification", "educational qualification": "Qualification",
-    "ero name": "EroName", "ero": "EroName", "next of kin": "NextOfKin", "nok": "NextOfKin", "kin": "NextOfKin", "family": "NextOfKin",
-    "main category": "MainCategory", "category": "MainCategory",
-    
+    "class": "Class",
+    "community": "Class",
+    "blood group": "BloodGroup",
+    "bloodgroup": "BloodGroup",
+    "blood type": "BloodGroup",
+    "qualification": "Qualification",
+    "education": "Qualification",
+    "academic": "Qualification",
+    "educational qualification": "Qualification",
+    "ero name": "EroName",
+    "ero": "EroName",
+    "next of kin": "NextOfKin",
+    "nok": "NextOfKin",
+    "kin": "NextOfKin",
+    "family": "NextOfKin",
+    "main category": "MainCategory",
+    "category": "MainCategory",
     # Marks/ID
-    "id mark": "IdMarkI", "id mark 1": "IdMarkI", "id mark i": "IdMarkI", "identification mark": "IdMarkI",
-    "id mark 2": "IdMarkI1", "id mark ii": "IdMarkI1", "identification mark 2": "IdMarkI1",
-    
+    "id mark": "IdMarkI",
+    "id mark 1": "IdMarkI",
+    "id mark i": "IdMarkI",
+    "identification mark": "IdMarkI",
+    "id mark 2": "IdMarkI1",
+    "id mark ii": "IdMarkI1",
+    "identification mark 2": "IdMarkI1",
     # Activities
-    "hobby": "Hobby", "hobbies": "Hobby", "skill": "Skill", "skills": "Skill", "talent": "Skill",
-    "sport": "Sports", "sports": "Sports", "game": "Sports", "games": "Sports",
-    "award": "Awards", "awards": "Awards", "achievement": "Awards",
-    "certificate": "Certificate", "certificates": "Certificate", "certification": "Certificate",
-    
+    "hobby": "Hobby",
+    "hobbies": "Hobby",
+    "skill": "Skill",
+    "skills": "Skill",
+    "talent": "Skill",
+    "sport": "Sports",
+    "sports": "Sports",
+    "game": "Sports",
+    "games": "Sports",
+    "award": "Awards",
+    "awards": "Awards",
+    "achievement": "Awards",
+    "certificate": "Certificate",
+    "certificates": "Certificate",
+    "certification": "Certificate",
     # Status
-    "active": "IsActive", "status": "IsActive", "disqualified": "IsDisqualified", "disqualification": "IsDisqualified",
-    "remarks": "Remarks", "remark": "Remarks", "comment": "Remarks", "note": "Remarks",
-    "photo": "PhotoPath", "picture": "PhotoPath", "image": "PhotoPath",
-    "platoon": "PlatoonId", "unit": "PlatoonId", "batch": "BatchId", "sponsor unit": "SponserUnitId", "sponser unit": "SponserUnitId",
+    "active": "IsActive",
+    "status": "IsActive",
+    "disqualified": "IsDisqualified",
+    "disqualification": "IsDisqualified",
+    "remarks": "Remarks",
+    "remark": "Remarks",
+    "comment": "Remarks",
+    "note": "Remarks",
+    "photo": "PhotoPath",
+    "picture": "PhotoPath",
+    "image": "PhotoPath",
+    "platoon": "PlatoonId",
+    "unit": "PlatoonId",
+    "batch": "BatchId",
+    "sponsor unit": "SponserUnitId",
+    "sponser unit": "SponserUnitId",
 }
 
 # Merge all aliases into COL_MAP
@@ -128,7 +237,9 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
     ):
         is_active = 0 if ("inactive" in q_lower or "removed" in q_lower) else 1
         wants_count = bool(
-            re.search(r"\bhow many\b|\bcount of\b|\btotal number\b|\bnumber of\b", q_lower)
+            re.search(
+                r"\bhow many\b|\bcount of\b|\btotal number\b|\bnumber of\b", q_lower
+            )
         )
         result: Dict[str, Any] = {
             "category": "personaldetail",
@@ -144,7 +255,10 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
         return result
 
     # 1. Check for aggregators: average, above average, below average, max, min
-    agg_match = re.search(r'\b(above average|below average|average|max|maximum|min|minimum)\s+([a-z\s]+)\b', q_lower)
+    agg_match = re.search(
+        r"\b(above average|below average|average|max|maximum|min|minimum)\s+([a-z\s]+)\b",
+        q_lower,
+    )
     if agg_match:
         raw_agg = agg_match.group(1).replace("maximum", "max").replace("minimum", "min")
         raw_col = agg_match.group(2).strip()
@@ -161,7 +275,7 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                     "query_type": "simple",
                     "confidence": "high",
                     "confidence_score": 1.0,
-                    "filters": {}
+                    "filters": {},
                 }
                 if agn_match:
                     agg_res["agniveer_no"] = agn_match.group(1).upper()
@@ -170,14 +284,29 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
     # 2. Categorical Match (e.g. "who plays cricket", "playing volleyball", "eye sight 6/6")
     sport_match = None
     if not _OTHER_DOMAIN_WORDS_RE.search(q_lower):
-        sport_match = (
-            re.search(r'\b(?:play|plays|playing)\s+([a-z0-9]+)\b', q_lower)
-            or re.search(r'\b([a-z]+)\s+players?\b', q_lower)
-        )
+        sport_match = re.search(
+            r"\b(?:play|plays|playing)\s+([a-z0-9]+)\b", q_lower
+        ) or re.search(r"\b([a-z]+)\s+players?\b", q_lower)
         if not sport_match:
-            for known_s in ("volleyball", "cricket", "football", "soccer", "hockey", "basketball", "kabaddi", "badminton", "tennis", "swimming", "athletics", "boxing", "wrestling", "handball", "squash"):
+            for known_s in (
+                "volleyball",
+                "cricket",
+                "football",
+                "soccer",
+                "hockey",
+                "basketball",
+                "kabaddi",
+                "badminton",
+                "tennis",
+                "swimming",
+                "athletics",
+                "boxing",
+                "wrestling",
+                "handball",
+                "squash",
+            ):
                 if known_s in q_lower:
-                    sport_match = re.search(rf'\b({known_s})\b', q_lower)
+                    sport_match = re.search(rf"\b({known_s})\b", q_lower)
                     break
 
     if sport_match:
@@ -192,12 +321,13 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
             "query_type": "simple",
             "confidence": "high",
             "confidence_score": 1.0,
-            "filters": {}
+            "filters": {},
         }
         if agn_match:
             sport_res["agniveer_no"] = agn_match.group(1).upper()
 
         from intent_engine.entity_extractor import extract_entities
+
         ents = extract_entities(query)
         if ents.get("companyName"):
             sport_res["company_name"] = ents["companyName"]
@@ -217,7 +347,7 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
         return sport_res
 
     # Generic "eye sight <value>"
-    eye_match = re.search(r'\beye\s*sight\s*(?:is\s*)?([0-9/]+)\b', q_lower)
+    eye_match = re.search(r"\beye\s*sight\s*(?:is\s*)?([0-9/]+)\b", q_lower)
     if eye_match:
         eye_res = {
             "category": "personaldetail",
@@ -228,7 +358,7 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
             "query_type": "simple",
             "confidence": "high",
             "confidence_score": 1.0,
-            "filters": {}
+            "filters": {},
         }
         if agn_match:
             eye_res["agniveer_no"] = agn_match.group(1).upper()
@@ -243,7 +373,7 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
         found: List[Any] = []
         seen: set = set()
         for col_alias in sorted(COL_MAP.keys(), key=len, reverse=True):
-            m = re.search(rf'\b{re.escape(col_alias)}\b', q_lower)
+            m = re.search(rf"\b{re.escape(col_alias)}\b", q_lower)
             if m:
                 canonical = COL_MAP[col_alias]
                 if canonical not in seen:
@@ -261,7 +391,7 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                 "query_type": "simple",
                 "confidence": "high",
                 "confidence_score": 1.0,
-                "filters": {}
+                "filters": {},
             }
             if agn_match:
                 spec_res["agniveer_no"] = agn_match.group(1).upper()
@@ -279,7 +409,11 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                 height_match.group(2),
                 float(height_match.group(3)),
             )
-            op = "<" if descriptor == "shorter" or comparator in ("below", "under") else ">"
+            op = (
+                "<"
+                if descriptor == "shorter" or comparator in ("below", "under")
+                else ">"
+            )
             return {
                 "category": "personaldetail",
                 "operation": "lookup",
@@ -290,7 +424,9 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
                 "filters": {},
             }
 
-        join_match = re.search(r"\bjoin(?:ed|ing)?\b[^.?]*?\b(19\d{2}|20\d{2})\b", q_lower)
+        join_match = re.search(
+            r"\bjoin(?:ed|ing)?\b[^.?]*?\b(19\d{2}|20\d{2})\b", q_lower
+        )
         if join_match:
             return {
                 "category": "personaldetail",
@@ -306,7 +442,9 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
         if (
             (
                 re.search(r"\bbatch\s+[a-z0-9]+\b", q_lower)
-                and re.search(r"\b(belong|belonging|list|show|give|all|every)\b", q_lower)
+                and re.search(
+                    r"\b(belong|belonging|list|show|give|all|every)\b", q_lower
+                )
             )
             or (
                 re.search(r"\b(list|show|give)\b", q_lower)
@@ -344,4 +482,3 @@ def parse_personal_details(query: str) -> Optional[Dict[str, Any]]:
         }
 
     return None
-

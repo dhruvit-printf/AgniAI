@@ -47,52 +47,80 @@ class TestSqlMetricsCounters:
     def test_generated_increments_counter(self):
         m = Metrics()
         from ast_models import ASTNode
+
         with (
             patch("metrics.metrics_collector", m),
-            patch("query_planner_v2.query_planner_v2.plan_query", return_value=ASTNode(base_table="AttendanceMaster")),
-            patch("sql_validator.sql_validator.validate_ast", return_value=(True, None)),
+            patch(
+                "query_planner_v2.query_planner_v2.plan_query",
+                return_value=ASTNode(base_table="AttendanceMaster"),
+            ),
+            patch(
+                "sql_validator.sql_validator.validate_ast", return_value=(True, None)
+            ),
             patch("sql_builder.sql_builder.build", return_value=("SELECT 1", [])),
-            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
+            patch(
+                "sql_validator.sql_validator.validate_sql", return_value=(True, None)
+            ),
             patch("sql_executor.run_readonly", return_value=([], None)),
         ):
             from sql_executor import execute_sql_query
 
-            execute_sql_query(question="anything", intent={"category": "UnroutedCategory"})
+            execute_sql_query(
+                question="anything", intent={"category": "UnroutedCategory"}
+            )
         assert m.sql_generated_total == 1
 
     def test_cannot_answer_increments_counter(self):
         m = Metrics()
         with (
             patch("metrics.metrics_collector", m),
-            patch("query_planner_v2.query_planner_v2.plan_query", side_effect=Exception("AST Failed")),
+            patch(
+                "query_planner_v2.query_planner_v2.plan_query",
+                side_effect=Exception("AST Failed"),
+            ),
             patch("sql_executor.generate_sql", return_value=(None, "Cannot answer")),
         ):
             from sql_executor import execute_sql_query
 
-            execute_sql_query(question="anything", intent={"category": "UnroutedCategory"})
+            execute_sql_query(
+                question="anything", intent={"category": "UnroutedCategory"}
+            )
         assert m.sql_cannot_answer_total == 1
 
     def test_validator_rejected_increments_counter(self):
         m = Metrics()
         with (
             patch("metrics.metrics_collector", m),
-            patch("query_planner_v2.query_planner_v2.plan_query", return_value="mock_ast"),
-            patch("sql_validator.sql_validator.validate_ast", return_value=(False, "Invalid AST")),
+            patch(
+                "query_planner_v2.query_planner_v2.plan_query", return_value="mock_ast"
+            ),
+            patch(
+                "sql_validator.sql_validator.validate_ast",
+                return_value=(False, "Invalid AST"),
+            ),
             patch("sql_executor.generate_sql", return_value=(None, "Fallback failed")),
         ):
             from sql_executor import execute_sql_query
 
-            execute_sql_query(question="delete everyone", intent={"category": "UnroutedCategory"})
+            execute_sql_query(
+                question="delete everyone", intent={"category": "UnroutedCategory"}
+            )
         assert m.sql_validator_rejected_total == 1
 
     def test_exec_error_increments_counter(self):
         m = Metrics()
         with (
             patch("metrics.metrics_collector", m),
-            patch("query_planner_v2.query_planner_v2.plan_query", return_value="mock_ast"),
-            patch("sql_validator.sql_validator.validate_ast", return_value=(True, None)),
+            patch(
+                "query_planner_v2.query_planner_v2.plan_query", return_value="mock_ast"
+            ),
+            patch(
+                "sql_validator.sql_validator.validate_ast", return_value=(True, None)
+            ),
             patch("sql_builder.sql_builder.build", return_value=("SELECT 1", [])),
-            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
+            patch(
+                "sql_validator.sql_validator.validate_sql", return_value=(True, None)
+            ),
             patch(
                 "sql_executor.run_readonly",
                 return_value=(
@@ -104,7 +132,9 @@ class TestSqlMetricsCounters:
         ):
             from sql_executor import execute_sql_query
 
-            execute_sql_query(question="anything", intent={"category": "UnroutedCategory"})
+            execute_sql_query(
+                question="anything", intent={"category": "UnroutedCategory"}
+            )
         assert m.sql_exec_error_total == 1
 
     def test_metrics_hook_never_raises_on_broken_collector(self):
@@ -152,15 +182,24 @@ class TestSqlMetricsCounters:
         m = Metrics()
         with (
             patch("metrics.metrics_collector", m),
-            patch("query_planner_v2.query_planner_v2.plan_query", return_value="mock_ast"),
-            patch("sql_validator.sql_validator.validate_ast", return_value=(False, "Invalid AST")),
+            patch(
+                "query_planner_v2.query_planner_v2.plan_query", return_value="mock_ast"
+            ),
+            patch(
+                "sql_validator.sql_validator.validate_ast",
+                return_value=(False, "Invalid AST"),
+            ),
             patch("sql_executor.generate_sql", return_value=("SELECT 1", None)),
-            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
+            patch(
+                "sql_validator.sql_validator.validate_sql", return_value=(True, None)
+            ),
             patch("sql_executor.run_readonly", return_value=([], None)),
         ):
             from sql_executor import execute_sql_query
 
-            execute_sql_query(question="anything", intent={"category": "UnroutedCategory"})
+            execute_sql_query(
+                question="anything", intent={"category": "UnroutedCategory"}
+            )
         assert m.sql_structural_reject_fallback_total == 1
         assert m.sql_validator_rejected_total == 1
         assert m.sql_llm_fallback_total == 1
@@ -168,27 +207,36 @@ class TestSqlMetricsCounters:
     def test_database_error_bubbles_without_fallback(self):
         m = Metrics()
         from ast_models import ASTNode
+
         mock_generate = MagicMock()
         with (
             patch("metrics.metrics_collector", m),
-            patch("query_planner_v2.query_planner_v2.plan_query", return_value=ASTNode(base_table="AttendanceMaster")),
-            patch("sql_validator.sql_validator.validate_ast", return_value=(True, None)),
+            patch(
+                "query_planner_v2.query_planner_v2.plan_query",
+                return_value=ASTNode(base_table="AttendanceMaster"),
+            ),
+            patch(
+                "sql_validator.sql_validator.validate_ast", return_value=(True, None)
+            ),
             patch("sql_builder.sql_builder.build", return_value=("SELECT 1", [])),
-            patch("sql_validator.sql_validator.validate_sql", return_value=(True, None)),
+            patch(
+                "sql_validator.sql_validator.validate_sql", return_value=(True, None)
+            ),
             patch("sql_executor.run_readonly", return_value=(None, "Database is down")),
             patch("sql_executor.generate_sql", mock_generate),
         ):
             from sql_executor import execute_sql_query
 
-            res, err = execute_sql_query(question="anything", intent={"category": "UnroutedCategory"})
+            res, err = execute_sql_query(
+                question="anything", intent={"category": "UnroutedCategory"}
+            )
             assert err is not None
             assert "Database query execution failed" in err
             assert res is None
-            
+
         mock_generate.assert_not_called()
         assert m.sql_exec_error_total == 1
         assert m.sql_llm_fallback_total == 0
-
 
 
 class TestAuditLogBackendField:

@@ -61,7 +61,9 @@ def parse_org_hierarchy(query: str) -> Optional[Dict[str, Any]]:
                 "filters": {},
             }
 
-    target = "Platoon" if "platoon" in q_lower and "company" not in q_lower else "Company"
+    target = (
+        "Platoon" if "platoon" in q_lower and "company" not in q_lower else "Company"
+    )
 
     # 1. Predecessor — "who commanded X BEFORE the current commander"
     # (checked first: also matches the generic "command" pattern below)
@@ -109,8 +111,10 @@ def parse_org_hierarchy(query: str) -> Optional[Dict[str, Any]]:
         }
 
     # 4. Platoons under a company
-    if "platoon" in q_lower and "company" in q_lower and re.search(
-        r"\bunder\b|\bin\b|\bof\b|\bbelonging to\b", q_lower
+    if (
+        "platoon" in q_lower
+        and "company" in q_lower
+        and re.search(r"\bunder\b|\bin\b|\bof\b|\bbelonging to\b", q_lower)
     ):
         return {
             "category": "OrgHierarchy",
@@ -134,7 +138,9 @@ def parse_org_hierarchy(query: str) -> Optional[Dict[str, Any]]:
         }
 
     # 6. Which company has the most/fewest Agniveers
-    most_least = re.search(r"\bwhich compan\w+\b.*\b(most|fewest|least)\s+agniveers?\b", q_lower)
+    most_least = re.search(
+        r"\bwhich compan\w+\b.*\b(most|fewest|least)\s+agniveers?\b", q_lower
+    )
     if most_least:
         return {
             "category": "OrgHierarchy",

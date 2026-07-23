@@ -92,7 +92,9 @@ class TestCompareOverrideMapCurrentBehavior(unittest.TestCase):
         )
         self.assertEqual(_comparison_widgets("line"), [{"type": "COMPARE_CHART_LINE"}])
         self.assertEqual(_comparison_widgets("area"), [{"type": "COMPARE_CHART_LINE"}])
-        self.assertEqual(_comparison_widgets("radial"), [{"type": "COMPARE_CHART_LINE"}])
+        self.assertEqual(
+            _comparison_widgets("radial"), [{"type": "COMPARE_CHART_LINE"}]
+        )
         self.assertEqual(_comparison_widgets("pie"), [{"type": "COMPARE_CHART_PIE"}])
         self.assertEqual(_comparison_widgets("donut"), [{"type": "COMPARE_CHART_PIE"}])
         self.assertEqual(_comparison_widgets(None), [{"type": "COMPARE_TABLE"}])
@@ -130,10 +132,17 @@ class TestBuildWidgetDataDictDispatch(unittest.TestCase):
     equivalence" check the plan called for, not just "the dispatch table
     exists"."""
 
-    NON_COMPARE_RESULT = {"sections": [{"label": "Result", "data": [
-        {"agniveerNo": "A1", "bestTotal": 80, "date": "2026-01-01"},
-        {"agniveerNo": "A2", "bestTotal": 60, "date": "2026-01-02"},
-    ]}]}
+    NON_COMPARE_RESULT = {
+        "sections": [
+            {
+                "label": "Result",
+                "data": [
+                    {"agniveerNo": "A1", "bestTotal": 80, "date": "2026-01-01"},
+                    {"agniveerNo": "A2", "bestTotal": 60, "date": "2026-01-02"},
+                ],
+            }
+        ]
+    }
     COMPARE_RESULT = {
         "left": {"label": "A", "data": [{"agniveerNo": "A1", "bestTotal": 80}]},
         "right": {"label": "B", "data": [{"agniveerNo": "A2", "bestTotal": 60}]},

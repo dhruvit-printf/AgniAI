@@ -172,7 +172,7 @@ class TestFilteredComparison(unittest.TestCase):
         self.assertEqual(len(plan.operations), 2)
 
     def test_vanguard_no_longer_falsely_registers_as_a_unit(self):
-        """"vanguard" was never a canonical unit name (not in
+        """ "vanguard" was never a canonical unit name (not in
         intent_schema.UNIT_ALIASES) — a query mentioning it alongside one
         real unit, with no explicit "compare"/"vs" keyword, must not be
         treated as a two-unit comparison purely off the multi-unit heuristic
@@ -488,7 +488,9 @@ class TestPlannerV2Recursion(unittest.TestCase):
         from ast_models import WhereNode, ConditionGroupNode
 
         planner = QueryPlannerV2()
-        target_where = WhereNode(column="AgniveerMaster.IsDisqualified", operator="=", value=1)
+        target_where = WhereNode(
+            column="AgniveerMaster.IsDisqualified", operator="=", value=1
+        )
         or_group = ConditionGroupNode(operator="OR", conditions=[target_where])
         and_group = ConditionGroupNode(operator="AND", conditions=[or_group])
         conditions = [and_group]
@@ -498,26 +500,34 @@ class TestPlannerV2Recursion(unittest.TestCase):
         self.assertTrue(result)
 
         # Check that it returns False for non-existing column filter
-        self.assertFalse(planner._has_column_filter(conditions, "AgniveerMaster.FatherName"))
+        self.assertFalse(
+            planner._has_column_filter(conditions, "AgniveerMaster.FatherName")
+        )
 
     def test_has_column_filter_depth_guard(self):
         from query_planner_v2 import QueryPlannerV2
         from ast_models import WhereNode, ConditionGroupNode
 
         planner = QueryPlannerV2()
-        target_where = WhereNode(column="AgniveerMaster.IsDisqualified", operator="=", value=1)
+        target_where = WhereNode(
+            column="AgniveerMaster.IsDisqualified", operator="=", value=1
+        )
 
         # 1. Nest 5 levels deep (should return True)
         node = target_where
         for _ in range(5):
             node = ConditionGroupNode(operator="AND", conditions=[node])
-        self.assertTrue(planner._has_column_filter([node], "AgniveerMaster.IsDisqualified"))
+        self.assertTrue(
+            planner._has_column_filter([node], "AgniveerMaster.IsDisqualified")
+        )
 
         # 2. Nest 25 levels deep (should return False due to depth guard of 20)
         node_deep = target_where
         for _ in range(25):
             node_deep = ConditionGroupNode(operator="AND", conditions=[node_deep])
-        self.assertFalse(planner._has_column_filter([node_deep], "AgniveerMaster.IsDisqualified"))
+        self.assertFalse(
+            planner._has_column_filter([node_deep], "AgniveerMaster.IsDisqualified")
+        )
 
 
 if __name__ == "__main__":

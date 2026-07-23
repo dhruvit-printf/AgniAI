@@ -66,6 +66,7 @@ logger = logging.getLogger(__name__)
 # Grounding facts builder
 # ---------------------------------------------------------------------------
 
+
 def _compact(d: Any, max_len: int = 3500) -> str:
     """JSON-serialise grounding facts, truncated to keep the prompt small."""
     try:
@@ -206,7 +207,6 @@ def _build_prompt(
     )
 
 
-
 # ---------------------------------------------------------------------------
 # Deterministic scrubber — strips chatbot boilerplate the LLM produces despite
 # prompt bans. Runs on every field BEFORE validation, so good content inside a
@@ -232,9 +232,7 @@ _SCRUB_COMPILED = [re.compile(p, re.IGNORECASE) for p in _SCRUB_PATTERNS]
 
 # PascalCase internal module names -> spoken form (e.g. "DisqualifiedAgniveer"
 # -> "disqualified Agniveer"). Applied only to known internal-looking tokens.
-_PASCAL_MODULE_RE = re.compile(
-    r"\b((?:[A-Z][a-z]+){2,})\s+module\b"
-)
+_PASCAL_MODULE_RE = re.compile(r"\b((?:[A-Z][a-z]+){2,})\s+module\b")
 
 
 def _humanize_pascal(match: "re.Match") -> str:
@@ -320,9 +318,11 @@ def _scrub(text: str) -> str:
     out = _dedupe_sentences(out)
     return out
 
+
 # ---------------------------------------------------------------------------
 # Number validation (same philosophy as message_engine._validate_llm_response)
 # ---------------------------------------------------------------------------
+
 
 def _canon(n: str) -> str:
     try:
@@ -340,10 +340,14 @@ def _numbers_in(text: str) -> set:
 # response despite the prompt's self-check instructions not to. Reject any
 # field that contains one; it has zero grounding in real facts by definition.
 _FIXTURE_NAME_PHRASES = (
-    "recruit alpha", "recruit bravo", "recruit charlie",
+    "recruit alpha",
+    "recruit bravo",
+    "recruit charlie",
     # Retired literal names from an earlier revision of the worked example —
     # kept here in case a cached/older prompt is still in play somewhere.
-    "rakesh kumar", "ramesh yadav", "vikram joshi",
+    "rakesh kumar",
+    "ramesh yadav",
+    "vikram joshi",
 )
 
 # The worked example's scaffolding is Performance-flavored ("average",
@@ -352,8 +356,14 @@ _FIXTURE_NAME_PHRASES = (
 # that scaffolding anyway — e.g. inventing "an average of 0" for a leave
 # record. Reject any of these phrases when the facts carry no score data.
 _PERFORMANCE_ONLY_PHRASES = (
-    "average of", "an average", "assessed with", "passing mark",
-    "conditioning plan", "re-test", "performing at a", "the failure",
+    "average of",
+    "an average",
+    "assessed with",
+    "passing mark",
+    "conditioning plan",
+    "re-test",
+    "performing at a",
+    "the failure",
     "is a failure",
 )
 
@@ -367,7 +377,9 @@ def _has_score_data(facts: Dict[str, Any]) -> bool:
     return "avg score" in text or "average score" in text
 
 
-def _validate_field(text: str, allowed_numbers: set, has_score_data: bool = True) -> bool:
+def _validate_field(
+    text: str, allowed_numbers: set, has_score_data: bool = True
+) -> bool:
     """A field passes if every number > 10 (and not a year) exists in facts,
     it doesn't contain a name lifted from the prompt's worked example, and —
     when the facts carry no numeric score — it doesn't borrow the worked
@@ -380,7 +392,9 @@ def _validate_field(text: str, allowed_numbers: set, has_score_data: bool = True
     lowered = stripped.lower()
     if any(phrase in lowered for phrase in _FIXTURE_NAME_PHRASES):
         return False
-    if not has_score_data and any(phrase in lowered for phrase in _PERFORMANCE_ONLY_PHRASES):
+    if not has_score_data and any(
+        phrase in lowered for phrase in _PERFORMANCE_ONLY_PHRASES
+    ):
         return False
     for n in _numbers_in(stripped):
         try:
@@ -399,11 +413,14 @@ def _validate_field(text: str, allowed_numbers: set, has_score_data: bool = True
 # field fails validation. These read far better than the old concatenation.
 # ---------------------------------------------------------------------------
 
+
 def _fallback_analysis(analysis: Optional[Dict[str, Any]]) -> str:
     if not isinstance(analysis, dict):
         return ""
     head = str(analysis.get("summary") or "").strip()
-    insights = [str(i).strip() for i in (analysis.get("insights") or []) if str(i).strip()]
+    insights = [
+        str(i).strip() for i in (analysis.get("insights") or []) if str(i).strip()
+    ]
 
     def _is_stat_recital(text: str) -> bool:
         # Pipe-separated stat dumps or lines whose numbers all repeat the head
@@ -414,15 +431,15 @@ def _fallback_analysis(analysis: Optional[Dict[str, Any]]) -> str:
 
     def _priority(text: str) -> int:
         t = text.lower()
-        if any(w in t for w in ("attention", "performer", "leads", "trails", "needing")):
+        if any(
+            w in t for w in ("attention", "performer", "leads", "trails", "needing")
+        ):
             return 0  # named individuals / group comparisons first
         if any(w in t for w in ("cluster", "variab", "skew", "spread", "consistent")):
             return 1  # distribution shape second
         return 2
 
-    candidates = sorted(
-        (i for i in insights if not _is_stat_recital(i)), key=_priority
-    )
+    candidates = sorted((i for i in insights if not _is_stat_recital(i)), key=_priority)
     picked: List[str] = []
     for i in candidates:
         if i not in head and all(i not in p for p in picked):
@@ -439,14 +456,30 @@ def _fallback_prediction(prediction: Optional[Dict[str, Any]]) -> str:
     trend = str(prediction.get("trend") or "Stable")
     conf = str(prediction.get("trendConfidence") or "Low")
     est = str(prediction.get("heuristicEstimate") or "").strip()
-    trends = [str(t).strip() for t in (prediction.get("futureTrends") or []) if str(t).strip()]
+    trends = [
+        str(t).strip() for t in (prediction.get("futureTrends") or []) if str(t).strip()
+    ]
     lead = f"The outlook is {trend.lower()} with {conf.lower()} confidence."
     parts = [lead]
     if est and est not in parts:
         parts.append(est)
     # One action-oriented trend line if available (prefer ones mentioning intervention/recovery)
     action = next(
-        (t for t in trends if any(w in t.lower() for w in ("recommend", "advис", "advised", "intervention", "recovery", "monitor"))),
+        (
+            t
+            for t in trends
+            if any(
+                w in t.lower()
+                for w in (
+                    "recommend",
+                    "advис",
+                    "advised",
+                    "intervention",
+                    "recovery",
+                    "monitor",
+                )
+            )
+        ),
         trends[0] if trends else "",
     )
     if action and action not in parts:
@@ -458,7 +491,9 @@ def _fallback_conclusion(conclusion: Optional[Dict[str, Any]]) -> str:
     if not isinstance(conclusion, dict):
         return ""
     head = str(conclusion.get("summary") or "").strip()
-    bullets = [str(b).strip() for b in (conclusion.get("bullets") or []) if str(b).strip()]
+    bullets = [
+        str(b).strip() for b in (conclusion.get("bullets") or []) if str(b).strip()
+    ]
     # Prefer the verdict bullet if the engine produced one
     verdict = next((b for b in bullets if b.lower().startswith("overall verdict")), "")
     parts = [p for p in (head, verdict or (bullets[0] if bullets else "")) if p]
@@ -472,7 +507,9 @@ def _fallback_summary(
     """One executive line: prefer the conclusion verdict, else analysis head."""
     if isinstance(conclusion, dict):
         bullets = [str(b).strip() for b in (conclusion.get("bullets") or [])]
-        verdict = next((b for b in bullets if b.lower().startswith("overall verdict")), "")
+        verdict = next(
+            (b for b in bullets if b.lower().startswith("overall verdict")), ""
+        )
         if verdict:
             return verdict
         head = str(conclusion.get("summary") or "").strip()
@@ -486,6 +523,7 @@ def _fallback_summary(
 # ---------------------------------------------------------------------------
 # JSON extraction — tolerant of code fences and stray text
 # ---------------------------------------------------------------------------
+
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:
     if not text:
@@ -536,6 +574,7 @@ def generate_narratives(
     # Reuse message_engine's compact grounded summary of the raw data
     try:
         from message_engine import _build_data_summary, _static_fallback
+
         data_summary = _build_data_summary(combined_result, query_type, intent)
     except Exception as exc:
         logger.warning("%s narrative_engine: data summary failed: %s", log_prefix, exc)
@@ -589,15 +628,19 @@ def generate_narratives(
                 else:
                     logger.debug(
                         "%s narrative_engine: field '%s' failed validation — static fallback",
-                        log_prefix, f,
+                        log_prefix,
+                        f,
                     )
         else:
-            logger.debug("%s narrative_engine: LLM returned unparseable JSON", log_prefix)
+            logger.debug(
+                "%s narrative_engine: LLM returned unparseable JSON", log_prefix
+            )
 
     except Exception as exc:
         logger.debug(
             "%s narrative_engine: Ollama unavailable — all-static narratives: %s",
-            log_prefix, exc,
+            log_prefix,
+            exc,
         )
 
     # Per-field merge: LLM where valid, polished static otherwise
@@ -607,7 +650,10 @@ def generate_narratives(
     # together — a known failure mode when the underlying facts are thin
     # (nothing else to say, so the model pastes the other fields).
     if _looks_like_concatenation(
-        merged["summary"], merged["analysis"], merged["prediction"], merged["conclusion"]
+        merged["summary"],
+        merged["analysis"],
+        merged["prediction"],
+        merged["conclusion"],
     ):
         merged["summary"] = _scrub(fallbacks["summary"])
 

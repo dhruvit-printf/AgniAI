@@ -19,12 +19,10 @@ logger = logging.getLogger(__name__)
 
 from intelligence_common import _percentile, _record_label
 from utils import categorical_breakdown as _categorical_breakdown
-from utils import numeric_distribution_breakdown as _numeric_distribution_breakdown
 from utils import get_score as _get_score
+from utils import numeric_distribution_breakdown as _numeric_distribution_breakdown
 
-_RAW_DETAIL_SKIP_KEYS = frozenset(
-    {"id", "agniveerid", "agniveerno", "photopath"}
-)
+_RAW_DETAIL_SKIP_KEYS = frozenset({"id", "agniveerid", "agniveerno", "photopath"})
 
 
 def _describe_single_record(record: Dict[str, Any], limit: int = 5) -> str:
@@ -45,6 +43,7 @@ def _describe_single_record(record: Dict[str, Any], limit: int = 5) -> str:
         if len(parts) >= limit:
             break
     return ", ".join(parts)
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Statistical helpers
@@ -486,7 +485,9 @@ def generate_conclusion(
             # record upstream, so `cnt` above would misreport "1 record"
             # instead of the real 582 graded — check for it before emitting
             # the record-count bullet, not after.
-            numeric_distribution = None if scores else _numeric_distribution_breakdown(records)
+            numeric_distribution = (
+                None if scores else _numeric_distribution_breakdown(records)
+            )
 
             if numeric_distribution:
                 cnt = numeric_distribution["total"]
@@ -500,7 +501,8 @@ def generate_conclusion(
                 )
                 if numeric_distribution["attention"]:
                     att = ", ".join(
-                        f"{a['count']} {a['value']}" for a in numeric_distribution["attention"]
+                        f"{a['count']} {a['value']}"
+                        for a in numeric_distribution["attention"]
                     )
                     bullets.append(
                         f"Overall verdict: {att} out of {cnt} record(s) flagged in this "

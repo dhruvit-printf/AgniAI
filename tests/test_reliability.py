@@ -209,7 +209,9 @@ class TestReliability(unittest.TestCase):
         self.assertIn("rephrase", message)
 
     @patch("admin_pipeline.fetch_sql_results")
-    def test_disqualified_lookup_does_not_carry_forward_stale_batch(self, mock_fetch_sql):
+    def test_disqualified_lookup_does_not_carry_forward_stale_batch(
+        self, mock_fetch_sql
+    ):
         section = {"success": True, "records": [], "data": [], "count": 0}
         mock_fetch_sql.return_value = ([section], [("Result", section)], None)
 

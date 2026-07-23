@@ -128,7 +128,13 @@ def test_volleyball_playing_query_with_company_scope():
         intent["raw_query"] = query
         with patch("sql_executor.run_readonly") as mock_run:
             mock_run.return_value = (
-                [{"AgniveerNo": "A0701882L", "FullName": "HARMAN SINGH", "Sports": "Volleyball"}],
+                [
+                    {
+                        "AgniveerNo": "A0701882L",
+                        "FullName": "HARMAN SINGH",
+                        "Sports": "Volleyball",
+                    }
+                ],
                 None,
             )
             res, err = execute_sql_query(intent=intent)
@@ -141,4 +147,3 @@ def test_volleyball_playing_query_with_company_scope():
         assert "LOWER(c.Name) LIKE '%' + LOWER(?) + '%'" in sql_executed
         assert "Jas - Jaswant" in params
         assert "Volleyball" in params
-

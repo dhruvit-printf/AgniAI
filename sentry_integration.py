@@ -100,7 +100,9 @@ def _sanitize_dict(data: Dict[str, Any], depth: int = 0) -> Dict[str, Any]:
     return result
 
 
-def before_send(event: Dict[str, Any], hint: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def before_send(
+    event: Dict[str, Any], hint: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
     """
     Sentry before_send hook — sanitizes the event before transmission.
     Returns None to drop the event, or the sanitized event to send.

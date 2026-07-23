@@ -103,12 +103,41 @@ _NUMERIC_ID_PATTERN = re.compile(
 )
 _SPORT_TERMS = frozenset(
     {
-        "cricket", "football", "soccer", "volleyball", "hockey", "basketball",
-        "kabaddi", "tennis", "badminton", "swimming", "wrestling", "boxing",
-        "archery", "shooting", "weightlifting", "gymnastics", "cycling", "chess",
-        "carrom", "squash", "billiards", "snooker", "judo", "karate", "taekwondo",
-        "handball", "rugby", "golf", "rowing", "sailing", "fencing", "polo",
-        "marathon", "running", "athletics",
+        "cricket",
+        "football",
+        "soccer",
+        "volleyball",
+        "hockey",
+        "basketball",
+        "kabaddi",
+        "tennis",
+        "badminton",
+        "swimming",
+        "wrestling",
+        "boxing",
+        "archery",
+        "shooting",
+        "weightlifting",
+        "gymnastics",
+        "cycling",
+        "chess",
+        "carrom",
+        "squash",
+        "billiards",
+        "snooker",
+        "judo",
+        "karate",
+        "taekwondo",
+        "handball",
+        "rugby",
+        "golf",
+        "rowing",
+        "sailing",
+        "fencing",
+        "polo",
+        "marathon",
+        "running",
+        "athletics",
     }
 )
 _DATE_ENTITY_PATTERN = re.compile(
@@ -377,7 +406,9 @@ def _compute_follow_up_score(msg: str) -> float:
 
     # Pronoun references
     if _has_pronoun(tokens):
-        pronoun_idx = next((i for i, t in enumerate(tokens) if t in _PRONOUN_TOKENS), -1)
+        pronoun_idx = next(
+            (i for i, t in enumerate(tokens) if t in _PRONOUN_TOKENS), -1
+        )
         if 0 <= pronoun_idx <= 3:
             score += 0.4
         else:
@@ -756,7 +787,9 @@ class ConversationContextEngine:
             logger.debug(
                 "context_engine.resolve: entity guard triggered — treating as fresh "
                 "| session=%s | follow_up_score=%.2f | msg=%r",
-                session_id, follow_up_score, raw_message,
+                session_id,
+                follow_up_score,
+                raw_message,
             )
             return _fresh
 
@@ -770,7 +803,7 @@ class ConversationContextEngine:
                 continue  # TTL: ignore interactions older than 5 minutes
             rel = _compute_relevance(raw_message, record)
             scored.append((rel, idx, record))
-            
+
         if not scored:
             return _fresh
 
@@ -840,13 +873,16 @@ class ConversationContextEngine:
             # Import inline to avoid circular dependency at module level
             try:
                 from intent_engine.intent_classifier import classify_intent as _clf
+
                 _cur_intent = _clf(raw_message)
                 _cur_cat = _cur_intent.get("category")
             except Exception:
                 logger.warning(
                     "context_engine.resolve: inline classify_intent failed during "
                     "carry-forward category check | session=%s | msg=%r",
-                    session_id, raw_message, exc_info=True,
+                    session_id,
+                    raw_message,
+                    exc_info=True,
                 )
                 _classification_failed = True
 
@@ -902,7 +938,11 @@ class ConversationContextEngine:
         logger.info(
             "context_engine.resolve: %s | session=%s | followup_score=%.2f | "
             "resolved_query=%r | carried_filters=%r",
-            source_label, session_id, follow_up_score, reconstructed, carry_filters,
+            source_label,
+            session_id,
+            follow_up_score,
+            reconstructed,
+            carry_filters,
         )
         return ContextResolution(
             resolved_query=reconstructed,

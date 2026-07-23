@@ -196,7 +196,9 @@ class TestResponseLayerRefactor(unittest.TestCase):
             combined,
             query_type="multi_independent",
             intent={"category": "Performance", "subcategory": "Top"},
-            visualization_intent={"widgets": [{"type": "CHART_PIE"}, {"type": "CHART_PIE"}]},
+            visualization_intent={
+                "widgets": [{"type": "CHART_PIE"}, {"type": "CHART_PIE"}]
+            },
         )
 
         self.assertEqual(len(widgets), 2)
@@ -221,7 +223,12 @@ class TestResponseLayerRefactor(unittest.TestCase):
             combined,
             query_type="multi_independent",
             intent={"category": "Performance", "subcategory": "Top"},
-            visualization_intent={"widgets": [{"type": "ATTENDANCE_CALENDAR"}, {"type": "ATTENDANCE_CALENDAR"}]},
+            visualization_intent={
+                "widgets": [
+                    {"type": "ATTENDANCE_CALENDAR"},
+                    {"type": "ATTENDANCE_CALENDAR"},
+                ]
+            },
         )
 
         self.assertEqual(len(widgets), 2)

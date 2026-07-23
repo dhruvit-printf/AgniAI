@@ -182,7 +182,9 @@ class TestPipelineEndToEnd(unittest.TestCase):
     @patch("intent_engine.query_planner._is_semantic_comparison")
     @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
-    def test_comparison_query_e2e(self, mock_generate_report, mock_fetch_sql, mock_semantic_comp):
+    def test_comparison_query_e2e(
+        self, mock_generate_report, mock_fetch_sql, mock_semantic_comp
+    ):
         mock_semantic_comp.return_value = True
         # 3. COMPARISON: "Compare PPT and BEPT" — one SQL fetch per side.
         section_ppt = {

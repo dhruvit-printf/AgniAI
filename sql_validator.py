@@ -1,6 +1,7 @@
 import logging
-from typing import Optional, Tuple, Set
-from ast_models import ASTNode, ConditionNode, WhereNode, ConditionGroupNode
+from typing import Optional, Set, Tuple
+
+from ast_models import ASTNode, ConditionGroupNode, ConditionNode, WhereNode
 from schema_engine import schema_engine
 
 logger = logging.getLogger(__name__)
@@ -219,9 +220,13 @@ class SqlValidator:
                         if (
                             col_type == "boolean"
                             and not isinstance(node.value, bool)
-                            and str(node.value).lower() not in ["0", "1", "true", "false"]
+                            and str(node.value).lower()
+                            not in ["0", "1", "true", "false"]
                         ):
-                            return False, f"Type mismatch: '{node.column}' expects boolean."
+                            return (
+                                False,
+                                f"Type mismatch: '{node.column}' expects boolean.",
+                            )
                 elif node.operator.upper() not in ("IS NULL", "IS NOT NULL", "=", "!="):
                     return (
                         False,
@@ -282,7 +287,10 @@ class SqlValidator:
         # it here as defense-in-depth rather than let it reach the DB and
         # fail with an opaque "invalid object name" error.
         if re.search(r"\bvw_[a-z0-9_]+\b", s):
-            return False, "Views do not exist in this database. Use raw tables with CTEs."
+            return (
+                False,
+                "Views do not exist in this database. Use raw tables with CTEs.",
+            )
 
         if re.search(r";\s*\S", sql.strip().rstrip(";")):
             return False, "Multiple statements are not allowed."

@@ -22,10 +22,10 @@ from intent_engine.entity_extractor import extract_entities
 from intent_engine.intent_classifier import classify_intent
 from context_engine import ConversationContextEngine
 
-
 # =============================================================================
 # Helper
 # =============================================================================
+
 
 def _classify(query: str) -> dict:
     return classify_admin_intent(query)
@@ -50,6 +50,7 @@ def test_confidence_score_is_clamped_to_one():
 # TASK 8 — Mandated test cases (1-10)
 # =============================================================================
 
+
 class TestMandatedCases:
 
     def test_01_volleyball_skill(self):
@@ -58,11 +59,14 @@ class TestMandatedCases:
         assert r["category"] == "Skills", f"Expected Skills, got {r['category']}"
         assert r["operation"] == "BySport", f"Expected BySport, got {r['operation']}"
         e = _entities("give me agniveer who also has volleyball as skill")
-        assert e.get("sport") == "Volleyball", f"Expected Volleyball entity, got {e.get('sport')}"
+        assert (
+            e.get("sport") == "Volleyball"
+        ), f"Expected Volleyball entity, got {e.get('sport')}"
 
     def test_02_who_plays_volleyball_no_exception(self):
         """who plays volleyball → Skills/BySport (must NOT raise PayloadValidationError)"""
         from intent_engine.payload_validator import PayloadValidationError
+
         try:
             r = _classify("who plays volleyball")
         except PayloadValidationError as exc:
@@ -74,73 +78,85 @@ class TestMandatedCases:
         """good morning show attendance summary → Attendance/Summary, grading=None"""
         r = _classify("good morning show attendance summary")
         # Category must be Attendance, not None or Performance
-        assert r["category"] == "Attendance", f"Expected Attendance, got {r['category']}"
+        assert (
+            r["category"] == "Attendance"
+        ), f"Expected Attendance, got {r['category']}"
         e = _entities("good morning show attendance summary")
-        assert e.get("grading") is None, f"Expected grading=None, got {e.get('grading')}"
+        assert (
+            e.get("grading") is None
+        ), f"Expected grading=None, got {e.get('grading')}"
 
     def test_04_attendance_saturday(self):
         """attendance on saturday → Attendance, grading=None"""
         r = _classify("attendance on saturday")
-        assert r["category"] == "Attendance", f"Expected Attendance, got {r['category']}"
+        assert (
+            r["category"] == "Attendance"
+        ), f"Expected Attendance, got {r['category']}"
         e = _entities("attendance on saturday")
-        assert e.get("grading") is None, f"Expected grading=None, got {e.get('grading')}"
+        assert (
+            e.get("grading") is None
+        ), f"Expected grading=None, got {e.get('grading')}"
 
     def test_05_cold_weather_schedule(self):
         """training schedule for cold weather → Schedule, diagnose=None"""
         r = _classify("training schedule for cold weather")
         assert r["category"] == "Schedule", f"Expected Schedule, got {r['category']}"
         e = _entities("training schedule for cold weather")
-        assert e.get("diagnose") is None, f"Expected diagnose=None, got {e.get('diagnose')}"
+        assert (
+            e.get("diagnose") is None
+        ), f"Expected diagnose=None, got {e.get('diagnose')}"
 
     def test_06_agniveers_from_india(self):
         """agniveers from india → unitName=None (bare 'india' is not a unit)"""
         e = _entities("agniveers from india")
-        assert e.get("unitName") is None, (
-            f"Expected unitName=None for bare 'india', got {e.get('unitName')}"
-        )
+        assert (
+            e.get("unitName") is None
+        ), f"Expected unitName=None for bare 'india', got {e.get('unitName')}"
 
     def test_07_agniveers_from_india_unit(self):
         """agniveers from india unit → unitName='India Unit'"""
         e = _entities("agniveers from india unit")
-        assert e.get("unitName") == "India Unit", (
-            f"Expected 'India Unit', got {e.get('unitName')}"
-        )
+        assert (
+            e.get("unitName") == "India Unit"
+        ), f"Expected 'India Unit', got {e.get('unitName')}"
 
     def test_08_attendance_january_to_march_not_compare(self):
         """attendance from january to march → single Attendance op with date range, NOT COMPARE"""
         from intent_engine.query_planner import plan_query, QueryType
+
         plan = plan_query("attendance from january to march")
-        assert plan.query_type != QueryType.COMPARE, (
-            f"Expected non-COMPARE plan, got {plan.query_type}"
-        )
-        assert plan.operations[0].intent_result.get("category") == "Attendance", (
-            f"Expected Attendance, got {plan.operations[0].intent_result.get('category')}"
-        )
+        assert (
+            plan.query_type != QueryType.COMPARE
+        ), f"Expected non-COMPARE plan, got {plan.query_type}"
+        assert (
+            plan.operations[0].intent_result.get("category") == "Attendance"
+        ), f"Expected Attendance, got {plan.operations[0].intent_result.get('category')}"
 
     def test_09_more_than_5_days_leave_not_comparison(self):
         """agniveers with more than 5 days leave → Leave, NOT comparison"""
         from intent_engine.query_planner import plan_query, QueryType
+
         plan = plan_query("agniveers with more than 5 days leave")
-        assert plan.query_type != QueryType.COMPARE, (
-            f"Expected non-COMPARE plan, got {plan.query_type}"
-        )
+        assert (
+            plan.query_type != QueryType.COMPARE
+        ), f"Expected non-COMPARE plan, got {plan.query_type}"
         r = _classify("agniveers with more than 5 days leave")
         assert r["category"] == "Leave", f"Expected Leave, got {r['category']}"
 
     def test_10_context_override_company_id(self):
         """top performers company 3 with prior context companyId=1 → companyId=3 (not 1)"""
         e = _entities("top performers company 3")
-        assert e.get("companyId") == 3, (
-            f"Expected companyId=3, got {e.get('companyId')}"
-        )
+        assert (
+            e.get("companyId") == 3
+        ), f"Expected companyId=3, got {e.get('companyId')}"
         # The current query value must win over resolved_entities carryover
         e2 = extract_entities(
             "top performers company 3",
             resolved_entities={"companyId": 1},
         )
-        assert e2.get("companyId") == 3, (
-            f"Expected current query's companyId=3 to win, got {e2.get('companyId')}"
-        )
+        assert (
+            e2.get("companyId") == 3
+        ), f"Expected current query's companyId=3 to win, got {e2.get('companyId')}"
 
     def test_11_session_isolation(self):
         """Two parallel sessions must never see each other's context."""
@@ -176,6 +192,7 @@ class TestMandatedCases:
 # =============================================================================
 # Extended officer-realistic cases (60+ additional)
 # =============================================================================
+
 
 class TestPerformanceCases:
 
@@ -257,6 +274,7 @@ class TestLeaveCases:
     def test_leave_no_comparison(self):
         """'more than 10 days leave' is NOT a comparison"""
         from intent_engine.query_planner import plan_query, QueryType
+
         plan = plan_query("show agniveers with more than 10 days annual leave")
         assert plan.query_type != QueryType.COMPARE
 
@@ -324,10 +342,11 @@ class TestAttendanceCases:
     def test_attendance_date_range_not_compare(self):
         """'attendance from january to march' is a range query, not a comparison"""
         from intent_engine.query_planner import plan_query, QueryType
+
         plan = plan_query("show attendance from january to march")
-        assert plan.query_type != QueryType.COMPARE, (
-            f"Date range must not become COMPARE, got {plan.query_type}"
-        )
+        assert (
+            plan.query_type != QueryType.COMPARE
+        ), f"Date range must not become COMPARE, got {plan.query_type}"
 
 
 class TestStrengthCases:
@@ -434,9 +453,9 @@ class TestSkillsCases:
     def test_volleyball_no_roster_category(self):
         """'who plays volleyball' must NOT produce category='Roster' (not in OFFICIAL_CATEGORIES)"""
         r = _classify("who plays volleyball")
-        assert r.get("category") != "Roster", (
-            "category 'Roster' is not an official category and must not appear"
-        )
+        assert (
+            r.get("category") != "Roster"
+        ), "category 'Roster' is not an official category and must not appear"
 
     def test_sport_entity_no_false_positive_golf(self):
         """bare 'golf' in a non-sports context must not extract sport if no sports framing"""
@@ -474,7 +493,9 @@ class TestEntityExtractionEdgeCases:
 
     def test_company_3_explicit(self):
         """companyId from current query must win over resolved_entities"""
-        e = extract_entities("top performers company 3", resolved_entities={"companyId": 1})
+        e = extract_entities(
+            "top performers company 3", resolved_entities={"companyId": 1}
+        )
         assert e.get("companyId") == 3
 
     def test_platoon_id(self):
@@ -609,9 +630,9 @@ class TestSessionIsolation:
         )
         h1 = engine.history("sess-1")
         h2 = engine.history("sess-2")
-        assert h1[0].entities.get("companyId") != h2[0].entities.get("companyId"), (
-            "Session 1 and Session 2 must have independent companyId values"
-        )
+        assert h1[0].entities.get("companyId") != h2[0].entities.get(
+            "companyId"
+        ), "Session 1 and Session 2 must have independent companyId values"
         assert h1[0].entities.get("sport") == "Volleyball"
         assert h2[0].entities.get("sport") is None
 
@@ -637,24 +658,28 @@ class TestCrossFilterPlannerCases:
     def test_volleyball_also_skill_not_cross_filter(self):
         """'give me agniveer who also has volleyball as skill' → SIMPLE plan (not cross_filter)"""
         from intent_engine.query_planner import plan_query, QueryType
+
         plan = plan_query("give me agniveer who also has volleyball as skill")
-        assert plan.query_type in (QueryType.SIMPLE, QueryType.CROSS_FILTER), (
-            f"Expected SIMPLE or CROSS_FILTER, got {plan.query_type}"
-        )
+        assert plan.query_type in (
+            QueryType.SIMPLE,
+            QueryType.CROSS_FILTER,
+        ), f"Expected SIMPLE or CROSS_FILTER, got {plan.query_type}"
         # The operation on the primary intent must be Skills/BySport
         if plan.operations:
             primary = plan.operations[0].intent_result
-            assert primary.get("category") == "Skills", (
-                f"Primary intent category should be Skills, got {primary.get('category')}"
-            )
+            assert (
+                primary.get("category") == "Skills"
+            ), f"Primary intent category should be Skills, got {primary.get('category')}"
 
     def test_date_range_not_compare(self):
         from intent_engine.query_planner import plan_query, QueryType
+
         plan = plan_query("attendance from january to march for company 2")
         assert plan.query_type != QueryType.COMPARE
 
     def test_two_year_range_not_compare(self):
         from intent_engine.query_planner import plan_query, QueryType
+
         plan = plan_query("show performance from 2023 to 2024")
         assert plan.query_type != QueryType.COMPARE
 

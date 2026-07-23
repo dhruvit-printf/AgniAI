@@ -11,13 +11,16 @@ def test_leave_base_query_builder():
         "agniveer_no": "A0701882L",
         "company_id": 2,
         "from_date": "2026-01-01",
-        "to_date": "2026-06-30"
+        "to_date": "2026-06-30",
     }
     where_sql, params = _build_leave_base_query(intent)
     assert "(a.IsDisqualified <> 1 OR a.IsDisqualified IS NULL)" in where_sql
     assert "a.IsActive = 1" in where_sql
     assert "LOWER(a.AgniveerNo) LIKE" in where_sql
-    assert "EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)" in where_sql
+    assert (
+        "EXISTS (SELECT 1 FROM PlatoonMaster p WHERE p.Id = a.PlatoonId AND p.CompanyId = ?)"
+        in where_sql
+    )
     assert "CAST(l.FromDate AS DATE) >=" in where_sql
     assert "CAST(l.ToDate AS DATE) <=" in where_sql
     assert params == ["A0701882L", 2, "2026-01-01", "2026-06-30"]
@@ -26,21 +29,22 @@ def test_leave_base_query_builder():
 def test_execute_leave_current_summary():
     def mock_run(sql, params=(), max_rows=None):
         assert "ISNULL(l.IsAbscondedLeave, 0) != 1" in sql
-        return ([{
-            "OnLeaveCount": 10,
-            "AnnualLeave": 5,
-            "MedicalLeave": 3,
-            "SickLeave": 2,
-            "Hospitalized": 0,
-            "ATTNC": 0,
-            "EXPPG": 0
-        }], None)
+        return (
+            [
+                {
+                    "OnLeaveCount": 10,
+                    "AnnualLeave": 5,
+                    "MedicalLeave": 3,
+                    "SickLeave": 2,
+                    "Hospitalized": 0,
+                    "ATTNC": 0,
+                    "EXPPG": 0,
+                }
+            ],
+            None,
+        )
 
-    intent = {
-        "category": "Leave",
-        "operation": "Current",
-        "responseType": "Summary"
-    }
+    intent = {"category": "Leave", "operation": "Current", "responseType": "Summary"}
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):
         res, err = execute_sql_query(intent=intent)
@@ -55,17 +59,22 @@ def test_execute_leave_most_detailed():
     def mock_run(sql, params=(), max_rows=None):
         assert "SUM(" in sql
         assert "ORDER BY TotalLeaveDays DESC" in sql
-        return ([{
-            "agniveerNo": "A0701882L",
-            "fullName": "HARMAN SINGH",
-            "totalLeaveDays": 45
-        }], None)
+        return (
+            [
+                {
+                    "agniveerNo": "A0701882L",
+                    "fullName": "HARMAN SINGH",
+                    "totalLeaveDays": 45,
+                }
+            ],
+            None,
+        )
 
     intent = {
         "category": "Leave",
         "operation": "Most",
         "responseType": "Detailed",
-        "number": 5
+        "number": 5,
     }
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):
@@ -85,7 +94,7 @@ def test_execute_leave_least_noleave():
         "category": "Leave",
         "operation": "Least",
         "leave_type": "noleave",
-        "responseType": "Detailed"
+        "responseType": "Detailed",
     }
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):
@@ -101,11 +110,7 @@ def test_execute_leave_absconded():
         assert "l.IsAbscondedLeave = 1" in sql
         return ([{"totalAbsconded": 2}], None)
 
-    intent = {
-        "category": "Leave",
-        "operation": "Absconded",
-        "responseType": "Summary"
-    }
+    intent = {"category": "Leave", "operation": "Absconded", "responseType": "Summary"}
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):
         res, err = execute_sql_query(intent=intent)
@@ -128,11 +133,16 @@ def test_execute_leave_threshold():
         # placeholder in base_where, so this fails loudly if a future change
         # goes back to passing it only once.
         assert sql.count("?") == len(params)
-        return ([{
-            "AgniveerNo": "A0701882L",
-            "FullName": "HARMAN SINGH",
-            "Reason": "Continuous 40-44 days"
-        }], None)
+        return (
+            [
+                {
+                    "AgniveerNo": "A0701882L",
+                    "FullName": "HARMAN SINGH",
+                    "Reason": "Continuous 40-44 days",
+                }
+            ],
+            None,
+        )
 
     intent = {
         "category": "Leave",
@@ -154,11 +164,7 @@ def test_execute_leave_history():
         assert "ORDER BY l.FromDate DESC" in sql
         return ([{"id": 101, "leaveType": "Annual", "leaveDays": 10}], None)
 
-    intent = {
-        "category": "Leave",
-        "operation": "History",
-        "agniveer_no": "A0701882L"
-    }
+    intent = {"category": "Leave", "operation": "History", "agniveer_no": "A0701882L"}
 
     with patch("sql_executor.run_readonly", side_effect=mock_run):
         res, err = execute_sql_query(intent=intent)

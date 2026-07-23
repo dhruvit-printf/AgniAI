@@ -43,9 +43,9 @@ def test_comparison_detection():
 
     for query in comparison_queries:
         result = understand_query(query)
-        assert result["query_type"] == "comparison", (
-            f"Failed: {query} -> {result['query_type']}"
-        )
+        assert (
+            result["query_type"] == "comparison"
+        ), f"Failed: {query} -> {result['query_type']}"
 
 
 def test_cross_filter_detection():
@@ -89,9 +89,9 @@ def test_multi_independent_detection():
 
     for query in multi_independent_queries:
         result = understand_query(query)
-        assert result["query_type"] == "multi_independent", (
-            f"Failed: {query} -> {result['query_type']}"
-        )
+        assert (
+            result["query_type"] == "multi_independent"
+        ), f"Failed: {query} -> {result['query_type']}"
 
 
 def test_simple_queries():
@@ -113,6 +113,6 @@ def test_simple_queries():
 
     for query in simple_queries:
         result = understand_query(query)
-        assert result["query_type"] == "simple", (
-            f"Failed: {query} -> {result['query_type']}"
-        )
+        assert (
+            result["query_type"] == "simple"
+        ), f"Failed: {query} -> {result['query_type']}"

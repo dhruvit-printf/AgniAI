@@ -1,5 +1,6 @@
-from typing import Tuple, Dict, Any, List
-from ast_models import ASTNode, ConditionNode, WhereNode, ConditionGroupNode
+from typing import Any, Dict, List, Tuple
+
+from ast_models import ASTNode, ConditionGroupNode, ConditionNode, WhereNode
 from schema_engine import schema_engine
 
 

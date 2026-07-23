@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from entity_resolver.entity_cache import fetch_companies as _cache_fetch_companies
 from entity_resolver.entity_cache import fetch_platoons as _cache_fetch_platoons
 from entity_resolver.entity_matcher import normalize_text as _normalize_text
+from intent_engine.intent_schema import COMPANY_CANONICAL_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +132,8 @@ _AGNIVEER_WORD_RE = re.compile(
     # the (?:no.|number|#)? prefix being OPTIONAL meant this matched "the
     # next word after 'agniveer'" full stop, so "every Agniveer BELONGING
     # to Batch 3" captured "belonging" as if it were an AgniveerNo.
-    r"\bagniveer\s+(?:no\.?|number|#)?\s*(?=\w*\d)(\w{3,10})\b", re.IGNORECASE
+    r"\bagniveer\s+(?:no\.?|number|#)?\s*(?=\w*\d)(\w{3,10})\b",
+    re.IGNORECASE,
 )
 _BATCH_PATTERNS = [
     re.compile(r"\bbatch\s+no\.?\s*(\w[\w-]*)\b"),
@@ -230,12 +232,9 @@ _COMPANY_NAME_WORDS = rf"(?:{_NAME_WORD}\s+){{0,1}}{_NAME_WORD}"
 # `LOWER(c.Name) = LOWER(?)` WHERE clause) do not — they need the literal
 # stored Name. Canonicalizing here means whichever path ends up consuming
 # this return value gets a name that matches either way.
-_COMPANY_CANONICAL_NAMES = {
-    "lak": "Lak - Lakhwinder",
-    "lakhwinder": "Lak - Lakhwinder",
-    "jas": "Jas - Jaswant",
-    "jaswant": "Jas - Jaswant",
-}
+# Alias map itself lives in intent_schema.COMPANY_CANONICAL_NAMES (shared
+# with intent_engine/entity_extractor.py) so it's maintained in one place.
+_COMPANY_CANONICAL_NAMES = COMPANY_CANONICAL_NAMES
 
 
 def extract_company_name(text: str) -> Optional[str]:
@@ -262,11 +261,15 @@ def extract_company_name(text: str) -> Optional[str]:
         before = [t for t in tokens[max(0, idx - 3) : idx] if t not in _NOISE_WORDS]
         after = [t for t in tokens[idx + 1 : idx + 4] if t not in _NOISE_WORDS]
         if before:
-            candidate = _clean_candidate(_normalise_company_or_platoon_name(" ".join(before)))
+            candidate = _clean_candidate(
+                _normalise_company_or_platoon_name(" ".join(before))
+            )
             if candidate:
                 return _COMPANY_CANONICAL_NAMES.get(candidate.lower(), candidate)
         if after:
-            candidate = _clean_candidate(_normalise_company_or_platoon_name(" ".join(after)))
+            candidate = _clean_candidate(
+                _normalise_company_or_platoon_name(" ".join(after))
+            )
             if candidate:
                 return _COMPANY_CANONICAL_NAMES.get(candidate.lower(), candidate)
 
@@ -642,6 +645,7 @@ def resolve_entities_from_query(
     # Fetch companies and platoons in parallel so a slow/failing .NET tunnel
     # only blocks for _TIMEOUT seconds ONCE, not twice sequentially.
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
     companies: List[Dict[str, Any]] = []
     platoons: List[Dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=2) as _pool:

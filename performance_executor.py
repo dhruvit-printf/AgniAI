@@ -121,12 +121,14 @@ def execute_performance_query(
     platoon_name = intent.get("platoon_name") or intent.get("platoonName")
     if platoon_id is None and platoon_name:
         from sql_executor import resolve_platoon_id_from_name
+
         platoon_id = resolve_platoon_id_from_name(str(platoon_name))
 
     company_id = intent.get("company_id") or intent.get("companyId")
     company_name = intent.get("company_name") or intent.get("companyName")
     if company_id is None and company_name:
         from sql_executor import resolve_company_id_from_name
+
         company_id = resolve_company_id_from_name(str(company_name))
 
     agniveer_no = intent.get("agniveer_no") or intent.get("agniveerNo")
@@ -140,9 +142,7 @@ def execute_performance_query(
     top_n = int(_top_n_raw) if _top_n_raw is not None else None
 
     def _scope_clause(alias: str = "a") -> Tuple[str, List[Any]]:
-        clauses = [
-            f"({alias}.IsActive = 1 AND ISNULL({alias}.IsDisqualified, 0) = 0)"
-        ]
+        clauses = [f"({alias}.IsActive = 1 AND ISNULL({alias}.IsDisqualified, 0) = 0)"]
         params: List[Any] = []
 
         if batch_id is not None:
@@ -192,9 +192,7 @@ def execute_performance_query(
             )
             params.append(section)
         if sub_section and subitem_alias:
-            clauses.append(
-                f"LOWER({subitem_alias}.Name) LIKE '%' + LOWER(?) + '%'"
-            )
+            clauses.append(f"LOWER({subitem_alias}.Name) LIKE '%' + LOWER(?) + '%'")
             params.append(sub_section)
 
         return " AND ".join(clauses), params
@@ -219,7 +217,11 @@ def execute_performance_query(
         scope_sql, scope_params = _scope_clause("a")
 
         attempt_sql, attempt_params = _attempt_clause(require_best_attempt)
-        if include_attempt_window and from_attempt is not None and to_attempt is not None:
+        if (
+            include_attempt_window
+            and from_attempt is not None
+            and to_attempt is not None
+        ):
             attempt_sql = "sa.AttemptNo IN (?, ?)"
             attempt_params = [int(from_attempt), int(to_attempt)]
 
@@ -249,13 +251,17 @@ def execute_performance_query(
         params = attempt_params + section_params + scope_params
         return sql, params
 
-    def _attemptwise_source(require_best_attempt: bool = False) -> Tuple[str, List[Any]]:
+    def _attemptwise_source(
+        require_best_attempt: bool = False,
+    ) -> Tuple[str, List[Any]]:
         """
         Dedicated FilteredAttempts CTE for AttemptWise/BestAttempt.
         """
         section_sql, section_params = _section_clause(is_exceptional_target=False)
         scope_sql, scope_params = _scope_clause("a")
-        attempt_sql, attempt_params = _attempt_clause(require_best_attempt=require_best_attempt)
+        attempt_sql, attempt_params = _attempt_clause(
+            require_best_attempt=require_best_attempt
+        )
 
         sql = f"""
         SELECT
@@ -291,7 +297,9 @@ def execute_performance_query(
         # top_n raw rows before pivoting can cut an Agniveer off mid-way
         # and silently return fewer than top_n Agniveers.
         effective_cap = _row_cap(top_n) if max_rows is None else max_rows
-        rows, err = sql_executor.run_readonly(sql, tuple(params), max_rows=effective_cap)
+        rows, err = sql_executor.run_readonly(
+            sql, tuple(params), max_rows=effective_cap
+        )
         if err:
             return None, err
         return rows or [], None
@@ -419,7 +427,9 @@ def execute_performance_query(
                 ORDER BY AgniveerNo ASC, SectionName ASC, SubItemName ASC
                 """
 
-            rows, err = _run(sql, source_params, max_rows=0 if top_n is not None else None)
+            rows, err = _run(
+                sql, source_params, max_rows=0 if top_n is not None else None
+            )
             if err:
                 return None, err
             _mark_generated()
@@ -477,7 +487,9 @@ def execute_performance_query(
             # Uncapped fetch when we'll pivot below — a top_n row cap here
             # would apply to raw (Agniveer, Section) rows, not Agniveers,
             # and could cut an Agniveer off mid-way through their sections.
-            rows, err = _run(sql, source_params, max_rows=0 if not agniveer_no else None)
+            rows, err = _run(
+                sql, source_params, max_rows=0 if not agniveer_no else None
+            )
             if err:
                 return None, err
 
@@ -548,7 +560,9 @@ def execute_performance_query(
             # would apply to raw (Agniveer, Section, Attempt) rows, not
             # Agniveers, and could cut an Agniveer off mid-way through
             # their sections/attempts.
-            rows, err = _run(sql, source_params, max_rows=0 if not agniveer_no else None)
+            rows, err = _run(
+                sql, source_params, max_rows=0 if not agniveer_no else None
+            )
             if err:
                 return None, err
 
@@ -619,8 +633,12 @@ def execute_performance_query(
                 source_sql, source_params = _filtered_attempts_source(
                     require_best_attempt=False
                 )
-                delta_filter = "Delta > 0" if operation == "Improvement" else "Delta < 0"
-                order_column = "[Improvement]" if operation == "Improvement" else "[Drop]"
+                delta_filter = (
+                    "Delta > 0" if operation == "Improvement" else "Delta < 0"
+                )
+                order_column = (
+                    "[Improvement]" if operation == "Improvement" else "[Drop]"
+                )
 
                 sql = f"""
                 WITH FilteredAttempts AS (
@@ -692,8 +710,12 @@ def execute_performance_query(
                 source_sql, source_params = _filtered_attempts_source(
                     require_best_attempt=False, include_attempt_window=True
                 )
-                delta_filter = "Delta > 0" if operation == "Improvement" else "Delta < 0"
-                order_column = "[Improvement]" if operation == "Improvement" else "[Drop]"
+                delta_filter = (
+                    "Delta > 0" if operation == "Improvement" else "Delta < 0"
+                )
+                order_column = (
+                    "[Improvement]" if operation == "Improvement" else "[Drop]"
+                )
 
                 sql = f"""
                 WITH FilteredAttempts AS (
@@ -747,8 +769,12 @@ def execute_performance_query(
                 source_sql, source_params = _filtered_attempts_source(
                     require_best_attempt=False
                 )
-                delta_filter = "Delta > 0" if operation == "Improvement" else "Delta < 0"
-                order_column = "[Improvement]" if operation == "Improvement" else "[Drop]"
+                delta_filter = (
+                    "Delta > 0" if operation == "Improvement" else "Delta < 0"
+                )
+                order_column = (
+                    "[Improvement]" if operation == "Improvement" else "[Drop]"
+                )
 
                 sql = f"""
                 WITH FilteredAttempts AS (
@@ -923,13 +949,9 @@ def execute_performance_query(
                     sql += " WHERE REPLACE(LOWER(Grade), ' ', '') = REPLACE(LOWER(?), ' ', '')"
                     params = params + [str(requested_grade)]
                 if section:
-                    sql += (
-                        " ORDER BY Percentage DESC, AgniveerNo ASC"
-                    )
+                    sql += " ORDER BY Percentage DESC, AgniveerNo ASC"
                 else:
-                    sql += (
-                        " ORDER BY OverallPercentage DESC, AgniveerNo ASC"
-                    )
+                    sql += " ORDER BY OverallPercentage DESC, AgniveerNo ASC"
                 if top_n:
                     sql += ""
 
@@ -941,7 +963,10 @@ def execute_performance_query(
             _mark_generated()
             return _to_section(rows=rows, intent=intent, sql=sql), None
 
-        return None, f"Operation {operation} logic not yet fully translated in executor."
+        return (
+            None,
+            f"Operation {operation} logic not yet fully translated in executor.",
+        )
     except Exception as exc:
         logger.error("Performance executor failed: %s", exc, exc_info=True)
         return None, str(exc)

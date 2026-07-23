@@ -25,12 +25,16 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 from grounding_utils import ground_and_sanitize as _ground_and_sanitize
-from intelligence_common import HIGH_SCORE_THRESHOLD, LOW_SCORE_THRESHOLD
-from intelligence_common import _extract_nested_scores, _extract_scores
-from intelligence_common import _record_label
+from intelligence_common import (
+    HIGH_SCORE_THRESHOLD,
+    LOW_SCORE_THRESHOLD,
+    _extract_nested_scores,
+    _extract_scores,
+    _record_label,
+)
 from utils import categorical_breakdown as _categorical_breakdown
-from utils import numeric_distribution_breakdown as _numeric_distribution_breakdown
 from utils import get_score as _get_score
+from utils import numeric_distribution_breakdown as _numeric_distribution_breakdown
 
 MOMENTUM_SIGNAL: float = 2.0  # abs momentum above this = meaningful trend
 MOMENTUM_STRONG: float = 5.0  # abs momentum above this = strong trend
@@ -187,9 +191,7 @@ def _heuristic_estimate(
     direction = (
         "continue improving"
         if momentum > MOMENTUM_SIGNAL
-        else "show slight decline"
-        if momentum < -MOMENTUM_SIGNAL
-        else "remain steady"
+        else "show slight decline" if momentum < -MOMENTUM_SIGNAL else "remain steady"
     )
     next_est = round(avg + (momentum * 0.5), 2)
     return (

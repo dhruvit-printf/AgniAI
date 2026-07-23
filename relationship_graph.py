@@ -1,13 +1,14 @@
+import collections
+import functools
+import heapq
+import itertools
 import logging
 from typing import Dict, List, Optional, Tuple
-import collections
-import itertools
-import heapq
-import functools
 
 from schema_engine import schema_engine
 
 logger = logging.getLogger(__name__)
+
 
 class RelationshipGraph:
     """
@@ -34,7 +35,9 @@ class RelationshipGraph:
 
     def __init__(self, engine=None):
         self.engine = engine or schema_engine
-        self.adj: Dict[str, set[Tuple[str, str, str, int]]] = collections.defaultdict(set)
+        self.adj: Dict[str, set[Tuple[str, str, str, int]]] = collections.defaultdict(
+            set
+        )
         self.build_graph()
 
     def build_graph(self):
@@ -66,7 +69,9 @@ class RelationshipGraph:
                 self.adj[target_table].add((t1, referenced_column, col, weight))
 
     @functools.lru_cache(maxsize=1024)
-    def find_shortest_path(self, start_table: str, end_table: str) -> Optional[List[Dict[str, str]]]:
+    def find_shortest_path(
+        self, start_table: str, end_table: str
+    ) -> Optional[List[Dict[str, str]]]:
         """
         Uses Dijkstra's algorithm to find the lowest-cost join path from start_table to end_table.
         Returns a list of join steps.
@@ -95,14 +100,19 @@ class RelationshipGraph:
                 self.adj[current], key=lambda edge: (edge[0], edge[1], edge[2], edge[3])
             ):
                 if neighbor not in visited:
-                    new_path = path + [{
-                        'left': current,
-                        'right': neighbor,
-                        'left_col': col1,
-                        'right_col': col2
-                    }]
-                    heapq.heappush(queue, (cost + weight, next(counter), neighbor, new_path))
+                    new_path = path + [
+                        {
+                            "left": current,
+                            "right": neighbor,
+                            "left_col": col1,
+                            "right_col": col2,
+                        }
+                    ]
+                    heapq.heappush(
+                        queue, (cost + weight, next(counter), neighbor, new_path)
+                    )
 
         return None
+
 
 relationship_graph = RelationshipGraph()

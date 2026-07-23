@@ -94,10 +94,8 @@ QUESTION_BANK = {
             "verification pending too.",
             "Show Agniveers who completed verification but still missed today's "
             "parade.",
-            "Find Agniveers who failed Firing and still have verification "
-            "pending.",
-            "Show Agniveers who are currently absent yet still holding "
-            "equipment.",
+            "Find Agniveers who failed Firing and still have verification " "pending.",
+            "Show Agniveers who are currently absent yet still holding " "equipment.",
             "Show Agniveers who are hospitalized and still awaiting police "
             "verification.",
             "Find Agniveers who are overweight yet still currently on leave.",

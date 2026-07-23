@@ -2111,9 +2111,11 @@ def _build_widget_data(
         return _build_compare_bar(combined_result)
 
     chart_builders: Dict[str, Any] = {
-        "CHART_BAR": (lambda: build_attendance_bar_chart_data(chart_source, intent))
-        if str(intent.get("category", "")).lower() == "attendance"
-        else (lambda: build_bar_chart_data(chart_source)),
+        "CHART_BAR": (
+            (lambda: build_attendance_bar_chart_data(chart_source, intent))
+            if str(intent.get("category", "")).lower() == "attendance"
+            else (lambda: build_bar_chart_data(chart_source))
+        ),
         "CHART_LINE": lambda: build_line_chart_data(chart_source),
         "CHART_PIE": lambda: build_pie_chart_data(chart_source, intent=intent),
         "ATTENDANCE_CALENDAR": lambda: build_attendance_calendar_data(

@@ -88,10 +88,14 @@ class TestGenerateConclusion(unittest.TestCase):
                 }
             ]
         }
-        result = generate_conclusion(combined_result, "simple", {"category": "Performance"})
+        result = generate_conclusion(
+            combined_result, "simple", {"category": "Performance"}
+        )
         self.assertIn("summary", result)
         self.assertIsInstance(result["bullets"], list)
-        self.assertTrue(any("90" in b or "40" in b or "avg" in b for b in result["bullets"]))
+        self.assertTrue(
+            any("90" in b or "40" in b or "avg" in b for b in result["bullets"])
+        )
 
     def test_empty_combined_result_returns_no_match(self):
         result = generate_conclusion({}, "simple", {"category": "Performance"})
@@ -123,7 +127,9 @@ class TestGenerateConclusion(unittest.TestCase):
                 }
             ]
         }
-        result = generate_conclusion(combined_result, "simple", {"category": "Performance"})
+        result = generate_conclusion(
+            combined_result, "simple", {"category": "Performance"}
+        )
         bullets_text = " ".join(result["bullets"])
         self.assertIn("projected avg", bullets_text.lower())
         self.assertIn("trend is upward", bullets_text.lower())
@@ -133,7 +139,9 @@ class TestGenerateConclusion(unittest.TestCase):
             "left": {"label": "Alpha", "data": [{"bestTotal": 80}, {"bestTotal": 90}]},
             "right": {"label": "Bravo", "data": [{"bestTotal": 60}, {"bestTotal": 70}]},
         }
-        result = generate_conclusion(combined_result, "compare", {"category": "Performance"})
+        result = generate_conclusion(
+            combined_result, "compare", {"category": "Performance"}
+        )
         self.assertIn("Alpha", " ".join(result["bullets"]))
         self.assertIn("Bravo", " ".join(result["bullets"]))
 

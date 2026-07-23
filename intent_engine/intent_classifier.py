@@ -35,6 +35,18 @@ _ACTION_HINTS = (
     "find",
     "tell",
     "compare",
+    # Generic request verbs — carry no scoring weight of their own (category/
+    # operation are decided by the domain noun phrases elsewhere in the
+    # query), but still need to register as "this looks like a real request"
+    # for _looks_like_noise_query's filler-vs-real-query heuristic.
+    "display",
+    "fetch",
+    "retrieve",
+    "provide",
+    "bring",
+    "return",
+    "output",
+    "generate",
     "what",
     "who",
     "which",
@@ -100,7 +112,6 @@ def _phrase_score(text: str, phrase: str) -> int:
     return base * occurrences + boundary_bonus
 
 
-
 # Word roots that share a long enough prefix with each other (so the
 # common_prefix >= 5 rule below would call them the same word family) to
 # false-positive-match, despite being unrelated in this domain — "district"
@@ -111,13 +122,21 @@ def _phrase_score(text: str, phrase: str) -> int:
 # Keyed by root word -> the *other* roots it must never be treated as a
 # family match against, regardless of which one is text_word vs phrase.
 _WORD_FAMILY_ROOT_EXCLUSIONS = {
-    "district": {"distribute", "distributed", "distributing", "distribution", "distributions"},
+    "district": {
+        "distribute",
+        "distributed",
+        "distributing",
+        "distribution",
+        "distributions",
+    },
 }
 
 
 def _excluded_word_family(a: str, b: str) -> bool:
     for word, blocked in _WORD_FAMILY_ROOT_EXCLUSIONS.items():
-        if (a.startswith(word) and b in blocked) or (b.startswith(word) and a in blocked):
+        if (a.startswith(word) and b in blocked) or (
+            b.startswith(word) and a in blocked
+        ):
             return True
     return False
 
@@ -886,11 +905,49 @@ def _should_entity_override_operation(
 
     if category == "Verification":
         raw_lower = query_text.lower()
-        has_explicit_pending = any(w in raw_lower for w in ("pending", "unverified", "awaiting verification", "not verified"))
-        has_explicit_sent = any(w in raw_lower for w in ("sent verification", "verification sent", "dispatched", "request sent"))
-        has_explicit_not_responded = any(w in raw_lower for w in ("not responded", "no response", "awaiting response", "no reply", "unresponsive"))
-        has_explicit_verified = any(w in raw_lower for w in ("verified verification", "completed verification", "all verified", "fully verified", "verification completed", "verification done"))
-        has_explicit_rejected = any(w in raw_lower for w in ("rejected verification", "failed verification", "verification failed", "denied"))
+        has_explicit_pending = any(
+            w in raw_lower
+            for w in ("pending", "unverified", "awaiting verification", "not verified")
+        )
+        has_explicit_sent = any(
+            w in raw_lower
+            for w in (
+                "sent verification",
+                "verification sent",
+                "dispatched",
+                "request sent",
+            )
+        )
+        has_explicit_not_responded = any(
+            w in raw_lower
+            for w in (
+                "not responded",
+                "no response",
+                "awaiting response",
+                "no reply",
+                "unresponsive",
+            )
+        )
+        has_explicit_verified = any(
+            w in raw_lower
+            for w in (
+                "verified verification",
+                "completed verification",
+                "all verified",
+                "fully verified",
+                "verification completed",
+                "verification done",
+            )
+        )
+        has_explicit_rejected = any(
+            w in raw_lower
+            for w in (
+                "rejected verification",
+                "failed verification",
+                "verification failed",
+                "denied",
+            )
+        )
 
         if has_explicit_pending:
             return True, "Pending", "explicit pending verification query"
@@ -903,8 +960,15 @@ def _should_entity_override_operation(
         if has_explicit_rejected:
             return True, "Rejected", "explicit rejected verification query"
 
-        if _entity_present(entities, "agniveerNo") or any(w in raw_lower for w in ("status", "police verification status", "verification status")):
-            return True, "info", "general verification status query without specific status filter"
+        if _entity_present(entities, "agniveerNo") or any(
+            w in raw_lower
+            for w in ("status", "police verification status", "verification status")
+        ):
+            return (
+                True,
+                "info",
+                "general verification status query without specific status filter",
+            )
 
     if category in ("Skills",):
         if not classified_operation and _entity_present(entities, "sport"):

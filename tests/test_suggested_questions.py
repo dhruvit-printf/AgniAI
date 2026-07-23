@@ -48,9 +48,7 @@ class TestSuggestedQuestions(unittest.TestCase):
         # 5. query_type no longer changes the suggestion flavor — compare
         # and multi_independent still resolve to cross-filter suggestions,
         # not compare/multi-section phrasing.
-        questions_compare = generate_suggested_questions(
-            "compare", intent_perf, {}
-        )
+        questions_compare = generate_suggested_questions("compare", intent_perf, {})
         questions_multi = generate_suggested_questions(
             "multi_independent", intent_perf, {}
         )

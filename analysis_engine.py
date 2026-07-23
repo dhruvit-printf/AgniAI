@@ -22,14 +22,18 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 from grounding_utils import ground_and_sanitize as _ground_and_sanitize
-from intelligence_common import HIGH_SCORE_THRESHOLD, LOW_SCORE_THRESHOLD
-from intelligence_common import _extract_nested_scores, _extract_scores
-from intelligence_common import _percentile, _record_label
+from intelligence_common import (
+    HIGH_SCORE_THRESHOLD,
+    LOW_SCORE_THRESHOLD,
+    _extract_nested_scores,
+    _extract_scores,
+    _percentile,
+    _record_label,
+)
 from normalized_models import humanize_category
 from utils import categorical_breakdown as _categorical_breakdown
-from utils import numeric_distribution_breakdown as _numeric_distribution_breakdown
 from utils import get_score as _get_score
-
+from utils import numeric_distribution_breakdown as _numeric_distribution_breakdown
 
 # ── Statistical helpers ────────────────────────────────────────────────────────
 
@@ -221,9 +225,15 @@ def _extract_time_context(records: List[Any]) -> Optional[str]:
             continue
         for k in time_keys:
             if k in r and isinstance(r[k], str):
-                vals = [rec[k] for rec in records if isinstance(rec, dict) and k in rec and isinstance(rec[k], str)]
+                vals = [
+                    rec[k]
+                    for rec in records
+                    if isinstance(rec, dict) and k in rec and isinstance(rec[k], str)
+                ]
                 if len(vals) > 1:
-                    return f"Trend spans {len(vals)} periods from {vals[0]} to {vals[-1]}."
+                    return (
+                        f"Trend spans {len(vals)} periods from {vals[0]} to {vals[-1]}."
+                    )
                 elif len(vals) == 1:
                     return f"Data point recorded for {vals[0]}."
     return None
@@ -544,10 +554,13 @@ def generate_analysis(
                         f"Matched {total} graded {category_label} records — "
                         f"by {numeric_distribution['field']}: {parts}."
                     )
-                    insights = [f"Breakdown by {numeric_distribution['field']}: {parts}."]
+                    insights = [
+                        f"Breakdown by {numeric_distribution['field']}: {parts}."
+                    ]
                     if numeric_distribution["attention"]:
                         att = ", ".join(
-                            f"{a['count']} {a['value']}" for a in numeric_distribution["attention"]
+                            f"{a['count']} {a['value']}"
+                            for a in numeric_distribution["attention"]
                         )
                         insights.append(
                             f"{att} — flagged for follow-up out of {total} records."

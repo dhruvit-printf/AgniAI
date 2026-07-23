@@ -16,10 +16,13 @@ def test_resolve_date_range_supports_multiple_common_date_formats():
     ]
 
     for raw_date, expected in cases:
-        assert resolve_date_range(
-            operation=None,
-            date=raw_date,
-            from_date=None,
-            to_date=None,
-            now=now,
-        ) == expected
+        assert (
+            resolve_date_range(
+                operation=None,
+                date=raw_date,
+                from_date=None,
+                to_date=None,
+                now=now,
+            )
+            == expected
+        )

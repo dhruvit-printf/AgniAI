@@ -2,6 +2,7 @@
 Regression test: SentenceTransformer constructor must be called exactly once
 under concurrent access.
 """
+
 from __future__ import annotations
 
 import threading
@@ -66,8 +67,7 @@ def test_concurrent_semantic_catalog_build_loads_model_once():
                     errors.append(exc)
 
         threads = [
-            threading.Thread(target=worker, args=(q,))
-            for q in queries[:num_threads]
+            threading.Thread(target=worker, args=(q,)) for q in queries[:num_threads]
         ]
 
         t0 = time.perf_counter()

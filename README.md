@@ -7,6 +7,7 @@ tags:
   - agniveer
   - agnipath
   - chatbot
+  - text2sql
   - retrieval-augmented-generation
   - faiss
   - sentence-transformers
@@ -15,404 +16,153 @@ tags:
 license: mit
 ---
 
-# AgniAI — Offline Agniveer Chatbot + Admin Intelligence Layer
+# AgniAI — Offline Agniveer RAG Chatbot + Admin Intelligence Engine
 
-AgniAI is a fully local, offline-first platform with **two chatbots in one service**:
+AgniAI is an enterprise-grade, fully offline platform featuring **two powerful AI engines in a unified service**:
 
-1. **User RAG Chatbot** — answers **Agniveer / Agnipath recruitment & training** questions, grounded entirely in documents you ingest. No cloud, no API keys.
-2. **Admin Command Console** — a natural-language interface for commanding officers that classifies a question, routes it through a **.NET AiCommand backend**, and returns formatted, grounded reports (Performance, Leave, Medical, Attendance, Verification, Equipment, Distribution, Skills, personaldetail, disqualified).
+1. **User RAG Chatbot** — Interactive, domain-grounded retrieval system for **Agniveer & Agnipath recruitment, eligibility, salaries, and training** guidelines. Powered by hybrid dense/sparse vector search (FAISS + BM25) and local Ollama LLMs.
+2. **Admin Intelligence Engine** — Natural language SQL command center for military & administrative officers. Features high-precision intent classification, entity resolution, Text2SQL query planning, AST SQL generation, DB execution via SQL Server (`pyodbc`), and side-by-side multi-way comparative analytics.
 
-Both run inside the same Flask server and share the same Ollama LLM.
-
-### Core technology
-
-- 🦙 **Ollama** — runs LLMs (Mistral, Llama 3, Phi-3, …) 100% locally
-- 🔍 **FAISS + BM25** — hybrid dense + keyword retrieval with optional cross-encoder reranking
-- 🧠 **Sentence Transformers** — local embeddings, downloaded once then fully offline
-- 📄 **Dynamic RAG** — ingest PDFs, URLs, Word docs, or raw text at any time
-- 🌐 **REST API** — Flask for .NET / React / mobile frontends
-- 🛡️ **Production hardening** — circuit breaker, retries, rate limiting, audit logs, Prometheus metrics, optional Sentry + OpenTelemetry
+Both engines run 100% locally with zero cloud dependencies or external API key requirements.
 
 ---
 
-## Architecture at a glance
+## Key Highlights & Recent Capabilities
+
+- 📊 **SQL Analytics & Text2SQL Engine**: Direct, secure SQL generation and execution across 12+ administrative domains (`Performance`, `Attendance`, `Leave`, `Medical`, `Verification`, `Equipment`, `Distribution`, `Skills`, `Schedule`, `OrgHierarchy`, `Disqualified`, `PersonalDetails`).
+- 🏢 **Dynamic Unit & Entity Resolution**: Spoken company names (`Lak`, `Jas`, `Arora`, `Krishna`, `Mahadev`) and platoon designations (`Platoon 1`, `Platoon 2`) dynamically match database identities via `resolve_company_id_from_name` and `resolve_platoon_id_from_name`.
+- 🔍 **Police Verification Intelligence**:
+  - **Sent**: `pv.Status = 'Sent'`
+  - **Not Responded**: `pv.Status = 'Sent' AND pv.ReceivedDate IS NULL`
+  - **Verified**: `pv.Status IN ('Verified', 'Completed')`
+  - **Pending**: `pv.Status = 'Rejected' OR pv.AgniveerId IS NULL`
+- 🚨 **Absconded Agniveer Tracking**: Full extraction of open-ended absconded leave records (`l.IsAbscondedLeave = 1`) without requiring closed `ToDate` or `IsActive = 1` flags.
+- ⚡ **Threshold Agniveers Pipeline**: CTE pipeline with `ROW_NUMBER() OVER (PARTITION BY AgniveerNo ORDER BY CASE WHEN Reason = 'Continuous 40-44 days' THEN 1 WHEN Reason = 'Total 55-59 days' THEN 2 ELSE 3 END)` window deduplication for continuous (40-44 days) vs. cumulative total (55-59 days) thresholds.
+- 🎯 **Summary vs. Detailed Modes**:
+  - **Summary Mode** (Default): Returns concise aggregate metrics (e.g. `SUM(MarksObtained) AS BestTotal`).
+  - **Detailed Mode** (Triggered by `"detailed"`, `"in detail"`, `"subsection"`, `"full breakdown"`): Unrolls section and subsection-wise breakdowns without row-level mid-Agniveer truncation.
+- 🔀 **Side-by-Side Multi-Way Comparison**: Performs N-way side-by-side comparative analysis (e.g., `"Compare top performers in Lak company and Jas company"`) with per-operation entity scope isolation and distinct side labeling.
+
+---
+
+## Architecture Overview
 
 ```
-                         ┌──────────────────────────────┐
-   User question ───────▶│  /api/chat   (RAG pipeline)  │──▶ FAISS+BM25 ─▶ Ollama ─▶ grounded answer
-                         └──────────────────────────────┘
+                                 ┌──────────────────────────────┐
+     User RAG Question ─────────▶│  /api/chat   (RAG Pipeline)  │──▶ FAISS+BM25 ─▶ Ollama ─▶ Grounded Answer
+                                 └──────────────────────────────┘
 
-                         ┌──────────────────────────────┐
-   Admin question ──────▶│      /api/admin/chat         │
-                         │     (admin_pipeline.py)      │
-                         └──────────────┬───────────────┘
-                                        │
-        plan_query ─▶ classify_intent ─▶ .NET AiCommand ─▶ combine ─▶ report ─▶ response
-        (query_planner) (admin_intent)  (dotnet_executor) (result_  (report_   (response_
-                                                            combiner) generator)  builder)
+                                 ┌──────────────────────────────┐
+     Admin Command Question ────▶│       /api/admin/chat        │
+                                 │     (admin_pipeline.py)      │
+                                 └──────────────┬───────────────┘
+                                                │
+                                  plan_query / classify_intent
+                                                │
+                                 ┌──────────────▼───────────────┐
+                                 │   SQL Execution Engine       │
+                                 │   - performance_executor.py  │
+                                 │   - sql_executor.py          │
+                                 │   - pyodbc (SQL Server)      │
+                                 └──────────────┬───────────────┘
+                                                │
+                                  combine_results / report_gen
+                                                │
+                                 ┌──────────────▼───────────────┐
+                                 │       Response Builder       │──▶ Grounded Report + Visual Widgets
+                                 └──────────────────────────────┘
 ```
 
-`admin_pipeline.execute_admin_query()` is the **single source of truth** — the HTTP route calls it.
+---
+
+## Core System Requirements
+
+| Component | Requirement |
+|-----------|-------------|
+| **Python** | 3.9+ (3.11/3.13 supported) |
+| **Database** | MS SQL Server (via `pyodbc`) |
+| **Ollama** | 0.1.x+ (Mistral, Llama 3, Phi-3, etc.) |
+| **RAM** | 8 GB minimum (16 GB recommended) |
+| **Disk** | ~5 GB for local model weights |
 
 ---
 
-## Requirements
+## Quick Setup Guide
 
-| Tool | Minimum Version |
-|------|----------------|
-| Python | 3.9+ (3.11 used in CI) |
-| Ollama | 0.1.x+ |
-| RAM | 8 GB (16 GB recommended) |
-| Disk | ~5 GB for model weights |
-| .NET backend | Required **only** for the Admin Console |
+### 1. Install & Boot Ollama
 
----
-
-## Step-by-step Setup
-
-### 1 — Install Ollama
-
-**Linux / macOS:**
 ```bash
+# Linux / macOS
 curl -fsSL https://ollama.com/install.sh | sh
-```
-**Windows:** Download the installer from https://ollama.com/download
 
-### 2 — Pull a local LLM
-
-```bash
-ollama pull mistral:7b-instruct-q4_K_M   # ~4.1 GB — default, fast & efficient
-ollama pull llama3                        # ~4.7 GB — best quality
-ollama pull phi3                          # ~2.3 GB — lightest option
-```
-
-### 3 — Start Ollama
-
-```bash
+# Windows: Download installer from https://ollama.com/download
+ollama pull mistral:7b-instruct-q4_K_M
 ollama serve
 ```
-Keep this terminal open. AgniAI calls it on `http://127.0.0.1:11434`.
 
-### 4 — Clone AgniAI
+### 2. Install Python Dependencies
 
 ```bash
 git clone https://github.com/florencygajera/AgniAI.git
 cd AgniAI
-```
 
-### 5 — Create a virtual environment (recommended)
-
-```bash
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-```
+# On Windows: .venv\Scripts\activate
+# On Linux:   source .venv/bin/activate
 
-### 6 — Install Python dependencies
-
-```bash
 pip install -r requirements.txt
 ```
-The first run downloads the embedding model (~90 MB), after which everything runs offline.
 
-### 7 — Configure environment
+### 3. Environment Configuration
 
-```bash
-cp .env.example .env
-```
-At minimum set `DOTNET_API_BASE_URL` — the app **fails fast at startup** if it is missing (see `settings.py`). For the user RAG chatbot alone you can point it at any reachable URL; it is only used by the Admin Console.
+Copy `.env.example` to `.env` and set your local SQL Server connection string:
 
-### 8 — Ingest your documents
-
-AgniAI starts with an empty knowledge base. Add documents before asking RAG questions:
-
-```bash
-# In the CLI (see below), or via the REST API
-/ingest pdf /path/to/agniveer_notification.pdf
-/ingest url https://joinindianarmy.nic.in/
+```env
+OLLAMA_MODEL=mistral:7b-instruct-q4_K_M
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+SQL_READONLY_CONN=Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=AgniAIDb;Trusted_Connection=yes;
 ```
 
-### 9 — Run AgniAI
+### 4. Run the API Server
 
-**CLI mode (interactive terminal, user RAG only):**
-```bash
-python main.py
-```
-
-**REST API mode (frontends / .NET integration):**
 ```bash
 python app.py
-# Server starts at http://0.0.0.0:5000
+# REST API starts at http://0.0.0.0:5000
 ```
 
 ---
 
-## The two chatbots
+## Admin Intelligence Supported Modules
 
-### User RAG Chatbot
-
-Every incoming message is classified by `config.classify_intent()` into **chat**, **rag**, or **reject**, then handled accordingly:
-
-- **chat** — greetings, small talk, patriotic phrases, aspirant casual talk → warm conversational reply.
-- **rag** — domain questions (eligibility, salary, training, documents, timelines, …) → FAISS+BM25 retrieval, grounded answer with strict number-accuracy rules.
-- **reject / general fallback** — out-of-domain factual questions answered conservatively from general knowledge, or redirected.
-
-It also includes:
-- **Deterministic policy answers** for high-stakes facts (salary tables, age eligibility, marital-status rules) computed arithmetically rather than left to the LLM (`rag.deterministic_policy_answer`).
-- **Conflict handling** — when the knowledge base contains disagreeing figures (e.g. Year 3 in-hand salary), both values are reported with a verification note.
-- **Answer-style detection** — `short` / `elaborate` / `detail` inferred from the wording, controlling length and token budgets.
-- **SSE streaming** — set `"stream": true` and send `Accept: text/event-stream`.
-
-### Admin Command Console
-
-A separate pipeline (`admin_pipeline.py`) for officers. A single question can resolve to one of several **query types** (`intent_engine/query_planner.py`):
-
-| Query type | Example |
-|------------|---------|
-| `simple` | "Show top 5 performers in BPET" |
-| `cross_filter` | "Show top performer in PPT who plays cricket and is currently on leave" |
-| `comparison` | "Compare BPET and PPT for Sikh class" |
-| `multi_independent` | "Show attendance stats as well as equipment overdue records" |
-| `analytics` | "Which section has the highest average score?" |
-
-Supported modules: **Performance, Leave, Medical, Attendance, Verification, Equipment, Distribution, Skills, personaldetail, disqualified**. Company/platoon names in the question are resolved to IDs against the .NET lookup APIs (`admin_entity_resolver.py`), and follow-up phrasing ("which of them…") is tracked per session (`admin_context.py`).
-
-Reports are generated with strict grounding guards — any number the LLM emits that does not appear in the aggregate data is stripped (`report_generator.py`). Raw .NET responses are **never** forwarded to the frontend (`response_builder.py`).
+| Module | Core Capabilities |
+|--------|-------------------|
+| **Performance** | BPET, PPT, Firing, Drill, Best Attempts, Section & Subsection breakdowns, Top/Bottom N Agniveers. |
+| **Attendance** | Daily present/absent headcount, monthly/weekly attendance rates, date range filtering. |
+| **Leave** | Absconded leave tracking, 40-44 / 55-59 day threshold alerts, Annual/Sick/Medical leaves. |
+| **Medical** | Dynamic BMI formula computation (Normal, Overweight, Obese, Unfit), Blood Group distribution, Hospitalizations. |
+| **Verification** | Police verification status tracking (Pending, Sent, Verified, Not Responded). |
+| **Equipment** | Issued vs. Returned equipment, currently holding equipment, item conditions & remarks. |
+| **Skills & Sports** | Sport rosters (Volleyball, Cricket, Football, Kabaddi), skill distributions by class (Sikh, Dogra, etc.). |
+| **Schedule** | Daily training schedules, cold-weather schedule routines, company & platoon training schedules. |
+| **Org Hierarchy** | Current & historical company commanders, platoon commanders, commanding officer tenures. |
+| **Disqualified** | Disqualified Agniveer rosters, disqualification reasons and dates. |
+| **Personal Details** | State of origin, date of joining, class, father name, personal attributes. |
 
 ---
 
-## CLI Commands
+## Testing & Quality Assurance
 
-| Command | Action |
-|---------|--------|
-| `/ingest pdf <path>` | Ingest a PDF |
-| `/ingest url <url>` | Ingest a webpage |
-| `/ingest txt <path>` | Ingest a .txt file |
-| `/ingest text <content>` | Ingest raw text |
-| `/ingest docx <path>` | Ingest a Word document |
-| `/sources` | List all ingested sources |
-| `/stats` | Show index vector count |
-| `/clear` | Clear conversation memory |
-| `/reset` | ⚠ Delete entire knowledge base |
-| `/model <name>` | Switch Ollama model mid-session |
-| `/help` | Show help |
-| `/exit` or `/quit` | Exit |
-
-Answer style is detected automatically: *"briefly"* → SHORT, *"explain"* → ELABORATE, *"in detail"* → DETAIL.
-
----
-
-## REST API Reference
-
-Start the server with `python app.py`. Interactive docs are available at **`/docs`** (Swagger UI).
-
-### System
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/health` | Ollama connectivity, vector/chunk counts, active model |
-| GET | `/api/ready` | Whether embedding model + index have warmed up |
-| GET | `/metrics`, `/api/metrics` | Prometheus exposition format |
-| GET | `/docs`, `/docs/spec` | Swagger UI + raw OpenAPI spec |
-
-### Chat (user RAG)
-```
-POST /api/chat
-Content-Type: application/json
-
-{
-  "message": "What is the age limit for Agniveer?",
-  "model": "mistral:7b-instruct-q4_K_M",
-  "stream": false,
-  "session_id": "user-123"
-}
-```
-```json
-{ "success": true, "answer": "...", "style": "elaborate", "session_id": "user-123" }
-```
-Set `"stream": true` with header `Accept: text/event-stream` to receive an SSE token stream.
-
-### Knowledge base
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/ingest` | Ingest by path/URL. `kind`: `pdf` `url` `txt` `text` `docx` `doc` |
-| POST | `/api/upload` | Multipart file upload. Allowed: `pdf` `txt` `docx` `doc` |
-| GET | `/api/sources` | List ingested sources |
-| GET | `/api/stats` | Index vector / chunk count |
-| POST | `/api/reset_index` | ⚠ Destructive. Protected by `X-Api-Key` when `API_SECRET_KEY` is set |
-
-```
-POST /api/ingest
-{ "kind": "pdf", "target": "/path/to/file.pdf" }
-```
-
-### Session
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/clear_memory` | Clear sliding-window history for a session |
-
-### Admin Console
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/admin/chat` | Full admin pipeline → formatted answer + analysis + conclusion |
-| GET | `/api/admin/health` | Sub-system health (python / dotnet / llm / database) |
-
-```
-POST /api/admin/chat
-{ "message": "Who are the top 5 performers in BPET?", "session_id": "admin-1" }
-```
-
----
-
-## Configuration
-
-All settings are environment variables — copy `.env.example` to `.env` and edit. Selected keys:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OLLAMA_MODEL` | `mistral:7b-instruct-q4_K_M` | LLM to use |
-| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server URL |
-| `EMBEDDING_MODEL` | `sentence-transformers/multi-qa-MiniLM-L6-cos-v1` | Embedding model (dim 384) |
-| `TOP_K` | `5` | Chunks retrieved per query |
-| `USE_HYBRID` | `1` | Enable FAISS + BM25 hybrid retrieval |
-| `USE_RERANKER` | `0` | Enable cross-encoder reranking |
-| `DOTNET_API_BASE_URL` | — | **Required.** Root URL of the .NET AiCommand API (must differ from port 5000) |
-| `DOTNET_SKIP_SSL_VERIFY` | `1` | Skip SSL verification for dev tunnels |
-| `API_SECRET_KEY` | _(empty)_ | Protects `/api/reset_index` when set |
-| `ALLOWED_ORIGINS` | `*` | CORS origins |
-| `RATE_LIMIT_CHAT` | `30 per minute` | Per-IP chat rate limit |
-| `ADMIN_RATE_LIMIT` | `20 per minute` | Per-IP admin rate limit |
-| `AGNI_LOG_FILE` | `agni.log` | Application log file |
-
-**Feature flags** (`feature_flags.py`, prefix `ENABLE_`): `REPORTS`, `OLLAMA`, `STREAMING`, `METRICS`, `HEALTH_ENDPOINT`, `AUDIT_LOGGING`, `OPENTELEMETRY` (default off), `SENTRY` (default off), `PROMETHEUS`. Change a flag in `.env` to toggle a feature at runtime — no code change needed.
-
-> ⚠ **Port rule:** Flask listens on **5000**; the .NET backend runs on a **different** port (default `7257`). Never point `DOTNET_API_BASE_URL` at 5000.
-
----
-
-## Observability & Reliability
-
-**Metrics** (`metrics.py`) — Prometheus-ready counters and summaries at `/metrics`: requests/successful/failed by query type, per-stage durations (planner, intent, dotnet, combiner, report, pipeline), LLM/dotnet/timeout failures. Grafana-friendly names.
-
-**Audit logging** (`audit_logger.py`) — one JSON line per admin query to a rotating `audit.log` (10 MB × 30 backups, 90-day retention). Prompts, payloads, raw responses, and secrets are **never** logged.
-
-**Circuit breaker + retries** (`dotnet_executor.py`) — trips after 5 consecutive failures, recovers after a 10s cooldown (HALF-OPEN). Exponential backoff (1s/2s/4s) on 429/502/503/504 and connection/timeout errors; strict `(5, 30)` timeouts.
-
-**Rate limiting** — Flask-Limiter on chat, ingest, and admin routes; returns a clean 429.
-
-**Tracing & error monitoring** (opt-in) — OpenTelemetry spans (`telemetry.py`) and Sentry with PII/secret scrubbing (`sentry_integration.py`); both no-op with zero overhead when disabled.
-
-**Startup safety** (`settings.py`) — the process exits immediately if `DOTNET_API_BASE_URL` is absent, so it never half-starts and fails on the first request.
-
----
-
-## Project Structure
-
-```
-AgniAI/
-├── User RAG chatbot
-│   ├── main.py                # CLI chat loop + command dispatcher
-│   ├── app.py                 # Flask REST API server
-│   ├── rag.py                 # Embeddings, FAISS+BM25, retrieval, deterministic answers
-│   ├── ingest.py              # PDF / URL / DOCX / DOC / text ingestion
-│   ├── memory.py              # Sliding-window conversation history
-│   ├── config.py              # Prompts, intent classifier, style detection, env config
-│   ├── ollama_cpu_chat.py     # CPU-optimised Ollama streaming client + fallbacks
-│   ├── api_models.py          # Shared JSON response shapes
-│   └── runtime_cache.py       # Thread-safe TTL caches
-│
-├── Admin Command Console
-│   ├── admin_pipeline.py      # Single source of truth for admin query execution
-│   ├── admin_routes.py        # HTTP transport for /api/admin/*
-│   ├── intent_engine/         # Single intent engine package
-│   │   ├── admin_intent.py    # Intent coordinator
-│   │   ├── intent_classifier.py
-│   │   ├── intent_schema.py
-│   │   ├── entity_extractor.py
-│   │   ├── payload_builder.py
-│   │   ├── payload_validator.py
-│   │   └── query_planner.py
-│   ├── admin_entity_resolver.py # Company/platoon name → ID via .NET (cached)
-│   ├── admin_confidence.py    # Unified confidence scoring
-│   ├── admin_context.py       # Per-session follow-up context
-│   ├── result_combiner.py     # Intersection, comparison, merge, aggregation
-│   ├── report_generator.py    # Grounded LLM analysis + conclusion
-│   ├── response_builder.py    # Final payload assembly (no raw backend leakage)
-│   └── dotnet_executor.py     # .NET calls with circuit breaker + retries
-│
-├── Infrastructure
-│   ├── metrics.py             # Prometheus metrics
-│   ├── audit_logger.py        # Rotating JSON audit trail
-│   ├── telemetry.py           # OpenTelemetry spans (opt-in)
-│   ├── sentry_integration.py  # Sentry with secret scrubbing (opt-in)
-│   ├── feature_flags.py       # Pydantic feature flags
-│   ├── settings.py            # Validated settings + startup guard
-│   ├── swagger_ui.py          # /docs Swagger UI
-│   └── static/swagger.json    # OpenAPI 3.0 spec
-│
-├── Packaging
-│   ├── agniai.spec            # PyInstaller build spec
-│   ├── app_launcher.py        # Frozen-executable entry point
-│   ├── .pyinstaller_hooks/    # torch/transformers freeze hooks
-│   └── start.bat              # Windows launcher (Ollama + AgniAI)
-│
-├── tests/                     # pytest suite (intent, planner, combiner, reliability, …)
-├── .github/workflows/         # CI: build, tests, code quality
-├── requirements.txt
-├── .env.example
-├── data/    (auto-created)    # raw data store
-└── index/   (auto-created)    # agni.index · docstore.json · bm25.pkl
-```
-
----
-
-## Building a standalone executable (Windows)
-
-AgniAI can be frozen with PyInstaller into a self-contained `.exe`:
+AgniAI includes an extensive pytest suite validating query classification, Text2SQL execution, precision entity resolution, and reliability:
 
 ```bash
-pyinstaller agniai.spec --clean --noconfirm
-# Output: dist/agniai/agniai.exe
+# Run complete test suite (210+ test cases)
+pytest tests/test_query_planner.py tests/test_sql_executor.py tests/test_intent_precision.py -v
 ```
-
-Place your `.env` next to the executable. The launcher (`app_launcher.py`) redirects `data/` and `index/` to writable directories beside the `.exe`. `start.bat` boots Ollama and AgniAI together.
 
 ---
 
-## Testing
+## Privacy & Security
 
-```bash
-pip install pytest pytest-cov
-python -m pytest --cov=. -v
-```
-
-The suite covers admin intent classification, the query planner, result combiner, response/grounding pipeline, reliability (circuit breaker, retries), metrics & health, observability/log scrubbing, telemetry, feature flags, and settings validation. CI runs build, tests, and code-quality (black / flake8 / isort / mypy) on every push.
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---------|-----|
-| `Connection refused` on Ollama | Run `ollama serve` in a separate terminal |
-| `Model not found` | Run `ollama pull mistral:7b-instruct-q4_K_M` |
-| App exits at startup | Set `DOTNET_API_BASE_URL` in `.env` |
-| Slow first response | Normal — model loads into RAM on first call |
-| "No text extracted" from PDF | PDF is image-based; OCR it first |
-| Empty answers | Ingest relevant documents first with `/ingest` |
-| Admin returns "Failed to process request" | Check `/api/admin/health`; ensure the .NET backend is reachable |
-| High RAM usage | Switch to a smaller model: `ollama pull phi3` |
-
----
-
-## Privacy
-
-All computation happens **on your machine**. The user RAG chatbot sends no data to any cloud service; the embedding model is downloaded once and cached locally. The Admin Console talks only to your own .NET backend. Raw backend records and internal payloads are never returned to the frontend, and audit/Sentry data is scrubbed of prompts, payloads, and secrets.
-
-```bash
-# Two services should always be running in production:
-# sudo systemctl status ollama    # Ollama LLM
-# sudo systemctl status agniai    # AgniAI Flask API
-```
+- **100% Offline Computation**: All RAG embeddings, vector searches, and LLM inference execute locally.
+- **SQL Guardrails**: Strict read-only execution layer (`run_readonly`) with AST schema guards preventing data mutation.
+- **Audit Scrubbing**: Rotating JSON audit logger scrubs prompts, payloads, and secrets.

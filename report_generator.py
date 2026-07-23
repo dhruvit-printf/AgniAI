@@ -13,8 +13,8 @@ from analysis_engine import generate_analysis
 from conclusion_engine import generate_conclusion
 from grounding_utils import extract_numbers_from_text as _extract_numbers_from_text
 from grounding_utils import ground_and_sanitize as _strip_ungrounded_numbers
-from prediction_engine import generate_predictions
 from normalized_models import humanize_category
+from prediction_engine import generate_predictions
 from utils import extract_records as _extract_records
 from utils import get_score as _get_score
 from utils import has_any_data as _has_any_data
@@ -145,9 +145,7 @@ def _build_data_grounded_report(
             ),
             "shortTerm": "stable",
             "futureTrends": [
-                (
-                    f"Cross-filter match counts should remain close to {match_count} when criteria and source data stay unchanged."
-                )
+                f"Cross-filter match counts should remain close to {match_count} when criteria and source data stay unchanged."
             ],
         }
         return {

@@ -44,10 +44,14 @@ def _clean_widget(widget: Any) -> Dict[str, Any]:
     return {key: widget[key] for key in _ALLOWED_WIDGET_KEYS if key in widget}
 
 
-def _clean_formatted_data(formatted: Any) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+def _clean_formatted_data(
+    formatted: Any,
+) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
     """Preserve single-widget objects and lists of widgets."""
     if isinstance(formatted, list):
-        cleaned = [_clean_widget(widget) for widget in formatted if isinstance(widget, dict)]
+        cleaned = [
+            _clean_widget(widget) for widget in formatted if isinstance(widget, dict)
+        ]
         if len(cleaned) == 1:
             return cleaned[0]
         return cleaned

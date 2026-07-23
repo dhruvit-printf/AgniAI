@@ -6,9 +6,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
-from intent_engine.admin_intent import classify_admin_intent
 import sql_executor
-
+from intent_engine.admin_intent import classify_admin_intent
 
 QUESTION_GROUPS = [
     (
@@ -223,9 +222,11 @@ def _run_question(question: str, state: Dict[str, Any]) -> Dict[str, Any]:
                 "category": (leg or {}).get("category"),
                 "operation": (leg or {}).get("operation"),
                 "query_type": (leg or {}).get("query_type"),
-                "route": "text2sql"
-                if state["generate_sql_mock"].call_count > 0
-                else "deterministic",
+                "route": (
+                    "text2sql"
+                    if state["generate_sql_mock"].call_count > 0
+                    else "deterministic"
+                ),
                 "error": error,
                 "sql": (result or {}).get("sql") if isinstance(result, dict) else None,
             }
@@ -279,7 +280,15 @@ def main() -> None:
     else:
         lines.append("- None")
 
-    lines.extend(["", "## Full Matrix", "", "| Section | Question | Query Type | Route |", "| --- | --- | --- | --- |"])
+    lines.extend(
+        [
+            "",
+            "## Full Matrix",
+            "",
+            "| Section | Question | Query Type | Route |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
 
     for row in rows:
         lines.append(

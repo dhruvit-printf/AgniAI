@@ -29,12 +29,16 @@ class TestNestedDependentQueries(unittest.TestCase):
         categories = {op.intent_result["category"] for op in plan.operations}
         self.assertEqual(categories, {"Performance", "Verification"})
         performance_op = next(
-            op for op in plan.operations if op.intent_result["category"] == "Performance"
+            op
+            for op in plan.operations
+            if op.intent_result["category"] == "Performance"
         )
         self.assertEqual(performance_op.intent_result["operation"], "Top")
         self.assertEqual(performance_op.intent_result["number"], 10)
         verification_op = next(
-            op for op in plan.operations if op.intent_result["category"] == "Verification"
+            op
+            for op in plan.operations
+            if op.intent_result["category"] == "Verification"
         )
         self.assertEqual(verification_op.intent_result["operation"], "Rejected")
 

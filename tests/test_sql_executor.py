@@ -214,6 +214,7 @@ class TestToSection:
 class TestTwoTierPipeline:
     def test_ast_success_does_not_call_llm(self):
         from ast_models import ASTNode
+
         with (
             patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
             patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
@@ -227,8 +228,10 @@ class TestTwoTierPipeline:
             mock_build.return_value = ("SELECT AgniveerNo FROM AgniveerMaster", [])
             mock_val_sql.return_value = (True, None)
             mock_run.return_value = ([{"agniveerNo": "A1"}], None)
-            
-            data, err = execute_sql_query(question="who is A1", intent={"category": "Agniveer"})
+
+            data, err = execute_sql_query(
+                question="who is A1", intent={"category": "Agniveer"}
+            )
             assert err is None
             mock_generate.assert_not_called()
             assert data["records"] == [{"agniveerNo": "A1"}]
@@ -245,8 +248,10 @@ class TestTwoTierPipeline:
             mock_generate.return_value = ("SELECT AgniveerNo FROM AgniveerMaster", None)
             mock_val_sql.return_value = (True, None)
             mock_run.return_value = ([{"agniveerNo": "A2"}], None)
-            
-            data, err = execute_sql_query(question="who is A2", intent={"category": "Agniveer"})
+
+            data, err = execute_sql_query(
+                question="who is A2", intent={"category": "Agniveer"}
+            )
             assert err is None
             mock_generate.assert_called_once()
             assert data["records"] == [{"agniveerNo": "A2"}]
@@ -259,6 +264,7 @@ class TestTwoTierPipeline:
 class TestExecuteSqlQuery:
     def test_returns_section_on_success(self):
         from ast_models import ASTNode
+
         with (
             patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
             patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
@@ -271,7 +277,9 @@ class TestExecuteSqlQuery:
             mock_build.return_value = ("SELECT AgniveerNo FROM AgniveerMaster", [])
             mock_val_sql.return_value = (True, None)
             mock_run.return_value = ([{"agniveerNo": "A1"}], None)
-            data, err = execute_sql_query(question="who is A1", intent={"category": "Agniveer"})
+            data, err = execute_sql_query(
+                question="who is A1", intent={"category": "Agniveer"}
+            )
             assert err is None
             assert data["success"] is True
             assert data["records"] == [{"agniveerNo": "A1"}]
@@ -283,7 +291,9 @@ class TestExecuteSqlQuery:
         ):
             mock_plan.side_effect = Exception("CANNOT_ANSWER")
             mock_generate.return_value = (None, "CANNOT_ANSWER")
-            data, err = execute_sql_query(question="what's the weather", intent={"category": "Agniveer"})
+            data, err = execute_sql_query(
+                question="what's the weather", intent={"category": "Agniveer"}
+            )
             assert data is None
             assert "CANNOT_ANSWER" in err
 
@@ -296,12 +306,15 @@ class TestExecuteSqlQuery:
             mock_plan.return_value = None
             mock_val_ast.return_value = (False, "AST rejected")
             mock_generate.return_value = (None, "AST rejected")
-            data, err = execute_sql_query(question="delete everyone", intent={"category": "Agniveer"})
+            data, err = execute_sql_query(
+                question="delete everyone", intent={"category": "Agniveer"}
+            )
             assert data is None
             assert err is not None
 
     def test_exec_error_bubbles_error(self):
         from ast_models import ASTNode
+
         with (
             patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
             patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
@@ -319,12 +332,15 @@ class TestExecuteSqlQuery:
                 "The generated query could not be executed against the database.",
             )
             mock_generate.return_value = (None, "Fallback failed")
-            data, err = execute_sql_query(question="anything", intent={"category": "Agniveer"})
+            data, err = execute_sql_query(
+                question="anything", intent={"category": "Agniveer"}
+            )
             assert data is None
             assert err
 
     def test_executed_sql_is_surfaced_for_dotnet_payload_transparency(self):
         from ast_models import ASTNode
+
         sql_text = "SELECT AgniveerNo, FullName FROM AgniveerMaster WHERE Height > 170"
         with (
             patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
@@ -338,7 +354,9 @@ class TestExecuteSqlQuery:
             mock_build.return_value = (sql_text, [])
             mock_val_sql.return_value = (True, None)
             mock_run.return_value = ([{"agniveerNo": "A1", "fullName": "X"}], None)
-            data, err = execute_sql_query(question="tall agniveers", intent={"category": "Agniveer"})
+            data, err = execute_sql_query(
+                question="tall agniveers", intent={"category": "Agniveer"}
+            )
             assert err is None
             assert data["sql"] == sql_text
             # execution_metadata was also added in the new pipeline
@@ -400,7 +418,10 @@ class TestExecuteSqlQuery:
             patch("sql_executor.metrics_hook"),
         ):
             mock_validate_sql.return_value = (True, None)
-            mock_run.return_value = ([{"AgniveerNo": "A0701882L", "FullName": "X"}], None)
+            mock_run.return_value = (
+                [{"AgniveerNo": "A0701882L", "FullName": "X"}],
+                None,
+            )
             data, err = execute_sql_query(
                 question="What is the blood group of Agniveer A0701882L in Alpha company?",
                 intent={
@@ -460,7 +481,11 @@ class TestExecuteSqlQuery:
             )
             data, err = execute_sql_query(
                 question="schedule for company 5",
-                intent={"category": "Schedule", "operation": "bycompany", "company_id": 5},
+                intent={
+                    "category": "Schedule",
+                    "operation": "bycompany",
+                    "company_id": 5,
+                },
             )
             assert err is None
             assert data["success"] is True
@@ -482,7 +507,11 @@ class TestExecuteSqlQuery:
             ]
             data, err = execute_sql_query(
                 question="give schedule for lakhwinder company",
-                intent={"category": "Schedule", "operation": "bycompany", "company_name": "Lakhwinder"},
+                intent={
+                    "category": "Schedule",
+                    "operation": "bycompany",
+                    "company_name": "Lakhwinder",
+                },
             )
             assert err is None
             assert data["success"] is True
@@ -510,7 +539,11 @@ class TestExecuteSqlQuery:
             ]
             data, err = execute_sql_query(
                 question="schedule for platoon 3",
-                intent={"category": "Schedule", "operation": "bycompany", "platoon_id": 3},
+                intent={
+                    "category": "Schedule",
+                    "operation": "bycompany",
+                    "platoon_id": 3,
+                },
             )
             assert err is None
             lookup_sql, lookup_params = mock_run.call_args_list[0][0]
@@ -600,7 +633,11 @@ class TestExecuteSqlQuery:
             mock_run.return_value = ([{"ScheduleDate": "2026-07-20"}], None)
             data, err = execute_sql_query(
                 question="schedule for company 5",
-                intent={"category": "Schedule", "operation": "bycompany", "company_id": 5},
+                intent={
+                    "category": "Schedule",
+                    "operation": "bycompany",
+                    "company_id": 5,
+                },
             )
             assert err is None
             sql, params = mock_run.call_args[0]
@@ -618,7 +655,11 @@ class TestExecuteSqlQuery:
             mock_run.return_value = ([{"ScheduleDate": "2026-07-20"}], None)
             data, err = execute_sql_query(
                 question="show me the schedule",
-                intent={"category": "Schedule", "operation": "bytoday", "date": "2026-07-20"},
+                intent={
+                    "category": "Schedule",
+                    "operation": "bytoday",
+                    "date": "2026-07-20",
+                },
             )
             assert err is None
             assert data["success"] is True
@@ -635,7 +676,11 @@ class TestExecuteSqlQuery:
             mock_run.return_value = ([], None)
             data, err = execute_sql_query(
                 question="schedule for nonexistent company",
-                intent={"category": "Schedule", "operation": "bycompany", "company_name": "Nonexistent"},
+                intent={
+                    "category": "Schedule",
+                    "operation": "bycompany",
+                    "company_name": "Nonexistent",
+                },
             )
             assert err is None
             assert data["success"] is True
@@ -650,10 +695,15 @@ class TestExecuteSqlQuery:
             ({"category": "Agniveer", "company_id": 2}, "Company.Id"),
             ({"category": "Agniveer", "platoon_id": 3}, "Agniveer.PlatoonId"),
             ({"category": "Agniveer", "batch_id": 4}, "Agniveer.BatchId"),
-            ({"category": "Agniveer", "agniveer_no": "A0701905F"}, "Agniveer.AgniveerNo"),
+            (
+                {"category": "Agniveer", "agniveer_no": "A0701905F"},
+                "Agniveer.AgniveerNo",
+            ),
         ],
     )
-    def test_legacy_scope_filters_are_translated_into_v2_filters(self, intent, expected_fragment):
+    def test_legacy_scope_filters_are_translated_into_v2_filters(
+        self, intent, expected_fragment
+    ):
         with (
             patch("query_planner_v2.query_planner_v2.plan_query") as mock_plan,
             patch("sql_validator.sql_validator.validate_ast") as mock_val_ast,
@@ -1031,12 +1081,13 @@ class TestDecimalPrecisionAudit:
 
         from sql_executor import _to_section
 
-        rows = (
-            [{"AgniveerNo": f"A{i}", "MarksObtained": decimal.Decimal("80.00")}
-             for i in range(50)]
-            + [{"AgniveerNo": f"B{i}", "MarksObtained": decimal.Decimal("70.00")}
-               for i in range(50)]
-        )
+        rows = [
+            {"AgniveerNo": f"A{i}", "MarksObtained": decimal.Decimal("80.00")}
+            for i in range(50)
+        ] + [
+            {"AgniveerNo": f"B{i}", "MarksObtained": decimal.Decimal("70.00")}
+            for i in range(50)
+        ]
         section = _to_section(rows)
         float_scores = [r["marksObtained"] for r in section["records"]]
 
@@ -1056,12 +1107,13 @@ class TestDecimalPrecisionAudit:
 
         from sql_executor import _to_section
 
-        rows = (
-            [{"AgniveerNo": f"A{i}", "MarksObtained": decimal.Decimal("90.10")}
-             for i in range(5)]
-            + [{"AgniveerNo": f"B{i}", "MarksObtained": decimal.Decimal("59.90")}
-               for i in range(5)]
-        )
+        rows = [
+            {"AgniveerNo": f"A{i}", "MarksObtained": decimal.Decimal("90.10")}
+            for i in range(5)
+        ] + [
+            {"AgniveerNo": f"B{i}", "MarksObtained": decimal.Decimal("59.90")}
+            for i in range(5)
+        ]
         section = _to_section(rows)
         float_scores = [r["marksObtained"] for r in section["records"]]
 
@@ -1080,16 +1132,22 @@ class TestDecimalPrecisionAudit:
         from result_combiner import aggregate_records
         from sql_executor import _jsonable
 
-        records = (
-            [{"agniveerNo": f"A{i}", "platoon": "Alpha",
-              "bestTotal": _jsonable(decimal.Decimal("90.00"))}
-             for i in range(5)]
-            + [{"agniveerNo": f"B{i}", "platoon": "Bravo",
-                "bestTotal": _jsonable(decimal.Decimal("60.00"))}
-               for i in range(5)]
-        )
-        result = aggregate_records(records, group_by="platoon",
-                                   metric="average_score")
+        records = [
+            {
+                "agniveerNo": f"A{i}",
+                "platoon": "Alpha",
+                "bestTotal": _jsonable(decimal.Decimal("90.00")),
+            }
+            for i in range(5)
+        ] + [
+            {
+                "agniveerNo": f"B{i}",
+                "platoon": "Bravo",
+                "bestTotal": _jsonable(decimal.Decimal("60.00")),
+            }
+            for i in range(5)
+        ]
+        result = aggregate_records(records, group_by="platoon", metric="average_score")
 
         alpha = next((r for r in result if r["group"] == "Alpha"), None)
         bravo = next((r for r in result if r["group"] == "Bravo"), None)

@@ -170,7 +170,8 @@ class ASTPatchEngine:
     @staticmethod
     def merge_intent(last_ast: Any, new_intent: Dict[str, Any]) -> Any:
         import copy
-        from ast_models import WhereNode, ConditionGroupNode
+
+        from ast_models import ConditionGroupNode, WhereNode
 
         patched = copy.deepcopy(last_ast)
         filters = new_intent.get("filters", {})

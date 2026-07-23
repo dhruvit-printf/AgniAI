@@ -131,7 +131,9 @@ def _collect_agniveer_nos(data: Any, out: set, depth: int = 0) -> None:
             _collect_agniveer_nos(item, out, depth + 1)
 
 
-def _prune_records_outside_batch(data: Any, allowed_agniveer_nos: set, depth: int = 0) -> Any:
+def _prune_records_outside_batch(
+    data: Any, allowed_agniveer_nos: set, depth: int = 0
+) -> Any:
     """Mirror of `_collect_agniveer_nos` that drops any record whose
     AgniveerNo isn't in `allowed_agniveer_nos`. Records with no AgniveerNo
     (aggregate rows, counts, non-agniveer sections) are left untouched."""
@@ -145,7 +147,9 @@ def _prune_records_outside_batch(data: Any, allowed_agniveer_nos: set, depth: in
                 if key is not None and item.get(key) not in (None, ""):
                     if str(item[key]) not in allowed_agniveer_nos:
                         continue
-                item = _prune_records_outside_batch(item, allowed_agniveer_nos, depth + 1)
+                item = _prune_records_outside_batch(
+                    item, allowed_agniveer_nos, depth + 1
+                )
             kept.append(item)
         return kept
     if isinstance(data, dict):
@@ -244,7 +248,6 @@ _SINGLE_AGNIVEER_OPERATIONS = frozenset(
         "Summary",  # Attendance
     }
 )
-
 
 
 def _allows_agniveer_carry_forward(
@@ -1100,9 +1103,10 @@ def execute_admin_query(
             )
 
             planning_start = time.time()
+            from intent_engine.org_hierarchy_parser import parse_org_hierarchy
             from intent_engine.personal_details_parser import parse_personal_details
             from intent_engine.users_roles_parser import parse_users_roles
-            from intent_engine.org_hierarchy_parser import parse_org_hierarchy
+
             pd_intent_early = (
                 parse_personal_details(user_query or message)
                 or parse_users_roles(user_query or message)
@@ -1113,20 +1117,24 @@ def execute_admin_query(
                 # Bypass LLM completely for personal details / users&roles /
                 # org-hierarchy questions — all three are deterministic
                 # keyword parsers, same rationale as personal details alone.
-                from intent_engine.query_planner import QueryPlan, SubOperation
                 from intent_engine.query_intelligence_engine import NormalizedQuery
+                from intent_engine.query_planner import QueryPlan, SubOperation
 
                 qie_result = NormalizedQuery(
                     original_query=message,
                     normalized_text=message,
-                    canonical_text=message
+                    canonical_text=message,
                 )
                 query_plan = QueryPlan(
                     raw_query=message,
                     query_type=QueryType.SIMPLE,
-                    operations=[SubOperation(raw_fragment=message, intent_result=pd_intent_early)],
+                    operations=[
+                        SubOperation(
+                            raw_fragment=message, intent_result=pd_intent_early
+                        )
+                    ],
                     confidence=1.0,
-                    reasoning="Heuristically matched personal details"
+                    reasoning="Heuristically matched personal details",
                 )
             else:
                 qie_result = qie_process(message)
@@ -1237,7 +1245,6 @@ def execute_admin_query(
                     op_intent["agniveerNo"] = op_agniveer_no
                     op_intent["agniveer_no"] = op_agniveer_no
 
-
             if query_plan.operations:
                 # op.intent_result already carries classify_admin_intent's
                 # category/operation/section plus its own extract_entities()
@@ -1339,11 +1346,14 @@ def execute_admin_query(
                     op_intent["batch_id"] = id_filters["batchId"]
 
                 # Handle company scope
-                op_c_name = op_intent.get("company_name") or op_intent.get("companyName")
+                op_c_name = op_intent.get("company_name") or op_intent.get(
+                    "companyName"
+                )
                 op_c_id = op_intent.get("company_id") or op_intent.get("companyId")
                 if op_c_id is None and op_c_name:
                     try:
                         from sql_executor import resolve_company_id_from_name
+
                         op_c_id = resolve_company_id_from_name(str(op_c_name))
                         if op_c_id is not None:
                             op_intent["companyId"] = int(op_c_id)
@@ -1355,11 +1365,14 @@ def execute_admin_query(
                     op_intent["company_id"] = id_filters["companyId"]
 
                 # Handle platoon scope
-                op_p_name = op_intent.get("platoon_name") or op_intent.get("platoonName")
+                op_p_name = op_intent.get("platoon_name") or op_intent.get(
+                    "platoonName"
+                )
                 op_p_id = op_intent.get("platoon_id") or op_intent.get("platoonId")
                 if op_p_id is None and op_p_name:
                     try:
                         from sql_executor import resolve_platoon_id_from_name
+
                         op_p_id = resolve_platoon_id_from_name(str(op_p_name))
                         if op_p_id is not None:
                             op_intent["platoonId"] = int(op_p_id)
@@ -1550,8 +1563,9 @@ def execute_admin_query(
                 ]
                 if sql_queries:
                     response_dotnet_payload[0]["sqlQueries"] = sql_queries
-                    response_dotnet_payload[0]["sqlQuery"] = "\n\n-- Leg / Sub-query --\n".join(sql_queries)
-
+                    response_dotnet_payload[0]["sqlQuery"] = (
+                        "\n\n-- Leg / Sub-query --\n".join(sql_queries)
+                    )
 
                 for section in sql_raw:
                     ensure_agniveer_no_in_data(section)

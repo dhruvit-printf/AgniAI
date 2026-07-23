@@ -143,8 +143,10 @@ def _phrase_to_dates(
     if m:
         n = int(m.group(1))
         start = now - timedelta(days=n - 1) if n > 0 else now
-        return None, datetime(start.year, start.month, start.day), datetime(
-            now.year, now.month, now.day
+        return (
+            None,
+            datetime(start.year, start.month, start.day),
+            datetime(now.year, now.month, now.day),
         )
 
     # "first/second/third/fourth/last/mid week of <month>" — a named

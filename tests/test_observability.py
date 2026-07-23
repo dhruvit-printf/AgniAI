@@ -144,7 +144,10 @@ class TestObservability(unittest.TestCase):
             raw_json = log_msg.split(":", 2)[-1].strip()
             try:
                 parsed = json.loads(raw_json)
-                if parsed.get("message") == "SQL backend could not answer the query, attempting Text2SQL fallback":
+                if (
+                    parsed.get("message")
+                    == "SQL backend could not answer the query, attempting Text2SQL fallback"
+                ):
                     found_log = True
                     self.assertEqual(parsed["trace_id"], "err-trace-id")
             except json.JSONDecodeError:

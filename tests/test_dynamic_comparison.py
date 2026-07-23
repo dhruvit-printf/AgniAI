@@ -153,9 +153,9 @@ def test_compare_datasets_auto_resolve_record_count():
                     "sentCount": 30,
                     "notRespondedCount": 30,
                     "verifiedCount": 21,
-                    "rejectedCount": 9
+                    "rejectedCount": 9,
                 }
-            }
+            },
         ),
         (
             "Completed",
@@ -166,10 +166,10 @@ def test_compare_datasets_auto_resolve_record_count():
                     "sentCount": 30,
                     "notRespondedCount": 30,
                     "verifiedCount": 21,
-                    "rejectedCount": 9
+                    "rejectedCount": 9,
                 }
-            }
-        )
+            },
+        ),
     ]
 
     comparison_context = {
@@ -177,15 +177,23 @@ def test_compare_datasets_auto_resolve_record_count():
             {
                 "id": "dataset_1",
                 "label": "Pending",
-                "intent": {"category": "Verification", "operation": "Pending", "subcategory": "PendingVerification"},
+                "intent": {
+                    "category": "Verification",
+                    "operation": "Pending",
+                    "subcategory": "PendingVerification",
+                },
                 "rawData": labeled_results[0][1],
             },
             {
                 "id": "dataset_2",
                 "label": "Completed",
-                "intent": {"category": "Verification", "operation": "Completed", "subcategory": "CompletedVerification"},
+                "intent": {
+                    "category": "Verification",
+                    "operation": "Completed",
+                    "subcategory": "CompletedVerification",
+                },
                 "rawData": labeled_results[1][1],
-            }
+            },
         ]
     }
 

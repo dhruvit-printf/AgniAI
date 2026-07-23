@@ -1,9 +1,17 @@
 import logging
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
-from schema_engine import schema_engine
+from ast_models import (
+    AggregateNode,
+    ASTNode,
+    ConditionGroupNode,
+    ConditionNode,
+    JoinNode,
+    OrderByNode,
+    WhereNode,
+)
 from relationship_graph import relationship_graph
-from ast_models import ASTNode, JoinNode, WhereNode, AggregateNode, OrderByNode, ConditionNode, ConditionGroupNode
+from schema_engine import schema_engine
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +81,7 @@ class QueryPlannerV2:
         for col, val in implicit.items():
             column_ref = f"{base_table}.{col}"
             if not self._has_column_filter(ast.where, column_ref):
-                ast.where.append(
-                    WhereNode(column=column_ref, operator="=", value=val)
-                )
+                ast.where.append(WhereNode(column=column_ref, operator="=", value=val))
 
         # 3. Aggregation Setup
         aggregates = intent.get("aggregates", [])
@@ -138,8 +144,12 @@ class QueryPlannerV2:
                 )
                 if target_table and target_table != base_table:
                     self._add_joins(ast, base_table, target_table)
-                
-                col_name = f"{target_table}.{o.get('column')}" if target_table else o.get("column")
+
+                col_name = (
+                    f"{target_table}.{o.get('column')}"
+                    if target_table
+                    else o.get("column")
+                )
                 ast.order_by.append(
                     OrderByNode(
                         column=col_name,
@@ -216,7 +226,9 @@ class QueryPlannerV2:
                         )
         return conditions
 
-    def _has_column_filter(self, conditions: List[Any], column_ref: str, depth: int = 0) -> bool:
+    def _has_column_filter(
+        self, conditions: List[Any], column_ref: str, depth: int = 0
+    ) -> bool:
         if depth > 20:
             return False
         for cond in conditions:

@@ -38,16 +38,12 @@ def test_procured_items_count():
 
 def test_item_category_covers_all_issued():
     for item in ISSUED_ITEMS:
-        assert (
-            _item_category(item) == "Issued"
-        ), f"Expected Issued for: {item}"
+        assert _item_category(item) == "Issued", f"Expected Issued for: {item}"
 
 
 def test_item_category_covers_all_procured():
     for item in PROCURED_ITEMS:
-        assert (
-            _item_category(item) == "Procured"
-        ), f"Expected Procured for: {item}"
+        assert _item_category(item) == "Procured", f"Expected Procured for: {item}"
 
 
 # =============================================================================

@@ -28,11 +28,19 @@ _ALL_SUBQUERIES_FAILED = "All sub-queries could not be answered from the databas
 
 def _label_for(op: SubOperation, index: int) -> str:
     intent = (op.intent_result or {}) if op else {}
-    company = intent.get("company_name") or (f"Company {intent.get('company_id')}" if intent.get("company_id") is not None else None)
-    platoon = intent.get("platoon_name") or (f"Platoon {intent.get('platoon_id')}" if intent.get("platoon_id") is not None else None)
+    company = intent.get("company_name") or (
+        f"Company {intent.get('company_id')}"
+        if intent.get("company_id") is not None
+        else None
+    )
+    platoon = intent.get("platoon_name") or (
+        f"Platoon {intent.get('platoon_id')}"
+        if intent.get("platoon_id") is not None
+        else None
+    )
     agniveer = intent.get("agniveer_no")
     section = intent.get("section")
-    
+
     parts = []
     if company:
         parts.append(str(company))
@@ -42,15 +50,11 @@ def _label_for(op: SubOperation, index: int) -> str:
         parts.append(str(agniveer))
     if section and not parts:
         parts.append(str(section))
-        
+
     if parts:
         return " - ".join(parts)
-        
-    return (
-        intent.get("section")
-        or intent.get("category")
-        or f"Query {index + 1}"
-    )
+
+    return intent.get("section") or intent.get("category") or f"Query {index + 1}"
 
 
 def _run_one(op: SubOperation, fallback_question: str) -> Tuple[Any, Optional[str]]:

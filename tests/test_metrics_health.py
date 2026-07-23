@@ -29,6 +29,7 @@ class TestMetricsHealth(unittest.TestCase):
         mock_db.return_value = "healthy"
 
         from config import API_SECRET_KEY
+
         headers = {"X-Api-Key": API_SECRET_KEY} if API_SECRET_KEY else {}
         resp = self.app_client.get("/api/admin/health", headers=headers)
         self.assertEqual(resp.status_code, 200)
@@ -53,6 +54,7 @@ class TestMetricsHealth(unittest.TestCase):
         mock_db.return_value = "healthy"
 
         from config import API_SECRET_KEY
+
         headers = {"X-Api-Key": API_SECRET_KEY} if API_SECRET_KEY else {}
         resp = self.app_client.get("/api/admin/health", headers=headers)
         self.assertEqual(resp.status_code, 503)
@@ -94,10 +96,26 @@ class TestMetricsHealth(unittest.TestCase):
     @patch("admin_pipeline.resolve_entities_from_query")
     @patch("admin_pipeline.fetch_sql_results")
     @patch("admin_pipeline.generate_report")
-    def test_metrics_updated_on_pipeline_run(self, mock_gen_report, mock_fetch_sql_results, mock_resolve_entities, mock_context_resolve):
-        mock_context_resolve.return_value = MagicMock(needs_clarification=False, context_source="fresh", resolved_query="Show attendance", carry_forward_filters={}, resolved_entities={})
+    def test_metrics_updated_on_pipeline_run(
+        self,
+        mock_gen_report,
+        mock_fetch_sql_results,
+        mock_resolve_entities,
+        mock_context_resolve,
+    ):
+        mock_context_resolve.return_value = MagicMock(
+            needs_clarification=False,
+            context_source="fresh",
+            resolved_query="Show attendance",
+            carry_forward_filters={},
+            resolved_entities={},
+        )
         mock_resolve_entities.return_value = {}
-        mock_fetch_sql_results.return_value = ([{"records": []}], [("Result", {"records": []})], None)
+        mock_fetch_sql_results.return_value = (
+            [{"records": []}],
+            [("Result", {"records": []})],
+            None,
+        )
         mock_gen_report.return_value = {
             "message": "Intro",
             "analysis": {"summary": "Sum", "observations": [], "insights": []},
@@ -125,10 +143,26 @@ class TestMetricsHealth(unittest.TestCase):
     @patch(
         "admin_pipeline.SLOW_QUERY_THRESHOLD", -1.0
     )  # Set threshold extremely low to trigger log
-    def test_slow_query_detection_warning(self, mock_gen_report, mock_fetch_sql_results, mock_resolve_entities, mock_context_resolve):
-        mock_context_resolve.return_value = MagicMock(needs_clarification=False, context_source="fresh", resolved_query="Show attendance", carry_forward_filters={}, resolved_entities={})
+    def test_slow_query_detection_warning(
+        self,
+        mock_gen_report,
+        mock_fetch_sql_results,
+        mock_resolve_entities,
+        mock_context_resolve,
+    ):
+        mock_context_resolve.return_value = MagicMock(
+            needs_clarification=False,
+            context_source="fresh",
+            resolved_query="Show attendance",
+            carry_forward_filters={},
+            resolved_entities={},
+        )
         mock_resolve_entities.return_value = {}
-        mock_fetch_sql_results.return_value = ([{"records": []}], [("Result", {"records": []})], None)
+        mock_fetch_sql_results.return_value = (
+            [{"records": []}],
+            [("Result", {"records": []})],
+            None,
+        )
         mock_gen_report.return_value = {
             "message": "Intro",
             "analysis": {"summary": "Sum", "observations": [], "insights": []},

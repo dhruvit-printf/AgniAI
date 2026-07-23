@@ -124,9 +124,7 @@ def _infer_side_visualization_type(side: Dict[str, Any]) -> str:
 
 def select_visualization_type(sides: List[Dict[str, Any]]) -> str:
     inferred = [
-        _infer_side_visualization_type(side)
-        for side in sides
-        if isinstance(side, dict)
+        _infer_side_visualization_type(side) for side in sides if isinstance(side, dict)
     ]
     inferred = [viz for viz in inferred if viz]
 
@@ -197,13 +195,32 @@ def compare_datasets(
 
             candidates = []
             if operation:
-                candidates.extend([operation.lower(), f"{operation.lower()}count", f"{operation.lower()}s", f"{operation.lower()}scount"])
+                candidates.extend(
+                    [
+                        operation.lower(),
+                        f"{operation.lower()}count",
+                        f"{operation.lower()}s",
+                        f"{operation.lower()}scount",
+                    ]
+                )
             if subcategory:
-                candidates.extend([subcategory.lower(), f"{subcategory.lower()}count", f"{subcategory.lower()}s", f"{subcategory.lower()}scount"])
+                candidates.extend(
+                    [
+                        subcategory.lower(),
+                        f"{subcategory.lower()}count",
+                        f"{subcategory.lower()}s",
+                        f"{subcategory.lower()}scount",
+                    ]
+                )
 
             # Alias mappings for Completed / Verified
-            if operation in ("Completed", "Verified") or subcategory in ("CompletedVerification", "VerifiedVerification"):
-                candidates.extend(["verified", "verifiedcount", "completed", "completedcount"])
+            if operation in ("Completed", "Verified") or subcategory in (
+                "CompletedVerification",
+                "VerifiedVerification",
+            ):
+                candidates.extend(
+                    ["verified", "verifiedcount", "completed", "completedcount"]
+                )
 
             found_val = None
             for key, val in side["metrics"].items():
