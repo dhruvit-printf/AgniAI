@@ -386,6 +386,23 @@ _PROTECTED_COMMON_WORDS: FrozenSet[str] = frozenset(
         # the question's meaning entirely and routing it to the wrong
         # category.
         "posted",
+        # "battle" (as in "Battle Physical Efficiency Test", BPET's actual
+        # full name) sits within edit-distance-1 of "bottle" — already in
+        # the domain vocabulary via FUZZY_VOCAB's "Water Bottle Plastic
+        # with C" equipment-item canonical value — and was being silently
+        # rewritten to it: "who topped in battle physical efficiency test"
+        # became "...bottle physical efficiency test", which then
+        # fuzzy-matched the water-bottle equipment item and misrouted the
+        # whole query to Equipment/ByName instead of Performance/Top.
+        "battle",
+        # "physical" sits within edit-distance-2 of "physically" (already
+        # in the domain vocabulary via BMI_CATEGORIES' "physically
+        # fit"/"physically unfit" values) and was being silently rewritten
+        # to it, breaking the "battle physical efficiency test"/"physical
+        # proficiency test" SECTION aliases (they stopped matching once
+        # "physical" became "physically" before the alias substring check
+        # ran).
+        "physical",
     }
 )
 

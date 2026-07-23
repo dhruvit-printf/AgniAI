@@ -65,8 +65,15 @@ def main():
     denied_tables = getattr(sql_schema_guard, "DENIED_TABLES", set())
 
     tables_to_remove = sorted(list(original_tables - live_tables))
+    # denied_tables (sql_schema_guard.DENIED_TABLES) is lowercase; live_tables
+    # preserves the DB's original casing ("LoginToken"), so a plain set
+    # difference never actually excludes them here — matches the correctly
+    # case-insensitive skip already used in the per-table loop below, this
+    # was just the summary line lagging behind it.
     tables_to_add = sorted(
-        list(live_tables - original_tables - {"__EFMigrationsHistory"} - denied_tables)
+        t
+        for t in (live_tables - original_tables - {"__EFMigrationsHistory"})
+        if t.lower() not in denied_tables
     )
 
     print("\n--- TABLE LEVEL CHANGES ---")

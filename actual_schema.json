@@ -31,6 +31,14 @@
     "Remarks": {
       "type": "",
       "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
     }
   },
   "AgniveerEquipment": {
@@ -75,6 +83,14 @@
       "nullable": true
     },
     "Type": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
       "type": "",
       "nullable": true
     }
@@ -143,6 +159,14 @@
     "ToDate": {
       "type": "",
       "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
     }
   },
   "AgniveerMaster": {
@@ -179,6 +203,10 @@
       "nullable": true
     },
     "DateOfJoining": {
+      "type": "",
+      "nullable": true
+    },
+    "DisqualifiedDate": {
       "type": "",
       "nullable": true
     },
@@ -323,12 +351,66 @@
       "nullable": true
     }
   },
+  "AgniveerPlatoonHistory": {
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "EndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "PlatoonId": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
   "AgniveerRelationMaster": {
     "AgniveerId": {
       "type": "",
       "nullable": true
     },
     "DistributionId": {
+      "type": "",
+      "nullable": true
+    },
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "RelationName": {
+      "type": "",
+      "nullable": true
+    },
+    "RelationType": {
       "type": "",
       "nullable": true
     }
@@ -373,6 +455,14 @@
     "SubItemId": {
       "type": "",
       "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
     }
   },
   "AgniveerSectionResult": {
@@ -413,6 +503,14 @@
       "nullable": true
     },
     "SubItemTotalMarks": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
       "type": "",
       "nullable": true
     }
@@ -463,6 +561,90 @@
       "nullable": true
     }
   },
+  "CompanyCommanderHistory": {
+    "CommanderId": {
+      "type": "",
+      "nullable": true
+    },
+    "CompanyId": {
+      "type": "",
+      "nullable": true
+    },
+    "EndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "CompanyCommandingOfficerHistory": {
+    "CommandingOfficerId": {
+      "type": "",
+      "nullable": true
+    },
+    "CompanyId": {
+      "type": "",
+      "nullable": true
+    },
+    "EndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
   "CompanyMaster": {
     "CommandingOfficerId": {
       "type": "",
@@ -476,6 +658,14 @@
       "type": "",
       "nullable": true
     },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": true
+    },
     "IsActive": {
       "type": "",
       "nullable": true
@@ -483,6 +673,86 @@
     "Name": {
       "type": "",
       "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "CompanySchedule": {
+    "Code": {
+      "type": "",
+      "nullable": true
+    },
+    "CompanyId": {
+      "type": "",
+      "nullable": true
+    },
+    "Details": {
+      "type": "",
+      "nullable": true
+    },
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Location": {
+      "type": "",
+      "nullable": true
+    },
+    "Pd": {
+      "type": "",
+      "nullable": true
+    },
+    "Resp": {
+      "type": "",
+      "nullable": true
+    },
+    "ScheduleDate": {
+      "type": "",
+      "nullable": true
+    },
+    "TimeRange": {
+      "type": "",
+      "nullable": true
+    },
+    "Type": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "DeletedNotification": {
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "IssueType": {
+      "type": "",
+      "nullable": true
     }
   },
   "DistributionHistoryMaster": {
@@ -521,9 +791,21 @@
     "UpdateCount": {
       "type": "",
       "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
     }
   },
   "DistributionMaster": {
+    "DograPercentage": {
+      "type": "",
+      "nullable": true
+    },
     "Id": {
       "type": "",
       "nullable": true
@@ -531,6 +813,14 @@
     "Name": {
       "type": "",
       "nullable": false
+    },
+    "OICPercentage": {
+      "type": "",
+      "nullable": true
+    },
+    "SikhPercentage": {
+      "type": "",
+      "nullable": true
     }
   },
   "EquipmentMaster": {
@@ -546,11 +836,41 @@
       "type": "",
       "nullable": true
     },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": true
+    },
     "Name": {
       "type": "",
       "nullable": false
     },
     "Type": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "FilesMaster": {
+    "Files": {
+      "type": "",
+      "nullable": true
+    },
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "Url": {
       "type": "",
       "nullable": true
     }
@@ -644,11 +964,103 @@
       "type": "",
       "nullable": true
     },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
     "VisitDate": {
       "type": "",
       "nullable": true
     },
     "Weight": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "PlatoonCommanderHistory": {
+    "CommanderId": {
+      "type": "",
+      "nullable": true
+    },
+    "EndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "PlatoonId": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "PlatoonCompanyHistory": {
+    "CompanyId": {
+      "type": "",
+      "nullable": true
+    },
+    "EndDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "PlatoonId": {
+      "type": "",
+      "nullable": true
+    },
+    "Remarks": {
+      "type": "",
+      "nullable": true
+    },
+    "StartDate": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
       "type": "",
       "nullable": true
     }
@@ -659,6 +1071,14 @@
       "nullable": true
     },
     "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
       "type": "",
       "nullable": true
     },
@@ -677,6 +1097,14 @@
     "PlatoonNo": {
       "type": "",
       "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
     }
   },
   "PoliceVerificationMaster": {
@@ -715,6 +1143,40 @@
     "Status": {
       "type": "",
       "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "RoleMaster": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Role": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
     }
   },
   "ScoreSectionMaster": {
@@ -741,6 +1203,14 @@
     "SectionName": {
       "type": "",
       "nullable": false
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
     }
   },
   "ScoreSubItemMaster": {
@@ -773,6 +1243,14 @@
       "nullable": false
     },
     "SectionId": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
       "type": "",
       "nullable": true
     }
@@ -814,7 +1292,205 @@
       "type": "",
       "nullable": true
     },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
     "Username": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "UserRole": {
+    "Id": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "InsertedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "RoleId": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedBy": {
+      "type": "",
+      "nullable": true
+    },
+    "UpdatedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "UserId": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "vw_AgniveerAttendanceStatus": {
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "Date": {
+      "type": "",
+      "nullable": true
+    },
+    "IsPresent": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "vw_AgniveerBestAttemptTotals": {
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "BestTotal": {
+      "type": "",
+      "nullable": true
+    },
+    "Section": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "vw_AgniveerBmi": {
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "AvgHeight": {
+      "type": "",
+      "nullable": true
+    },
+    "AvgWeight": {
+      "type": "",
+      "nullable": true
+    },
+    "Bmi": {
+      "type": "",
+      "nullable": true
+    },
+    "BmiCategory": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "vw_AgniveerLeaveDayCounts": {
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "FromDate": {
+      "type": "",
+      "nullable": true
+    },
+    "LeaveCount": {
+      "type": "",
+      "nullable": true
+    },
+    "LeaveType": {
+      "type": "",
+      "nullable": true
+    },
+    "ToDate": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "vw_AgniveerLeaveThreshold": {
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "IsThreshold": {
+      "type": "",
+      "nullable": true
+    },
+    "Reason": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "vw_AgniveerSectionGrades": {
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "BestTotal": {
+      "type": "",
+      "nullable": true
+    },
+    "DynamicMax": {
+      "type": "",
+      "nullable": true
+    },
+    "Grade": {
+      "type": "",
+      "nullable": true
+    },
+    "Percentage": {
+      "type": "",
+      "nullable": true
+    },
+    "SectionId": {
+      "type": "",
+      "nullable": true
+    },
+    "SectionName": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "vw_AgniveerVerificationStatus": {
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "DaysSinceSent": {
+      "type": "",
+      "nullable": true
+    },
+    "PoliceStation": {
+      "type": "",
+      "nullable": true
+    },
+    "ReceivedDate": {
+      "type": "",
+      "nullable": true
+    },
+    "SentDate": {
+      "type": "",
+      "nullable": true
+    },
+    "Status": {
+      "type": "",
+      "nullable": true
+    }
+  },
+  "vw_EquipmentDegraded": {
+    "AgniveerId": {
+      "type": "",
+      "nullable": true
+    },
+    "AssignmentId": {
+      "type": "",
+      "nullable": true
+    },
+    "EquipmentName": {
+      "type": "",
+      "nullable": true
+    },
+    "IsDegraded": {
       "type": "",
       "nullable": true
     }
