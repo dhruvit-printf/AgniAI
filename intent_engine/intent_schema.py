@@ -1250,8 +1250,7 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "general attendance",
         ),
     },
-    "Strength": {
-    },
+    "Strength": {},
     "Equipment": {
         "Stats": (
             "how much equipment do we have",
