@@ -1,5 +1,6 @@
 import pytest
-from ast_models import ASTNode, WhereNode, ConditionGroupNode, AggregateNode
+
+from ast_models import AggregateNode, ASTNode, ConditionGroupNode, WhereNode
 from sql_builder import sql_builder
 
 

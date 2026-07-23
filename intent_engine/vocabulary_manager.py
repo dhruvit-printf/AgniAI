@@ -7,6 +7,7 @@ and serves them for spell correction, canonical mapping, and fuzzy searching.
 """
 
 from __future__ import annotations
+
 import re
 from types import MappingProxyType
 from typing import FrozenSet, Mapping, Optional, Set

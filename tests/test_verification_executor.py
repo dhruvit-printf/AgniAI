@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+
 import pytest
 
 from sql_executor import (
-    execute_sql_query,
     build_verification_sql,
+    execute_sql_query,
     execute_verification_query,
 )
 

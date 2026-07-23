@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+
 import pytest
 
-from intent_engine.personal_details_parser import parse_personal_details
-from intent_engine.query_planner import plan_query, QueryType
 from cross_filter_engine import cross_filter_datasets
+from intent_engine.personal_details_parser import parse_personal_details
+from intent_engine.query_planner import QueryType, plan_query
 
 
 def test_multi_domain_query_bypasses_personal_details_parser():

@@ -484,8 +484,8 @@ class TestBackwardCompatibility(unittest.TestCase):
 class TestPlannerV2Recursion(unittest.TestCase):
 
     def test_has_column_filter_nested(self):
+        from ast_models import ConditionGroupNode, WhereNode
         from query_planner_v2 import QueryPlannerV2
-        from ast_models import WhereNode, ConditionGroupNode
 
         planner = QueryPlannerV2()
         target_where = WhereNode(
@@ -505,8 +505,8 @@ class TestPlannerV2Recursion(unittest.TestCase):
         )
 
     def test_has_column_filter_depth_guard(self):
+        from ast_models import ConditionGroupNode, WhereNode
         from query_planner_v2 import QueryPlannerV2
-        from ast_models import WhereNode, ConditionGroupNode
 
         planner = QueryPlannerV2()
         target_where = WhereNode(

@@ -1,4 +1,5 @@
 import pytest
+
 from universal_normalizer import normalize_response
 
 

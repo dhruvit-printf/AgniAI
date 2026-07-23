@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+from query_understanding_engine import _COMPARISON_MARKERS as _COMPARISON_KEYWORDS
 from query_understanding_engine import (
-    _COMPARISON_MARKERS as _COMPARISON_KEYWORDS,
     propagate_lead_in_across_parts,
     understand_query,
 )

@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import pytest
 
+from context_engine import ConversationContextEngine
 from intent_engine.admin_intent import classify_admin_intent
 from intent_engine.entity_extractor import extract_entities
 from intent_engine.intent_classifier import classify_intent
-from context_engine import ConversationContextEngine
 
 # =============================================================================
 # Helper
@@ -122,7 +122,7 @@ class TestMandatedCases:
 
     def test_08_attendance_january_to_march_not_compare(self):
         """attendance from january to march → single Attendance op with date range, NOT COMPARE"""
-        from intent_engine.query_planner import plan_query, QueryType
+        from intent_engine.query_planner import QueryType, plan_query
 
         plan = plan_query("attendance from january to march")
         assert (
@@ -134,7 +134,7 @@ class TestMandatedCases:
 
     def test_09_more_than_5_days_leave_not_comparison(self):
         """agniveers with more than 5 days leave → Leave, NOT comparison"""
-        from intent_engine.query_planner import plan_query, QueryType
+        from intent_engine.query_planner import QueryType, plan_query
 
         plan = plan_query("agniveers with more than 5 days leave")
         assert (
@@ -273,7 +273,7 @@ class TestLeaveCases:
 
     def test_leave_no_comparison(self):
         """'more than 10 days leave' is NOT a comparison"""
-        from intent_engine.query_planner import plan_query, QueryType
+        from intent_engine.query_planner import QueryType, plan_query
 
         plan = plan_query("show agniveers with more than 10 days annual leave")
         assert plan.query_type != QueryType.COMPARE
@@ -341,7 +341,7 @@ class TestAttendanceCases:
 
     def test_attendance_date_range_not_compare(self):
         """'attendance from january to march' is a range query, not a comparison"""
-        from intent_engine.query_planner import plan_query, QueryType
+        from intent_engine.query_planner import QueryType, plan_query
 
         plan = plan_query("show attendance from january to march")
         assert (
@@ -657,7 +657,7 @@ class TestCrossFilterPlannerCases:
 
     def test_volleyball_also_skill_not_cross_filter(self):
         """'give me agniveer who also has volleyball as skill' → SIMPLE plan (not cross_filter)"""
-        from intent_engine.query_planner import plan_query, QueryType
+        from intent_engine.query_planner import QueryType, plan_query
 
         plan = plan_query("give me agniveer who also has volleyball as skill")
         assert plan.query_type in (
@@ -672,13 +672,13 @@ class TestCrossFilterPlannerCases:
             ), f"Primary intent category should be Skills, got {primary.get('category')}"
 
     def test_date_range_not_compare(self):
-        from intent_engine.query_planner import plan_query, QueryType
+        from intent_engine.query_planner import QueryType, plan_query
 
         plan = plan_query("attendance from january to march for company 2")
         assert plan.query_type != QueryType.COMPARE
 
     def test_two_year_range_not_compare(self):
-        from intent_engine.query_planner import plan_query, QueryType
+        from intent_engine.query_planner import QueryType, plan_query
 
         plan = plan_query("show performance from 2023 to 2024")
         assert plan.query_type != QueryType.COMPARE

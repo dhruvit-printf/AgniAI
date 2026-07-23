@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+
 import pytest
 
 from sql_executor import (
-    execute_sql_query,
-    execute_attendance_query,
     _build_attendance_base_scope,
     _resolve_attendance_dates,
+    execute_attendance_query,
+    execute_sql_query,
 )
 
 

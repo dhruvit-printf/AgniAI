@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+
 import pytest
 
 from sql_executor import (
+    build_schedule_sql,
     execute_sql_query,
     resolve_company_id_from_agniveer,
-    resolve_company_id_from_platoon,
     resolve_company_id_from_name,
-    build_schedule_sql,
+    resolve_company_id_from_platoon,
 )
 
 

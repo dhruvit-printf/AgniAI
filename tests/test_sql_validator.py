@@ -1,11 +1,12 @@
 import pytest
+
 from ast_models import (
+    AggregateNode,
     ASTNode,
-    WhereNode,
     ConditionGroupNode,
     JoinNode,
-    AggregateNode,
     OrderByNode,
+    WhereNode,
 )
 from sql_validator import sql_validator
 

@@ -40,3 +40,7 @@ pydantic-settings>=2.14.2
 # Import is lazy in sql_executor.py, so the rest of AgniAI runs fine without
 # this installed when ENABLE_SQL_EXECUTOR is off.
 pyodbc>=5.1
+
+# Testing & Coverage
+pytest>=8.0.0
+pytest-cov>=4.0.0

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+
 import pytest
 
 from sql_executor import (
-    execute_sql_query,
-    execute_distribution_query,
     _build_distribution_base_scope,
     _get_latest_distribution_id,
+    execute_distribution_query,
+    execute_sql_query,
 )
 
 

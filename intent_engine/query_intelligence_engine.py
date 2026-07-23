@@ -7,10 +7,11 @@ resolves military abbreviations, and constructs a canonical query.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional
-import sys
+
 import os
+import sys
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 # Ensure we can import query_normalizer which is at the root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

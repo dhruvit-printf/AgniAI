@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+
 import pytest
 
-from sql_executor import execute_sql_query, execute_leave_query, _build_leave_base_query
+from sql_executor import _build_leave_base_query, execute_leave_query, execute_sql_query
 
 
 def test_leave_base_query_builder():

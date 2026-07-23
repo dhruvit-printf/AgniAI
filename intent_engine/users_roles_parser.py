@@ -12,7 +12,7 @@ an existing, intentional security boundary this parser must not route around.
 """
 
 import re
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 _AGNIVEER_NO_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
 

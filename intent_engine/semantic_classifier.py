@@ -420,6 +420,7 @@ def classify_ollama_constrained(query: str) -> Dict[str, Any]:
 
     try:
         import requests  # type: ignore
+
         from config import OLLAMA_URL  # type: ignore
 
         resp = requests.post(

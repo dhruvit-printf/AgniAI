@@ -794,6 +794,7 @@ class TestJsonable:
 
     def test_date_becomes_iso_string(self):
         import datetime
+
         from sql_executor import _jsonable
 
         result = _jsonable(datetime.date(2001, 5, 14))
@@ -802,6 +803,7 @@ class TestJsonable:
 
     def test_datetime_becomes_iso_string(self):
         import datetime
+
         from sql_executor import _jsonable
 
         result = _jsonable(datetime.datetime(2023, 11, 1, 9, 30, 0))
@@ -812,6 +814,7 @@ class TestJsonable:
         """datetime is a subclass of date; if we checked date first, a
         datetime would be serialized without its time component."""
         import datetime
+
         from sql_executor import _jsonable
 
         dt = datetime.datetime(2024, 6, 15, 14, 22, 59)
@@ -821,6 +824,7 @@ class TestJsonable:
 
     def test_decimal_becomes_float(self):
         import decimal
+
         from sql_executor import _jsonable
 
         result = _jsonable(decimal.Decimal("87.50"))
@@ -829,12 +833,14 @@ class TestJsonable:
 
     def test_decimal_zero_becomes_float(self):
         import decimal
+
         from sql_executor import _jsonable
 
         assert _jsonable(decimal.Decimal("0.00")) == 0.0
 
     def test_decimal_large_value(self):
         import decimal
+
         from sql_executor import _jsonable
 
         result = _jsonable(decimal.Decimal("12345.99"))
@@ -965,6 +971,7 @@ class TestToSectionTypeNormalization:
         """utils.get_score must return a numeric value from a row that came
         through _to_section with a Decimal MarksObtained column."""
         import decimal
+
         from utils import get_score
 
         rows = [{"AgniveerNo": "A1", "MarksObtained": decimal.Decimal("73.25")}]

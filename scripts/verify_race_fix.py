@@ -8,6 +8,7 @@ Covers:
 
 import threading
 import time
+
 import sentence_transformers
 
 # --- Patch SentenceTransformer.__init__ BEFORE importing semantic_classifier ---
@@ -24,8 +25,8 @@ def counting_init(self, *args, **kwargs):
 
 sentence_transformers.SentenceTransformer.__init__ = counting_init
 
-import rag
 import intent_engine.semantic_classifier as sc
+import rag
 
 
 def verify_step_2():

@@ -14,28 +14,40 @@ recognise the QUESTION shape and pick the right operation.
 """
 
 import re
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 _AGNIVEER_NO_RE = re.compile(r"\b([A-Za-z]\d{5,8}[A-Za-z]?)\b")
+
+# "pl"/"coy" are the same abbreviations admin_entity_resolver.py already
+# treats as aliases for "platoon"/"company" when resolving entity names —
+# recognising them here too keeps this module's question-shape detection
+# consistent with that alias understanding (a query like "which pl is
+# A1234567 in" previously fell through both the keyword gate below and the
+# Platoon-vs-Company `target` decision because neither checked for "pl").
+_PLATOON_MENTION_RE = re.compile(r"\bpl(?:atoon)?\b")
+_COMPANY_MENTION_RE = re.compile(r"\b(?:compan(?:y|ies)|coy)\b")
 
 
 def parse_org_hierarchy(query: str) -> Optional[Dict[str, Any]]:
     q_lower = query.lower().strip()
+    mentions_platoon = bool(_PLATOON_MENTION_RE.search(q_lower))
+    mentions_company = bool(_COMPANY_MENTION_RE.search(q_lower))
 
-    if not any(
-        kw in q_lower
-        for kw in (
-            "command",
-            "commands",
-            "lead",
-            "leads",
-            "heads",
-            "in charge",
-            "platoon",
-            "company",
-            "companies",
-            "posted",
-            "belong",
+    if not (
+        mentions_platoon
+        or mentions_company
+        or any(
+            kw in q_lower
+            for kw in (
+                "command",
+                "commands",
+                "lead",
+                "leads",
+                "heads",
+                "in charge",
+                "posted",
+                "belong",
+            )
         )
     ):
         return None
@@ -46,8 +58,8 @@ def parse_org_hierarchy(query: str) -> Optional[Dict[str, Any]]:
     # different phrasing that doesn't necessarily say "belong" or "company".
     if (
         re.search(r"\bposted\b", q_lower)
-        or re.search(r"\bwhich\s+platoon\b.*\bin\b", q_lower)
-        or re.search(r"\bwhich\s+platoon\b.*\bbelongs?\b", q_lower)
+        or re.search(r"\bwhich\s+pl(?:atoon)?\b.*\bin\b", q_lower)
+        or re.search(r"\bwhich\s+pl(?:atoon)?\b.*\bbelongs?\b", q_lower)
     ):
         m = _AGNIVEER_NO_RE.search(query)
         if m:
@@ -61,9 +73,7 @@ def parse_org_hierarchy(query: str) -> Optional[Dict[str, Any]]:
                 "filters": {},
             }
 
-    target = (
-        "Platoon" if "platoon" in q_lower and "company" not in q_lower else "Company"
-    )
+    target = "Platoon" if mentions_platoon and not mentions_company else "Company"
 
     # 1. Predecessor — "who commanded X BEFORE the current commander"
     # (checked first: also matches the generic "command" pattern below)

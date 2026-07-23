@@ -607,7 +607,9 @@ def _extract_equipment_item(query: str) -> Optional[str]:
         # query already has other equipment-context signal — same
         # conservative gate as the final acceptance check below, so a
         # misspelled item name never gets guessed at in isolation.
-        if score > best_score and (score[0] > 0 or (score[1] > 0 and has_equipment_context)):
+        if score > best_score and (
+            score[0] > 0 or (score[1] > 0 and has_equipment_context)
+        ):
             best_item = item
             best_score = score
 
@@ -782,8 +784,6 @@ def _extract_to_attempt(query: str) -> Optional[int]:
 
 
 def _extract_unit_name(query: str) -> Optional[str]:
-    from .intent_schema import UNIT_ALIASES
-
     query_lower = _normalise(query)
     # Pattern 1: "unit alpha", "alpha unit", "in unit alpha", "from unit alpha"
     match = re.search(

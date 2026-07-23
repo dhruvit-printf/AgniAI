@@ -1,8 +1,9 @@
 import pytest
+
+from ast_models import ASTNode
 from query_planner_v2 import query_planner_v2
 from sql_builder import sql_builder
 from sql_validator import sql_validator
-from ast_models import ASTNode
 
 # Test cases: (SemanticIntent, ExpectedBaseTable)
 BENCHMARKS = [

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+
 import pytest
 
 from sql_executor import (
-    execute_sql_query,
-    execute_medical_query,
     _build_medical_base_scope,
+    execute_medical_query,
+    execute_sql_query,
 )
 
 

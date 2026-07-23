@@ -23,11 +23,11 @@ from .intent_classifier import classify_intent
 from .intent_schema import (
     CATEGORY_OPERATION_TO_SUBCATEGORY,
     INTENT_TYPE_DEFAULTS,
-    OPERATIONS_BY_CATEGORY,
     ISSUED_EQUIPMENT_ITEMS,
+    OPERATIONS_BY_CATEGORY,
     PROCURED_EQUIPMENT_ITEMS,
-    get_allowed_entities_for_category,
     SUBCATEGORY_TO_OPERATION,
+    get_allowed_entities_for_category,
 )
 from .payload_builder import build_ai_command_request_dto
 from .payload_validator import PayloadValidationError, validate_payload
@@ -154,24 +154,6 @@ def _build_base_intent(
         "query_type": "simple",
         "filters": {},
     }
-
-
-def classify_admin_intent(
-    query: str,
-    resolved_entities: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """
-    Coordinator — assembles the final intent dict.
-
-    Decision ownership:
-      - Category, Operation, ResponseType → intent_classifier.py (classify_intent)
-      - Entities                          → entity_extractor.py  (extract_entities)
-      - Semantic understanding            → query_understanding_engine.py (understand_query)
-      - Subcategory                       → CATEGORY_OPERATION_TO_SUBCATEGORY table (pure lookup)
-
-    No re-inference is performed here.  Each field is set exactly once.
-
-    """
 
 
 def classify_admin_intent(

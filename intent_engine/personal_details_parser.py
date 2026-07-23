@@ -1,5 +1,5 @@
 import re
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 # All 39 columns in AgniveerMaster
 AGNIVEER_PERSONAL_COLUMNS = [

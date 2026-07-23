@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+
 import pytest
 
-from sql_executor import execute_sql_query, execute_disqualified_query
+from sql_executor import execute_disqualified_query, execute_sql_query
 
 
 def test_disqualified_summary_count():

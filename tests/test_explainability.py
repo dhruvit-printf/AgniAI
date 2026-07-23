@@ -1,5 +1,6 @@
 import pytest
-from ast_models import ASTNode, WhereNode, AggregateNode, OrderByNode
+
+from ast_models import AggregateNode, ASTNode, OrderByNode, WhereNode
 from explainability_engine import explainability_engine
 
 
