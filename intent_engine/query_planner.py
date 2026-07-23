@@ -557,6 +557,28 @@ def _build_sub_operation(
     filter_fragment: Optional[str] = None,
 ) -> SubOperation:
     intent_result = classify_admin_intent(fragment)
+    if intent_result.get("company_name") and intent_result.get("company_id") is None:
+        try:
+            from sql_executor import resolve_company_id_from_name
+            cid = resolve_company_id_from_name(str(intent_result["company_name"]))
+            if cid is not None:
+                intent_result["company_id"] = int(cid)
+                if "filters" in intent_result and isinstance(intent_result["filters"], dict):
+                    intent_result["filters"]["companyId"] = int(cid)
+        except Exception:
+            pass
+
+    if intent_result.get("platoon_name") and intent_result.get("platoon_id") is None:
+        try:
+            from sql_executor import resolve_platoon_id_from_name
+            pid = resolve_platoon_id_from_name(str(intent_result["platoon_name"]))
+            if pid is not None:
+                intent_result["platoon_id"] = int(pid)
+                if "filters" in intent_result and isinstance(intent_result["filters"], dict):
+                    intent_result["filters"]["platoonId"] = int(pid)
+        except Exception:
+            pass
+
     try:
         dotnet_payload = format_admin_payload(intent_result)
     except Exception:
