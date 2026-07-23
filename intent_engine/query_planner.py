@@ -61,6 +61,27 @@ def _should_treat_cross_filter_as_multi_independent(semantic: Dict[str, Any]) ->
     if not isinstance(sub_requests, list) or len(sub_requests) < 2:
         return False
 
+    # A concession/continuation cue in any fragment ("...but still have
+    # issued equipment", "...yet still holding equipment") is an explicit,
+    # unambiguous signal that the query means a genuine intersection —
+    # understand_query() already used exactly this signal to set
+    # cross_filter_intent=True. Case 2 below promotes based on the ABSENCE
+    # of a shared discriminating entity (company/section/bmi category/...),
+    # which is a fine heuristic for genuinely unrelated multi-category
+    # requests, but a query like "who are currently absent yet still
+    # holding equipment" has no such named entity on either side at all —
+    # Case 2 would wrongly promote it to multi-independent, second-guessing
+    # the better-informed upstream decision.
+    _concession_re = re.compile(
+        r"\b(?:but\s+still|yet\s+still|despite|on\s+top\s+of\s+that|still|already|yet)\b",
+        re.IGNORECASE,
+    )
+    for sub_request in sub_requests:
+        if isinstance(sub_request, dict) and _concession_re.search(
+            str(sub_request.get("fragment") or "")
+        ):
+            return False
+
     categories = set()
     shared_agniveer_no = None
     has_any_agniveer_no = False
@@ -427,6 +448,26 @@ _CATEGORY_SIGNALS: Dict[str, List[str]] = {
         "removed agniveers",
         "expelled agniveer",
         "expelled agniveers",
+    ],
+    "OrgHierarchy": [
+        "commander",
+        "commanders",
+        "commanding officer",
+        "commanding officers",
+        "command structure",
+        "chain of command",
+        "predecessor commander",
+        "platoons under",
+        "headcount by company",
+    ],
+    "UsersRoles": [
+        "training officer",
+        "training officers",
+        "user role",
+        "user roles",
+        "admin role",
+        "admin roles",
+        "active users",
     ],
 }
 

@@ -39,6 +39,8 @@ OFFICIAL_CATEGORIES: FrozenSet[str] = frozenset(
         "Schedule",
         "personaldetail",
         "disqualified",
+        "OrgHierarchy",
+        "UsersRoles",
     ]
 )
 
@@ -130,6 +132,24 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
     "Schedule": frozenset({"bytoday", "byagniveer", "bycompany", "bydate"}),
     "personaldetail": frozenset(["info"]),
     "disqualified": frozenset(["removed"]),
+    "OrgHierarchy": frozenset(
+        [
+            "CurrentCommander",
+            "HistoricalOfficer",
+            "PredecessorCommander",
+            "PlatoonsUnderCompany",
+            "HeadcountByCompany",
+            "TopCompanyByHeadcount",
+            "WhichCompanyForAgniveer",
+        ]
+    ),
+    "UsersRoles": frozenset(
+        [
+            "ByAgniveer",
+            "ActiveList",
+            "ByRole",
+        ]
+    ),
 }
 
 # =============================================================================
@@ -270,6 +290,11 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "health issues",
         "admitted",
         "hospital",
+        "treatment",
+        "treatment given",
+        "treated",
+        "prescription",
+        "prescriptions",
         "sickness",
         "fever",
         "injury",
@@ -310,6 +335,12 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "headcount breakdown",
         "section",
         "current strength",
+        "how many agniveers",
+        "count of agniveers",
+        "total agniveers",
+        "total strength",
+        "number of agniveers",
+        "list all agniveers",
     ),
     "Verification": (
         "verification",
@@ -454,6 +485,11 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "family details",
         "next of kin",
         "kin details",
+        "relative",
+        "relatives",
+        "relation",
+        "relations",
+        "family members",
     ),
     "disqualified": (
         "who got kicked out",
@@ -472,6 +508,41 @@ CATEGORY_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "expelled",
         "expelled agniveer",
         "disqualification reason",
+    ),
+    "OrgHierarchy": (
+        "commander",
+        "commanders",
+        "commanding officer",
+        "commanding officers",
+        "company commander",
+        "platoon commander",
+        "command structure",
+        "chain of command",
+        "who commands",
+        "who is in charge of",
+        "who is in command of",
+        "predecessor commander",
+        "previous commander",
+        "former commander",
+        "platoons under",
+        "headcount by company",
+        "which company has the most",
+        "which company has the highest headcount",
+        "which company for agniveer",
+        "which company is agniveer",
+    ),
+    "UsersRoles": (
+        "training officer",
+        "training officers",
+        "user role",
+        "user roles",
+        "admin role",
+        "admin roles",
+        "who marked",
+        "who evaluated",
+        "which user",
+        "active users",
+        "users with",
     ),
 }
 
@@ -1739,6 +1810,85 @@ OPERATION_SYNONYMS: Dict[str, Dict[str, Tuple[str, ...]]] = {
             "across the board performance",
         ),
     },
+    "OrgHierarchy": {
+        "CurrentCommander": (
+            "who is the commander",
+            "who is the platoon commander",
+            "who is the company commander",
+            "who is the commanding officer",
+            "current commander",
+            "current commanding officer",
+            "company commander of",
+            "platoon commander of",
+            "commanding officer of",
+            "commander of",
+            "command structure of",
+            "show the command structure",
+            "chain of command of",
+        ),
+        "HistoricalOfficer": (
+            "who was the commander",
+            "who was the commanding officer",
+            "previous commander",
+            "former commander",
+            "last year's commander",
+            "commander last year",
+            "historical commander",
+            "past commanding officer",
+        ),
+        "PredecessorCommander": (
+            "predecessor commander",
+            "who was commander before",
+            "before the current commander",
+            "prior commander",
+        ),
+        "PlatoonsUnderCompany": (
+            "platoons under",
+            "which platoons are under",
+            "show all platoons under",
+            "list platoons under",
+            "platoons in",
+        ),
+        "HeadcountByCompany": (
+            "headcount by company",
+            "headcount per company",
+            "strength by company",
+            "company wise headcount",
+        ),
+        "TopCompanyByHeadcount": (
+            "which company has the most",
+            "which company has the highest headcount",
+            "company with the most agniveers",
+            "largest company by headcount",
+        ),
+        "WhichCompanyForAgniveer": (
+            "which company is agniveer",
+            "which company for agniveer",
+            "what company is agniveer in",
+        ),
+    },
+    "UsersRoles": {
+        "ByAgniveer": (
+            "who marked the attendance",
+            "who evaluated",
+            "which user",
+            "user for agniveer",
+        ),
+        "ActiveList": (
+            "active users",
+            "list all users",
+            "who are the active users",
+        ),
+        "ByRole": (
+            "training officer",
+            "training officers",
+            "who are the training officers",
+            "list all users with",
+            "users with admin roles",
+            "admin roles",
+            "user roles",
+        ),
+    },
 }
 
 # =============================================================================
@@ -2242,6 +2392,8 @@ CATEGORY_ENTITY_COMPATIBILITY: Dict[str, Set[str]] = {
     "Schedule": {"date", "sport", "class"},
     "personaldetail": {"sport", "class"},
     "disqualified": {"sport", "class"},
+    "OrgHierarchy": set(),
+    "UsersRoles": set(),
 }
 
 # Common entities allowed in ALL categories
@@ -2499,6 +2651,26 @@ CATEGORY_ENTITY_HINTS: Dict[str, Tuple[str, ...]] = {
         "kicked out",
         "de-enrolled",
         "released from service",
+    ),
+    "OrgHierarchy": (
+        "commander",
+        "commanders",
+        "commanding officer",
+        "commanding officers",
+        "command structure",
+        "chain of command",
+        "predecessor",
+        "platoons under",
+        "headcount",
+    ),
+    "UsersRoles": (
+        "training officer",
+        "training officers",
+        "user role",
+        "user roles",
+        "admin role",
+        "admin roles",
+        "active users",
     ),
 }
 
@@ -3406,6 +3578,16 @@ OPERATION_TO_PAYLOAD_FIELD: Dict[str, str] = {
     "Verified": "Verified",
     "Rejected": "Rejected",
     "OverallPerformance": "OverallPerformance",
+    "CurrentCommander": "CurrentCommander",
+    "HistoricalOfficer": "HistoricalOfficer",
+    "PredecessorCommander": "PredecessorCommander",
+    "PlatoonsUnderCompany": "PlatoonsUnderCompany",
+    "HeadcountByCompany": "HeadcountByCompany",
+    "TopCompanyByHeadcount": "TopCompanyByHeadcount",
+    "WhichCompanyForAgniveer": "WhichCompanyForAgniveer",
+    "ByAgniveer": "ByAgniveer",
+    "ActiveList": "ActiveList",
+    "ByRole": "ByRole",
 }
 
 CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
@@ -3458,6 +3640,16 @@ CATEGORY_OPERATION_TO_SUBCATEGORY: Dict[Tuple[str, str], str] = {
     ("Schedule", "byagniveer"): "AgniveerSchedule",
     ("personaldetail", "info"): "PersonalDetailInfo",
     ("disqualified", "removed"): "DisqualifiedRemoved",
+    ("OrgHierarchy", "CurrentCommander"): "CurrentCommander",
+    ("OrgHierarchy", "HistoricalOfficer"): "HistoricalOfficer",
+    ("OrgHierarchy", "PredecessorCommander"): "PredecessorCommander",
+    ("OrgHierarchy", "PlatoonsUnderCompany"): "PlatoonsUnderCompany",
+    ("OrgHierarchy", "HeadcountByCompany"): "HeadcountByCompany",
+    ("OrgHierarchy", "TopCompanyByHeadcount"): "TopCompanyByHeadcount",
+    ("OrgHierarchy", "WhichCompanyForAgniveer"): "WhichCompanyForAgniveer",
+    ("UsersRoles", "ByAgniveer"): "ByAgniveer",
+    ("UsersRoles", "ActiveList"): "ActiveList",
+    ("UsersRoles", "ByRole"): "ByRole",
 }
 
 METADATA: Dict[str, Any] = {
