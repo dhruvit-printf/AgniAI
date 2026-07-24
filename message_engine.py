@@ -435,7 +435,11 @@ def _static_fallback(
     # ── No results ───────────────────────────────────────────────────────────
     count = data_summary.get("record_count") or data_summary.get("match_count") or 0
     if count == 0 and qtype not in ("comparison", "multi_independent"):
-        return "No data is found for what you asked for."
+        from system_messages import get_entity_not_found_message, get_specific_record_not_found_message
+        if ctx.get("agniveer") or ctx.get("id"):
+            return get_specific_record_not_found_message()
+        cat = intent.get("category") or module or ""
+        return get_entity_not_found_message(cat)
 
     # ── Comparison ───────────────────────────────────────────────────────────
     if qtype in ("comparison", "compare"):

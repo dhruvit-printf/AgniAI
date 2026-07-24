@@ -258,12 +258,12 @@ def _allows_agniveer_carry_forward(
 
 _AGNIVEER_NO_MISSING_MESSAGE = "Please provide agniveer number"
 
+from system_messages import get_not_understood_message
+
 # Friendly, conversational fallback — the raw exception/status text is always
 # logged server-side for diagnostics, but never shown to the user verbatim.
-_REQUEST_UNPROCESSABLE_MESSAGE = (
-    "Question is not understood. The system was unable to understand your question. "
-    "Please try rephrasing your request."
-)
+_REQUEST_UNPROCESSABLE_MESSAGE = get_not_understood_message()
+
 
 
 def _agniveer_no_missing_response(
@@ -310,6 +310,109 @@ def _agniveer_no_missing_response(
         "type": "clarification",
         "response_payload": payload,
         "combined_message": _AGNIVEER_NO_MISSING_MESSAGE,
+        "execution_time_ms": 0,
+    }
+
+
+def _resolve_batch_name(batch_id: Optional[int]) -> str:
+    """Best-effort BatchName lookup for batch-mismatch messaging; falls back
+    to a generic label rather than failing the whole response."""
+    if batch_id is None:
+        return "the selected batch"
+    try:
+        from sql_executor import get_batch_name
+
+        name = get_batch_name(batch_id)
+        if name:
+            return name
+    except Exception:
+        pass
+    return f"Batch {batch_id}"
+
+
+def _batch_mismatch_response(
+    session_id: str,
+    *,
+    current_batch_id: int,
+    requested_batch_id: int,
+) -> Dict[str, Any]:
+    """Short-circuit response when the query text names a batch other than
+    the one the frontend has scoped this request to (id_filters["batchId"]).
+
+    Without this, _inject_org_scope() silently overrides the query's batch
+    with the frontend's — see its docstring — so a question about a batch
+    the user isn't currently viewing would run against the wrong batch and
+    surface as a plain "no data found" instead of telling them why.
+    """
+    current_name = _resolve_batch_name(current_batch_id)
+    requested_name = _resolve_batch_name(requested_batch_id)
+    message = (
+        f"You are currently viewing {current_name}. "
+        f"Please switch to {requested_name} to see that data."
+    )
+    payload = build_conversation_payload(
+        message,
+        session_id=session_id,
+        query_type="clarification",
+    )
+    return {
+        "type": "clarification",
+        "response_payload": payload,
+        "combined_message": message,
+        "execution_time_ms": 0,
+    }
+
+
+def _org_scope_denial_response(
+    session_id: str,
+    *,
+    unit_word: str,
+    contact: Optional[Dict[str, Any]],
+    fallback_title: str,
+    company_id: Optional[int] = None,
+    platoon_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Short-circuit response when a Company/Platoon Commander's query text
+    names a different company/platoon than the one the frontend has this
+    request scoped to (id_filters["companyId"]/["platoonId"]).
+
+    A commander's own scope is not merely "the wrong default to run
+    against" the way batch is — it's a hard access boundary (per the org
+    hierarchy: a Company Commander must never see another company's data,
+    a Platoon Commander never another platoon's), so unlike the batch case
+    this always denies rather than ever running the query.
+    """
+    if contact and contact.get("CommanderName"):
+        title = contact.get("PlatoonName") or contact.get("CompanyName") or fallback_title
+        who = f"{contact['CommanderName']}, the {fallback_title} of {title}"
+    else:
+        # No Company/Platoon Commander assigned to the target unit — escalate
+        # to its Commanding Officer (Commandant) rather than leave the user
+        # with a nameless "the Company Commander of that company".
+        co_contact = None
+        try:
+            from sql_executor import get_commanding_officer_contact
+
+            co_contact = get_commanding_officer_contact(
+                company_id=company_id, platoon_id=platoon_id
+            )
+        except Exception:
+            pass
+        if co_contact and co_contact.get("OfficerName"):
+            unit_name = co_contact.get("CompanyName") or f"that {unit_word}"
+            who = f"{co_contact['OfficerName']}, the Commanding Officer of {unit_name}"
+        else:
+            who = f"the {fallback_title} of that {unit_word}"
+    message = f"You are not authorised to see that data. Please contact {who}."
+    payload = build_conversation_payload(
+        message,
+        session_id=session_id,
+        query_type="clarification",
+    )
+    return {
+        "type": "clarification",
+        "response_payload": payload,
+        "combined_message": message,
         "execution_time_ms": 0,
     }
 
@@ -973,11 +1076,14 @@ def execute_admin_query(
         frontend_intent = _extract_frontend_intent(body)
         frontend_visualization_intent = _extract_frontend_visualization_intent(body)
         id_filters = _get_id_filters(body)
-        # Ground-truth batch scope for this request — captured before any
-        # later mutation of id_filters (e.g. query-text entity resolution),
-        # since whatever batch the frontend passed must govern every
-        # question, not what the free-text query happens to mention.
+        # Ground-truth scope for this request — captured before any later
+        # mutation of id_filters (e.g. query-text entity resolution). For
+        # batch this is a default to override; for company/platoon it's a
+        # hard access boundary tied to which commander is logged in (see
+        # the org-scope denial checks below).
         frontend_batch_id = id_filters.get("batchId")
+        frontend_company_id = id_filters.get("companyId")
+        frontend_platoon_id = id_filters.get("platoonId")
         semantic_understanding = understand_query(message)
 
         # ── Greeting / conversational short-circuit ──────────────────────────
@@ -1096,6 +1202,68 @@ def execute_admin_query(
             resolved_batch = resolved_entities.get("batchId")
             if resolved_batch is not None:
                 id_filters["batchId"] = int(resolved_batch)
+
+            # If the query text itself named a different batch than the one
+            # the frontend has this request scoped to, tell the user to
+            # switch instead of silently running against the wrong batch
+            # (the merge just above overwrote id_filters["batchId"] with
+            # the text's value, which is what every downstream SQL builder
+            # and enforce_batch_scope() actually filter by — so left alone,
+            # this query would quietly answer for the wrong batch and most
+            # likely surface as a bare "no data found").
+            # frontend_batch_id was captured pre-mutation at the top of this
+            # function specifically so it still reflects the frontend's
+            # actual current batch here.
+            if (
+                frontend_batch_id is not None
+                and resolved_batch is not None
+                and int(resolved_batch) != int(frontend_batch_id)
+            ):
+                return _batch_mismatch_response(
+                    session_id,
+                    current_batch_id=frontend_batch_id,
+                    requested_batch_id=int(resolved_batch),
+                )
+
+            # A logged-in Company Commander is scoped to exactly one company
+            # (id_filters["companyId"], sent by the frontend) — unlike
+            # batch, this is a hard boundary per the org hierarchy, so a
+            # query naming another company is denied outright rather than
+            # ever running. Same for a Platoon Commander and platoonId.
+            # Platoon is checked first since it's the more specific scope —
+            # a Platoon Commander's frontend_company_id is their own
+            # company and would otherwise pass the (looser) company check
+            # even when the platoon itself is wrong.
+            if (
+                frontend_platoon_id is not None
+                and resolved_platoon is not None
+                and int(resolved_platoon) != int(frontend_platoon_id)
+            ):
+                from sql_executor import get_platoon_commander_contact
+
+                contact = get_platoon_commander_contact(int(resolved_platoon))
+                return _org_scope_denial_response(
+                    session_id,
+                    unit_word="platoon",
+                    contact=contact,
+                    fallback_title="Platoon Commander",
+                    platoon_id=int(resolved_platoon),
+                )
+            if (
+                frontend_company_id is not None
+                and resolved_company is not None
+                and int(resolved_company) != int(frontend_company_id)
+            ):
+                from sql_executor import get_company_commander_contact
+
+                contact = get_company_commander_contact(int(resolved_company))
+                return _org_scope_denial_response(
+                    session_id,
+                    unit_word="company",
+                    contact=contact,
+                    fallback_title="Company Commander",
+                    company_id=int(resolved_company),
+                )
             # agniveerNo is a string filter — stored separately
 
             resolved_agniveer_no = (

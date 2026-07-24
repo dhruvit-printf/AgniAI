@@ -573,6 +573,107 @@ def resolve_company_id_from_name(company_name: str) -> Optional[int]:
     return rows[0].get("CompanyId")
 
 
+def get_company_commander_contact(company_id: int) -> Optional[Dict[str, Any]]:
+    """Look up the active Company Commander for a company, for cross-company
+    denial messaging. Deliberately excludes UM.Password — a scope-mismatch
+    message only needs a name to point the user to, never a credential."""
+    if company_id is None:
+        return None
+    sql = """
+        SELECT TOP (1)
+            UM.Id AS CommanderId,
+            UM.FullName AS CommanderName,
+            CM.Id AS CompanyId,
+            CM.Name AS CompanyName
+        FROM UserMaster UM
+        INNER JOIN CompanyMaster CM ON CM.CompanyCommanderId = UM.Id
+        WHERE UM.IsActive = 1 AND CM.Id = ?
+    """
+    rows, err = run_readonly(sql, [company_id])
+    if err or not rows:
+        return None
+    return rows[0]
+
+
+def get_platoon_commander_contact(platoon_id: int) -> Optional[Dict[str, Any]]:
+    """Look up the active Platoon Commander for a platoon, for cross-platoon
+    denial messaging. Deliberately excludes UM.Password (see
+    get_company_commander_contact)."""
+    if platoon_id is None:
+        return None
+    sql = """
+        SELECT TOP (1)
+            UM.Id AS CommanderId,
+            UM.FullName AS CommanderName,
+            PM.Id AS PlatoonId,
+            PM.Name AS PlatoonName,
+            CM.Id AS CompanyId,
+            CM.Name AS CompanyName
+        FROM UserMaster UM
+        INNER JOIN PlatoonMaster PM ON PM.PlatoonCommanderId = UM.Id
+        LEFT JOIN CompanyMaster CM ON PM.CompanyId = CM.Id
+        WHERE UM.IsActive = 1 AND PM.Id = ?
+    """
+    rows, err = run_readonly(sql, [platoon_id])
+    if err or not rows:
+        return None
+    return rows[0]
+
+
+def get_commanding_officer_contact(
+    *, company_id: Optional[int] = None, platoon_id: Optional[int] = None
+) -> Optional[Dict[str, Any]]:
+    """Look up the active Commanding Officer (Commandant) overseeing a
+    company, or — via that company — a platoon. Used as the escalation
+    contact in scope-denial messages when the target unit has no Company/
+    Platoon Commander assigned (get_company_commander_contact /
+    get_platoon_commander_contact returned None), so the user still has
+    someone to reach rather than a fully generic "the Company Commander of
+    that company" with no name."""
+    if company_id is not None:
+        sql = """
+            SELECT TOP (1)
+                UM.Id AS OfficerId,
+                UM.FullName AS OfficerName,
+                CM.Id AS CompanyId,
+                CM.Name AS CompanyName
+            FROM UserMaster UM
+            INNER JOIN CompanyMaster CM ON CM.CommandingOfficerId = UM.Id
+            WHERE UM.IsActive = 1 AND CM.Id = ?
+        """
+        params = [company_id]
+    elif platoon_id is not None:
+        sql = """
+            SELECT TOP (1)
+                UM.Id AS OfficerId,
+                UM.FullName AS OfficerName,
+                CM.Id AS CompanyId,
+                CM.Name AS CompanyName
+            FROM UserMaster UM
+            INNER JOIN CompanyMaster CM ON CM.CommandingOfficerId = UM.Id
+            INNER JOIN PlatoonMaster PM ON PM.CompanyId = CM.Id
+            WHERE UM.IsActive = 1 AND PM.Id = ?
+        """
+        params = [platoon_id]
+    else:
+        return None
+    rows, err = run_readonly(sql, params)
+    if err or not rows:
+        return None
+    return rows[0]
+
+
+def get_batch_name(batch_id: int) -> Optional[str]:
+    """Look up a batch's display name by ID, for batch-mismatch messaging."""
+    if batch_id is None:
+        return None
+    sql = "SELECT TOP (1) BatchName FROM BatchMaster WHERE Id = ?"
+    rows, err = run_readonly(sql, [batch_id])
+    if err or not rows:
+        return None
+    return rows[0].get("BatchName")
+
+
 def resolve_platoon_id_from_name(platoon_name: str) -> Optional[int]:
     """Resolve platoon ID from platoon name or number."""
     if not platoon_name:
