@@ -235,7 +235,7 @@ def _build_no_overlap_message(counts: List[int], labels: Optional[List[str]]) ->
         elif c_x == 0 and c_y > 0:
             return f"The data you are finding is there for {y_label} question but is not there in {x_label}."
         elif c_x > 0 and c_y > 0:
-            return f"The data you are finding is there for {x_label} question but is not there in {y_label}."
+            return f"Data exists for both {x_label} and {y_label}, but no Agniveer matched both criteria simultaneously."
         elif c_x == 0 and c_y == 0:
             return "No data is found for what you asked for."
 

@@ -814,10 +814,13 @@ def build_bar_chart_data(
 
     grouped_rows = {}
     for r in records:
+        raw_x = r.get(x_key)
+        if raw_x is None and identity_key:
+            raw_x = r.get(identity_key)
         x_val = (
-            r.get(x_key)
-            or (r.get(identity_key) if identity_key else None)
-            or "Category"
+            str(raw_x).strip()
+            if raw_x is not None and str(raw_x).strip() != ""
+            else "Category"
         )
         y_val = r.get(y_key) if r.get(y_key) is not None else 0
         if not isinstance(y_val, (int, float)):
@@ -980,7 +983,7 @@ def build_pie_chart_data(
     grouped_rows = {}
     for r in records:
         lbl = str(r.get(label_key) or r.get("fullName") or "Category")
-        val = r.get(value_key) if r.get(value_key) is not None else 1
+        val = r.get(value_key) if r.get(value_key) is not None else 0
         if not isinstance(val, (int, float)):
             try:
                 val = float(val)

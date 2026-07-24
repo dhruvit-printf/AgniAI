@@ -16,7 +16,6 @@ from typing import Any, Dict, List, Optional
 
 from entity_resolver.entity_cache import fetch_companies as _cache_fetch_companies
 from entity_resolver.entity_cache import fetch_platoons as _cache_fetch_platoons
-from entity_resolver.entity_matcher import normalize_text as _normalize_text
 from intent_engine.intent_schema import COMPANY_CANONICAL_NAMES
 
 logger = logging.getLogger(__name__)

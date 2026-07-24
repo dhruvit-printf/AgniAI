@@ -41,7 +41,6 @@ SECTIONS: Set[str] = {
     "PPT",
     "Firing",
     "Drill",
-    "Theory",
 }
 
 SUBSECTIONS_BY_SECTION: dict[str, list[str]] = {

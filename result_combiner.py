@@ -319,7 +319,7 @@ def combine_results(
         res["queryType"] = "comparison"
         return res
 
-    elif qtype_str in ("multi_independent", "multi_operation"):
+    elif qtype_str == "multi_independent":
         logger.info(
             "result_combiner: merge_results across %d sections", len(labeled_results)
         )

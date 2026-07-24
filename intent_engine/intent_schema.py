@@ -98,6 +98,7 @@ OPERATIONS_BY_CATEGORY: Dict[str, FrozenSet[str]] = {
             "Sent",
             "NotResponded",
             "Verified",
+            "Completed",
             "Rejected",
         ]
     ),
@@ -3336,8 +3337,8 @@ FUZZY_VOCAB: Dict[str, str] = {
     "obesse": "Obese",
     "obease": "Obese",
     "obes": "Obese",
-    "verfied": "Verified",
-    "verifed": "Verified",
+    "verfied": "Completed",
+    "verifed": "Completed",
     "verfyed": "Verified",
     "sihk": "Sikh",
     "sihkh": "Sikh",
@@ -3488,6 +3489,9 @@ FUZZY_VOCAB: Dict[str, str] = {
     "pendeng": "Pending",
     "pendinng": "Pending",
     "pendign2": "Pending",
+    "verified": "Completed",
+    "completed": "Completed",
+    "complete": "Completed",
     "rejeceted": "Rejected",
     "rejeected": "Rejected",
     "rejecetd": "Rejected",
@@ -3987,11 +3991,17 @@ def agniveer_no_required(category: Optional[str], operation: Optional[str]) -> b
     Only individual-level targeted lookups require agniveerNo."""
     if not category:
         return False
+    cat_lower = category.lower()
+    if cat_lower in ("personaldetail", "personaldetails"):
+        return True
     if operation in (
         "Individual",
         "IndividualMedical",
         "IndividualPersonalDetail",
         "IndividualEquipment",
+        "info",
+        "AgniveerWise",
+        "byagniveer",
     ):
         return True
     return False

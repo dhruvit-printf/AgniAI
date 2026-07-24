@@ -594,16 +594,20 @@ def _validate_url(url: str) -> None:
     except Exception as e:
         raise ValueError(f"Failed to resolve hostname '{hostname}': {e}")
 
+    safe_ip = None
     for item in ips:
         ip = item[4][0]
         try:
             ip_obj = ipaddress.ip_address(ip)
             if ip_obj.is_loopback or ip_obj.is_private or ip_obj.is_link_local:
                 raise ValueError(f"URL resolves to a restricted IP address: {ip}")
+            if not safe_ip:
+                safe_ip = ip
         except ValueError as ve:
             if "resolves to a restricted IP address" in str(ve):
                 raise
             raise ValueError(f"Invalid IP address resolved: {ip}")
+    return safe_ip
 
 
 def ingest_url(url: str, force: bool = False) -> int:

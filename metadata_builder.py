@@ -53,7 +53,7 @@ def build_metadata(
     combiner_ms = round(combiner_ms, 2)
     report_ms = round(report_ms, 2)
     total_ms = round(total_ms, 2)
-    execution_ms = round(execution_ms or total_ms, 2)
+    execution_ms = round(execution_ms if execution_ms is not None else total_ms, 2)
     analysis_ms = round(analysis_ms, 2)
     prediction_ms = round(prediction_ms, 2)
     conclusion_ms = round(conclusion_ms, 2)

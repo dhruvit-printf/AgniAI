@@ -5558,6 +5558,11 @@ WHERE LOWER(m.AgniveerNo) = LOWER(?)
         extra_order_by = None
         extra_group_by = None
         metric = intent.get("metric")
+        if metric and not re.match(r"^[A-Za-z0-9_]+$", str(metric)):
+            logger.warning(
+                "sql_executor: invalid metric identifier rejected: %s", metric
+            )
+            metric = None
         if metric:
             col_ref = f"Agniveer.{metric}"
             if operation == "average":

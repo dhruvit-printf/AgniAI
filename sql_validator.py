@@ -208,25 +208,35 @@ class SqlValidator:
                 )
                 if node.value is not None:
                     if not is_raw_sql_value:
-                        if (
-                            col_type == "integer"
-                            and not isinstance(node.value, int)
-                            and not str(node.value).isdigit()
+                        op_upper = node.operator.upper()
+                        if op_upper in ("IN", "NOT IN") and isinstance(
+                            node.value, (list, tuple, set)
                         ):
-                            return (
-                                False,
-                                f"Type mismatch: '{node.column}' expects integer, got {val_type.__name__}.",
-                            )
-                        if (
-                            col_type == "boolean"
-                            and not isinstance(node.value, bool)
-                            and str(node.value).lower()
-                            not in ["0", "1", "true", "false"]
-                        ):
-                            return (
-                                False,
-                                f"Type mismatch: '{node.column}' expects boolean.",
-                            )
+                            values_to_check = list(node.value)
+                        else:
+                            values_to_check = [node.value]
+
+                        for item_val in values_to_check:
+                            item_type = type(item_val)
+                            if (
+                                col_type == "integer"
+                                and not isinstance(item_val, int)
+                                and not str(item_val).isdigit()
+                            ):
+                                return (
+                                    False,
+                                    f"Type mismatch: '{node.column}' expects integer, got {item_type.__name__}.",
+                                )
+                            if (
+                                col_type == "boolean"
+                                and not isinstance(item_val, bool)
+                                and str(item_val).lower()
+                                not in ["0", "1", "true", "false"]
+                            ):
+                                return (
+                                    False,
+                                    f"Type mismatch: '{node.column}' expects boolean.",
+                                )
                 elif node.operator.upper() not in ("IS NULL", "IS NOT NULL", "=", "!="):
                     return (
                         False,

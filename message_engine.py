@@ -28,24 +28,9 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 from normalized_models import humanize_category
+from utils import _SCORE_FIELDS
 from utils import extract_records as _extract_records
 from utils import safe_float as _safe_float
-
-# ---------------------------------------------------------------------------
-# Score field candidates (priority order)
-# ---------------------------------------------------------------------------
-_SCORE_FIELDS = (
-    "bestTotal",
-    "totalMarks",
-    "score",
-    "Score",
-    "omrInputTotal",
-    "marksObtained",
-    "averageScore",
-    "percentage",
-    "value",
-    "count",
-)
 
 # Fields that carry identity / label info for natural references
 _NAME_FIELDS = ("fullName", "name", "agniveerName", "recruiterName")
@@ -435,7 +420,11 @@ def _static_fallback(
     # ── No results ───────────────────────────────────────────────────────────
     count = data_summary.get("record_count") or data_summary.get("match_count") or 0
     if count == 0 and qtype not in ("comparison", "multi_independent"):
-        from system_messages import get_entity_not_found_message, get_specific_record_not_found_message
+        from system_messages import (
+            get_entity_not_found_message,
+            get_specific_record_not_found_message,
+        )
+
         if ctx.get("agniveer") or ctx.get("id"):
             return get_specific_record_not_found_message()
         cat = intent.get("category") or module or ""

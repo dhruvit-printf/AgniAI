@@ -241,6 +241,7 @@ def compare_datasets(
     comparison_metrics = {}
 
     comparison_metrics_payload = {
+        "values": {},
         "recordCount": {},
         "highest": {},
         "lowest": {},
@@ -278,6 +279,7 @@ def compare_datasets(
             }
 
             values_map = {label: val for label, val in valid_sides}
+            comparison_metrics_payload["values"][metric] = values_map
             if metric == "recordCount":
                 comparison_metrics_payload["recordCount"] = {
                     "values": values_map,

@@ -233,17 +233,6 @@ class FormattedData(_BaseModel):
     metric: Optional[str] = None
 
 
-class WidgetItem(_BaseModel):
-    """Single self-contained widget in a multi-widget response."""
-
-    model_config = ConfigDict(extra="allow")
-
-    id: str
-    type: str
-    title: str
-    data: Dict[str, Any] = Field(default_factory=dict)
-
-
 class FinalResponse(_BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 

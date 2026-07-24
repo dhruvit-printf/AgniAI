@@ -196,76 +196,32 @@ QUESTIONS = [
     (40, "Show verification summary for Jaswant company, then medical summary"),
 ]
 
-results_output = []
-summary_table_rows = []
 
-for q_num, question in QUESTIONS:
-    # 1. Run through query planner to get query_type and operations
-    plan = None
-    try:
-        plan = plan_query(question)
-        query_type = plan.query_type.value
-        ops = plan.operations
-    except Exception as e:
-        query_type = "unknown"
-        ops = []
-        err_msg = f"Query planner failed: {str(e)}"
+def main() -> None:
+    results_output = []
+    summary_table_rows = []
 
-    results_output.append(f'### Q{q_num}: "{question}"')
-    results_output.append(f"- query_type: {query_type}")
-
-    leg_details = []
-    any_tier2 = False
-    any_error = False
-    error_list = []
-
-    if not ops:
-        # Fallback to single leg with question text
-        execution_trace["tier"] = "AST"
-        execution_trace["reason"] = None
-        execution_trace["sql"] = None
-        execution_trace["params"] = None
-        execution_trace["error"] = None
-        execution_trace["db_error"] = None
-
+    for q_num, question in QUESTIONS:
+        # 1. Run through query planner to get query_type and operations
+        plan = None
         try:
-            res, err = sql_executor.execute_sql_query(question=question, intent=None)
-            if err:
-                execution_trace["error"] = err
+            plan = plan_query(question)
+            query_type = plan.query_type.value
+            ops = plan.operations
         except Exception as e:
-            execution_trace["error"] = str(e)
+            query_type = "unknown"
+            ops = []
+            err_msg = f"Query planner failed: {str(e)}"
 
-        tier_val = execution_trace["tier"]
-        reason_val = execution_trace["reason"] or "N/A"
-        sql_val = execution_trace["sql"] or "N/A"
-        params_val = (
-            str(execution_trace["params"])
-            if execution_trace["params"] is not None
-            else "None"
-        )
-        err_val = execution_trace["error"]
-        db_err_val = execution_trace.get("db_error")
+        results_output.append(f'### Q{q_num}: "{question}"')
+        results_output.append(f"- query_type: {query_type}")
 
-        if tier_val == "LLM fallback":
-            any_tier2 = True
-        if err_val:
-            any_error = True
-            error_list.append(err_val)
+        any_tier2 = False
+        any_error = False
+        error_list = []
 
-        results_output.append(f"- Leg 1: category=None operation=None section=None")
-        results_output.append(f"  - tier: {tier_val} ({reason_val})")
-        if sql_val and sql_val != "N/A":
-            results_output.append(f"  - SQL: {sql_val}")
-            results_output.append(f"  - params: {params_val}")
-        if err_val:
-            if db_err_val:
-                results_output.append(
-                    f"  - error: {err_val} (Detail: {db_err_val.strip()})"
-                )
-            else:
-                results_output.append(f"  - error: {err_val}")
-    else:
-        for idx, op in enumerate(ops):
+        if not ops:
+            # Fallback to single leg with question text
             execution_trace["tier"] = "AST"
             execution_trace["reason"] = None
             execution_trace["sql"] = None
@@ -335,29 +291,33 @@ for q_num, question in QUESTIONS:
         }
     )
 
-# Write standard output and save to file
-output_text = "\n".join(results_output)
-print(output_text)
+    # Write standard output and save to file
+    output_text = "\n".join(results_output)
+    print(output_text)
 
-# Build summary table markdown
-summary_table = []
-summary_table.append(
-    "| Question | Query Type | Legs | Any Tier-2 Fallbacks | Any Errors |"
-)
-summary_table.append("| --- | --- | --- | --- | --- |")
-for row in summary_table_rows:
+    # Build summary table markdown
+    summary_table = []
     summary_table.append(
-        f"| {row['question']} | {row['query_type']} | {row['legs']} | {row['tier2']} | {row['errors']} |"
+        "| Question | Query Type | Legs | Any Tier-2 Fallbacks | Any Errors |"
     )
+    summary_table.append("| --- | --- | --- | --- | --- |")
+    for row in summary_table_rows:
+        summary_table.append(
+            f"| {row['question']} | {row['query_type']} | {row['legs']} | {row['tier2']} | {row['errors']} |"
+        )
 
-summary_text = "\n".join(summary_table)
-print("\n" + summary_text)
+    summary_text = "\n".join(summary_table)
+    print("\n" + summary_text)
 
-# Write to e:\AgniAI\batch_evaluation_output.txt
-with open(
-    os.path.join(os.path.dirname(__file__), "batch_evaluation_output.txt"),
-    "w",
-    encoding="utf-8",
-) as f:
-    f.write(output_text)
-    f.write("\n\n" + summary_text)
+    # Write to e:\AgniAI\batch_evaluation_output.txt
+    with open(
+        os.path.join(os.path.dirname(__file__), "batch_evaluation_output.txt"),
+        "w",
+        encoding="utf-8",
+    ) as f:
+        f.write(output_text)
+        f.write("\n\n" + summary_text)
+
+
+if __name__ == "__main__":
+    run_batch_evaluation()

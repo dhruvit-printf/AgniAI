@@ -207,32 +207,26 @@ def _flatten_cases() -> List[Dict[str, Any]]:
 def _run_question(question: str, state: Dict[str, Any]) -> Dict[str, Any]:
     intent = classify_admin_intent(question)
     query_type = str(intent.get("query_type") or "unknown")
-    operations = [intent]
-
     leg_results: List[Dict[str, Any]] = []
     any_text2sql = False
-
-    for leg in operations:
-        state["generate_sql_mock"].reset_mock()
-
-        result, error = sql_executor.execute_sql_query(question=question, intent=leg)
-
-        leg_results.append(
-            {
-                "category": (leg or {}).get("category"),
-                "operation": (leg or {}).get("operation"),
-                "query_type": (leg or {}).get("query_type"),
-                "route": (
-                    "text2sql"
-                    if state["generate_sql_mock"].call_count > 0
-                    else "deterministic"
-                ),
-                "error": error,
-                "sql": (result or {}).get("sql") if isinstance(result, dict) else None,
-            }
-        )
-        if state["generate_sql_mock"].call_count > 0:
-            any_text2sql = True
+    state["generate_sql_mock"].reset_mock()
+    result, error = sql_executor.execute_sql_query(question=question, intent=intent)
+    leg_results.append(
+        {
+            "category": (intent or {}).get("category"),
+            "operation": (intent or {}).get("operation"),
+            "query_type": (intent or {}).get("query_type"),
+            "route": (
+                "text2sql"
+                if state["generate_sql_mock"].call_count > 0
+                else "deterministic"
+            ),
+            "error": error,
+            "sql": (result or {}).get("sql") if isinstance(result, dict) else None,
+        }
+    )
+    if state["generate_sql_mock"].call_count > 0:
+        any_text2sql = True
 
     return {
         "query_type": query_type,

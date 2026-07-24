@@ -152,18 +152,26 @@ def match_entity(
                         return False
                 return True
 
-            if alias_norm and (
-                _has_boundary(alias_norm, normalized_query)
-                or _has_boundary(normalized_query, alias_norm)
+            if (
+                alias_norm
+                and len(normalized_query) >= _MIN_PREFIX_LEN
+                and (
+                    _has_boundary(alias_norm, normalized_query)
+                    or _has_boundary(normalized_query, alias_norm)
+                )
             ):
                 score = 97.0
                 if score > best_score:
                     best_score = score
                     best_alias = alias_text
                     match_type = "alias"
-            if alias_compact and (
-                _has_boundary(alias_compact, compact_query)
-                or _has_boundary(compact_query, alias_compact)
+            if (
+                alias_compact
+                and len(compact_query) >= _MIN_PREFIX_LEN
+                and (
+                    _has_boundary(alias_compact, compact_query)
+                    or _has_boundary(compact_query, alias_compact)
+                )
             ):
                 score = 96.0
                 if score > best_score:

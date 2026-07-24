@@ -34,3 +34,5 @@ exclude = '''
 [tool.isort]
 profile = "black"
 skip = ["agniai-env", "agniai-env-broken", ".venv", "build", "dist"]
+skip_glob = ["**/agniai-env/*", "**/agniai-env-broken/*", "**/.venv/*", "**/build/*", "**/dist/*"]
+

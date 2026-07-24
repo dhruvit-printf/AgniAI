@@ -43,7 +43,11 @@ def filter_user_data(
         ]
 
     if role == "Agniveer":
-        return [record for record in full_dataset if record.get("id") == current_user.get("id")]
+        return [
+            record
+            for record in full_dataset
+            if record.get("id") == current_user.get("id")
+        ]
 
     return []
 
@@ -70,7 +74,11 @@ def check_access(
             and target_record.get("role") != "Commanding_Officer"
         ):
             return True, None
-        contact = _find_commander(full_user_list, "Company_Commander", company_id=target_record.get("company_id"))
+        contact = _find_commander(
+            full_user_list,
+            "Company_Commander",
+            company_id=target_record.get("company_id"),
+        )
         return False, _denial_message(contact, "Company Commander", "company")
 
     if role == "Platoon_Commander":
@@ -80,13 +88,20 @@ def check_access(
             and target_record.get("role") != "Company_Commander"
         ):
             return True, None
-        contact = _find_commander(full_user_list, "Platoon_Commander", platoon_id=target_record.get("platoon_id"))
+        contact = _find_commander(
+            full_user_list,
+            "Platoon_Commander",
+            platoon_id=target_record.get("platoon_id"),
+        )
         return False, _denial_message(contact, "Platoon Commander", "platoon")
 
     if role == "Agniveer":
         if target_record.get("id") == current_user.get("id"):
             return True, None
-        return False, "You are not authorised to see that data. Please contact your Platoon Commander."
+        return (
+            False,
+            "You are not authorised to see that data. Please contact your Platoon Commander.",
+        )
 
     return False, "You are not authorised to see that data."
 
@@ -108,8 +123,14 @@ def _find_commander(
     return None
 
 
-def _denial_message(contact: Optional[dict[str, Any]], title: str, unit_word: str) -> str:
-    who = f"{contact['name']}, the {title} of that {unit_word}" if contact else f"the {title} of that {unit_word}"
+def _denial_message(
+    contact: Optional[dict[str, Any]], title: str, unit_word: str
+) -> str:
+    who = (
+        f"{contact['name']}, the {title} of that {unit_word}"
+        if contact
+        else f"the {title} of that {unit_word}"
+    )
     return f"You are not authorised to see that data. Please contact {who}."
 
 
@@ -130,10 +151,15 @@ def check_batch_access(
 
     batch = _find_batch(batch_list, target_batch_id)
     batch_name = batch["name"] if batch else f"Batch {target_batch_id}"
-    return False, f"You are currently viewing a different batch. Please switch to {batch_name} to see that data."
+    return (
+        False,
+        f"You are currently viewing a different batch. Please switch to {batch_name} to see that data.",
+    )
 
 
-def _find_batch(batch_list: Optional[list[dict[str, Any]]], batch_id: Any) -> Optional[dict[str, Any]]:
+def _find_batch(
+    batch_list: Optional[list[dict[str, Any]]], batch_id: Any
+) -> Optional[dict[str, Any]]:
     for batch in batch_list or []:
         if batch.get("id") == batch_id:
             return batch
@@ -148,14 +174,19 @@ def build_user_hierarchy(
     role = current_user.get("role")
 
     if role in FULL_ACCESS_ROLES:
-        root = next((u for u in full_user_list if u.get("role") == "Commanding_Officer"), current_user)
+        root = next(
+            (u for u in full_user_list if u.get("role") == "Commanding_Officer"),
+            current_user,
+        )
     else:
         root = current_user
 
     return _build_node(root, full_user_list)
 
 
-def _build_node(user: dict[str, Any], full_user_list: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_node(
+    user: dict[str, Any], full_user_list: list[dict[str, Any]]
+) -> dict[str, Any]:
     children = [
         _build_node(u, full_user_list)
         for u in full_user_list
