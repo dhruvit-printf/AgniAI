@@ -1,6 +1,11 @@
 import unittest
 
-from access_control import build_user_hierarchy, check_access, filter_user_data
+from access_control import build_user_hierarchy, check_access, check_batch_access, filter_user_data
+
+BATCH_LIST = [
+    {"id": 1, "name": "Batch 1"},
+    {"id": 2, "name": "Batch 2"},
+]
 
 FULL_DATASET = [
     {"id": 1, "name": "CO", "role": "Commanding_Officer", "company_id": None, "platoon_id": None, "parent_id": None},
@@ -88,6 +93,43 @@ class TestCheckAccess(unittest.TestCase):
         allowed, message = check_access(agniveer_x, other_agniveer, FULL_DATASET)
         self.assertFalse(allowed)
         self.assertIn("Platoon Commander", message)
+
+
+class TestCheckBatchAccess(unittest.TestCase):
+    def test_same_batch_allowed(self):
+        user = {"id": 4, "role": "Agniveer", "batch_id": 1}
+        record = {"id": 4, "batch_id": 1}
+        allowed, message = check_batch_access(user, record, BATCH_LIST)
+        self.assertTrue(allowed)
+        self.assertIsNone(message)
+
+    def test_different_batch_denied_names_the_batch(self):
+        user = {"id": 4, "role": "Agniveer", "batch_id": 1}
+        record = {"id": 9, "batch_id": 2}
+        allowed, message = check_batch_access(user, record, BATCH_LIST)
+        self.assertFalse(allowed)
+        self.assertIn("switch to Batch 2", message)
+
+    def test_different_batch_denied_falls_back_without_batch_list(self):
+        user = {"id": 4, "role": "Agniveer", "batch_id": 1}
+        record = {"id": 9, "batch_id": 2}
+        allowed, message = check_batch_access(user, record)
+        self.assertFalse(allowed)
+        self.assertIn("switch to Batch 2", message)
+
+    def test_record_without_batch_id_always_allowed(self):
+        user = {"id": 2, "role": "Company_Commander", "batch_id": 1}
+        record = {"id": 5, "company_id": 2}
+        allowed, message = check_batch_access(user, record, BATCH_LIST)
+        self.assertTrue(allowed)
+        self.assertIsNone(message)
+
+    def test_full_access_role_still_needs_matching_batch(self):
+        co = {"id": 1, "role": "Commanding_Officer", "batch_id": 1}
+        record = {"id": 9, "batch_id": 2}
+        allowed, message = check_batch_access(co, record, BATCH_LIST)
+        self.assertFalse(allowed)
+        self.assertIn("switch to Batch 2", message)
 
 
 class TestBuildUserHierarchy(unittest.TestCase):

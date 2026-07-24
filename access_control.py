@@ -113,6 +113,33 @@ def _denial_message(contact: Optional[dict[str, Any]], title: str, unit_word: st
     return f"You are not authorised to see that data. Please contact {who}."
 
 
+def check_batch_access(
+    current_user: dict[str, Any],
+    target_record: dict[str, Any],
+    batch_list: Optional[list[dict[str, Any]]] = None,
+) -> tuple[bool, Optional[str]]:
+    """Check whether `target_record`'s batch matches the batch `current_user` currently has selected.
+
+    Returns (True, None) when allowed, or (False, message) telling the user to
+    switch their active batch. A record with no `batch_id` (not batch-scoped
+    data) is always allowed.
+    """
+    target_batch_id = target_record.get("batch_id")
+    if target_batch_id is None or target_batch_id == current_user.get("batch_id"):
+        return True, None
+
+    batch = _find_batch(batch_list, target_batch_id)
+    batch_name = batch["name"] if batch else f"Batch {target_batch_id}"
+    return False, f"You are currently viewing a different batch. Please switch to {batch_name} to see that data."
+
+
+def _find_batch(batch_list: Optional[list[dict[str, Any]]], batch_id: Any) -> Optional[dict[str, Any]]:
+    for batch in batch_list or []:
+        if batch.get("id") == batch_id:
+            return batch
+    return None
+
+
 def build_user_hierarchy(
     current_user: dict[str, Any],
     full_user_list: list[dict[str, Any]],
