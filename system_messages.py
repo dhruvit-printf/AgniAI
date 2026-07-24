@@ -285,6 +285,7 @@ _ENTITY_NOT_FOUND_MAP: Dict[str, Dict[str, Any]] = {
 # HELPER FUNCTIONS
 # =============================================================================
 
+
 def get_not_understood_message(use_alternative: bool = False) -> str:
     """Return the proper message when a user's question/answer is not understood."""
     if use_alternative:
@@ -299,7 +300,9 @@ def get_database_error_message(use_alternative: bool = False) -> str:
     return DATABASE_CONNECTION_ISSUES["main"]
 
 
-def get_entity_not_found_message(entity_name: Optional[str] = None, use_alternative: bool = False) -> str:
+def get_entity_not_found_message(
+    entity_name: Optional[str] = None, use_alternative: bool = False
+) -> str:
     """Return specific not found message based on entity type (Agniveer, Commander, Company, Platoon, User, Batch, or General)."""
     if not entity_name:
         target = WHEN_CANNOT_FIND_WHAT_LOOKING_FOR

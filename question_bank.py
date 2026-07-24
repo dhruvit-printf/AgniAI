@@ -19,7 +19,32 @@ of reading as a second, unrelated fact loosely appended to the first.
 """
 
 QUESTION_BANK = {
-    "by_category": {},
+    "by_category": {
+        "Performance": {
+            "Top": {"simple": ["Who scored highest in BPET?"]},
+            "Average": {"simple": ["What is average score in PPT?"]},
+        },
+        "Leave": {
+            "Most": {"simple": ["Who has taken maximum leave?"]},
+            "Current": {"simple": ["Who is on leave today?"]},
+        },
+        "Medical": {
+            "BMI": {"simple": ["Show BMI distribution of Agniveers."]},
+            "BloodGroup": {"simple": ["List Agniveers by blood group."]},
+        },
+        "Attendance": {
+            "Present": {"simple": ["Who is present today?"]},
+            "Summary": {"simple": ["Show monthly attendance summary."]},
+        },
+        "Equipment": {
+            "Holding": {"simple": ["Who is holding Kit Bag?"]},
+            "Stats": {"simple": ["Show equipment summary."]},
+        },
+        "Verification": {
+            "Pending": {"simple": ["List pending verification cases."]},
+            "Completed": {"simple": ["Show completed verifications."]},
+        },
+    },
     "mixed": {
         "compare": [
             "Compare BPET and PPT scores.",

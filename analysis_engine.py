@@ -104,7 +104,7 @@ def _group_breakdown(records: List[Any], limit: int = 5) -> List[Dict[str, Any]]
         for name, scores in groups.items()
     ]
     breakdown.sort(key=lambda g: (-g["average_score"], -g["count"]))
-    return breakdown[:limit]
+    return breakdown[:limit] if limit is not None else breakdown
 
 
 def _normalise_sections(
@@ -343,11 +343,17 @@ def generate_analysis(
 
             if left_avg is not None and right_avg is not None:
                 diff = round(left_avg - right_avg, 2)
-                winner = left_label if diff > 0 else right_label
-                insights.append(
-                    f"{left_label} average: {left_avg}, {right_label} average: {right_avg} "
-                    f"(difference: {abs(diff)}). {winner} leads on average score."
-                )
+                if diff == 0:
+                    insights.append(
+                        f"{left_label} average: {left_avg}, {right_label} average: {right_avg}. "
+                        "Both groups are tied on average score."
+                    )
+                else:
+                    winner = left_label if diff > 0 else right_label
+                    insights.append(
+                        f"{left_label} average: {left_avg}, {right_label} average: {right_avg} "
+                        f"(difference: {abs(diff)}). {winner} leads on average score."
+                    )
 
             if (
                 left_stats.get("high_count") is not None
@@ -525,16 +531,16 @@ def generate_analysis(
                         + "."
                     )
 
-                groups = _group_breakdown(all_records)
-                if len(groups) > 1:
-                    lead = groups[0]
-                    trail = groups[-1]
+                all_groups = _group_breakdown(all_records, limit=None)
+                if len(all_groups) > 1:
+                    lead = all_groups[0]
+                    trail = all_groups[-1]
                     insights.append(
-                        f"Across {len(groups)} group(s), {lead['group']} leads with {lead['count']} "
+                        f"Across {len(all_groups)} group(s), {lead['group']} leads with {lead['count']} "
                         f"record(s) averaging {lead['average_score']}, while {trail['group']} trails "
                         f"at {trail['average_score']}."
                     )
-                    stats["group_breakdown"] = groups
+                    stats["group_breakdown"] = all_groups[:5]
             else:
                 category_label = humanize_category(category).lower()
 

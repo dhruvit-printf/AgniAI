@@ -2105,7 +2105,7 @@ def search(
     )
 
     final = candidates[: max(top_k, STRICT_TOP_K)]
-    set_cached_retrieval(query, top_k, final, normalized=True)
+    set_cached_retrieval(query, top_k, final, normalized=normalized)
     return [dict(doc) for doc in final]
 
 
@@ -2775,7 +2775,7 @@ def decide_answer_mode(
     if not docs:
         return "reject"
     if confidence < LOW_RETRIEVAL_CONFIDENCE:
-        return "strict_answer"
+        return "reject"
     if confidence < HIGH_RETRIEVAL_CONFIDENCE:
         return "strict_answer"
     return "normal_answer"

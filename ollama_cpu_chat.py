@@ -220,7 +220,8 @@ def build_rag_context(query: str) -> str:
         )
         context = bundle.get("context", "") if isinstance(bundle, dict) else ""
         return _truncate(str(context), MAX_CONTEXT_CHARS_DEFAULT)
-    except Exception:
+    except Exception as exc:
+        logger.debug("build_rag_context failed: %s", exc)
         return ""
 
 
@@ -269,7 +270,8 @@ def _installed_models(session: requests.Session) -> List[str]:
         names = [m["name"] for m in models if m.get("name")]
         _MODEL_LIST_CACHE = (now, names)
         return names
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to fetch installed Ollama models: %s", exc)
         return []
 
 

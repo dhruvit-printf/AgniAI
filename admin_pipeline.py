@@ -104,7 +104,35 @@ def ensure_agniveer_no_in_data(
 
     Prevents infinite recursion on circular structures using a visited set and a max_depth limit.
     """
-    pass
+    if max_depth <= 0 or data is None:
+        return
+    if visited is None:
+        visited = set()
+    data_id = id(data)
+    if data_id in visited:
+        return
+    visited.add(data_id)
+
+    if isinstance(data, dict):
+        agn_id = data.get("agniveerId") or data.get("AgniveerId")
+        agn_no = data.get("agniveerNo") or data.get("AgniveerNo")
+        if agn_id is not None and not agn_no:
+            try:
+                from sql_executor import get_agniveer_no_by_id
+
+                no = get_agniveer_no_by_id(int(agn_id))
+                if no:
+                    data["agniveerNo"] = str(no)
+                    data["AgniveerNo"] = str(no)
+            except Exception:
+                pass
+        for val in data.values():
+            if isinstance(val, (dict, list)):
+                ensure_agniveer_no_in_data(val, max_depth - 1, visited)
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, (dict, list)):
+                ensure_agniveer_no_in_data(item, max_depth - 1, visited)
 
 
 def _find_agniveer_no_key(record: Dict[str, Any]) -> Optional[str]:
@@ -265,7 +293,6 @@ from system_messages import get_not_understood_message
 _REQUEST_UNPROCESSABLE_MESSAGE = get_not_understood_message()
 
 
-
 def _agniveer_no_missing_response(
     session_id: str,
     *,
@@ -383,7 +410,9 @@ def _org_scope_denial_response(
     this always denies rather than ever running the query.
     """
     if contact and contact.get("CommanderName"):
-        title = contact.get("PlatoonName") or contact.get("CompanyName") or fallback_title
+        title = (
+            contact.get("PlatoonName") or contact.get("CompanyName") or fallback_title
+        )
         who = f"{contact['CommanderName']}, the {fallback_title} of {title}"
     else:
         # No Company/Platoon Commander assigned to the target unit — escalate

@@ -182,7 +182,7 @@ hidden_imports = [
     "packaging.requirements", "packaging.specifiers",
 
     # misc
-    "colorama", "wrapt", "psutil", "tqdm", "filelock", "anyio", "rich",
+    "colorama", "wrapt", "psutil", "tqdm", "filelock", "anyio", "rich", "system_messages",
 ]
 
 datas = [

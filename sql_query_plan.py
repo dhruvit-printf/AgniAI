@@ -79,23 +79,7 @@ def _fetch_simple(
     return [section], [(label, section)], None
 
 
-def _fetch_cross_filter(
-    plan: QueryPlan, question: str, intent: Optional[Dict[str, Any]]
-) -> _RawAndLabeled:
-    raw_results: List[Any] = []
-    labeled_results: List[Tuple[str, Any]] = []
-
-    for idx, op in enumerate(plan.operations):
-        section, err = _run_one(op, question)
-        if err:
-            return [], [], err
-        raw_results.append(section)
-        labeled_results.append((_label_for(op, idx), section))
-
-    return raw_results, labeled_results, None
-
-
-def _fetch_compare(
+def _fetch_multi_leg_query(
     plan: QueryPlan, question: str, intent: Optional[Dict[str, Any]]
 ) -> _RawAndLabeled:
     raw_results: List[Any] = []
@@ -144,11 +128,9 @@ def fetch_sql_results(
     qtype = plan.query_type
     qtype_str = str(getattr(qtype, "value", qtype)).lower()
 
-    if qtype_str == "cross_filter":
-        return _fetch_cross_filter(plan, question, intent)
-    if qtype_str in ("compare", "comparison"):
-        return _fetch_compare(plan, question, intent)
-    if qtype_str in ("multi_independent", "multi_query"):
+    if qtype_str in ("cross_filter", "compare", "comparison"):
+        return _fetch_multi_leg_query(plan, question, intent)
+    if qtype_str == "multi_independent":
         return _fetch_multi_independent(plan, question, intent)
 
     return _fetch_simple(plan, question, intent)

@@ -45,7 +45,9 @@ def _normalize_prediction_category(category: Optional[str]) -> str:
     Shared with admin_pipeline.py's equivalent block (previously an
     independently-maintained duplicate of this exact logic).
     """
-    pred_cat = str(category or "Agniveer").strip()
+    pred_cat = (
+        str(category).strip() if category and str(category).strip() else "Agniveer"
+    )
     if pred_cat.lower() in ("unclear", "unknown", "none"):
         return "Agniveer"
     return pred_cat[0].upper() + pred_cat[1:]
