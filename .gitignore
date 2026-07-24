@@ -25,6 +25,10 @@ dist/
 *.egg-info/
 .eggs/
 pip-wheel-metadata/
+_internal/
+.claude
+.agents
+
 
 # =========================
 # Testing / Linting
