@@ -22,6 +22,7 @@ agniai-env-broken/
 # =========================
 build/
 dist/
+linux/
 *.egg-info/
 .eggs/
 pip-wheel-metadata/
