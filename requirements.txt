@@ -34,6 +34,8 @@ psutil>=7.2.2
 
 python-dotenv>=1.2.2
 
+colorama>=0.4.6
+
 pydantic-settings>=2.14.2
 
 # Text-to-SQL backend (sql_executor.py) — read-only SQL Server access.
